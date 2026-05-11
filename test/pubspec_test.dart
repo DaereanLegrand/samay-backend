@@ -36,6 +36,7 @@ void main() {
       'image_picker',
       'share_plus',
       'intl',
+      'flutter_dotenv',
     ]) {
       test('includes $pkg', () {
         expect(deps.containsKey(pkg), isTrue, reason: '$pkg not found in dependencies');

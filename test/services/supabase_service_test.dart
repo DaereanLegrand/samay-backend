@@ -4,12 +4,11 @@ import 'package:vive_app/core/services/supabase_service.dart';
 void main() {
   group('SupabaseService', () {
     test('can be instantiated', () {
-      expect(SupabaseService, isA<Type>());
+      expect(SupabaseService.instance, isA<SupabaseService>());
     });
 
     test('has signIn method', () {
-      final service = SupabaseService();
-      expect(service.signIn, isA<Function>());
+      expect(SupabaseService.instance.signIn, isA<Function>());
     });
   });
 }
