@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vive_app/features/auth/welcome_screen.dart';
 import 'package:vive_app/features/auth/login_screen.dart';
 import 'package:vive_app/features/auth/signup_contact_screen.dart';
@@ -10,17 +11,36 @@ import 'package:vive_app/features/auth/privacy_terms_screen.dart';
 import 'package:vive_app/features/auth/profile_setup_screen.dart';
 
 Widget _wrap(Widget child) {
+  final router = GoRouter(
+    initialLocation: '/test',
+    routes: [
+      GoRoute(path: '/test', builder: (_, _) => child),
+      GoRoute(
+        path: '/auth/signup',
+        builder: (_, _) => const SignupContactScreen(),
+      ),
+      GoRoute(
+        path: '/auth/verify',
+        builder: (_, state) => OtpVerificationScreen(email: state.extra as String),
+      ),
+      GoRoute(
+        path: '/auth/age-gate',
+        builder: (_, state) => AgeGateScreen(email: state.extra as String),
+      ),
+      GoRoute(
+        path: '/auth/privacy-terms',
+        builder: (_, state) => PrivacyTermsScreen(email: state.extra as String),
+      ),
+      GoRoute(
+        path: '/auth/profile-setup',
+        builder: (_, state) => ProfileSetupScreen(email: state.extra as String),
+      ),
+      GoRoute(path: '/main/feed', builder: (_, _) => const Scaffold()),
+    ],
+  );
   return ProviderScope(
-    child: MaterialApp(
-      home: child,
-      routes: {
-        '/auth/signup': (_) => const SignupContactScreen(),
-        '/auth/verify': (_) => const Scaffold(),
-        '/auth/age-gate': (_) => const Scaffold(),
-        '/auth/privacy-terms': (_) => const Scaffold(),
-        '/auth/profile-setup': (_) => const Scaffold(),
-        '/main/feed': (_) => const Scaffold(),
-      },
+    child: MaterialApp.router(
+      routerConfig: router,
     ),
   );
 }
@@ -46,6 +66,18 @@ void main() {
     testWidgets('renders login button', (tester) async {
       await tester.pumpWidget(_wrap(const LoginScreen()));
       expect(find.widgetWithText(TextButton, 'Iniciar sesión'), findsOneWidget);
+    });
+
+    testWidgets('renders crear cuenta button', (tester) async {
+      await tester.pumpWidget(_wrap(const LoginScreen()));
+      expect(find.text('Crear cuenta'), findsOneWidget);
+    });
+
+    testWidgets('crear cuenta navigates to signup', (tester) async {
+      await tester.pumpWidget(_wrap(const LoginScreen()));
+      await tester.tap(find.text('Crear cuenta'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SignupContactScreen), findsOneWidget);
     });
   });
 
