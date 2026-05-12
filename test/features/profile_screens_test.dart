@@ -46,7 +46,8 @@ void main() {
       await tester.pumpWidget(_wrap(
         const PublicProfileScreen(userId: 'test-id'),
       ));
-      expect(find.text('Perfil'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Usuario'), findsOneWidget);
       expect(find.text('Agregar amigo'), findsOneWidget);
     });
   });
