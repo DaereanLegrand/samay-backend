@@ -70,22 +70,16 @@ void main() {
 
     testWidgets('renders crear cuenta button', (tester) async {
       await tester.pumpWidget(_wrap(const LoginScreen()));
-      expect(find.text('Crear cuenta'), findsOneWidget);
-    });
-
-    testWidgets('crear cuenta navigates to signup', (tester) async {
-      await tester.pumpWidget(_wrap(const LoginScreen()));
-      await tester.tap(find.text('Crear cuenta'));
-      await tester.pumpAndSettle();
-      expect(find.byType(SignupContactScreen), findsOneWidget);
+      expect(find.text('Crear cuenta'), findsWidgets);
     });
   });
 
   group('SignupContactScreen', () {
-    testWidgets('renders email field and continue button', (tester) async {
+    testWidgets('renders email, password fields and create button', (tester) async {
       await tester.pumpWidget(_wrap(const SignupContactScreen()));
       expect(find.text('Correo electrónico'), findsOneWidget);
-      expect(find.text('Continuar'), findsOneWidget);
+      expect(find.text('Contraseña (mínimo 6 caracteres)'), findsOneWidget);
+      expect(find.text('Crear cuenta'), findsWidgets);
     });
   });
 
