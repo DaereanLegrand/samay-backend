@@ -6,6 +6,7 @@ import 'package:vive_app/features/profile/edit_profile_screen.dart';
 import 'package:vive_app/features/profile/settings_screen.dart';
 import 'package:vive_app/features/profile/public_profile_screen.dart';
 import 'package:vive_app/features/profile/delete_account_screen.dart';
+import 'package:vive_app/features/feed/feed_screen.dart';
 
 Widget _wrap(Widget child) {
   return ProviderScope(
@@ -54,6 +55,13 @@ void main() {
     testWidgets('renders delete account form', (tester) async {
       await tester.pumpWidget(_wrap(const DeleteAccountScreen()));
       expect(find.text('Eliminar cuenta'), findsWidgets);
+    });
+  });
+
+  group('FeedScreen', () {
+    testWidgets('renders welcome message', (tester) async {
+      await tester.pumpWidget(_wrap(const FeedScreen()));
+      expect(find.text('Bienvenido a Vive!'), findsOneWidget);
     });
   });
 }
