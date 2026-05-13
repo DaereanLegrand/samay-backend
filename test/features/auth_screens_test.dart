@@ -75,20 +75,11 @@ void main() {
   });
 
   group('SignupContactScreen', () {
-    testWidgets('renders email field and send code button', (tester) async {
+    testWidgets('renders email, password, confirm password fields and create button', (tester) async {
       await tester.pumpWidget(_wrap(const SignupContactScreen()));
       expect(find.text('Correo electrónico'), findsOneWidget);
-      expect(find.text('Enviar código'), findsOneWidget);
-    });
-
-    testWidgets('does not render password field', (tester) async {
-      await tester.pumpWidget(_wrap(const SignupContactScreen()));
-      expect(find.text('Contraseña'), findsNothing);
-    });
-
-    testWidgets('shows subtitle about receiving code', (tester) async {
-      await tester.pumpWidget(_wrap(const SignupContactScreen()));
-      expect(find.textContaining('recibir un código'), findsOneWidget);
+      expect(find.textContaining('Contraseña'), findsWidgets);
+      expect(find.text('Crear cuenta'), findsWidgets);
     });
   });
 
@@ -121,13 +112,13 @@ void main() {
   });
 
   group('ProfileSetupScreen', () {
-    testWidgets('renders form fields', (tester) async {
+    testWidgets('renders form fields and save button, no skip', (tester) async {
       await tester.pumpWidget(_wrap(
         ProfileSetupScreen(email: 'test@test.com'),
       ));
       expect(find.text('Nombre de usuario'), findsOneWidget);
-      expect(find.text('Completar despu\u00e9s'), findsOneWidget);
       expect(find.text('Guardar'), findsOneWidget);
+      expect(find.text('Completar despu\u00e9s'), findsNothing);
     });
   });
 }
