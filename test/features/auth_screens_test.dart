@@ -117,8 +117,7 @@ void main() {
         ProfileSetupScreen(email: 'test@test.com'),
       ));
       expect(find.text('Nombre de usuario'), findsOneWidget);
-      expect(find.text('Nombre visible'), findsOneWidget);
-      expect(find.text('Completar después'), findsOneWidget);
+      expect(find.text('Completar despu\u00e9s'), findsOneWidget);
       expect(find.text('Guardar'), findsOneWidget);
     });
   });

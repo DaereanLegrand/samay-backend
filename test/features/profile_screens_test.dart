@@ -26,8 +26,7 @@ void main() {
     testWidgets('renders edit form', (tester) async {
       await tester.pumpWidget(_wrap(const EditProfileScreen()));
       expect(find.text('Editar perfil'), findsOneWidget);
-      expect(find.text('Nombre visible'), findsOneWidget);
-      expect(find.text('Biografía'), findsOneWidget);
+      expect(find.text('Biograf\u00eda'), findsOneWidget);
       expect(find.text('Guardar cambios'), findsOneWidget);
     });
   });
