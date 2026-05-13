@@ -29,11 +29,23 @@ Widget _wrap(Widget child) {
       ),
       GoRoute(
         path: '/auth/privacy-terms',
-        builder: (_, state) => PrivacyTermsScreen(email: state.extra as String),
+        builder: (_, state) {
+          final extra = state.extra as Map<String, dynamic>;
+          return PrivacyTermsScreen(
+            email: extra['email'] as String,
+            dateOfBirth: extra['dateOfBirth'] as String,
+          );
+        },
       ),
       GoRoute(
         path: '/auth/profile-setup',
-        builder: (_, state) => ProfileSetupScreen(email: state.extra as String),
+        builder: (_, state) {
+          final extra = state.extra as Map<String, dynamic>;
+          return ProfileSetupScreen(
+            email: extra['email'] as String,
+            dateOfBirth: extra['dateOfBirth'] as String,
+          );
+        },
       ),
       GoRoute(path: '/main/feed', builder: (_, _) => const Scaffold()),
     ],
@@ -105,7 +117,7 @@ void main() {
   group('PrivacyTermsScreen', () {
     testWidgets('renders checkboxes and create account button', (tester) async {
       await tester.pumpWidget(_wrap(
-        PrivacyTermsScreen(email: 'test@test.com'),
+        PrivacyTermsScreen(email: 'test@test.com', dateOfBirth: '2000-01-15'),
       ));
       expect(find.text('Crear cuenta'), findsOneWidget);
     });
@@ -114,7 +126,7 @@ void main() {
   group('ProfileSetupScreen', () {
     testWidgets('renders form fields and save button, no skip', (tester) async {
       await tester.pumpWidget(_wrap(
-        ProfileSetupScreen(email: 'test@test.com'),
+        ProfileSetupScreen(email: 'test@test.com', dateOfBirth: '2000-01-15'),
       ));
       expect(find.text('Nombre de usuario'), findsOneWidget);
       expect(find.text('Guardar'), findsOneWidget);
