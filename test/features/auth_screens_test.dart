@@ -21,7 +21,13 @@ Widget _wrap(Widget child) {
       ),
       GoRoute(
         path: '/auth/verify',
-        builder: (_, state) => OtpVerificationScreen(email: state.extra as String),
+        builder: (_, state) {
+          final extra = state.extra as Map<String, dynamic>;
+          return OtpVerificationScreen(
+            email: extra['email'] as String,
+            password: extra['password'] as String,
+          );
+        },
       ),
       GoRoute(
         path: '/auth/age-gate',
@@ -98,7 +104,7 @@ void main() {
   group('OtpVerificationScreen', () {
     testWidgets('renders code input and verify button', (tester) async {
       await tester.pumpWidget(_wrap(
-        OtpVerificationScreen(email: 'test@test.com'),
+        OtpVerificationScreen(email: 'test@test.com', password: 'test123'),
       ));
       expect(find.text('Verificar'), findsOneWidget);
     });
