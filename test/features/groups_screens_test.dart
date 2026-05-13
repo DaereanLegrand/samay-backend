@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vive_app/features/groups/create_group_screen.dart';
 import 'package:vive_app/features/groups/group_detail_screen.dart';
 import 'package:vive_app/features/groups/donate_shards_screen.dart';
+import 'package:vive_app/features/groups/invite_screen.dart';
 import 'package:vive_app/features/groups/leaderboard_screen.dart';
 
 Widget _wrap(Widget child) {
@@ -52,6 +53,15 @@ void main() {
     testWidgets('shows donation button', (tester) async {
       await tester.pumpWidget(_wrap(const DonateShardsScreen(groupId: 'test-group', groupName: 'Test Group')));
       expect(find.text('Donar'), findsOneWidget);
+    });
+  });
+
+  group('InviteScreen', () {
+    testWidgets('renders search bar and hint text', (tester) async {
+      await tester.pumpWidget(_wrap(InviteScreen(groupId: 'test-group')));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.textContaining('Buscar usuarios'), findsOneWidget);
     });
   });
 

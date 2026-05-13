@@ -7,6 +7,7 @@ import 'package:vive_app/features/profile/settings_screen.dart';
 import 'package:vive_app/features/profile/public_profile_screen.dart';
 import 'package:vive_app/features/profile/delete_account_screen.dart';
 import 'package:vive_app/features/feed/feed_screen.dart';
+import 'package:vive_app/shared/widgets/v_button.dart';
 
 Widget _wrap(Widget child) {
   return ProviderScope(
@@ -55,6 +56,23 @@ void main() {
     testWidgets('renders delete account form', (tester) async {
       await tester.pumpWidget(_wrap(const DeleteAccountScreen()));
       expect(find.text('Eliminar cuenta'), findsWidgets);
+      expect(find.textContaining('Confirma tu correo'), findsOneWidget);
+    });
+
+    testWidgets('tapping delete with empty email does nothing', (tester) async {
+      await tester.pumpWidget(_wrap(const DeleteAccountScreen()));
+      await tester.tap(find.text('Eliminar cuenta').last);
+      await tester.pumpAndSettle();
+      expect(find.text('¿Eliminar cuenta?'), findsNothing);
+    });
+
+    testWidgets('tapping delete with wrong email does not show confirm dialog', (tester) async {
+      await tester.pumpWidget(_wrap(const DeleteAccountScreen()));
+      await tester.enterText(find.byType(TextField), 'wrong@email.com');
+      await tester.pump();
+      await tester.tap(find.text('Eliminar cuenta').last);
+      await tester.pumpAndSettle();
+      expect(find.text('¿Eliminar cuenta?'), findsNothing);
     });
   });
 

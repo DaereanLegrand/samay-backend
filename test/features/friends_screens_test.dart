@@ -22,10 +22,11 @@ void main() {
   });
 
   group('RequestsScreen', () {
-    testWidgets('renders received and sent tabs', (tester) async {
+    testWidgets('renders received, sent and invites tabs', (tester) async {
       await tester.pumpWidget(_wrap(const RequestsScreen()));
       expect(find.text('Recibidas'), findsOneWidget);
       expect(find.text('Enviadas'), findsOneWidget);
+      expect(find.text('Invitaciones'), findsOneWidget);
     });
   });
 
