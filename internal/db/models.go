@@ -8,7 +8,6 @@ import (
 type User struct {
 	ID                    string     `json:"id"`
 	Username              *string    `json:"username"`
-	DisplayName           *string    `json:"display_name"`
 	AvatarURL             *string    `json:"avatar_url"`
 	DateOfBirth           *string    `json:"date_of_birth"`
 	Bio                   *string    `json:"bio"`
@@ -77,6 +76,7 @@ type GroupMember struct {
 	GroupID  string    `json:"group_id"`
 	UserID   string    `json:"user_id"`
 	Role     string    `json:"role"`
+	Status   string    `json:"status"`
 	JoinedAt time.Time `json:"joined_at"`
 }
 
@@ -310,4 +310,11 @@ type ProcessedWebhook struct {
 	EventID     string    `json:"event_id"`
 	EventType   string    `json:"event_type"`
 	ProcessedAt time.Time `json:"processed_at"`
+}
+
+type SignupTracker struct {
+	Email          string    `json:"email"`
+	ProfileCreated bool      `json:"profile_created"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }

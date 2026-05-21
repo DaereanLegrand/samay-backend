@@ -14,7 +14,7 @@ type ListSubsParams struct {
 }
 
 func ListSubs(client *db.DBClient, params ListSubsParams) ([]db.User, error) {
-	q := "id,username,display_name,subscription_tier,subscription_expires_at,created_at"
+	q := "id,username,subscription_tier,subscription_expires_at,created_at"
 	if params.Tier != "" {
 		q += "&subscription_tier=eq." + params.Tier
 	}
@@ -30,7 +30,7 @@ func ListSubs(client *db.DBClient, params ListSubsParams) ([]db.User, error) {
 }
 
 func GetSub(client *db.DBClient, userID string) (*db.User, error) {
-	body, err := client.Select("users", "id,username,display_name,subscription_tier,subscription_expires_at,created_at,updated_at&id=eq."+userID, 1, 0)
+	body, err := client.Select("users", "id,username,subscription_tier,subscription_expires_at,created_at,updated_at&id=eq."+userID, 1, 0)
 	if err != nil {
 		return nil, fmt.Errorf("get sub: %w", err)
 	}

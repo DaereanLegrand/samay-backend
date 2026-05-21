@@ -21,7 +21,7 @@ type UserDetail struct {
 }
 
 func ListUsers(client *db.DBClient, params ListUsersParams) ([]db.User, error) {
-	q := "id,username,display_name,subscription_tier,personal_shards,preshards,created_at,banned_at"
+	q := "id,username,subscription_tier,personal_shards,preshards,created_at,banned_at"
 	if params.Banned {
 		q += "&banned_at=not.is.null"
 	}
@@ -29,7 +29,7 @@ func ListUsers(client *db.DBClient, params ListUsersParams) ([]db.User, error) {
 		q += "&subscription_tier=eq." + params.Tier
 	}
 	if params.Search != "" {
-		q += "&or=(username.ilike.*" + params.Search + "*,display_name.ilike.*" + params.Search + "*)"
+		q += "&username.ilike.*" + params.Search + "*"
 	}
 	body, err := client.Select("users", q, 100, 0)
 	if err != nil {
@@ -43,7 +43,7 @@ func ListUsers(client *db.DBClient, params ListUsersParams) ([]db.User, error) {
 }
 
 func GetUser(client *db.DBClient, userID string) (*UserDetail, error) {
-	body, err := client.Select("users", "id,username,display_name,avatar_url,date_of_birth,bio,banned_at,ban_reason,personal_shards,preshards,subscription_tier,subscription_expires_at,created_at,updated_at&id=eq."+userID, 1, 0)
+	body, err := client.Select("users", "id,username,avatar_url,date_of_birth,bio,banned_at,ban_reason,personal_shards,preshards,subscription_tier,subscription_expires_at,created_at,updated_at&id=eq."+userID, 1, 0)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
