@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:vive_app/features/auth/welcome_screen.dart';
-import 'package:vive_app/features/auth/login_screen.dart';
-import 'package:vive_app/features/auth/signup_contact_screen.dart';
-import 'package:vive_app/features/auth/otp_verification_screen.dart';
-import 'package:vive_app/features/auth/age_gate_screen.dart';
-import 'package:vive_app/features/auth/privacy_terms_screen.dart';
-import 'package:vive_app/features/auth/profile_setup_screen.dart';
+import 'package:vive/features/auth/welcome_screen.dart';
+import 'package:vive/features/auth/login_screen.dart';
+import 'package:vive/features/auth/signup_contact_screen.dart';
+import 'package:vive/features/auth/otp_verification_screen.dart';
+import 'package:vive/features/auth/age_gate_screen.dart';
+import 'package:vive/features/auth/privacy_terms_screen.dart';
+import 'package:vive/features/auth/profile_setup_screen.dart';
 
 Widget _wrap(Widget child) {
   final router = GoRouter(

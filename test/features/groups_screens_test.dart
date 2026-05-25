@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vive_app/features/groups/create_group_screen.dart';
-import 'package:vive_app/features/groups/group_detail_screen.dart';
-import 'package:vive_app/features/groups/donate_shards_screen.dart';
-import 'package:vive_app/features/groups/invite_screen.dart';
-import 'package:vive_app/features/groups/leaderboard_screen.dart';
+import 'package:vive/features/groups/create_group_screen.dart';
+import 'package:vive/features/groups/group_detail_screen.dart';
+import 'package:vive/features/groups/donate_shards_screen.dart';
+import 'package:vive/features/groups/invite_screen.dart';
+import 'package:vive/features/groups/leaderboard_screen.dart';
 
 Widget _wrap(Widget child) {
   return ProviderScope(

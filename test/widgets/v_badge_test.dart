@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vive_app/shared/widgets/v_badge.dart';
+import 'package:vive/shared/widgets/v_badge.dart';
 
 void main() {
   group('VBadge', () {

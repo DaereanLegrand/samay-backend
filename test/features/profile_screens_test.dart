@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vive_app/features/profile/profile_screen.dart';
-import 'package:vive_app/features/profile/edit_profile_screen.dart';
-import 'package:vive_app/features/profile/settings_screen.dart';
-import 'package:vive_app/features/profile/public_profile_screen.dart';
-import 'package:vive_app/features/profile/delete_account_screen.dart';
-import 'package:vive_app/features/feed/feed_screen.dart';
-import 'package:vive_app/shared/widgets/v_button.dart';
+import 'package:vive/features/profile/profile_screen.dart';
+import 'package:vive/features/profile/edit_profile_screen.dart';
+import 'package:vive/features/profile/settings_screen.dart';
+import 'package:vive/features/profile/public_profile_screen.dart';
+import 'package:vive/features/profile/delete_account_screen.dart';
+import 'package:vive/features/feed/feed_screen.dart';
+import 'package:vive/shared/widgets/v_button.dart';
 
 Widget _wrap(Widget child) {
   return ProviderScope(

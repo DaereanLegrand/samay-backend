@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vive_app/features/friends/search_screen.dart';
-import 'package:vive_app/features/friends/requests_screen.dart';
-import 'package:vive_app/features/friends/friends_list_screen.dart';
-import 'package:vive_app/features/friends/blocked_users_screen.dart';
+import 'package:vive/features/friends/search_screen.dart';
+import 'package:vive/features/friends/requests_screen.dart';
+import 'package:vive/features/friends/friends_list_screen.dart';
+import 'package:vive/features/friends/blocked_users_screen.dart';
 
 Widget _wrap(Widget child) {
   return ProviderScope(

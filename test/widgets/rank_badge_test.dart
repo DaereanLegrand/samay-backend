@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vive_app/shared/widgets/rank_badge.dart';
+import 'package:vive/shared/widgets/rank_badge.dart';
 
 Widget _wrap(Widget child) {
   return MaterialApp(home: child);

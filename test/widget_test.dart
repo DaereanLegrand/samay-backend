@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:vive_app/app.dart';
+import 'package:vive/app.dart';
 
 void main() {
   testWidgets('App renders MaterialApp', (tester) async {
