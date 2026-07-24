@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vive/shared/widgets/v_chip.dart';
+import 'package:samay/shared/widgets/v_chip.dart';
 
 Widget _buildApp(Widget child) {
   return MaterialApp(home: Scaffold(body: child));

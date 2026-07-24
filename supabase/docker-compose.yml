@@ -1,0 +1,199 @@
+version: "3.8"
+
+services:
+  db:
+    container_name: samay-db
+    image: supabase/postgres:17.4.5.2
+    healthcheck:
+      test: pg_isready -U postgres -h localhost
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: supabase
+      POSTGRES_DB_NAME: supabase
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_CONFIG_FILE: /etc/postgresql/postgresql.conf
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./volumes/db/data:/var/lib/postgresql/data/pgdata
+      - ./volumes/db/init:/docker-entrypoint-initdb.d
+
+  kong:
+    container_name: samay-kong
+    image: kong:2.8.1
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      KONG_DATABASE: off
+      KONG_DECLARATIVE_CONFIG: /api/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+      KONG_LOG_LEVEL: warn
+      KONG_NGINX_WORKER_PROCESSES: 2
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_PROXY_LISTEN_SSL: 0.0.0.0:8443
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    ports:
+      - "54321:8000"
+      - "54443:8443"
+    volumes:
+      - ./volumes/api/kong.yml:/api/kong.yml
+      - ./volumes/api/kong-entrypoint.sh:/docker-entrypoint.sh
+    entrypoint: []
+    command: /docker-entrypoint.sh
+
+  auth:
+    container_name: samay-auth
+    image: supabase/gotrue:v2.174.6
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      GOTRUE_SITE_URL: http://localhost:3000
+      GOTRUE_ADDITIONAL_REDIRECT_URLS: ""
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_DEFAULT_EXP: 3600
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_SECRET: "your-jwt-secret-change-in-production"
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: true
+      GOTRUE_EXTERNAL_PHONE_ENABLED: false
+      GOTRUE_SMTP_ADMIN_EMAIL: samayverif@qallariy.lat
+      GOTRUE_SMTP_HOST: smtp.purelymail.com
+      GOTRUE_SMTP_PORT: 587
+      GOTRUE_SMTP_USER: samayverif@qallariy.lat
+      GOTRUE_SMTP_PASS: "your-smtp-password"
+      GOTRUE_SMTP_SENDER_NAME: Samay
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: "/auth/v1/verify"
+      GOTRUE_MAILER_URLPATHS_RECOVERY: "/auth/v1/verify"
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: "/auth/v1/verify"
+      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: "Confirma tu correo — Samay"
+      GOTRUE_MAILER_SUBJECTS_RECOVERY: "Recupera tu contraseña — Samay"
+      GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE: "Confirma tu nuevo correo — Samay"
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@samay-db:5432/postgres
+      GOTRUE_DB_MAX_POOL_SIZE: 10
+      GOTRUE_LOG_LEVEL: warn
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: 2
+      GOTRUE_OPERATOR_TOKEN: ""
+      GOTRUE_DISABLE_SIGNUP: false
+    ports:
+      - "9999:9999"
+
+  rest:
+    container_name: samay-rest
+    image: postgrest/postgrest:v12.2.10
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://postgres:postgres@samay-db:5432/postgres
+      PGRST_DB_SCHEMA: public,storage,graphql_public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: "your-jwt-secret-change-in-production"
+      PGRST_DB_AGGREGATES_ENABLED: true
+      PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
+      PGRST_DB_OPENAPI_SERVER_PROXY_URI: http://localhost:54321
+      PGRST_OPENAPI_SECURITY_ACTIVE: true
+      PGRST_DB_POOL: 10
+    ports:
+      - "3000:3000"
+
+  realtime:
+    container_name: samay-realtime
+    image: supabase/realtime:v2.34.13
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: samay-db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: postgres
+      DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
+      DB_ENC_KEY: "supabase-realtime-encryption-key-change-in-production"
+      FLY_ALLOW_NON_TLS: true
+      PORT: 4000
+      JWT_SECRET: "your-jwt-secret-change-in-production"
+      REPLICATION_MODE: "unpartitioned"
+      REPLICATION_POLL_INTERVAL: 100
+      SECURE_CHANNELS: "true"
+      SLOT_NAME: "supabase_realtime_replication_slot"
+      TEMPORARY_SLOT: "true"
+      PLUGIN_NAME: "pgoutput"
+    ports:
+      - "4000:4000"
+
+  storage:
+    container_name: samay-storage
+    image: supabase/storage-api:v1.15.1
+    depends_on:
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    environment:
+      ANON_KEY: "your-anon-key"
+      SERVICE_KEY: "your-service-role-key"
+      TENANT_ID: samay
+      REGION: us-east-1
+      GLOBAL_S3_BUCKET: samay-storage
+      PG_DATABASE_URL: postgres://postgres:postgres@samay-db:5432/postgres
+      PGRST_JWT_SECRET: "your-jwt-secret-change-in-production"
+      FILE_SIZE_LIMIT: 52428800
+      STORAGE_BACKEND: file
+      FILE_STORAGE_PATH: /var/lib/storage
+      TENANT_AUTO_CREATE: true
+      LOG_LEVEL: warn
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./volumes/storage:/var/lib/storage
+
+  meta:
+    container_name: samay-meta
+    image: supabase/postgres-meta:v0.85.3
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PG_META_PG_HOST: samay-db
+      PG_META_PG_PORT: 5432
+      PG_META_PG_USER: postgres
+      PG_META_PG_PASSWORD: postgres
+      PG_META_PG_DATABASE: postgres
+      PG_META_PG_META_SCHEMA: extensions
+    ports:
+      - "8080:8080"
+
+  studio:
+    container_name: samay-studio
+    image: supabase/studio:20250129.1
+    depends_on:
+      db:
+        condition: service_healthy
+      meta:
+        condition: service_started
+    environment:
+      STUDIO_PG_META_URL: http://samay-meta:8080
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_ANON_KEY: "your-anon-key"
+      SUPABASE_SERVICE_KEY: "your-service-role-key"
+      SUPABASE_PUBLIC_URL: http://localhost:54321
+    ports:
+      - "54381:3000"
+
+volumes:
+  db-config:
+  deno-cache:
+  deno-cache:

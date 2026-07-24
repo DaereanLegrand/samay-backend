@@ -1,4 +1,4 @@
-module github.com/vive-app/vive
+module github.com/samay-app/samay
 
 go 1.26.2
 

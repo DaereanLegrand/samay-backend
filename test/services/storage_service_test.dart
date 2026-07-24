@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vive/core/services/storage_service.dart';
+import 'package:samay/core/services/storage_service.dart';
 
 void main() {
   group('StorageService', () {

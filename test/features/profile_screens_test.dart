@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vive/features/profile/profile_screen.dart';
-import 'package:vive/features/profile/edit_profile_screen.dart';
-import 'package:vive/features/profile/settings_screen.dart';
-import 'package:vive/features/profile/public_profile_screen.dart';
-import 'package:vive/features/profile/delete_account_screen.dart';
-import 'package:vive/features/feed/feed_screen.dart';
-import 'package:vive/shared/widgets/v_button.dart';
+import 'package:samay/features/profile/profile_screen.dart';
+import 'package:samay/features/profile/edit_profile_screen.dart';
+import 'package:samay/features/profile/settings_screen.dart';
+import 'package:samay/features/profile/public_profile_screen.dart';
+import 'package:samay/features/profile/delete_account_screen.dart';
+import 'package:samay/features/feed/feed_screen.dart';
 
 Widget _wrap(Widget child) {
   return ProviderScope(
@@ -79,7 +78,7 @@ void main() {
   group('FeedScreen', () {
     testWidgets('renders welcome message', (tester) async {
       await tester.pumpWidget(_wrap(const FeedScreen()));
-      expect(find.text('Bienvenido a Vive!'), findsOneWidget);
+      expect(find.text('Bienvenido a Samay'), findsOneWidget);
     });
   });
 }

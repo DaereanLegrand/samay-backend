@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/vive-app/vive/internal/db"
+	"github.com/samay-app/samay/internal/db"
 )
 
 type ListUsersParams struct {

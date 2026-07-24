@@ -12,7 +12,7 @@ void main() {
   });
 
   test('has expected name', () {
-    expect(pubspec['name'], 'vive');
+    expect(pubspec['name'], 'samay');
   });
 
   group('dependencies', () {

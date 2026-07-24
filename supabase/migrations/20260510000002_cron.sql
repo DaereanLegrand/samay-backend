@@ -1,4 +1,4 @@
--- Vive! — Cron Job Setup
+-- Samay — Cron Job Setup
 -- Pure SQL cron jobs for event status polling and account cleanup.
 -- Edge Function cron jobs (rank calculation, shard distribution, override reconciler)
 -- will be created when the corresponding Edge Functions are deployed.

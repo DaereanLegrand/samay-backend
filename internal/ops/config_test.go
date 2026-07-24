@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vive-app/vive/internal/db"
+	"github.com/samay-app/samay/internal/db"
 )
 
 func TestListConfig_ReturnsRows(t *testing.T) {
-	resp := `[{"key":"app.name","value":"Vive","description":"App name","default_value":"Vive"}]`
+	resp := `[{"key":"app.name","value":"Samay","description":"App name","default_value":"Samay"}]`
 	client, srv, _ := newTestClientWithLog(resp, 200)
 	defer srv.Close()
 
@@ -26,8 +26,8 @@ func TestListConfig_ReturnsRows(t *testing.T) {
 	if rows[0].Key != "app.name" {
 		t.Errorf("expected app.name, got %s", rows[0].Key)
 	}
-	if rows[0].Value != "Vive" {
-		t.Errorf("expected Vive, got %s", rows[0].Value)
+	if rows[0].Value != "Samay" {
+		t.Errorf("expected Samay, got %s", rows[0].Value)
 	}
 }
 
@@ -43,7 +43,7 @@ func TestListConfig_InvalidJSON(t *testing.T) {
 }
 
 func TestGetConfig_ReturnsSingleRow(t *testing.T) {
-	resp := `[{"key":"app.name","value":"Vive","description":"App name","default_value":"Vive"}]`
+	resp := `[{"key":"app.name","value":"Samay","description":"App name","default_value":"Samay"}]`
 	client, srv, _ := newTestClientWithLog(resp, 200)
 	defer srv.Close()
 
@@ -80,7 +80,7 @@ func TestGetConfig_UsesKeyFilter(t *testing.T) {
 }
 
 func TestSetConfig_AuditsChange(t *testing.T) {
-	getResp := `[{"key":"app.name","value":"Old","description":"","default_value":"Vive"}]`
+	getResp := `[{"key":"app.name","value":"Old","description":"","default_value":"Samay"}]`
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -105,7 +105,7 @@ func TestSetConfig_AuditsChange(t *testing.T) {
 }
 
 func TestResetConfig_UsesDefaultValue(t *testing.T) {
-	defaultVal := "Vive"
+	defaultVal := "Samay"
 	description := "App name"
 	configResp, _ := json.Marshal([]db.AppConfigRow{
 		{Key: "app.name", Value: "Changed", Description: &description, DefaultValue: &defaultVal},
@@ -135,7 +135,7 @@ func TestResetConfig_UsesDefaultValue(t *testing.T) {
 
 func TestResetConfig_NoDefaultValue(t *testing.T) {
 	resp, _ := json.Marshal([]db.AppConfigRow{
-		{Key: "app.name", Value: "Vive", DefaultValue: nil},
+		{Key: "app.name", Value: "Samay", DefaultValue: nil},
 	})
 	client, srv, _ := newTestClientWithLog(string(resp), 200)
 	defer srv.Close()

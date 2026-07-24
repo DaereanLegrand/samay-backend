@@ -1,9 +1,9 @@
--- Vive! — Seed Data
+-- Samay — Seed Data
 -- Applied after migrations during supabase db reset
 -- Duplicates are safe (ON CONFLICT DO NOTHING)
 
 INSERT INTO admin_users (id, email, display_name, role)
-VALUES ('00000000-0000-0000-0000-000000000000', 'system@vive.app', 'system', 'super_admin')
+VALUES ('00000000-0000-0000-0000-000000000000', 'system@qallariy.lat', 'system', 'super_admin')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO app_config (key, value, description, default_value) VALUES

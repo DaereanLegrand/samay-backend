@@ -1,0 +1,136 @@
+_format_version: "2.1"
+_transform: true
+
+services:
+  - name: auth-v1
+    url: http://samay-auth:9999
+    routes:
+      - name: auth-v1-all
+        paths:
+          - /auth/v1/
+    plugins:
+      - name: cors
+
+  - name: rest-v1
+    url: http://samay-rest:3000
+    routes:
+      - name: rest-v1-all
+        paths:
+          - /rest/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          key_names:
+            - apikey
+          hide_credentials: false
+      - name: acl
+        config:
+          allow:
+            - anon
+            - authenticated
+            - service_role
+
+  - name: rest-admin
+    url: http://samay-rest:3000
+    routes:
+      - name: rest-admin-all
+        paths:
+          - /rest/admin/
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - apikey
+          hide_credentials: false
+      - name: acl
+        config:
+          allow:
+            - service_role
+
+  - name: realtime-v1
+    url: http://samay-realtime:4000
+    routes:
+      - name: realtime-v1-all
+        paths:
+          - /realtime/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          key_names:
+            - apikey
+          hide_credentials: false
+
+  - name: storage-v1
+    url: http://samay-storage:5000
+    routes:
+      - name: storage-v1-all
+        paths:
+          - /storage/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          key_names:
+            - apikey
+          hide_credentials: false
+      - name: acl
+        config:
+          allow:
+            - anon
+            - authenticated
+            - service_role
+
+  - name: storage-admin
+    url: http://samay-storage:5000
+    routes:
+      - name: storage-admin-all
+        paths:
+          - /storage/admin/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          key_names:
+            - apikey
+          hide_credentials: false
+      - name: acl
+        config:
+          allow:
+            - service_role
+
+  - name: meta-v1
+    url: http://samay-meta:8080
+    routes:
+      - name: meta-v1-all
+        paths:
+          - /pg/meta/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          key_names:
+            - apikey
+          hide_credentials: false
+      - name: acl
+        config:
+          allow:
+            - service_role
+
+consumers:
+  - username: anon
+    acls:
+      - group: anon
+  - username: authenticated
+    acls:
+      - group: authenticated
+  - username: service_role
+    acls:
+      - group: service_role
+
+keyauth_credentials:
+  - consumer: anon
+    key: your-anon-key
+  - consumer: service_role
+    key: your-service-role-key

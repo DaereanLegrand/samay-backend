@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vive-app/vive/internal/db"
+	"github.com/samay-app/samay/internal/db"
 )
 
 type ListFeatureRequestsParams struct {

@@ -1,7 +1,7 @@
-# Vive! — Supabase CLI Configuration
+# Samay — Supabase CLI Configuration
 # Ports remapped per AGENTS.md Port Convention
 
-project_id = "vive"
+project_id = "samay"
 
 [api]
 enabled = true

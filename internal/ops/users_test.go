@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vive-app/vive/internal/db"
+	"github.com/samay-app/samay/internal/db"
 )
 
 func TestListUsers_ConstructsCorrectPath(t *testing.T) {

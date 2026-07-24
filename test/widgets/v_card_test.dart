@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vive/shared/widgets/v_card.dart';
+import 'package:samay/shared/widgets/v_card.dart';
 
 void main() {
   group('VCard', () {

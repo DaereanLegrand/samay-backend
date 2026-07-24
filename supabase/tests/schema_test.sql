@@ -1,4 +1,4 @@
--- Vive! Schema pgTAP Tests — Comprehensive
+-- Samay Schema pgTAP Tests — Comprehensive
 -- Covers all 16 migrations (20260510000001 through 20260520000001).
 BEGIN;
 

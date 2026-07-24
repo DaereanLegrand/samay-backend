@@ -1,4 +1,4 @@
--- Vive! — Full Database Schema
+-- Samay — Full Database Schema
 -- Migration 1 of 1: Extensions, Enums, Tables, Triggers, RLS, Cron, Seeds
 
 -- ============================================================
@@ -792,7 +792,7 @@ CREATE POLICY processed_webhooks_no_access ON processed_webhooks FOR ALL USING (
 
 -- 7.1 admin_users: system super_admin
 INSERT INTO admin_users (id, email, display_name, role)
-VALUES ('00000000-0000-0000-0000-000000000000', 'system@vive.app', 'system', 'super_admin')
+VALUES ('00000000-0000-0000-0000-000000000000', 'system@qallariy.lat', 'system', 'super_admin')
 ON CONFLICT (id) DO NOTHING;
 
 -- 7.2 app_config: 37 seed keys (33 from spec + 4 security thresholds)

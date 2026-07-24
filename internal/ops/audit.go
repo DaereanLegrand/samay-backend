@@ -3,7 +3,7 @@ package ops
 import (
 	"encoding/json"
 
-	"github.com/vive-app/vive/internal/db"
+	"github.com/samay-app/samay/internal/db"
 )
 
 type AuditParams struct {
