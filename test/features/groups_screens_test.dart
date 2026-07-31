@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/features/groups/create_group_screen.dart';
 import 'package:samay/features/groups/group_detail_screen.dart';
+import 'package:samay/features/groups/group_members_screen.dart';
 import 'package:samay/features/groups/donate_shards_screen.dart';
 import 'package:samay/features/groups/invite_screen.dart';
 import 'package:samay/features/groups/leaderboard_screen.dart';
@@ -62,6 +63,27 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       expect(find.byType(TextField), findsOneWidget);
       expect(find.textContaining('Buscar usuarios'), findsOneWidget);
+    });
+  });
+
+  group('GroupMembersScreen', () {
+    testWidgets('renders loading state first', (tester) async {
+      await tester.pumpWidget(_wrap(const GroupMembersScreen(groupId: 'test-group')));
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text('No hay miembros'), findsNothing);
+    });
+
+    testWidgets('renders empty state when no members', (tester) async {
+      await tester.pumpWidget(_wrap(const GroupMembersScreen(groupId: 'test-group')));
+      await tester.pumpAndSettle();
+      expect(find.text('No hay miembros'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('renders screen with members title', (tester) async {
+      await tester.pumpWidget(_wrap(const GroupMembersScreen(groupId: 'test-group')));
+      await tester.pumpAndSettle();
+      expect(find.text('Miembros'), findsOneWidget);
     });
   });
 
