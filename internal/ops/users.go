@@ -14,10 +14,10 @@ type ListUsersParams struct {
 }
 
 type UserDetail struct {
-	User              db.User               `json:"user"`
-	ShardLedger       []db.ShardLedgerEntry `json:"shard_ledger"`
-	GroupMemberships  []db.GroupMember      `json:"group_memberships"`
-	RecentEvents      []db.Event            `json:"recent_events"`
+	User             db.User               `json:"user"`
+	ShardLedger      []db.ShardLedgerEntry `json:"shard_ledger"`
+	GroupMemberships []db.GroupMember      `json:"group_memberships"`
+	RecentEvents     []db.Event            `json:"recent_events"`
 }
 
 func ListUsers(client *db.DBClient, params ListUsersParams) ([]db.User, error) {
@@ -143,11 +143,14 @@ func GrantPreshards(client *db.DBClient, userID string, amount int, reason, admi
 }
 
 func SoftDeleteUser(client *db.DBClient, userID, adminUserID string) error {
+	if len(userID) < 8 {
+		return fmt.Errorf("soft delete user: invalid user id %q", userID)
+	}
 	_, err := client.Update("users", "id=eq."+userID, map[string]interface{}{
-		"deleted_at":  "now()",
-		"username":    "deleted_user_" + userID[:8],
-		"avatar_url":  nil,
-		"bio":         nil,
+		"deleted_at": "now()",
+		"username":   "deleted_user_" + userID[:8],
+		"avatar_url": nil,
+		"bio":        nil,
 	})
 	if err != nil {
 		return fmt.Errorf("soft delete user: %w", err)

@@ -241,14 +241,24 @@ func TestSoftDeleteUser_AnonymizesAndLogs(t *testing.T) {
 	}
 }
 
+func TestSoftDeleteUser_RejectsShortID(t *testing.T) {
+	client, srv, _ := newTestClientWithLog(`{}`, 200)
+	defer srv.Close()
+
+	err := SoftDeleteUser(client, "xyz", "admin1")
+	if err == nil {
+		t.Fatal("expected error for short user id")
+	}
+}
+
 func TestListUsers_JSONRoundTrip(t *testing.T) {
 	username := "testuser"
 	user := db.User{
-		ID:                "uuid-1",
-		Username:          &username,
-		SubscriptionTier:  "pro",
-		PersonalShards:    256,
-		Preshards:         1000,
+		ID:               "uuid-1",
+		Username:         &username,
+		SubscriptionTier: "pro",
+		PersonalShards:   256,
+		Preshards:        1000,
 	}
 	resp, _ := json.Marshal([]db.User{user})
 	client, srv, _ := newTestClientWithLog(string(resp), 200)
