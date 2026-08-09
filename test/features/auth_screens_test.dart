@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:samay/core/router/route_extras.dart';
 import 'package:samay/features/auth/welcome_screen.dart';
 import 'package:samay/features/auth/login_screen.dart';
 import 'package:samay/features/auth/signup_contact_screen.dart';
@@ -10,7 +11,12 @@ import 'package:samay/features/auth/age_gate_screen.dart';
 import 'package:samay/features/auth/privacy_terms_screen.dart';
 import 'package:samay/features/auth/profile_setup_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/route_error_screen.dart';
 
+/// Local test router with the auth-flow routes. Extras are read through the
+/// typed [RouteExtra] factories (I-03 / NAV-04 / H-04) — never raw
+/// `state.extra as Map<String, dynamic>` casts — so a malformed or missing
+/// extra renders [RouteErrorScreen] instead of crashing the harness.
 Widget _wrap(Widget child) {
   final router = GoRouter(
     initialLocation: '/test',
@@ -23,34 +29,38 @@ Widget _wrap(Widget child) {
       GoRoute(
         path: '/auth/verify',
         builder: (_, state) {
-          final extra = state.extra as Map<String, dynamic>;
+          final extra = VerifyExtra.fromState(state);
+          if (extra == null) return const RouteErrorScreen();
           return OtpVerificationScreen(
-            email: extra['email'] as String,
-            password: extra['password'] as String,
+            email: extra.email,
+            password: extra.password,
           );
         },
       ),
       GoRoute(
         path: '/auth/age-gate',
-        builder: (_, state) => AgeGateScreen(email: state.extra as String?),
+        builder: (_, state) =>
+            AgeGateScreen(email: AgeGateExtra.fromState(state)?.email),
       ),
       GoRoute(
         path: '/auth/privacy-terms',
         builder: (_, state) {
-          final extra = state.extra as Map<String, dynamic>;
+          final extra = PrivacyTermsExtra.fromState(state);
+          if (extra == null) return const RouteErrorScreen();
           return PrivacyTermsScreen(
-            email: extra['email'] as String,
-            dateOfBirth: extra['dateOfBirth'] as String,
+            email: extra.email,
+            dateOfBirth: extra.dateOfBirth,
           );
         },
       ),
       GoRoute(
         path: '/auth/profile-setup',
         builder: (_, state) {
-          final extra = state.extra as Map<String, dynamic>;
+          final extra = ProfileSetupExtra.fromState(state);
+          if (extra == null) return const RouteErrorScreen();
           return ProfileSetupScreen(
-            email: extra['email'] as String,
-            dateOfBirth: extra['dateOfBirth'] as String,
+            email: extra.email,
+            dateOfBirth: extra.dateOfBirth,
           );
         },
       ),
@@ -150,6 +160,35 @@ void main() {
       expect(find.text('Nombre de usuario'), findsOneWidget);
       expect(find.text('Guardar'), findsOneWidget);
       expect(find.text('Completar despu\u00e9s'), findsNothing);
+    });
+  });
+
+  group('harness route extras (I-03 / NAV-04 / H-04)', () {
+    testWidgets('legacy map extras still reach the screens via RouteExtras',
+        (tester) async {
+      await tester.pumpWidget(_wrap(const WelcomeScreen()));
+      await tester.pumpAndSettle();
+
+      final context = tester.element(find.byType(WelcomeScreen));
+      context.push(
+        '/auth/verify',
+        extra: {'email': 'a@b.com', 'password': 'secret1'},
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(OtpVerificationScreen), findsOneWidget);
+      expect(find.text('Verificar'), findsOneWidget);
+    });
+
+    testWidgets('missing extras render RouteErrorScreen, never crash',
+        (tester) async {
+      await tester.pumpWidget(_wrap(const WelcomeScreen()));
+      await tester.pumpAndSettle();
+
+      final context = tester.element(find.byType(WelcomeScreen));
+      context.push('/auth/verify');
+      await tester.pumpAndSettle();
+      expect(find.byType(RouteErrorScreen), findsOneWidget);
+      expect(find.byType(OtpVerificationScreen), findsNothing);
     });
   });
 }

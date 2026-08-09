@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:samay/core/errors/app_error.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/auth_service.dart';
@@ -251,6 +252,199 @@ void main() {
       final state = container.read(authStateProvider);
       expect(state.hasValue, isTrue);
       expect(state.valueOrNull?.authenticated, isFalse);
+    });
+  });
+
+  group('AuthProvider — lifecycle mutations (TST-03/H-16 + TST-05/H-18)', () {
+    test('signUp sets the authenticated state with the new user', () async {
+      final service = _stubbedService();
+      when(() => service.signUp(any(), any())).thenAnswer((_) async {});
+      when(() => service.getCurrentUser()).thenReturn(_user);
+      final container = _newContainer(service);
+      await container.read(authStateProvider.future);
+
+      await container
+          .read(authStateProvider.notifier)
+          .signUp('nuevo@b.com', 'secret1');
+
+      final state = container.read(authStateProvider);
+      expect(state.hasValue, isTrue);
+      expect(state.valueOrNull?.authenticated, isTrue);
+      expect(state.valueOrNull?.user?['id'], _user['id']);
+    });
+
+    test('signUp failure surfaces an AsyncError with the mapped message',
+        () async {
+      final service = _stubbedService();
+      when(() => service.signUp(any(), any())).thenThrow(
+        const AuthException(
+          'A user with this email address has already been registered',
+          code: 'user_already_exists',
+        ),
+      );
+      final container = _newContainer(service);
+      await container.read(authStateProvider.future);
+
+      await container
+          .read(authStateProvider.notifier)
+          .signUp('nuevo@b.com', 'secret1');
+
+      final state = container.read(authStateProvider);
+      expect(state, isA<AsyncError<AuthState>>());
+      expect(state.error, isA<UnauthorizedError>());
+      expect(state.valueOrNull?.authenticated, isFalse);
+    });
+
+    test('sendOtp rate-limit failure maps to RateLimitError', () async {
+      final service = _stubbedService();
+      when(() => service.sendOtp(any())).thenThrow(
+        const AuthException('rate limited', code: 'over_email_send_rate_limit'),
+      );
+      final container = _newContainer(service);
+      await container.read(authStateProvider.future);
+
+      await container.read(authStateProvider.notifier).sendOtp('a@b.com');
+
+      final state = container.read(authStateProvider);
+      expect(state, isA<AsyncError<AuthState>>());
+      expect(state.error, isA<RateLimitError>());
+      expect(state.errorMessage, 'Demasiadas solicitudes. Espera un momento.');
+    });
+
+    test('sendOtp succeeds without changing the auth state', () async {
+      final service = _stubbedService();
+      when(() => service.sendOtp(any())).thenAnswer((_) async {});
+      when(() => service.upsertSignupTracker(any(), any()))
+          .thenAnswer((_) async {});
+      final container = _newContainer(service);
+      await container.read(authStateProvider.future);
+
+      await container.read(authStateProvider.notifier).sendOtp('a@b.com');
+
+      final state = container.read(authStateProvider);
+      expect(state.hasError, isFalse);
+      expect(state.valueOrNull?.authenticated, isFalse);
+      verify(() => service.upsertSignupTracker('a@b.com', false)).called(1);
+    });
+
+    test('verifyOtp failure maps the error and signs out', () async {
+      final service = _stubbedService();
+      when(() => service.verifyOtp(any(), any())).thenThrow(
+        const AuthException('OTP has expired', code: 'otp_expired'),
+      );
+      when(() => service.signOut()).thenAnswer((_) async {});
+      final container = _newContainer(service);
+      await container.read(authStateProvider.future);
+
+      await container
+          .read(authStateProvider.notifier)
+          .verifyOtp('a@b.com', '000000');
+
+      final state = container.read(authStateProvider);
+      expect(state, isA<AsyncError<AuthState>>());
+      expect(state.error, isA<ValidationError>());
+      verify(() => service.signOut()).called(1);
+    });
+
+    test('createProfile failure surfaces an AsyncError', () async {
+      final service = _stubbedService();
+      when(() => service.createUserProfile(
+            username: any(named: 'username'),
+            dateOfBirth: any(named: 'dateOfBirth'),
+          )).thenThrow(
+        const PostgrestException(
+          message: 'permission denied for table users',
+          code: '42501',
+        ),
+      );
+      final container = _newContainer(service);
+      await container.read(authStateProvider.future);
+
+      await container
+          .read(authStateProvider.notifier)
+          .createProfile('dana');
+
+      final state = container.read(authStateProvider);
+      expect(state, isA<AsyncError<AuthState>>());
+      expect(state.error, isA<PermissionError>());
+      expect(state.errorMessage, 'No tienes permiso para realizar esta acción.');
+    });
+
+    test('createProfile success flips hasProfile', () async {
+      final service = _stubbedService();
+      when(() => service.createUserProfile(
+            username: any(named: 'username'),
+            dateOfBirth: any(named: 'dateOfBirth'),
+          )).thenAnswer((_) async {});
+      when(() => service.getCurrentUser()).thenReturn(_user);
+      final container = _newContainer(service);
+      await container.read(authStateProvider.future);
+
+      await container.read(authStateProvider.notifier).signIn('a@b.com', 'secret1');
+      await container
+          .read(authStateProvider.notifier)
+          .createProfile('dana');
+
+      final state = container.read(authStateProvider);
+      expect(state.hasError, isFalse);
+      expect(state.valueOrNull?.hasProfile, isTrue);
+      expect(state.valueOrNull?.authenticated, isTrue);
+    });
+
+    test('signOut clears the session state', () async {
+      final service = _stubbedService();
+      when(() => service.signIn(any(), any())).thenAnswer((_) async {});
+      when(() => service.getCurrentUser()).thenReturn(_user);
+      when(() => service.signOut()).thenAnswer((_) async {});
+      final container = _newContainer(service);
+      await container.read(authStateProvider.future);
+      await container.read(authStateProvider.notifier).signIn('a@b.com', 'secret1');
+      expect(container.read(authStateProvider).valueOrNull?.authenticated,
+          isTrue);
+
+      await container.read(authStateProvider.notifier).signOut();
+
+      final state = container.read(authStateProvider);
+      expect(state.hasValue, isTrue);
+      expect(state.valueOrNull?.authenticated, isFalse);
+      expect(state.valueOrNull?.user, isNull);
+      verify(() => service.signOut()).called(1);
+    });
+
+    test('deleteAccount soft-deletes the user and signs out', () async {
+      final service = _stubbedService();
+      when(() => service.softDeleteUser()).thenAnswer((_) async {});
+      when(() => service.signOut()).thenAnswer((_) async {});
+      final container = _newContainer(service);
+      await container.read(authStateProvider.future);
+
+      await container.read(authStateProvider.notifier).deleteAccount();
+
+      verify(() => service.softDeleteUser()).called(1);
+      verify(() => service.signOut()).called(1);
+      expect(container.read(authStateProvider).valueOrNull?.authenticated,
+          isFalse);
+    });
+
+    test('checkEmail passes through the service verdict', () async {
+      final service = _stubbedService();
+      when(() => service.checkSignupEmail(any()))
+          .thenAnswer((_) async => 'exists');
+      final container = _newContainer(service);
+
+      expect(await container.read(authStateProvider.notifier).checkEmail('a@b.com'), 'exists');
+    });
+
+    test('checkEmail fails closed to signup when the probe throws', () async {
+      final service = _stubbedService();
+      when(() => service.checkSignupEmail(any()))
+          .thenThrow(const PostgrestException(
+        message: 'connection refused',
+        code: '28000',
+      ));
+      final container = _newContainer(service);
+
+      expect(await container.read(authStateProvider.notifier).checkEmail('a@b.com'), 'signup');
     });
   });
 }

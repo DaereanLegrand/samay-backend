@@ -29,9 +29,9 @@ func TestUserStruct(t *testing.T) {
 
 func TestEventStruct(t *testing.T) {
 	e := Event{
-		ID:   "event-uuid",
-		Name: "Test Event",
-		Type: "juerga",
+		ID:     "event-uuid",
+		Name:   "Test Event",
+		Type:   "juerga",
 		Status: "upcoming",
 	}
 	data, err := json.Marshal(e)

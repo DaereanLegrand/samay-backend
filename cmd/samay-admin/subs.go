@@ -30,7 +30,9 @@ var subsListCmd = &cobra.Command{
 		if expiringWithin < 0 {
 			return fmt.Errorf("invalid --expiring-within %d: must be a non-negative integer", expiringWithin)
 		}
-		data, err := ops.ListSubs(dbClient, ops.ListSubsParams{
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.ListSubs(ctx, dbClient, ops.ListSubsParams{
 			Tier:           tier,
 			ExpiringWithin: expiringWithin,
 		})
@@ -47,7 +49,9 @@ var subsGetCmd = &cobra.Command{
 	Short: "Show a user's subscription status",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		data, err := ops.GetSub(dbClient, args[0])
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.GetSub(ctx, dbClient, args[0])
 		if err != nil {
 			return err
 		}
@@ -71,7 +75,9 @@ var subsOverrideCmd = &cobra.Command{
 			return err
 		}
 		reason, _ := cmd.Flags().GetString("reason")
-		if err := ops.OverrideSub(dbClient, args[0], tier, adminUserID(), expiresAt, reason); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.OverrideSub(ctx, dbClient, args[0], tier, adminUserID(), expiresAt, reason); err != nil {
 			return err
 		}
 		fmt.Printf("override %s applied to %s until %s\n", tier, args[0], expiresAt.Format("2006-01-02"))
@@ -84,7 +90,9 @@ var subsRevokeCmd = &cobra.Command{
 	Short: "Revoke all active overrides for a user",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := ops.RevokeOverride(dbClient, args[0], adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.RevokeOverride(ctx, dbClient, args[0], adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("overrides revoked for %s\n", args[0])

@@ -27,7 +27,9 @@ var shardsRecalculateRanksCmd = &cobra.Command{
 				return err
 			}
 		}
-		if err := ops.RecalculateRanks(dbClient, tier); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.RecalculateRanks(ctx, dbClient, tier); err != nil {
 			return err
 		}
 		return nil
@@ -43,7 +45,9 @@ var shardsLedgerCmd = &cobra.Command{
 		if limit <= 0 {
 			return fmt.Errorf("invalid --limit %d: must be a positive integer", limit)
 		}
-		data, err := ops.GetShardLedger(dbClient, args[0], limit)
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.GetShardLedger(ctx, dbClient, args[0], limit)
 		if err != nil {
 			return err
 		}
@@ -57,7 +61,9 @@ var shardsGroupLedgerCmd = &cobra.Command{
 	Short: "Show all shard contributions to a group",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		data, err := ops.GetGroupShardLedger(dbClient, args[0])
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.GetGroupShardLedger(ctx, dbClient, args[0])
 		if err != nil {
 			return err
 		}
@@ -71,11 +77,15 @@ var shardsEventSummaryCmd = &cobra.Command{
 	Short: "Show the shard distribution summary for an event",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		data, err := ops.GetEvent(dbClient, args[0])
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.GetEvent(ctx, dbClient, args[0])
+		if data != nil {
+			format.RenderJSON(data)
+		}
 		if err != nil {
 			return err
 		}
-		format.RenderJSON(data)
 		return nil
 	},
 }

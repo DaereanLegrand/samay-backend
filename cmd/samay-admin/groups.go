@@ -32,7 +32,9 @@ var groupsListCmd = &cobra.Command{
 				return err
 			}
 		}
-		data, err := ops.ListGroups(dbClient, ops.ListGroupsParams{
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.ListGroups(ctx, dbClient, ops.ListGroupsParams{
 			SizeTier: tier,
 			Bracket:  bracket,
 		})
@@ -49,7 +51,9 @@ var groupsGetCmd = &cobra.Command{
 	Short: "Show group details",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		data, err := ops.GetGroup(dbClient, args[0])
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.GetGroup(ctx, dbClient, args[0])
 		if err != nil {
 			return err
 		}
@@ -63,7 +67,9 @@ var groupsMembersCmd = &cobra.Command{
 	Short: "List group members",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		data, err := ops.ListGroupMembers(dbClient, args[0])
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.ListGroupMembers(ctx, dbClient, args[0])
 		if err != nil {
 			return err
 		}

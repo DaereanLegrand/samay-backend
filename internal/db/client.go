@@ -2,6 +2,7 @@ package db
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,16 +17,21 @@ type DBClient struct {
 	HTTP       *http.Client
 }
 
-func NewDBClient() *DBClient {
-	return &DBClient{
-		BaseURL:    os.Getenv("SUPABASE_URL"),
-		ServiceKey: os.Getenv("SUPABASE_SERVICE_ROLE_KEY"),
-		HTTP:       &http.Client{},
+func NewDBClient() (*DBClient, error) {
+	baseURL := strings.TrimSpace(os.Getenv("SUPABASE_URL"))
+	serviceKey := strings.TrimSpace(os.Getenv("SUPABASE_SERVICE_ROLE_KEY"))
+	if baseURL == "" || serviceKey == "" {
+		return nil, fmt.Errorf("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
 	}
+	return &DBClient{
+		BaseURL:    baseURL,
+		ServiceKey: serviceKey,
+		HTTP:       &http.Client{},
+	}, nil
 }
 
-func (c *DBClient) request(method, path string, body io.Reader) ([]byte, error) {
-	req, err := http.NewRequest(method, c.BaseURL+path, body)
+func (c *DBClient) request(ctx context.Context, method, path string, body io.Reader) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, body)
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
@@ -41,7 +47,10 @@ func (c *DBClient) request(method, path string, body io.Reader) ([]byte, error) 
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
 
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("supabase error %d: %s", resp.StatusCode, string(respBody))
@@ -50,7 +59,7 @@ func (c *DBClient) request(method, path string, body io.Reader) ([]byte, error) 
 	return respBody, nil
 }
 
-func (c *DBClient) Select(table, filter string, limit, offset int) ([]byte, error) {
+func (c *DBClient) Select(ctx context.Context, table, filter string, limit, offset int) ([]byte, error) {
 	path := "/rest/v1/" + table
 	var params []string
 
@@ -71,39 +80,37 @@ func (c *DBClient) Select(table, filter string, limit, offset int) ([]byte, erro
 	if len(params) > 0 {
 		path += "?" + strings.Join(params, "&")
 	}
-	return c.request("GET", path, nil)
+	return c.request(ctx, "GET", path, nil)
 }
 
-func (c *DBClient) Insert(table string, row interface{}) ([]byte, error) {
+func (c *DBClient) Insert(ctx context.Context, table string, row interface{}) ([]byte, error) {
 	b, err := json.Marshal(row)
 	if err != nil {
 		return nil, fmt.Errorf("json marshal: %w", err)
 	}
 	path := "/rest/v1/" + table + "?select=*"
-	return c.request("POST", path, bytes.NewReader(b))
+	return c.request(ctx, "POST", path, bytes.NewReader(b))
 }
 
-func (c *DBClient) Update(table, filter string, patch interface{}) ([]byte, error) {
+func (c *DBClient) Update(ctx context.Context, table, filter string, patch interface{}) ([]byte, error) {
 	b, err := json.Marshal(patch)
 	if err != nil {
 		return nil, fmt.Errorf("json marshal: %w", err)
 	}
 	path := "/rest/v1/" + table + "?" + filter + "&select=*"
-	return c.request("PATCH", path, bytes.NewReader(b))
+	return c.request(ctx, "PATCH", path, bytes.NewReader(b))
 }
 
-func (c *DBClient) Delete(table, filter string) ([]byte, error) {
+func (c *DBClient) Delete(ctx context.Context, table, filter string) ([]byte, error) {
 	path := "/rest/v1/" + table + "?" + filter
-	return c.request("DELETE", path, nil)
+	return c.request(ctx, "DELETE", path, nil)
 }
 
-func (c *DBClient) RPC(function string, params map[string]interface{}) ([]byte, error) {
+func (c *DBClient) RPC(ctx context.Context, function string, params map[string]interface{}) ([]byte, error) {
 	b, err := json.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("json marshal: %w", err)
 	}
 	path := "/rest/v1/rpc/" + function
-	return c.request("POST", path, bytes.NewReader(b))
+	return c.request(ctx, "POST", path, bytes.NewReader(b))
 }
-
-

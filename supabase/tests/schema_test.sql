@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all 20 migrations (20260510000001 through 20260809000002).
+-- Covers all 21 migrations (20260510000001 through 20260809000003).
 BEGIN;
 
-SELECT plan(204);
+SELECT plan(233);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -733,6 +733,64 @@ SELECT hasnt_table_priv('public', 'user_search_view', 'anon', 'SELECT',
     'user_search_view is not SELECT-able by anon (authenticated search only)');
 
 -- 39f: policy sets asserted in Sections 17/18/26 (updated lists)
+
+-- ============================================================
+-- SECTION 41: E2EE prekey table + fetch RPC (migration 20260809000003,
+-- agent I-38) — table, own-row RLS, FORCE RLS, index, SECURITY DEFINER
+-- RPC with SET search_path = '' and authenticated-only EXECUTE.
+-- ============================================================
+SELECT has_table('e2ee_identity_keys',
+    'e2ee_identity_keys exists (migration 20260809000003)');
+SELECT has_column('e2ee_identity_keys', 'user_id');
+SELECT has_column('e2ee_identity_keys', 'identity_key');
+SELECT has_column('e2ee_identity_keys', 'identity_sig_key');
+SELECT has_column('e2ee_identity_keys', 'signed_prekey_id');
+SELECT has_column('e2ee_identity_keys', 'signed_prekey');
+SELECT has_column('e2ee_identity_keys', 'signed_prekey_sig');
+SELECT has_column('e2ee_identity_keys', 'signed_prekey_expires_at');
+SELECT has_column('e2ee_identity_keys', 'one_time_prekeys');
+SELECT has_column('e2ee_identity_keys', 'consumed_one_time_prekeys');
+SELECT has_column('e2ee_identity_keys', 'updated_at');
+SELECT col_is_pk('e2ee_identity_keys', 'user_id',
+    'e2ee_identity_keys.user_id is the primary key');
+SELECT col_type_is('e2ee_identity_keys', 'identity_key', 'text',
+    'identity_key is text (base64url X25519 public)');
+SELECT col_type_is('e2ee_identity_keys', 'one_time_prekeys', 'jsonb',
+    'one_time_prekeys is jsonb');
+SELECT col_not_null('e2ee_identity_keys', 'user_id');
+SELECT col_not_null('e2ee_identity_keys', 'identity_key');
+SELECT col_not_null('e2ee_identity_keys', 'identity_sig_key');
+SELECT col_not_null('e2ee_identity_keys', 'signed_prekey_id');
+SELECT col_not_null('e2ee_identity_keys', 'signed_prekey');
+SELECT col_not_null('e2ee_identity_keys', 'signed_prekey_sig');
+SELECT col_not_null('e2ee_identity_keys', 'signed_prekey_expires_at');
+SELECT ok(
+    (SELECT relrowsecurity FROM pg_class WHERE oid = 'e2ee_identity_keys'::regclass),
+    'e2ee_identity_keys has RLS enabled'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'e2ee_identity_keys'::regclass),
+    'e2ee_identity_keys has FORCE ROW LEVEL SECURITY (migration 20260809000003)'
+);
+SELECT policies_are('e2ee_identity_keys', ARRAY[
+    'e2ee_identity_keys_select_own',
+    'e2ee_identity_keys_insert_own',
+    'e2ee_identity_keys_update_own',
+    'e2ee_identity_keys_delete_own'
+], 'e2ee_identity_keys has own-row (user_id = auth.uid()) RLS policies');
+SELECT has_index('e2ee_identity_keys', 'e2ee_identity_keys_user_id_idx',
+    'e2ee_identity_keys has an index on user_id');
+SELECT has_function('fetch_prekey_bundle', ARRAY['uuid'],
+    'fetch_prekey_bundle(p_user_id uuid) exists (SECURITY DEFINER RPC)');
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'fetch_prekey_bundle'),
+    'fetch_prekey_bundle sets search_path = '''' (migration 20260809000003)'
+);
+SELECT hasnt_function_priv('public', 'fetch_prekey_bundle', ARRAY['uuid'], 'public', 'EXECUTE',
+    'fetch_prekey_bundle is not PUBLIC-EXECUTABLE');
+SELECT has_function_priv('public', 'fetch_prekey_bundle', ARRAY['uuid'], 'authenticated', 'EXECUTE',
+    'fetch_prekey_bundle is authenticated-EXECUTABLE');
 
 SELECT * FROM finish();
 ROLLBACK;

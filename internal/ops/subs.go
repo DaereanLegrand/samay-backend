@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -13,53 +14,41 @@ type ListSubsParams struct {
 	ExpiringWithin int
 }
 
-func ListSubs(client *db.DBClient, params ListSubsParams) ([]db.User, error) {
-	q := "id,username,subscription_tier,subscription_expires_at,created_at"
+func ListSubs(ctx context.Context, client *db.DBClient, params ListSubsParams) ([]db.User, error) {
+	qb := db.NewQueryBuilder().
+		Select("id", "username", "subscription_tier", "subscription_expires_at", "created_at").
+		Limit(100)
 	if params.Tier != "" {
-		q += "&subscription_tier=eq." + params.Tier
+		qb.Eq("subscription_tier", params.Tier)
 	}
-	body, err := client.Select("users", q, 100, 0)
-	if err != nil {
-		return nil, fmt.Errorf("list subs: %w", err)
-	}
-	var users []db.User
-	if err := json.Unmarshal(body, &users); err != nil {
-		return nil, fmt.Errorf("unmarshal users: %w", err)
-	}
-	return users, nil
+	return db.List[db.User](ctx, client, "users", qb)
 }
 
-func GetSub(client *db.DBClient, userID string) (*db.User, error) {
-	body, err := client.Select("users", "id,username,subscription_tier,subscription_expires_at,created_at,updated_at&id=eq."+userID, 1, 0)
-	if err != nil {
-		return nil, fmt.Errorf("get sub: %w", err)
-	}
-	var users []db.User
-	if err := json.Unmarshal(body, &users); err != nil {
-		return nil, fmt.Errorf("unmarshal user: %w", err)
-	}
-	if len(users) == 0 {
-		return nil, fmt.Errorf("user not found: %s", userID)
-	}
-	return &users[0], nil
+func GetSub(ctx context.Context, client *db.DBClient, userID string) (*db.User, error) {
+	qb := db.NewQueryBuilder().
+		Select("id", "username", "subscription_tier", "subscription_expires_at", "created_at", "updated_at")
+	return db.GetByID[db.User](ctx, client, "users", userID, qb)
 }
 
-func OverrideSub(client *db.DBClient, userID, tier, adminUserID string, expiresAt time.Time, reason string) error {
-	_, err := client.Insert("subscription_overrides", map[string]interface{}{
-		"user_id":      userID,
+func OverrideSub(ctx context.Context, client *db.DBClient, userID, tier, adminUserID string, expiresAt time.Time, reason string) error {
+	_, err := client.Insert(ctx, "subscription_overrides", map[string]interface{}{
+		"user_id":       userID,
 		"admin_user_id": adminUserID,
-		"tier":         tier,
-		"expires_at":   expiresAt.Format(time.RFC3339),
-		"reason":       reason,
+		"tier":          tier,
+		"expires_at":    expiresAt.Format(time.RFC3339),
+		"reason":        reason,
 	})
 	if err != nil {
 		return fmt.Errorf("override sub: %w", err)
 	}
-	details, _ := json.Marshal(map[string]interface{}{
-		"tier":     tier,
-		"expires":  expiresAt.Format(time.RFC3339),
+	details, err := json.Marshal(map[string]interface{}{
+		"tier":    tier,
+		"expires": expiresAt.Format(time.RFC3339),
 	})
-	return LogAction(client, AuditParams{
+	if err != nil {
+		return fmt.Errorf("override sub: marshal audit details: %w", err)
+	}
+	return LogAction(ctx, client, AuditParams{
 		AdminUserID: adminUserID,
 		Action:      "subscription_override",
 		TargetType:  "subscription",
@@ -68,14 +57,14 @@ func OverrideSub(client *db.DBClient, userID, tier, adminUserID string, expiresA
 	})
 }
 
-func RevokeOverride(client *db.DBClient, userID, adminUserID string) error {
-	_, err := client.Update("subscription_overrides", "user_id=eq."+userID+"&revoked=eq.false", map[string]interface{}{
+func RevokeOverride(ctx context.Context, client *db.DBClient, userID, adminUserID string) error {
+	_, err := client.Update(ctx, "subscription_overrides", "user_id=eq."+userID+"&revoked=eq.false", map[string]interface{}{
 		"revoked": true,
 	})
 	if err != nil {
 		return fmt.Errorf("revoke override: %w", err)
 	}
-	return LogAction(client, AuditParams{
+	return LogAction(ctx, client, AuditParams{
 		AdminUserID: adminUserID,
 		Action:      "revoke_subscription_override",
 		TargetType:  "subscription",

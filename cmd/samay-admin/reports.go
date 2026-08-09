@@ -32,7 +32,9 @@ var reportsListCmd = &cobra.Command{
 				return err
 			}
 		}
-		data, err := ops.ListReports(dbClient, ops.ListReportsParams{
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.ListReports(ctx, dbClient, ops.ListReportsParams{
 			Status: status,
 			Type:   targetType,
 		})
@@ -49,7 +51,9 @@ var reportsGetCmd = &cobra.Command{
 	Short: "Show report details",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		data, err := ops.GetReport(dbClient, args[0])
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.GetReport(ctx, dbClient, args[0])
 		if err != nil {
 			return err
 		}
@@ -67,7 +71,9 @@ var reportsActionCmd = &cobra.Command{
 		if err := oneOf(action, "remove", "dismiss", "warn"); err != nil {
 			return err
 		}
-		if err := ops.ActionReport(dbClient, args[0], action, adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.ActionReport(ctx, dbClient, args[0], action, adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("report %s actioned: %s\n", args[0], action)

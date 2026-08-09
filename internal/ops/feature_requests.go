@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -12,34 +13,31 @@ type ListFeatureRequestsParams struct {
 	Status string
 }
 
-func ListFeatureRequests(client *db.DBClient, params ListFeatureRequestsParams) ([]db.FeatureRequest, error) {
-	q := "id,event_id,requested_by_user_id,contact_info,desired_duration_days,status,created_at"
+func ListFeatureRequests(ctx context.Context, client *db.DBClient, params ListFeatureRequestsParams) ([]db.FeatureRequest, error) {
+	qb := db.NewQueryBuilder().
+		Select("id", "event_id", "requested_by_user_id", "contact_info", "desired_duration_days", "status", "created_at").
+		Limit(100)
 	if params.Status != "" {
-		q += "&status=eq." + params.Status
+		qb.Eq("status", params.Status)
 	}
-	body, err := client.Select("feature_requests", q, 100, 0)
-	if err != nil {
-		return nil, fmt.Errorf("list feature requests: %w", err)
-	}
-	var requests []db.FeatureRequest
-	if err := json.Unmarshal(body, &requests); err != nil {
-		return nil, fmt.Errorf("unmarshal feature requests: %w", err)
-	}
-	return requests, nil
+	return db.List[db.FeatureRequest](ctx, client, "feature_requests", qb)
 }
 
-func ApproveFeatureRequest(client *db.DBClient, requestID string, featuredUntil time.Time, adminUserID string) error {
-	_, err := client.Update("feature_requests", "id=eq."+requestID, map[string]interface{}{
-		"status":        "approved",
+func ApproveFeatureRequest(ctx context.Context, client *db.DBClient, requestID string, featuredUntil time.Time, adminUserID string) error {
+	_, err := client.Update(ctx, "feature_requests", "id=eq."+requestID, map[string]interface{}{
+		"status":         "approved",
 		"featured_until": featuredUntil.Format(time.RFC3339),
 	})
 	if err != nil {
 		return fmt.Errorf("approve feature request: %w", err)
 	}
-	details, _ := json.Marshal(map[string]string{
+	details, err := json.Marshal(map[string]string{
 		"featured_until": featuredUntil.Format(time.RFC3339),
 	})
-	return LogAction(client, AuditParams{
+	if err != nil {
+		return fmt.Errorf("approve feature request: marshal audit details: %w", err)
+	}
+	return LogAction(ctx, client, AuditParams{
 		AdminUserID: adminUserID,
 		Action:      "approve_feature_request",
 		TargetType:  "feature_request",
@@ -48,14 +46,14 @@ func ApproveFeatureRequest(client *db.DBClient, requestID string, featuredUntil 
 	})
 }
 
-func RejectFeatureRequest(client *db.DBClient, requestID, adminUserID string) error {
-	_, err := client.Update("feature_requests", "id=eq."+requestID, map[string]interface{}{
+func RejectFeatureRequest(ctx context.Context, client *db.DBClient, requestID, adminUserID string) error {
+	_, err := client.Update(ctx, "feature_requests", "id=eq."+requestID, map[string]interface{}{
 		"status": "rejected",
 	})
 	if err != nil {
 		return fmt.Errorf("reject feature request: %w", err)
 	}
-	return LogAction(client, AuditParams{
+	return LogAction(ctx, client, AuditParams{
 		AdminUserID: adminUserID,
 		Action:      "reject_feature_request",
 		TargetType:  "feature_request",

@@ -26,7 +26,9 @@ var featureRequestsListCmd = &cobra.Command{
 				return err
 			}
 		}
-		data, err := ops.ListFeatureRequests(dbClient, ops.ListFeatureRequestsParams{Status: status})
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.ListFeatureRequests(ctx, dbClient, ops.ListFeatureRequestsParams{Status: status})
 		if err != nil {
 			return err
 		}

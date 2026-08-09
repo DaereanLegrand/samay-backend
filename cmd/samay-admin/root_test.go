@@ -89,7 +89,7 @@ func TestInitClientUsesCreateClient(t *testing.T) {
 		called = true
 		return &db.DBClient{BaseURL: "http://localhost", ServiceKey: "k", HTTP: &http.Client{}}, nil
 	}
-	defer func() { createClient = func() (*db.DBClient, error) { return db.NewDBClient(), nil } }()
+	defer func() { createClient = func() (*db.DBClient, error) { return db.NewDBClient() } }()
 
 	if err := initClient(); err != nil {
 		t.Fatalf("unexpected error: %v", err)

@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -14,13 +18,29 @@ import (
 
 var envKeys = []string{"SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ADMIN_USER_ID"}
 
+// commandTimeout caps every command's total runtime so a hung Supabase
+// request cannot stall the CLI forever.
+const commandTimeout = 30 * time.Second
+
 var (
 	jsonFlag     bool
 	dbClient     *db.DBClient
 	createClient = func() (*db.DBClient, error) {
-		return db.NewDBClient(), nil
+		return db.NewDBClient()
 	}
 )
+
+// rootCtx returns the context every command passes down to ops/db calls:
+// a 30s deadline that is also cancelled on SIGINT/SIGTERM, so an operator
+// can always interrupt a hung command.
+func rootCtx() (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
+}
 
 var rootCmd = &cobra.Command{
 	Use:          "samay",

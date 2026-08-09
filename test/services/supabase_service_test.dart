@@ -81,7 +81,7 @@ void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     await Supabase.initialize(
-      url: 'http://localhost:54321',
+      url: 'http://127.0.0.1:54386',
       anonKey: 'test-anon-key',
       authOptions: FlutterAuthClientOptions(
         localStorage: _MemoryStorage(),

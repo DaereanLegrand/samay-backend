@@ -34,7 +34,9 @@ var eventsListCmd = &cobra.Command{
 			}
 		}
 		promotor, _ := cmd.Flags().GetString("promotor")
-		data, err := ops.ListEvents(dbClient, ops.ListEventsParams{
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.ListEvents(ctx, dbClient, ops.ListEventsParams{
 			Status:   status,
 			Type:     eventType,
 			Promotor: promotor,
@@ -52,11 +54,15 @@ var eventsGetCmd = &cobra.Command{
 	Short: "Show full event details",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		data, err := ops.GetEvent(dbClient, args[0])
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.GetEvent(ctx, dbClient, args[0])
+		if data != nil {
+			format.RenderJSON(data)
+		}
 		if err != nil {
 			return err
 		}
-		format.RenderJSON(data)
 		return nil
 	},
 }
@@ -71,7 +77,9 @@ var eventsFeatureCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err := ops.FeatureEvent(dbClient, args[0], expiresAt, adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.FeatureEvent(ctx, dbClient, args[0], expiresAt, adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("event %s featured until %s\n", args[0], expiresAt.Format("2006-01-02"))
@@ -84,7 +92,9 @@ var eventsUnfeatureCmd = &cobra.Command{
 	Short: "Remove feature status from an event",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := ops.UnfeatureEvent(dbClient, args[0], adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.UnfeatureEvent(ctx, dbClient, args[0], adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("event %s unfeatured\n", args[0])
@@ -97,7 +107,9 @@ var eventsRejectFeatureCmd = &cobra.Command{
 	Short: "Reject a pending feature request for an event",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := ops.RejectFeatureEvent(dbClient, args[0], adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.RejectFeatureEvent(ctx, dbClient, args[0], adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("feature request for event %s rejected\n", args[0])
@@ -111,7 +123,9 @@ var eventsCancelCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		reason, _ := cmd.Flags().GetString("reason")
-		if err := ops.CancelEvent(dbClient, args[0], reason, adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.CancelEvent(ctx, dbClient, args[0], reason, adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("event %s cancelled\n", args[0])
@@ -128,7 +142,9 @@ var eventsDistributeShardsCmd = &cobra.Command{
 		if !confirm {
 			return fmt.Errorf("refusing to distribute shards for event %s: pass --confirm to confirm", args[0])
 		}
-		if err := ops.DistributeShards(dbClient, args[0], adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.DistributeShards(ctx, dbClient, args[0], adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("shard distribution triggered for event %s\n", args[0])

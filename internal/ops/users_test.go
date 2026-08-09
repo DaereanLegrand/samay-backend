@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,7 @@ func TestListUsers_ConstructsCorrectPath(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`[]`, 200)
 	defer srv.Close()
 
-	ListUsers(client, ListUsersParams{})
+	ListUsers(context.Background(), client, ListUsersParams{})
 
 	if len(*log) != 1 {
 		t.Fatalf("expected 1 request, got %d", len(*log))
@@ -29,17 +30,17 @@ func TestListUsers_WithSearch(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`[]`, 200)
 	defer srv.Close()
 
-	ListUsers(client, ListUsersParams{Search: "alice"})
+	ListUsers(context.Background(), client, ListUsersParams{Search: "alice"})
 
 	req := (*log)[0]
-	assertContains(t, req.Path, "username.ilike.*alice*")
+	assertContains(t, req.Path, "username=ilike.*alice*")
 }
 
 func TestListUsers_WithTier(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`[]`, 200)
 	defer srv.Close()
 
-	ListUsers(client, ListUsersParams{Tier: "pro"})
+	ListUsers(context.Background(), client, ListUsersParams{Tier: "pro"})
 
 	req := (*log)[0]
 	assertContains(t, req.Path, "subscription_tier=eq.pro")
@@ -49,7 +50,7 @@ func TestListUsers_Banned(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`[]`, 200)
 	defer srv.Close()
 
-	ListUsers(client, ListUsersParams{Banned: true})
+	ListUsers(context.Background(), client, ListUsersParams{Banned: true})
 
 	req := (*log)[0]
 	assertContains(t, req.Path, "banned_at=not.is.null")
@@ -60,7 +61,7 @@ func TestListUsers_ReturnsUsers(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(resp, 200)
 	defer srv.Close()
 
-	users, err := ListUsers(client, ListUsersParams{})
+	users, err := ListUsers(context.Background(), client, ListUsersParams{})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -80,7 +81,7 @@ func TestListUsers_InvalidJSON(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(`not json`, 200)
 	defer srv.Close()
 
-	_, err := ListUsers(client, ListUsersParams{})
+	_, err := ListUsers(context.Background(), client, ListUsersParams{})
 
 	if err == nil || !strings.Contains(err.Error(), "unmarshal") {
 		t.Errorf("expected unmarshal error, got: %v", err)
@@ -109,7 +110,7 @@ func TestGetUser_ConstructsPath(t *testing.T) {
 	defer srv.Close()
 	client := &db.DBClient{BaseURL: srv.URL, ServiceKey: "test-key", HTTP: srv.Client()}
 
-	result, err := GetUser(client, userID)
+	result, err := GetUser(context.Background(), client, userID)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -122,11 +123,48 @@ func TestGetUser_ConstructsPath(t *testing.T) {
 	}
 }
 
+func TestGetUser_SecondaryFailuresJoined(t *testing.T) {
+	respUser := `[{"id":"abc-123","username":"bob"}]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "users"):
+			w.Write([]byte(respUser))
+		case strings.Contains(r.URL.Path, "shard_ledger"):
+			w.WriteHeader(500)
+			w.Write([]byte(`{"message":"ledger down"}`))
+		case strings.Contains(r.URL.Path, "group_members"):
+			w.WriteHeader(500)
+			w.Write([]byte(`{"message":"members down"}`))
+		}
+	}))
+	defer srv.Close()
+	client := &db.DBClient{BaseURL: srv.URL, ServiceKey: "test-key", HTTP: srv.Client()}
+
+	result, err := GetUser(context.Background(), client, "abc-123")
+
+	if result == nil {
+		t.Fatal("expected partial UserDetail even with failing secondary queries")
+	}
+	if result.User.ID != "abc-123" {
+		t.Errorf("expected primary user abc-123, got %s", result.User.ID)
+	}
+	if err == nil {
+		t.Fatal("expected joined error for failing secondary queries")
+	}
+	if !strings.Contains(err.Error(), "shard ledger") {
+		t.Errorf("expected shard-ledger error in join, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "group memberships") {
+		t.Errorf("expected group-memberships error in join, got: %v", err)
+	}
+}
+
 func TestGetUser_NotFound(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(`[]`, 200)
 	defer srv.Close()
 
-	_, err := GetUser(client, "nonexistent")
+	_, err := GetUser(context.Background(), client, "nonexistent")
 
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("expected 'not found' error, got: %v", err)
@@ -137,7 +175,7 @@ func TestBanUser_CallsUpdate(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`{}`, 200)
 	defer srv.Close()
 
-	err := BanUser(client, "u1", "spam", "admin1")
+	err := BanUser(context.Background(), client, "u1", "spam", "admin1")
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -158,7 +196,7 @@ func TestUnbanUser_ClearsBanFields(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`{}`, 200)
 	defer srv.Close()
 
-	err := UnbanUser(client, "u1", "admin1")
+	err := UnbanUser(context.Background(), client, "u1", "admin1")
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -178,7 +216,7 @@ func TestGrantShards_CallsRPC(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`{}`, 200)
 	defer srv.Close()
 
-	err := GrantShards(client, "u1", 500, "bonus", "admin1")
+	err := GrantShards(context.Background(), client, "u1", 500, "bonus", "admin1")
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -198,7 +236,7 @@ func TestGrantPreshards_CallsRPC(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`{}`, 200)
 	defer srv.Close()
 
-	err := GrantPreshards(client, "u1", 300, "admin_grant", "admin1")
+	err := GrantPreshards(context.Background(), client, "u1", 300, "admin_grant", "admin1")
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -218,7 +256,7 @@ func TestSoftDeleteUser_AnonymizesAndLogs(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`{}`, 200)
 	defer srv.Close()
 
-	err := SoftDeleteUser(client, "user-12345678", "admin1")
+	err := SoftDeleteUser(context.Background(), client, "user-12345678", "admin1")
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -245,7 +283,7 @@ func TestSoftDeleteUser_RejectsShortID(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(`{}`, 200)
 	defer srv.Close()
 
-	err := SoftDeleteUser(client, "xyz", "admin1")
+	err := SoftDeleteUser(context.Background(), client, "xyz", "admin1")
 	if err == nil {
 		t.Fatal("expected error for short user id")
 	}
@@ -264,7 +302,7 @@ func TestListUsers_JSONRoundTrip(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(string(resp), 200)
 	defer srv.Close()
 
-	users, err := ListUsers(client, ListUsersParams{})
+	users, err := ListUsers(context.Background(), client, ListUsersParams{})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

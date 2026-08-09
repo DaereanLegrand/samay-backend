@@ -1,13 +1,17 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/errors/app_error.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/services/media_service.dart';
 import 'package:samay/core/utils/image_processor.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../support/resolving_builder.dart';
 
 class _MockSupabaseClient extends Mock implements SupabaseClient {
   _MockSupabaseClient(this.storage);
@@ -201,6 +205,119 @@ void main() {
       final capturedB = verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
           .captured;
       expect(capturedB[0], startsWith('avatars/user-B/'));
+    });
+  });
+
+  group('MediaService.uploadEventPhoto (PHUP gap — I-44)', () {
+    late _MockSupabaseClient client;
+    late MockGoTrueClient auth;
+    late MockStorageClient storage;
+    late MockStorageFileApi fileApi;
+    late MockQueryBuilder photosTable;
+    late Directory tempDir;
+    late MediaService service;
+
+    const userId = '11111111-1111-1111-1111-111111111111';
+    const eventId = '66666666-6666-6666-6666-666666666666';
+
+    setUp(() {
+      storage = MockStorageClient();
+      // `SupabaseClient.storage` is a `late final` field mocktail cannot stub —
+      // same seam as the uploadGroupCover groups above: the mock exposes the
+      // same storage instance via its constructor.
+      client = _MockSupabaseClient(storage);
+      auth = MockGoTrueClient();
+      when(() => client.auth).thenReturn(auth);
+      fileApi = MockStorageFileApi();
+      when(() => storage.from('events')).thenReturn(fileApi);
+      when(() => fileApi.uploadBinary(any(), any()))
+          .thenAnswer((_) async => 'uploaded-path');
+      photosTable = MockQueryBuilder();
+      when(() => client.from('event_photos')).thenAnswer((_) => photosTable);
+      when(() => photosTable.insert(any()))
+          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+      tempDir = Directory.systemTemp.createTempSync('media_service_test_');
+      service = MediaService(client: client);
+    });
+
+    tearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('uploads the file bytes and records the event_photos row', () async {
+      when(() => auth.currentUser)
+          .thenReturn(User.fromJson({'id': userId, 'email': 'a@b.com'}));
+      final file = File('${tempDir.path}/foto.jpg')
+        ..writeAsBytesSync(Uint8List.fromList(List.filled(64, 1)));
+
+      await service.uploadEventPhoto(eventId, file.path);
+
+      final captured =
+          verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
+              .captured;
+      final storagePath = captured[0] as String;
+      final uploaded = captured[1] as Uint8List;
+      expect(storagePath, startsWith('$eventId/photos/'));
+      expect(storagePath, endsWith('.jpg'));
+      expect(uploaded, hasLength(64));
+
+      final row =
+          verify(() => photosTable.insert(captureAny())).captured.single as Map;
+      expect(row['event_id'], eventId);
+      expect(row['uploaded_by_user_id'], userId);
+      expect(row['storage_path'], storagePath);
+      expect(row['likes_count'], 0);
+      expect(row['reported'], isFalse);
+      expect(row['created_at'], isNotEmpty);
+    });
+
+    test('throws without an authenticated session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+      final file = File('${tempDir.path}/foto.jpg')
+        ..writeAsBytesSync(Uint8List(16));
+
+      expect(() => service.uploadEventPhoto(eventId, file.path),
+          throwsA(isA<Exception>()));
+      verifyNever(() => photosTable.insert(any()));
+    });
+
+    test('propagates a permission-denied PostgrestException', () async {
+      when(() => auth.currentUser)
+          .thenReturn(User.fromJson({'id': userId}));
+      final file = File('${tempDir.path}/foto.jpg')
+        ..writeAsBytesSync(Uint8List(16));
+      when(() => photosTable.insert(any())).thenThrow(
+        const PostgrestException(
+          message: 'new row violates row-level security policy',
+          code: '42501',
+        ),
+      );
+
+      final err = await captureError(() async {
+        await service.uploadEventPhoto(eventId, file.path);
+      });
+      expect(err, isA<PostgrestException>());
+      expectMapped(err, PermissionError);
+    });
+  });
+
+  group('MediaService.getSignedPhotoUrl', () {
+    test('delegates to createSignedUrl with a 1-hour expiry', () async {
+      final storage = MockStorageClient();
+      final client = _MockSupabaseClient(storage);
+      final fileApi = MockStorageFileApi();
+      when(() => storage.from('events')).thenReturn(fileApi);
+      when(() => fileApi.createSignedUrl(any(), any()))
+          .thenAnswer((_) async => 'https://cdn.example/signed/foto.png');
+
+      final url = await MediaService(client: client)
+          .getSignedPhotoUrl('e-1/photos/foto.png');
+
+      expect(url, 'https://cdn.example/signed/foto.png');
+      verify(() => fileApi.createSignedUrl('e-1/photos/foto.png', 3600))
+          .called(1);
     });
   });
 }

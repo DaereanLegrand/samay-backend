@@ -1,7 +1,7 @@
 package ops
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 
 	"github.com/samay-app/samay/internal/db"
@@ -12,41 +12,25 @@ type ListReportsParams struct {
 	Type   string
 }
 
-func ListReports(client *db.DBClient, params ListReportsParams) ([]db.Report, error) {
-	q := "id,reporter_id,target_type,target_id,reason,status,created_at"
+func ListReports(ctx context.Context, client *db.DBClient, params ListReportsParams) ([]db.Report, error) {
+	qb := db.NewQueryBuilder().
+		Select("id", "reporter_id", "target_type", "target_id", "reason", "status", "created_at").
+		Limit(100)
 	if params.Status != "" {
-		q += "&status=eq." + params.Status
+		qb.Eq("status", params.Status)
 	}
 	if params.Type != "" {
-		q += "&target_type=eq." + params.Type
+		qb.Eq("target_type", params.Type)
 	}
-	body, err := client.Select("reports", q, 100, 0)
-	if err != nil {
-		return nil, fmt.Errorf("list reports: %w", err)
-	}
-	var reports []db.Report
-	if err := json.Unmarshal(body, &reports); err != nil {
-		return nil, fmt.Errorf("unmarshal reports: %w", err)
-	}
-	return reports, nil
+	return db.List[db.Report](ctx, client, "reports", qb)
 }
 
-func GetReport(client *db.DBClient, reportID string) (*db.Report, error) {
-	body, err := client.Select("reports", "*&id=eq."+reportID, 1, 0)
-	if err != nil {
-		return nil, fmt.Errorf("get report: %w", err)
-	}
-	var reports []db.Report
-	if err := json.Unmarshal(body, &reports); err != nil {
-		return nil, fmt.Errorf("unmarshal report: %w", err)
-	}
-	if len(reports) == 0 {
-		return nil, fmt.Errorf("report not found: %s", reportID)
-	}
-	return &reports[0], nil
+func GetReport(ctx context.Context, client *db.DBClient, reportID string) (*db.Report, error) {
+	qb := db.NewQueryBuilder().Select("*")
+	return db.GetByID[db.Report](ctx, client, "reports", reportID, qb)
 }
 
-func ActionReport(client *db.DBClient, reportID, action, adminUserID string) error {
+func ActionReport(ctx context.Context, client *db.DBClient, reportID, action, adminUserID string) error {
 	var status string
 	switch action {
 	case "remove":
@@ -58,13 +42,13 @@ func ActionReport(client *db.DBClient, reportID, action, adminUserID string) err
 	default:
 		return fmt.Errorf("invalid action: %s", action)
 	}
-	_, err := client.Update("reports", "id=eq."+reportID, map[string]interface{}{
+	_, err := client.Update(ctx, "reports", "id=eq."+reportID, map[string]interface{}{
 		"status": status,
 	})
 	if err != nil {
 		return fmt.Errorf("action report: %w", err)
 	}
-	return LogAction(client, AuditParams{
+	return LogAction(ctx, client, AuditParams{
 		AdminUserID: adminUserID,
 		Action:      "report_" + action,
 		TargetType:  "report",

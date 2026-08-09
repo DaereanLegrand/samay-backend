@@ -29,7 +29,9 @@ var usersListCmd = &cobra.Command{
 			}
 		}
 		banned, _ := cmd.Flags().GetBool("banned")
-		data, err := ops.ListUsers(dbClient, ops.ListUsersParams{
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.ListUsers(ctx, dbClient, ops.ListUsersParams{
 			Search: search,
 			Tier:   tier,
 			Banned: banned,
@@ -47,11 +49,15 @@ var usersGetCmd = &cobra.Command{
 	Short: "Show a full user profile",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		data, err := ops.GetUser(dbClient, args[0])
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.GetUser(ctx, dbClient, args[0])
+		if data != nil {
+			format.RenderJSON(data)
+		}
 		if err != nil {
 			return err
 		}
-		format.RenderJSON(data)
 		return nil
 	},
 }
@@ -62,7 +68,9 @@ var usersBanCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		reason, _ := cmd.Flags().GetString("reason")
-		if err := ops.BanUser(dbClient, args[0], reason, adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.BanUser(ctx, dbClient, args[0], reason, adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("user %s banned\n", args[0])
@@ -75,7 +83,9 @@ var usersUnbanCmd = &cobra.Command{
 	Short: "Unban a user",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := ops.UnbanUser(dbClient, args[0], adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.UnbanUser(ctx, dbClient, args[0], adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("user %s unbanned\n", args[0])
@@ -97,7 +107,9 @@ var usersGrantShardsCmd = &cobra.Command{
 			return err
 		}
 		reason, _ := cmd.Flags().GetString("reason")
-		if err := ops.GrantShards(dbClient, args[0], amount, reason, adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.GrantShards(ctx, dbClient, args[0], amount, reason, adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("granted %d shards to %s\n", amount, args[0])
@@ -119,7 +131,9 @@ var usersGrantPreshardsCmd = &cobra.Command{
 			return err
 		}
 		reason, _ := cmd.Flags().GetString("reason")
-		if err := ops.GrantPreshards(dbClient, args[0], amount, reason, adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.GrantPreshards(ctx, dbClient, args[0], amount, reason, adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("granted %d preshards to %s\n", amount, args[0])
@@ -139,7 +153,9 @@ var usersDeleteCmd = &cobra.Command{
 		if err := parseUUID(args[0]); err != nil {
 			return err
 		}
-		if err := ops.SoftDeleteUser(dbClient, args[0], adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.SoftDeleteUser(ctx, dbClient, args[0], adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("user %s deleted\n", args[0])

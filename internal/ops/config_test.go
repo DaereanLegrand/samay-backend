@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +16,7 @@ func TestListConfig_ReturnsRows(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(resp, 200)
 	defer srv.Close()
 
-	rows, err := ListConfig(client)
+	rows, err := ListConfig(context.Background(), client)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -35,7 +36,7 @@ func TestListConfig_InvalidJSON(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(`bad data`, 200)
 	defer srv.Close()
 
-	_, err := ListConfig(client)
+	_, err := ListConfig(context.Background(), client)
 
 	if err == nil || !strings.Contains(err.Error(), "unmarshal") {
 		t.Errorf("expected unmarshal error, got: %v", err)
@@ -47,7 +48,7 @@ func TestGetConfig_ReturnsSingleRow(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(resp, 200)
 	defer srv.Close()
 
-	row, err := GetConfig(client, "app.name")
+	row, err := GetConfig(context.Background(), client, "app.name")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -61,7 +62,7 @@ func TestGetConfig_NotFound(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(`[]`, 200)
 	defer srv.Close()
 
-	_, err := GetConfig(client, "nonexistent")
+	_, err := GetConfig(context.Background(), client, "nonexistent")
 
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("expected 'not found' error, got: %v", err)
@@ -72,7 +73,7 @@ func TestGetConfig_UsesKeyFilter(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`[{"key":"test.key","value":"x"}]`, 200)
 	defer srv.Close()
 
-	GetConfig(client, "test.key")
+	GetConfig(context.Background(), client, "test.key")
 
 	req := (*log)[0]
 	assertContains(t, req.Path, "/rest/v1/app_config")
@@ -94,13 +95,32 @@ func TestSetConfig_AuditsChange(t *testing.T) {
 	defer srv.Close()
 	client := &db.DBClient{BaseURL: srv.URL, ServiceKey: "test-key", HTTP: srv.Client()}
 
-	err := SetConfig(client, "app.name", "New", "admin1")
+	err := SetConfig(context.Background(), client, "app.name", "New", "admin1")
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if calls < 2 {
 		t.Errorf("expected at least 2 requests (get + update), got %d", calls)
+	}
+}
+
+func TestSetConfig_MissingKeyDoesNotPanic(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == "GET" {
+			w.Write([]byte(`[]`))
+		} else {
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+	client := &db.DBClient{BaseURL: srv.URL, ServiceKey: "test-key", HTTP: srv.Client()}
+
+	err := SetConfig(context.Background(), client, "app.name", "New", "admin1")
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 
@@ -123,7 +143,7 @@ func TestResetConfig_UsesDefaultValue(t *testing.T) {
 	defer srv.Close()
 	client := &db.DBClient{BaseURL: srv.URL, ServiceKey: "test-key", HTTP: srv.Client()}
 
-	err := ResetConfig(client, "app.name", "admin1")
+	err := ResetConfig(context.Background(), client, "app.name", "admin1")
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -140,7 +160,7 @@ func TestResetConfig_NoDefaultValue(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(string(resp), 200)
 	defer srv.Close()
 
-	err := ResetConfig(client, "app.name", "admin1")
+	err := ResetConfig(context.Background(), client, "app.name", "admin1")
 
 	if err == nil || !strings.Contains(err.Error(), "no default value") {
 		t.Errorf("expected 'no default value' error, got: %v", err)
@@ -152,7 +172,7 @@ func TestGetConfig_SignupShards(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(resp, 200)
 	defer srv.Close()
 
-	row, err := GetConfig(client, "economy.user_signup_shards")
+	row, err := GetConfig(context.Background(), client, "economy.user_signup_shards")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

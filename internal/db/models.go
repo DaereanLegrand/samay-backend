@@ -6,21 +6,21 @@ import (
 )
 
 type User struct {
-	ID                    string     `json:"id"`
-	Username              *string    `json:"username"`
-	AvatarURL             *string    `json:"avatar_url"`
-	DateOfBirth           *string    `json:"date_of_birth"`
-	Bio                   *string    `json:"bio"`
-	BannedAt              *time.Time `json:"banned_at"`
-	BanReason             *string    `json:"ban_reason"`
-	DeletedAt             *time.Time `json:"deleted_at"`
-	PersonalShards        int        `json:"personal_shards"`
-	Preshards             int        `json:"preshards"`
-	SubscriptionTier      string     `json:"subscription_tier"`
-	SubscriptionExpiresAt *time.Time `json:"subscription_expires_at"`
+	ID                    string          `json:"id"`
+	Username              *string         `json:"username"`
+	AvatarURL             *string         `json:"avatar_url"`
+	DateOfBirth           *string         `json:"date_of_birth"`
+	Bio                   *string         `json:"bio"`
+	BannedAt              *time.Time      `json:"banned_at"`
+	BanReason             *string         `json:"ban_reason"`
+	DeletedAt             *time.Time      `json:"deleted_at"`
+	PersonalShards        int             `json:"personal_shards"`
+	Preshards             int             `json:"preshards"`
+	SubscriptionTier      string          `json:"subscription_tier"`
+	SubscriptionExpiresAt *time.Time      `json:"subscription_expires_at"`
 	NotificationPrefs     json.RawMessage `json:"notification_preferences"`
-	CreatedAt             time.Time  `json:"created_at"`
-	UpdatedAt             time.Time  `json:"updated_at"`
+	CreatedAt             time.Time       `json:"created_at"`
+	UpdatedAt             time.Time       `json:"updated_at"`
 }
 
 type Cosmetic struct {
@@ -101,39 +101,39 @@ type GroupRankSnapshot struct {
 }
 
 type Event struct {
-	ID                      string     `json:"id"`
-	Name                    string     `json:"name"`
-	Description             *string    `json:"description"`
-	CoverURL                *string    `json:"cover_url"`
-	Type                    string     `json:"type"`
-	CreatedByUserID         string     `json:"created_by_user_id"`
-	GroupID                 *string    `json:"group_id"`
-	LocationName            *string    `json:"location_name"`
-	LocationLat             *float64   `json:"location_lat"`
-	LocationLng             *float64   `json:"location_lng"`
-	StartsAt                time.Time  `json:"starts_at"`
-	EndsAt                  time.Time  `json:"ends_at"`
-	JoinMode                *string    `json:"join_mode"`
-	PreshardsPool           int        `json:"preshards_pool"`
-	PreshardsDistributed    bool       `json:"preshards_distributed"`
-	PreshardsCapPerUser     *int       `json:"preshards_cap_per_user"`
-	PreshardsRemainderAction *string   `json:"preshards_remainder_action"`
-	DynamicQREnabled        bool       `json:"dynamic_qr_enabled"`
-	InviteToken             string     `json:"invite_token"`
-	Status                  string     `json:"status"`
-	Featured                bool       `json:"featured"`
-	FeaturedUntil           *time.Time `json:"featured_until"`
-	CreatedAt               time.Time  `json:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"`
+	ID                       string     `json:"id"`
+	Name                     string     `json:"name"`
+	Description              *string    `json:"description"`
+	CoverURL                 *string    `json:"cover_url"`
+	Type                     string     `json:"type"`
+	CreatedByUserID          string     `json:"created_by_user_id"`
+	GroupID                  *string    `json:"group_id"`
+	LocationName             *string    `json:"location_name"`
+	LocationLat              *float64   `json:"location_lat"`
+	LocationLng              *float64   `json:"location_lng"`
+	StartsAt                 time.Time  `json:"starts_at"`
+	EndsAt                   time.Time  `json:"ends_at"`
+	JoinMode                 *string    `json:"join_mode"`
+	PreshardsPool            int        `json:"preshards_pool"`
+	PreshardsDistributed     bool       `json:"preshards_distributed"`
+	PreshardsCapPerUser      *int       `json:"preshards_cap_per_user"`
+	PreshardsRemainderAction *string    `json:"preshards_remainder_action"`
+	DynamicQREnabled         bool       `json:"dynamic_qr_enabled"`
+	InviteToken              string     `json:"invite_token"`
+	Status                   string     `json:"status"`
+	Featured                 bool       `json:"featured"`
+	FeaturedUntil            *time.Time `json:"featured_until"`
+	CreatedAt                time.Time  `json:"created_at"`
+	UpdatedAt                time.Time  `json:"updated_at"`
 }
 
 type EventPromotor struct {
-	ID                  string    `json:"id"`
-	EventID             string    `json:"event_id"`
-	UserID              string    `json:"user_id"`
-	Role                string    `json:"role"`
-	PreshardsContributed int      `json:"preshards_contributed"`
-	AddedAt             time.Time `json:"added_at"`
+	ID                   string    `json:"id"`
+	EventID              string    `json:"event_id"`
+	UserID               string    `json:"user_id"`
+	Role                 string    `json:"role"`
+	PreshardsContributed int       `json:"preshards_contributed"`
+	AddedAt              time.Time `json:"added_at"`
 }
 
 type EventInvite struct {
@@ -166,13 +166,13 @@ type EventAttendance struct {
 }
 
 type EventPhoto struct {
-	ID              string    `json:"id"`
-	EventID         string    `json:"event_id"`
-	UploadedByUserID string   `json:"uploaded_by_user_id"`
-	StoragePath     string    `json:"storage_path"`
-	LikesCount      int       `json:"likes_count"`
-	Reported        bool      `json:"reported"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID               string    `json:"id"`
+	EventID          string    `json:"event_id"`
+	UploadedByUserID string    `json:"uploaded_by_user_id"`
+	StoragePath      string    `json:"storage_path"`
+	LikesCount       int       `json:"likes_count"`
+	Reported         bool      `json:"reported"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 type EventPhotoLike struct {
@@ -190,13 +190,13 @@ type Chat struct {
 }
 
 type Message struct {
-	ID        string     `json:"id"`
-	ChatID    string     `json:"chat_id"`
-	SenderID  string     `json:"sender_id"`
-	Content   string     `json:"content"`
-	MediaURL  *string    `json:"media_url"`
-	Reported  bool       `json:"reported"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID        string    `json:"id"`
+	ChatID    string    `json:"chat_id"`
+	SenderID  string    `json:"sender_id"`
+	Content   string    `json:"content"`
+	MediaURL  *string   `json:"media_url"`
+	Reported  bool      `json:"reported"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type ChatParticipant struct {
@@ -247,15 +247,15 @@ type Notification struct {
 }
 
 type FeatureRequest struct {
-	ID                 string     `json:"id"`
-	EventID            string     `json:"event_id"`
-	RequestedByUserID  string     `json:"requested_by_user_id"`
-	ContactInfo        string     `json:"contact_info"`
-	DesiredDurationDays int       `json:"desired_duration_days"`
-	Notes              *string    `json:"notes"`
-	Status             string     `json:"status"`
-	FeaturedUntil      *time.Time `json:"featured_until"`
-	CreatedAt          time.Time  `json:"created_at"`
+	ID                  string     `json:"id"`
+	EventID             string     `json:"event_id"`
+	RequestedByUserID   string     `json:"requested_by_user_id"`
+	ContactInfo         string     `json:"contact_info"`
+	DesiredDurationDays int        `json:"desired_duration_days"`
+	Notes               *string    `json:"notes"`
+	Status              string     `json:"status"`
+	FeaturedUntil       *time.Time `json:"featured_until"`
+	CreatedAt           time.Time  `json:"created_at"`
 }
 
 type Report struct {
@@ -287,14 +287,14 @@ type AdminAuditLog struct {
 }
 
 type SubscriptionOverride struct {
-	ID          string     `json:"id"`
-	UserID      string     `json:"user_id"`
-	AdminUserID string     `json:"admin_user_id"`
-	Tier        string     `json:"tier"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	Reason      *string    `json:"reason"`
-	Revoked     bool       `json:"revoked"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	AdminUserID string    `json:"admin_user_id"`
+	Tier        string    `json:"tier"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	Reason      *string   `json:"reason"`
+	Revoked     bool      `json:"revoked"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type AppConfigRow struct {

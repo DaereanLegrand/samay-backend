@@ -19,7 +19,9 @@ var configListCmd = &cobra.Command{
 	Short: "List all config keys",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		data, err := ops.ListConfig(dbClient)
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.ListConfig(ctx, dbClient)
 		if err != nil {
 			return err
 		}
@@ -33,7 +35,9 @@ var configGetCmd = &cobra.Command{
 	Short: "Show a single config key",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		data, err := ops.GetConfig(dbClient, args[0])
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.GetConfig(ctx, dbClient, args[0])
 		if err != nil {
 			return err
 		}
@@ -51,7 +55,9 @@ var configSetCmd = &cobra.Command{
 		if !confirm {
 			return fmt.Errorf("refusing to set config %s: pass --confirm to confirm", args[0])
 		}
-		if err := ops.SetConfig(dbClient, args[0], args[1], adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.SetConfig(ctx, dbClient, args[0], args[1], adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("config %s set to %q\n", args[0], args[1])
@@ -64,7 +70,9 @@ var configResetCmd = &cobra.Command{
 	Short: "Revert a config key to its default value",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := ops.ResetConfig(dbClient, args[0], adminUserID()); err != nil {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		if err := ops.ResetConfig(ctx, dbClient, args[0], adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("config %s reset to default\n", args[0])

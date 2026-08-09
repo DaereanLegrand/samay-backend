@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:samay/core/providers/service_providers.dart';
+import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/group_service.dart';
 import 'package:samay/core/services/media_service.dart';
 import 'package:samay/core/services/permission_service.dart';
@@ -24,6 +25,8 @@ import 'package:samay/features/groups/leaderboard_screen.dart';
 import 'package:samay/features/groups/my_groups_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
+
+import '../support/fake_supabase_http.dart' as support;
 
 const _groupId = '33333333-3333-3333-3333-333333333333';
 const _userId1 = '11111111-1111-1111-1111-111111111111';
@@ -185,9 +188,91 @@ Future<ProviderContainer> _pumpWithRouter(
   return container;
 }
 
+class _GroupDetailHarness {
+  _GroupDetailHarness(this.container, this.router);
+
+  final ProviderContainer container;
+  final GoRouter router;
+}
+
+/// Pumps GroupDetailScreen as a pushed route over a `/home` parent, so
+/// navigation (donate push, leave-group pop) can be asserted against the real
+/// router stack (TST-07/M-14).
+Future<_GroupDetailHarness> _pumpGroupDetail(
+  WidgetTester tester,
+  List<Override> overrides,
+) async {
+  final container = ProviderContainer(overrides: overrides);
+  addTearDown(container.dispose);
+  final router = GoRouter(
+    initialLocation: '/home',
+    routes: [
+      GoRoute(
+        path: '/home',
+        builder: (_, _) => const Scaffold(body: Text('home-marker')),
+      ),
+      GoRoute(
+        path: '/group/:groupId',
+        builder: (_, state) =>
+            GroupDetailScreen(groupId: state.pathParameters['groupId']!),
+      ),
+      GoRoute(
+        path: '/group/:groupId/donate',
+        builder: (_, state) => Scaffold(
+          body: Text('donate-${state.pathParameters['groupId']}'),
+        ),
+      ),
+    ],
+  );
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(
+        locale: const Locale('es'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        routerConfig: router,
+      ),
+    ),
+  );
+  // push (not go): the leave-group flow pops back to the `/home` parent.
+  router.push(RoutePaths.groupDetail(_groupId));
+  await tester.pumpAndSettle();
+  return _GroupDetailHarness(container, router);
+}
+
+/// The full set of provider overrides that renders a loaded GroupDetailScreen.
+List<Override> _loadedGroupDetailOverrides() => [
+      groupDetailProvider.overrideWith(
+        () => _FakeGroupDetailNotifier(
+          data: {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
+        ),
+      ),
+      groupMembersProvider.overrideWith(
+        () => _FakeGroupMembersNotifier(
+          data: [
+            {
+              'user_id': _userId1,
+              'role': 'promotor',
+              'users': {'username': 'ana'},
+            },
+          ],
+        ),
+      ),
+      contributionsProvider.overrideWith(
+        () => _FakeContributionsNotifier(
+          data: const GroupContributionsData(contributors: [], myContribution: 0),
+        ),
+      ),
+    ];
+
 void main() {
-  setUpAll(() {
+  setUpAll(() async {
     registerFallbackValue(Uint8List(0));
+    // Seeded session + deterministic HTTP layer: the leave-group flow reaches
+    // `SupabaseService.instance.leaveGroup` (requires `auth.currentUser`) and
+    // issues PostgREST requests — both served hermetically (I-45).
+    await support.initSupabaseHarness(sessionEmail: 'a@b.com');
   });
 
   group('CreateGroupScreen', () {
@@ -303,6 +388,30 @@ void main() {
       verifyNever(() => media.uploadGroupCover(any()));
       verifyNever(() => group.createGroup(any()));
     });
+
+    testWidgets('empty name: no service call and no limit dialog (TST-07/M-14)',
+        (tester) async {
+      final media = _MockMediaService();
+      final group = _MockGroupService();
+
+      await _pumpWithRouter(
+        tester,
+        const CreateGroupScreen(),
+        [
+          mediaServiceProvider.overrideWithValue(media),
+          groupServiceProvider.overrideWithValue(group),
+        ],
+      );
+
+      await tester.tap(find.text('Crear'));
+      await tester.pumpAndSettle();
+
+      verifyNever(() => group.getUserGroupCount());
+      verifyNever(() => group.createGroup(any()));
+      verifyNever(() => media.uploadGroupCover(any()));
+      expect(find.text('Límite alcanzado'), findsNothing);
+      expect(find.byType(CreateGroupScreen), findsOneWidget);
+    });
   });
 
   group('MyGroupsScreen', () {
@@ -412,6 +521,54 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(ErrorView), findsOneWidget);
       expect(find.text('Reintentar'), findsOneWidget);
+    });
+
+    testWidgets('donate button navigates to the donate route (TST-07/M-14)',
+        (tester) async {
+      final harness = await _pumpGroupDetail(tester, _loadedGroupDetailOverrides());
+
+      await tester.tap(find.text('Donar shards'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('donate-$_groupId'), findsOneWidget);
+      expect(
+        harness.router.state.matchedLocation,
+        RoutePaths.donateToGroup(_groupId),
+      );
+    });
+
+    testWidgets(
+        'leave-group flow: menu → confirm dialog → leaveGroup service call → '
+        'pops back (TST-07/M-14)', (tester) async {
+      await _pumpGroupDetail(tester, _loadedGroupDetailOverrides());
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Abandonar grupo'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('¿Estás seguro?'), findsOneWidget);
+
+      // Cancelling keeps the screen.
+      await tester.tap(find.text('Cancelar'));
+      await tester.pumpAndSettle();
+      expect(find.byType(GroupDetailScreen), findsOneWidget);
+
+      // Confirming deletes the membership and pops to the parent route.
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Abandonar grupo'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Abandonar'));
+      await tester.pumpAndSettle();
+
+      expect(
+        support.harnessHttp.sent('DELETE', 'group_id=eq.$_groupId'),
+        isTrue,
+        reason: 'leaveGroup must delete the membership row',
+      );
+      expect(find.text('home-marker'), findsOneWidget);
+      expect(find.byType(GroupDetailScreen), findsNothing);
     });
   });
 

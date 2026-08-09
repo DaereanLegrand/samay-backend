@@ -12,6 +12,7 @@ import 'package:samay/features/auth/otp_verification_screen.dart';
 import 'package:samay/features/auth/privacy_terms_screen.dart';
 import 'package:samay/features/auth/profile_setup_screen.dart';
 import 'package:samay/features/auth/signup_contact_screen.dart';
+import 'package:samay/features/chat/chat_screen.dart';
 import 'package:samay/features/feed/feed_screen.dart';
 import 'package:samay/features/friends/blocked_users_screen.dart';
 import 'package:samay/features/friends/friends_list_screen.dart';
@@ -133,7 +134,7 @@ Future<void> _pumpRoute(
 void main() {
   setUpAll(() async {
     await Supabase.initialize(
-      url: 'http://localhost:54321',
+      url: 'http://127.0.0.1:54386',
       anonKey: 'test-anon-key',
       authOptions: FlutterAuthClientOptions(
         localStorage: _MemoryStorage(),
@@ -157,7 +158,6 @@ void main() {
         (RoutePaths.eventPhotos(_eventId), 'Fotos'),
         (RoutePaths.eventCollage(_eventId), 'Collage'),
         (RoutePaths.createGroupEvent(_groupId), 'Crear evento'),
-        (RoutePaths.chat(_chatId), 'Chat'),
         (RoutePaths.qr(_eventId), 'QR'),
         (RoutePaths.scanner(_eventId), 'Esc\u00e1ner'),
         (RoutePaths.subscriptions, 'Suscripciones'),
@@ -211,6 +211,13 @@ void main() {
         expect(find.byType(VComingSoonScreen), findsOneWidget);
         expect(find.text('Evento'), findsOneWidget);
       });
+      testWidgets('${RoutePaths.chat(_chatId)} renders ChatScreen',
+          (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, RoutePaths.chat(_chatId));
+        expect(find.byType(ChatScreen), findsOneWidget);
+        expect(find.byType(VComingSoonScreen), findsNothing);
+      });
     });
 
     group('RoutePaths coherence', () {
@@ -240,7 +247,7 @@ void main() {
         (RoutePaths.eventCollage(_eventId), VComingSoonScreen),
         (RoutePaths.eventInviteToken(_token), VComingSoonScreen),
         (RoutePaths.createGroupEvent(_groupId), VComingSoonScreen),
-        (RoutePaths.chat(_chatId), VComingSoonScreen),
+        (RoutePaths.chat(_chatId), ChatScreen),
         (RoutePaths.qr(_eventId), VComingSoonScreen),
         (RoutePaths.scanner(_eventId), VComingSoonScreen),
         (RoutePaths.groupMembers(_groupId), GroupMembersScreen),

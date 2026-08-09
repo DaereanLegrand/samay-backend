@@ -1,7 +1,7 @@
 package ops
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 
 	"github.com/samay-app/samay/internal/db"
@@ -12,39 +12,33 @@ type ShardLedgerParams struct {
 	Limit  int
 }
 
-func GetShardLedger(client *db.DBClient, userID string, limit int) ([]db.ShardLedgerEntry, error) {
+func GetShardLedger(ctx context.Context, client *db.DBClient, userID string, limit int) ([]db.ShardLedgerEntry, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	body, err := client.Select("shard_ledger", "id,delta,reason,reference_id,created_at&user_id=eq."+userID+"&order=created_at.desc", limit, 0)
-	if err != nil {
-		return nil, fmt.Errorf("get shard ledger: %w", err)
-	}
-	var entries []db.ShardLedgerEntry
-	if err := json.Unmarshal(body, &entries); err != nil {
-		return nil, fmt.Errorf("unmarshal shard ledger: %w", err)
-	}
-	return entries, nil
+	qb := db.NewQueryBuilder().
+		Select("id", "delta", "reason", "reference_id", "created_at").
+		Eq("user_id", userID).
+		Order("created_at", false).
+		Limit(limit)
+	return db.List[db.ShardLedgerEntry](ctx, client, "shard_ledger", qb)
 }
 
-func GetGroupShardLedger(client *db.DBClient, groupID string) ([]db.GroupShardContribution, error) {
-	body, err := client.Select("group_shard_contributions", "id,user_id,shards_contributed,contributed_at,expires_at&group_id=eq."+groupID+"&order=contributed_at.desc&limit=100", 100, 0)
-	if err != nil {
-		return nil, fmt.Errorf("get group shard ledger: %w", err)
-	}
-	var entries []db.GroupShardContribution
-	if err := json.Unmarshal(body, &entries); err != nil {
-		return nil, fmt.Errorf("unmarshal group shard contributions: %w", err)
-	}
-	return entries, nil
+func GetGroupShardLedger(ctx context.Context, client *db.DBClient, groupID string) ([]db.GroupShardContribution, error) {
+	qb := db.NewQueryBuilder().
+		Select("id", "user_id", "shards_contributed", "contributed_at", "expires_at").
+		Eq("group_id", groupID).
+		Order("contributed_at", false).
+		Limit(100)
+	return db.List[db.GroupShardContribution](ctx, client, "group_shard_contributions", qb)
 }
 
-func RecalculateRanks(client *db.DBClient, tier string) error {
+func RecalculateRanks(ctx context.Context, client *db.DBClient, tier string) error {
 	params := map[string]interface{}{}
 	if tier != "" {
 		params["p_tier"] = tier
 	}
-	_, err := client.RPC("recalculate_ranks", params)
+	_, err := client.RPC(ctx, "recalculate_ranks", params)
 	if err != nil {
 		return fmt.Errorf("recalculate ranks: %w", err)
 	}
