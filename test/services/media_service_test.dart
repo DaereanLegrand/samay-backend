@@ -208,6 +208,66 @@ void main() {
     });
   });
 
+  group('MediaService.uploadEventCover (ECRT step 2 — I-54)', () {
+    late _MockSupabaseClient client;
+    late _MockStorage storage;
+    late _MockFileApi fileApi;
+    late MediaService service;
+
+    setUp(() {
+      storage = _MockStorage();
+      client = _MockSupabaseClient(storage);
+      fileApi = _MockFileApi();
+      when(() => storage.from('events')).thenReturn(fileApi);
+      when(() => fileApi.uploadBinary(any(), any())).thenAnswer(
+        (invocation) async => invocation.positionalArguments[0] as String,
+      );
+      when(() => fileApi.getPublicUrl(any())).thenAnswer(
+        (invocation) =>
+            'https://cdn.example/events/${invocation.positionalArguments[0]}',
+      );
+      service = MediaService(client: client);
+    });
+
+    test('compresses a full-resolution payload before uploadBinary', () async {
+      final input = await _noisePng(3000, 2000);
+      expect(input.length, greaterThan(ImageProcessor.skipThresholdBytes));
+
+      final url = await service.uploadEventCover(input);
+
+      expect(url, startsWith('https://cdn.example/events/event_covers/'));
+      final captured = verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
+          .captured;
+      final path = captured[0] as String;
+      final uploadedBytes = captured[1] as Uint8List;
+      expect(path, startsWith('event_covers/'));
+      expect(path, endsWith('.png'),
+          reason: 'processed output is always PNG, whatever the source format');
+      expect(uploadedBytes.length, lessThan(input.length),
+          reason: 'downscaled payload must be smaller than the original');
+    });
+
+    test('passes small payloads through without processing', () async {
+      final input = await _solidPng(800, 600);
+      expect(input.length, lessThan(ImageProcessor.skipThresholdBytes));
+
+      await service.uploadEventCover(input);
+
+      final captured = verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
+          .captured;
+      expect(captured[1], equals(input),
+          reason: 'cheap uploads must not pay the decode/encode cost');
+    });
+
+    test('returns the public URL of the uploaded object', () async {
+      final input = await _solidPng(640, 480);
+      final url = await service.uploadEventCover(input);
+
+      expect(url, startsWith('https://cdn.example/events/event_covers/'));
+      expect(url, endsWith('.png'));
+    });
+  });
+
   group('MediaService.uploadEventPhoto (PHUP gap — I-44)', () {
     late _MockSupabaseClient client;
     late MockGoTrueClient auth;

@@ -185,4 +185,76 @@ void main() {
           throwsA(isA<Exception>()));
     });
   });
+
+  group('RealtimeService.subscribeToChannel', () {
+    /// The I-52 lifecycle seam: the optional [onStatus] callback is wired
+    /// into `channel.subscribe` so the realtime provider can track
+    /// connection state and drive reconnect backoff.
+    test('passes the status callback to channel.subscribe', () {
+      late void Function(RealtimeSubscribeStatus, Object?) statusCallback;
+      final channel = MockRealtimeChannel();
+      when(() => client.channel('messages:chat-1')).thenReturn(channel);
+      when(() => channel.onPostgresChanges(
+            event: any(named: 'event'),
+            schema: any(named: 'schema'),
+            table: any(named: 'table'),
+            callback: any(named: 'callback'),
+          )).thenReturn(channel);
+      when(() => channel.subscribe(any())).thenAnswer((invocation) {
+        statusCallback = invocation.positionalArguments[0]
+            as void Function(RealtimeSubscribeStatus, Object?);
+        return channel;
+      });
+
+      final reported = <RealtimeSubscribeStatus>[];
+      final returned = service().subscribeToChannel(
+        'messages:chat-1',
+        PostgresChangeEvent.insert,
+        'messages',
+        (_) {},
+        onStatus: (status, _) => reported.add(status),
+      );
+
+      expect(returned, same(channel));
+      verify(() => channel.onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'messages',
+            callback: any(named: 'callback'),
+          )).called(1);
+      verify(() => channel.subscribe(any())).called(1);
+
+      // The captured callback is the provider's own — drive it and observe
+      // the passthrough.
+      expect(statusCallback, isNotNull);
+      statusCallback(RealtimeSubscribeStatus.subscribed, null);
+      statusCallback(RealtimeSubscribeStatus.channelError, Exception('x'));
+      expect(reported, [
+        RealtimeSubscribeStatus.subscribed,
+        RealtimeSubscribeStatus.channelError,
+      ]);
+    });
+
+    test('omits the status callback for plain subscriptions', () {
+      final channel = MockRealtimeChannel();
+      when(() => client.channel('messages:chat-1')).thenReturn(channel);
+      when(() => channel.onPostgresChanges(
+            event: any(named: 'event'),
+            schema: any(named: 'schema'),
+            table: any(named: 'table'),
+            callback: any(named: 'callback'),
+          )).thenReturn(channel);
+      when(() => channel.subscribe()).thenReturn(channel);
+
+      final returned = service().subscribeToChannel(
+        'messages:chat-1',
+        PostgresChangeEvent.insert,
+        'messages',
+        (_) {},
+      );
+
+      expect(returned, same(channel));
+      verify(() => channel.subscribe()).called(1);
+    });
+  });
 }

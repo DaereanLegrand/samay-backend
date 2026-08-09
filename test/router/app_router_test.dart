@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/feature_flags.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/router/app_router.dart';
 import 'package:samay/core/router/route_extras.dart';
@@ -13,6 +14,10 @@ import 'package:samay/features/auth/privacy_terms_screen.dart';
 import 'package:samay/features/auth/profile_setup_screen.dart';
 import 'package:samay/features/auth/signup_contact_screen.dart';
 import 'package:samay/features/chat/chat_screen.dart';
+import 'package:samay/features/events/create_event_screen.dart';
+import 'package:samay/features/events/event_detail_screen.dart';
+import 'package:samay/features/events/event_edit_screen.dart';
+import 'package:samay/features/events/events_providers.dart';
 import 'package:samay/features/feed/feed_screen.dart';
 import 'package:samay/features/friends/blocked_users_screen.dart';
 import 'package:samay/features/friends/friends_list_screen.dart';
@@ -25,6 +30,7 @@ import 'package:samay/features/groups/group_members_screen.dart';
 import 'package:samay/features/groups/invite_screen.dart';
 import 'package:samay/features/groups/leaderboard_screen.dart';
 import 'package:samay/features/groups/my_groups_screen.dart';
+import 'package:samay/features/notifications/notification_center_screen.dart';
 import 'package:samay/features/profile/delete_account_screen.dart';
 import 'package:samay/features/profile/edit_profile_screen.dart';
 import 'package:samay/features/profile/profile_screen.dart';
@@ -38,6 +44,55 @@ const _eventId = '11111111-1111-1111-1111-111111111111';
 const _groupId = '22222222-2222-2222-2222-222222222222';
 const _chatId = '33333333-3333-3333-3333-333333333333';
 const _token = '44444444-4444-4444-4444-444444444444';
+
+Map<String, dynamic> _event() => {
+      'id': _eventId,
+      'name': 'Rave en el garaje',
+      'description': 'La mejor fiesta del barrio',
+      'type': 'juerga',
+      'status': 'upcoming',
+      'created_by_user_id': _eventId,
+      'group_id': null,
+      'location_name': 'Av. Los Aromos 123',
+      'starts_at': DateTime(2026, 5, 15, 21).toIso8601String(),
+      'ends_at': DateTime(2026, 5, 16, 2).toIso8601String(),
+      'join_mode': 'open',
+      'preshards_pool': 500,
+      'preshards_distributed': false,
+      'preshards_cap_per_user': null,
+      'preshards_remainder_action': 'return',
+      'dynamic_qr_enabled': true,
+      'invite_token': 'invite-token',
+      'cover_url': null,
+      'featured': false,
+      'created_at': DateTime(2026, 5, 10).toIso8601String(),
+      'updated_at': DateTime(2026, 5, 10).toIso8601String(),
+    };
+
+class _FakeEventDetailNotifier extends EventDetailNotifier {
+  @override
+  Future<Map<String, dynamic>> build(String arg) async => _event();
+}
+
+class _FakeEventPromotoresNotifier extends EventPromotoresNotifier {
+  @override
+  Future<List<Map<String, dynamic>>> build(String arg) async => [
+        {
+          'id': 'promo-1',
+          'event_id': _eventId,
+          'user_id': _eventId,
+          'role': 'promotor',
+          'preshards_contributed': 500,
+          'added_at': DateTime(2026, 5, 10).toIso8601String(),
+          'users': {'username': 'ana'},
+        },
+      ];
+}
+
+class _FakeMyEventInviteNotifier extends MyEventInviteNotifier {
+  @override
+  Future<Map<String, dynamic>?> build(String arg) async => null;
+}
 
 class _MemoryStorage extends LocalStorage {
   String? _token;
@@ -101,9 +156,15 @@ class _FakeAuthNotifier extends AuthNotifier {
   }
 }
 
-ProviderContainer _newContainer() {
+ProviderContainer _newContainer({
+  AppFeatureFlags flags = const AppFeatureFlags(),
+}) {
   final container = ProviderContainer(overrides: [
     authStateProvider.overrideWith(() => _FakeAuthNotifier()),
+    featureFlagsProvider.overrideWithValue(flags),
+    eventDetailProvider.overrideWith(_FakeEventDetailNotifier.new),
+    eventPromotoresProvider.overrideWith(_FakeEventPromotoresNotifier.new),
+    myEventInviteProvider.overrideWith(_FakeMyEventInviteNotifier.new),
   ]);
   addTearDown(container.dispose);
   return container;
@@ -152,8 +213,6 @@ void main() {
 
     group('coming soon routes', () {
       for (final (path, title) in [
-        (RoutePaths.eventDetail(_eventId), 'Evento'),
-        (RoutePaths.eventEdit(_eventId), 'Editar evento'),
         (RoutePaths.eventInvite(_eventId), 'Invitar'),
         (RoutePaths.eventPhotos(_eventId), 'Fotos'),
         (RoutePaths.eventCollage(_eventId), 'Collage'),
@@ -184,16 +243,13 @@ void main() {
         );
       });
 
-      testWidgets('${RoutePaths.mainNotifications} renders coming soon with bottom nav',
+      testWidgets('${RoutePaths.mainNotifications} renders the notification center with bottom nav',
           (tester) async {
         final container = _newContainer();
         await _pumpRoute(tester, container, RoutePaths.mainNotifications);
-        expect(find.byType(VComingSoonScreen), findsOneWidget);
+        expect(find.byType(NotificationCenterScreen), findsOneWidget);
+        expect(find.byType(VComingSoonScreen), findsNothing);
         expect(find.byType(BottomNavigationBar), findsOneWidget);
-        expect(
-          find.text('Tus notificaciones aparecer\u00e1n aqu\u00ed pronto.'),
-          findsOneWidget,
-        );
       });
 
       testWidgets('${RoutePaths.groupMembers(_groupId)} renders GroupMembersScreen',
@@ -204,12 +260,14 @@ void main() {
         expect(find.byType(VComingSoonScreen), findsNothing);
       });
 
-      testWidgets('${RoutePaths.eventInviteToken(_token)} resolves to the event detail route',
+      testWidgets(
+          '${RoutePaths.eventInviteToken(_token)} resolves to the event detail route '
+          '(shadowed by /event/:eventId — documented NAV ordering issue, Phase 05)',
           (tester) async {
         final container = _newContainer();
         await _pumpRoute(tester, container, RoutePaths.eventInviteToken(_token));
-        expect(find.byType(VComingSoonScreen), findsOneWidget);
-        expect(find.text('Evento'), findsOneWidget);
+        expect(find.byType(EventDetailScreen), findsOneWidget);
+        expect(find.byType(VComingSoonScreen), findsNothing);
       });
       testWidgets('${RoutePaths.chat(_chatId)} renders ChatScreen',
           (tester) async {
@@ -225,7 +283,7 @@ void main() {
         (RoutePaths.mainFeed, FeedScreen),
         (RoutePaths.mainGroups, MyGroupsScreen),
         (RoutePaths.mainEvents, VComingSoonScreen),
-        (RoutePaths.mainNotifications, VComingSoonScreen),
+        (RoutePaths.mainNotifications, NotificationCenterScreen),
         (RoutePaths.mainProfile, ProfileScreen),
         (RoutePaths.groupCreate, CreateGroupScreen),
         (RoutePaths.groupsLeaderboard, LeaderboardScreen),
@@ -240,12 +298,12 @@ void main() {
         (RoutePaths.profileEdit, EditProfileScreen),
         (RoutePaths.signup, SignupContactScreen),
         (RoutePaths.ageGate, AgeGateScreen),
-        (RoutePaths.eventDetail(_eventId), VComingSoonScreen),
-        (RoutePaths.eventEdit(_eventId), VComingSoonScreen),
+        (RoutePaths.eventDetail(_eventId), EventDetailScreen),
+        (RoutePaths.eventEdit(_eventId), EventEditScreen),
         (RoutePaths.eventInvite(_eventId), VComingSoonScreen),
         (RoutePaths.eventPhotos(_eventId), VComingSoonScreen),
         (RoutePaths.eventCollage(_eventId), VComingSoonScreen),
-        (RoutePaths.eventInviteToken(_token), VComingSoonScreen),
+        (RoutePaths.eventInviteToken(_token), EventDetailScreen),
         (RoutePaths.createGroupEvent(_groupId), VComingSoonScreen),
         (RoutePaths.chat(_chatId), ChatScreen),
         (RoutePaths.qr(_eventId), VComingSoonScreen),
@@ -261,6 +319,15 @@ void main() {
           expect(find.byType(widget), findsOneWidget);
         });
       }
+
+      testWidgets(
+          '${RoutePaths.createGroupEvent(_groupId)} renders CreateEventScreen '
+          'when the events flag is on (dark-first gating, I-54)', (tester) async {
+        final container = _newContainer(flags: const AppFeatureFlags(events: true));
+        await _pumpRoute(tester, container, RoutePaths.createGroupEvent(_groupId));
+        expect(find.byType(CreateEventScreen), findsOneWidget);
+        expect(find.byType(VComingSoonScreen), findsNothing);
+      });
 
       testWidgets('${RoutePaths.welcome} redirects to the feed', (tester) async {
         final container = _newContainer();

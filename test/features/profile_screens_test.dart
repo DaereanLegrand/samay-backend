@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/feature_flags.dart';
 import 'package:samay/features/feed/feed_screen.dart';
 import 'package:samay/features/profile/delete_account_screen.dart';
 import 'package:samay/features/profile/edit_profile_screen.dart';
@@ -242,6 +243,37 @@ void main() {
 
       expect(find.text('Cosméticos'), findsNothing);
       expect(find.text('Tu armario de cosméticos aparecerá aquí.'), findsNothing);
+    });
+
+    testWidgets(
+        'cosmetics section renders when the flag is enabled (I-49 release '
+        'gating — provider override drives the I-36 placeholder)',
+        (tester) async {
+      final profileFetcher = _StubProfileFetcher(() async => const {
+            'username': 'dana',
+            'personal_shards': 120,
+            'preshards': 3,
+          });
+      final groupsFetcher = _StubGroupsFetcher(() async => const []);
+      await tester.pumpWidget(_wrapWithOverrides(
+        const ProfileScreen(),
+        [
+          myProfileProvider
+              .overrideWith(() => _StubProfileNotifier(profileFetcher)),
+          myGroupsProvider
+              .overrideWith(() => _StubGroupsNotifier(groupsFetcher)),
+          featureFlagsProvider.overrideWithValue(
+            const AppFeatureFlags(cosmeticsSection: true),
+          ),
+        ],
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Cosméticos'), findsOneWidget);
+      expect(
+        find.text('Tu armario de cosméticos aparecerá aquí.'),
+        findsOneWidget,
+      );
     });
   });
 

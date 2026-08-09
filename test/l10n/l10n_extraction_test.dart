@@ -55,6 +55,7 @@ const _dataAllowlist = <String>{
   'small', // leaderboard size-tier key
   'medium', // leaderboard size-tier key
   'large', // leaderboard size-tier key
+  'create-event', // group route path segment (I-53 deep-link guard, data not UI)
   'b90_100', // rank-bracket key (renders localized label)
   'b80_90',
   'b60_80',

@@ -38,6 +38,15 @@ const _justifiedFixedLists = <String, String>{
       'fixed 4-child donation form — no data list',
   'lib/features/groups/create_group_screen.dart':
       'fixed 5-child create-group form — no data list',
+  'lib/features/events/event_detail_screen.dart':
+      'fixed event header + section stack (cover, name, badges, info rows, '
+      'pool card, promotores section, actions); the only data-derived content '
+      '(promotores avatars, invite row) renders inside the fixed sections '
+      'via Wrap/conditionals, not as list children',
+  'lib/features/events/create_event_screen.dart':
+      'fixed ECRT creation form (cover, inputs, pickers, chips, preshards '
+      'section, submit); the only data-derived content (myGroups dropdown '
+      'items) renders inside the fixed group section, not as list children',
 };
 
 final _plainListView = RegExp(r'ListView\(');

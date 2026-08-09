@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/providers/auth_provider.dart';
+import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/chat_service.dart';
+import 'package:samay/core/services/realtime_service.dart';
 import 'package:samay/features/chat/chat_providers.dart';
 import 'package:samay/features/chat/chat_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
@@ -34,6 +36,8 @@ class _FakeChatMessagesNotifier extends ChatMessagesNotifier {
 
 class _MockChatService extends Mock implements ChatService {}
 
+class _MockRealtimeService extends Mock implements RealtimeService {}
+
 class _MockRealtimeChannel extends Mock implements RealtimeChannel {}
 
 Map<String, dynamic> _message(String id, String content, {String? sender}) => {
@@ -57,9 +61,12 @@ Future<ProviderContainer> _pump(
     authStateProvider.overrideWith(_StubAuthNotifier.new),
     chatMessagesProvider
         .overrideWith(() => _FakeChatMessagesNotifier(messages)),
-    // The screen reads the E2EE service for the realtime subscription; a
-    // mock avoids touching Supabase.instance (uninitialized in tests).
+    // The screen reads the E2EE repository, which is built from the E2EE
+    // service (for the realtime subscription) and the realtime service
+    // (raw-channel seam, I-50); mocks avoid touching Supabase.instance
+    // (uninitialized in tests).
     chatE2eeServiceProvider.overrideWithValue(chatService),
+    realtimeServiceProvider.overrideWithValue(_MockRealtimeService()),
   ]);
   addTearDown(container.dispose);
   await tester.pumpWidget(
