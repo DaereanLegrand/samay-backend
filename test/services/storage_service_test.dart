@@ -140,29 +140,43 @@ void main() {
       );
     });
 
-    test('lost key (fresh install after backup restore): boxes are recreated '
-        'empty, cache data is treated as disposable', () async {
-      final firstBoot = HiveService(secureStorage: secureStorage, hive: Hive);
-      await firstBoot.init(initializeFlutter: false);
-      await firstBoot.cacheConfig({'cached': 'value'});
-      await Hive.close();
+    test(
+      'lost key (fresh install after backup restore): boxes are recreated '
+      'empty, cache data is treated as disposable',
+      () async {
+        final firstBoot = HiveService(secureStorage: secureStorage, hive: Hive);
+        await firstBoot.init(initializeFlutter: false);
+        await firstBoot.cacheConfig({'cached': 'value'});
+        await Hive.close();
 
-      secureStorage.storedKey = null;
+        secureStorage.storedKey = null;
 
-      final secondBoot = HiveService(secureStorage: secureStorage, hive: Hive);
-      // runZonedGuarded absorbs hive 2.2.3's duplicate-error leak on failed
-      // opens (fires after the opening completes) so it never reaches the
-      // global test error handler under full-suite load.
-      await runZonedGuarded(() async {
-        await secondBoot.init(initializeFlutter: false);
-      }, (_, _) {});
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+        final secondBoot = HiveService(secureStorage: secureStorage, hive: Hive);
+        // runZonedGuarded absorbs hive 2.2.3's duplicate-error leak on failed
+        // opens (fires after the opening completes) so it never reaches the
+        // global test error handler under full-suite load.
+        await runZonedGuarded(() async {
+          await secondBoot.init(initializeFlutter: false);
+        }, (_, _) {});
+        await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      expect(Hive.isBoxOpen(HiveService.configBoxName), isTrue);
-      expect(Hive.isBoxOpen(HiveService.photoBoxName), isTrue);
-      expect(Hive.isBoxOpen(HiveService.messageBoxName), isTrue);
-      expect(Hive.isBoxOpen(HiveService.notificationBoxName), isTrue);
-      expect(secondBoot.getCachedConfig(), isNull);
-    });
+        expect(Hive.isBoxOpen(HiveService.configBoxName), isTrue);
+        expect(Hive.isBoxOpen(HiveService.photoBoxName), isTrue);
+        expect(Hive.isBoxOpen(HiveService.messageBoxName), isTrue);
+        expect(Hive.isBoxOpen(HiveService.notificationBoxName), isTrue);
+        expect(secondBoot.getCachedConfig(), isNull);
+
+        // The re-created boxes must be USABLE, not just open: the reset path
+        // (EF-04) must never leave a box whose write path is wedged by a
+        // leaked lock-file flock from the failed open.
+        await secondBoot.cacheConfig({'fresh': '1'});
+        expect(secondBoot.getCachedConfig(), {'fresh': '1'});
+      },
+      // Regression guard for the EF-04 flake: hive 2.2.3's failed-open close
+      // chain is unawaited, so an immediate re-open could previously deadlock
+      // on the leaked flock and hang past the 30 s default. The service must
+      // complete the reset far faster than this.
+      timeout: const Timeout(Duration(seconds: 20)),
+    );
   });
 }

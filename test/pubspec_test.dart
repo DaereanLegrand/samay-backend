@@ -75,4 +75,37 @@ void main() {
       });
     }
   });
+
+  group('declared assets', () {
+    test('every asset declared under flutter: exists on disk', () {
+      final flutterSection = pubspec['flutter'] as YamlMap;
+      final missing = <String>[];
+
+      final assets = flutterSection['assets'];
+      if (assets is YamlList) {
+        for (final asset in assets.whereType<String>()) {
+          if (!File(asset).existsSync()) {
+            missing.add(asset);
+          }
+        }
+      }
+
+      final fonts = flutterSection['fonts'];
+      if (fonts is YamlList) {
+        for (final entry in fonts.whereType<YamlMap>()) {
+          final files = entry['fonts'];
+          if (files is YamlList) {
+            for (final file in files.whereType<String>()) {
+              if (!File(file).existsSync()) {
+                missing.add(file);
+              }
+            }
+          }
+        }
+      }
+
+      expect(missing, isEmpty,
+          reason: 'declared assets missing on disk: $missing');
+    });
+  });
 }

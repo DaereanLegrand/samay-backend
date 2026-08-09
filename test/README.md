@@ -8,7 +8,7 @@ one-paragraph overview see the root [`README.md`](../README.md#testing-summary).
 | Layer | Where | Command | Notes |
 |-------|-------|---------|-------|
 | **Flutter unit/widget** | `test/` | `make flutter-test` | Mirrors `lib/` layout: `test/features/`, `test/router/`, `test/providers/`, `test/services/`, `test/theme/`, `test/widgets/`. Baseline: **176 pass / 23 documented pre-existing fail** (Supabase-not-initialized harness tests + brittle `structure_test.dart` — fixing those 23 is I-47's assignment, not your fault). |
-| **Flutter modular integration** | `integration_test/` | `flutter test integration_test/<module>_test.dart -d <device>` | **Being created by I-01 (planned).** Intended layout: one file per module/feature — `auth_flow_test.dart`, `friends_flow_test.dart`, `groups_flow_test.dart`, `events_flow_test.dart`, … — plus `integration_test/README.md` and a `run_all.sh` orchestrator. Each file must be **independently runnable** on a device, and the orchestrator runs them all. When you build a feature, add its flow file here. |
+| **Flutter modular integration** | `integration_test/` | `flutter test integration_test/<module>_test.dart -d <device>` | **Landed (I-01, 2026-08-09).** One file per module/feature — `auth_flow_test.dart`, `error_flow_test.dart`, `profile_flow_test.dart` (friends/groups/events/chat flow files listed in `runner.sh`'s `ORDERED_FLOWS` and skipped until written) — plus `integration_test/README.md` and `runner.sh` (dependency-safe order, exit 0/1). Each file is **independently runnable** and **hermetic by default**: flows run against the in-memory Supabase harness (`integration_test/support/fake_supabase.dart`) with zero network; live-stack flows are opt-in (`support/test_users.dart`, skips when the stack is down). When you build a feature, add its flow file here and register it in `runner.sh`. |
 | **Backend (curl opt-tests)** | `test/opt-*.sh` | `bash test/run_all_backend.sh` | Self-contained curl scripts that hit Supabase REST/Auth exactly like the Dart client (see "How to Test Backend Changes" below). Run against Kong at `http://127.0.0.1:54386`. Prerequisites: `make supabase-docker-start`, `make supabase-docker-reset`. |
 | **Go (admin CLI + ops)** | `*_test.go` | `go test ./...` | 82 tests: CLI flag/validation behavior (cobra) and `internal/ops` business logic against `httptest` servers. Run via `make test` together with Flutter. |
 | **SQL (pgTAP)** | `supabase/tests/schema_test.sql` | `supabase db test` | 125 assertions: extensions, 21 enums, 30+ tables, 9 triggers, RPCs, RLS policy sets per table, seed data (`app_config` 37 keys, 1 system admin). New migrations must extend this file. |
@@ -153,9 +153,9 @@ resp=$(auth_get "$TOKEN" "users?select=id&id=eq.<uuid>")
 # Flutter unit/widget
 make flutter-test
 
-# Flutter modular integration (integration_test/ — created by I-01)
+# Flutter modular integration (integration_test/ — landed, I-01)
 flutter test integration_test/auth_flow_test.dart -d <device>   # per module
-bash integration_test/run_all.sh                                 # whole suite
+bash integration_test/runner.sh                                  # whole suite (hermetic by default)
 
 # Backend: reset DB to clean state (applies all migrations + seed)
 make supabase-docker-start
@@ -189,7 +189,7 @@ make test
 test/opt-NNN-description.sh     # Optimization integration test (curl-based)
 test/features/<feature>_test.dart   # Flutter widget/unit tests per feature
 test/router/, test/providers/, test/services/, test/theme/, test/widgets/  # per-layer tests
-integration_test/<module>_flow_test.dart  # Flutter modular integration (I-01, planned)
+integration_test/<module>_flow_test.dart  # Flutter modular integration (landed — see integration_test/README.md; register new flows in runner.sh)
 supabase/tests/schema_test.sql   # pgTAP schema assertions
 ```
 

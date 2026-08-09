@@ -1,6 +1,18 @@
+import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:permission_handler/permission_handler.dart' as ph;
+import 'package:samay/core/providers/service_providers.dart';
+import 'package:samay/core/services/group_service.dart';
+import 'package:samay/core/services/media_service.dart';
+import 'package:samay/core/services/permission_service.dart';
 import 'package:samay/features/friends/friends_providers.dart';
 import 'package:samay/features/groups/create_group_screen.dart';
 import 'package:samay/features/groups/group_detail_screen.dart';
@@ -97,6 +109,26 @@ class _RecordingSearchResultsNotifier extends SearchResultsNotifier {
   }
 }
 
+class _MockMediaService extends Mock implements MediaService {}
+
+class _MockGroupService extends Mock implements GroupService {}
+
+/// Solid-color PNG via Canvas → `toByteData` — a real, decodable image for the
+/// cover-picker preview (`Image.file` renders it in the test).
+Future<Uint8List> _solidPng(int width, int height) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawRect(
+    Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+    Paint()..color = const Color(0xFF4B8BBE),
+  );
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(width, height);
+  final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  return bytes!.buffer.asUint8List();
+}
+
 Future<ProviderContainer> _pump(
   WidgetTester tester,
   Widget child,
@@ -118,7 +150,46 @@ Future<ProviderContainer> _pump(
   return container;
 }
 
+/// Pumps a screen inside a GoRouter so `context.pop()` (used by
+/// CreateGroupScreen after a successful create) has a route to pop back to.
+Future<ProviderContainer> _pumpWithRouter(
+  WidgetTester tester,
+  Widget child,
+  List<Override> overrides,
+) async {
+  final container = ProviderContainer(overrides: overrides);
+  addTearDown(container.dispose);
+  final router = GoRouter(
+    initialLocation: '/create',
+    routes: [
+      GoRoute(
+        path: '/',
+        builder: (_, _) => const Scaffold(),
+        routes: [
+          GoRoute(path: 'create', builder: (_, _) => child),
+        ],
+      ),
+    ],
+  );
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(
+        locale: const Locale('es'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        routerConfig: router,
+      ),
+    ),
+  );
+  return container;
+}
+
 void main() {
+  setUpAll(() {
+    registerFallbackValue(Uint8List(0));
+  });
+
   group('CreateGroupScreen', () {
     testWidgets('renders create group form', (tester) async {
       await _pump(tester, const CreateGroupScreen(), []);
@@ -126,6 +197,111 @@ void main() {
       expect(find.text('Nombre del grupo'), findsOneWidget);
       expect(find.text('Descripción (opcional)'), findsOneWidget);
       expect(find.text('Crear'), findsOneWidget);
+    });
+
+    testWidgets(
+        'with a cover: uploads via MediaService.uploadGroupCover, then '
+        'creates the group with the public URL (EF-03 swap)', (tester) async {
+      final media = _MockMediaService();
+      final group = _MockGroupService();
+      const coverUrl = 'https://cdn.example/groups/group_covers/1.png';
+      when(() => media.uploadGroupCover(any()))
+          .thenAnswer((_) async => coverUrl);
+      when(() => group.getUserGroupCount()).thenAnswer((_) async => 1);
+      when(() => group.createGroup(any()))
+          .thenAnswer((_) async => {'id': _groupId, 'name': 'Disco Crew'});
+
+      final dir = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('cover_test_'),
+      ))!;
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final coverFile = File('${dir.path}/cover.png');
+      final coverBytes = (await tester.runAsync(() async {
+        final bytes = await _solidPng(8, 8);
+        await coverFile.writeAsBytes(bytes);
+        return bytes;
+      }))!;
+      // In-memory XFile (readAsBytes completes under the widget test's fake
+      // async zone) whose `path` points at the real PNG, so the cover
+      // preview's Image.file decodes without error.
+      Future<XFile?> pickCover(ImageSource source) async =>
+          XFile.fromData(coverBytes, path: coverFile.path);
+      final permissions = PermissionService(
+        request: (_) async => ph.PermissionStatus.granted,
+      );
+
+      await _pumpWithRouter(
+        tester,
+        CreateGroupScreen(permissions: permissions, galleryPicker: pickCover),
+        [
+          mediaServiceProvider.overrideWithValue(media),
+          groupServiceProvider.overrideWithValue(group),
+        ],
+      );
+
+      await tester.tap(find.byIcon(Icons.camera_alt));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Disco Crew');
+      await tester.tap(find.text('Crear'));
+      await tester.pumpAndSettle();
+
+      verify(() => media.uploadGroupCover(any())).called(1);
+      final captured = verify(() => group.createGroup(captureAny())).captured;
+      final created = captured.single as Map;
+      expect(created['cover_url'], coverUrl,
+          reason: 'the group row must carry the public cover URL');
+      expect(created['name'], 'Disco Crew');
+    });
+
+    testWidgets('without a cover: creates the group with a null cover_url and '
+        'never touches the upload path', (tester) async {
+      final media = _MockMediaService();
+      final group = _MockGroupService();
+      when(() => group.getUserGroupCount()).thenAnswer((_) async => 1);
+      when(() => group.createGroup(any()))
+          .thenAnswer((_) async => {'id': _groupId, 'name': 'Disco Crew'});
+
+      await _pumpWithRouter(
+        tester,
+        const CreateGroupScreen(),
+        [
+          mediaServiceProvider.overrideWithValue(media),
+          groupServiceProvider.overrideWithValue(group),
+        ],
+      );
+
+      await tester.enterText(find.byType(TextField).first, 'Disco Crew');
+      await tester.tap(find.text('Crear'));
+      await tester.pumpAndSettle();
+
+      verifyNever(() => media.uploadGroupCover(any()));
+      final captured = verify(() => group.createGroup(captureAny())).captured;
+      expect((captured.single as Map)['cover_url'], isNull);
+    });
+
+    testWidgets('shows the group-limit dialog instead of creating at 5 groups',
+        (tester) async {
+      final media = _MockMediaService();
+      final group = _MockGroupService();
+      when(() => group.getUserGroupCount()).thenAnswer((_) async => 5);
+
+      await _pumpWithRouter(
+        tester,
+        const CreateGroupScreen(),
+        [
+          mediaServiceProvider.overrideWithValue(media),
+          groupServiceProvider.overrideWithValue(group),
+        ],
+      );
+
+      await tester.enterText(find.byType(TextField).first, 'Disco Crew');
+      await tester.tap(find.text('Crear'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Límite alcanzado'), findsOneWidget);
+      expect(find.textContaining('límite de 5 grupos'), findsOneWidget);
+      verifyNever(() => media.uploadGroupCover(any()));
+      verifyNever(() => group.createGroup(any()));
     });
   });
 

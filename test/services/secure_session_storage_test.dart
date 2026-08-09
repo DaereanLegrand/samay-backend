@@ -3,7 +3,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/services/secure_session_storage.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 /// Mocktail stand-in for `flutter_secure_storage` (SEC-11/M-33, agent I-25).
 ///
