@@ -1,5 +1,26 @@
 # Samay — Testing Guide
 
+This guide covers the **full test matrix** of the Samay repo. For the
+one-paragraph overview see the root [`README.md`](../README.md#testing-summary).
+
+## The Test Matrix
+
+| Layer | Where | Command | Notes |
+|-------|-------|---------|-------|
+| **Flutter unit/widget** | `test/` | `make flutter-test` | Mirrors `lib/` layout: `test/features/`, `test/router/`, `test/providers/`, `test/services/`, `test/theme/`, `test/widgets/`. Baseline: **176 pass / 23 documented pre-existing fail** (Supabase-not-initialized harness tests + brittle `structure_test.dart` — fixing those 23 is I-47's assignment, not your fault). |
+| **Flutter modular integration** | `integration_test/` | `flutter test integration_test/<module>_test.dart -d <device>` | **Being created by I-01 (planned).** Intended layout: one file per module/feature — `auth_flow_test.dart`, `friends_flow_test.dart`, `groups_flow_test.dart`, `events_flow_test.dart`, … — plus `integration_test/README.md` and a `run_all.sh` orchestrator. Each file must be **independently runnable** on a device, and the orchestrator runs them all. When you build a feature, add its flow file here. |
+| **Backend (curl opt-tests)** | `test/opt-*.sh` | `bash test/run_all_backend.sh` | Self-contained curl scripts that hit Supabase REST/Auth exactly like the Dart client (see "How to Test Backend Changes" below). Run against Kong at `http://127.0.0.1:54386`. Prerequisites: `make supabase-docker-start`, `make supabase-docker-reset`. |
+| **Go (admin CLI + ops)** | `*_test.go` | `go test ./...` | 82 tests: CLI flag/validation behavior (cobra) and `internal/ops` business logic against `httptest` servers. Run via `make test` together with Flutter. |
+| **SQL (pgTAP)** | `supabase/tests/schema_test.sql` | `supabase db test` | 125 assertions: extensions, 21 enums, 30+ tables, 9 triggers, RPCs, RLS policy sets per table, seed data (`app_config` 37 keys, 1 system admin). New migrations must extend this file. |
+| **Manual end-user QA** | `test_runner.sh` (root) | `bash test_runner.sh` | gum-based interactive runner — 63 cases across auth → leaderboard (Phases 00–04). Wipes local user data, records results to a timestamped markdown file. Not part of the automated TDD suite; used for pre-release device testing. |
+
+**Golden rule:** every code change ships a test at its layer. Flutter unit/widget
+tests in `test/`, integration flow in `integration_test/`, curl opt-test in
+`test/opt-NNN-*.sh` (+ registered by `run_all_backend.sh`), Go `*_test.go`,
+SQL pgTAP in `supabase/tests/schema_test.sql`.
+
+---
+
 ## Workflow
 
 Every optimization or bug fix follows this cycle:
@@ -129,15 +150,36 @@ resp=$(auth_get "$TOKEN" "users?select=id&id=eq.<uuid>")
 ## Running Tests
 
 ```bash
-# Reset DB to clean state (applies all migrations + seed)
-make supabase-reset
+# Flutter unit/widget
+make flutter-test
+
+# Flutter modular integration (integration_test/ — created by I-01)
+flutter test integration_test/auth_flow_test.dart -d <device>   # per module
+bash integration_test/run_all.sh                                 # whole suite
+
+# Backend: reset DB to clean state (applies all migrations + seed)
+make supabase-docker-start
+make supabase-docker-reset
 
 # Run a backend integration test
 bash test/opt-001-rls-security.sh
 
-# Run all tests
+# Run all backend tests
 bash test/run_all_backend.sh
+
+# Go tests
+go test ./...
+
+# SQL schema tests (pgTAP)
+supabase db test    # requires the stack + supabase CLI project
+
+# Everything: Flutter + Go
+make test
 ```
+
+> The opt-tests default to `SUPABASE_URL=http://127.0.0.1:54386` (Kong, Samay's
+> approved API port) and embed local dev keys. Override via `SUPABASE_URL`,
+> `ANON_KEY`, `SERVICE_KEY` env vars to point at another stack.
 
 ---
 
@@ -145,9 +187,13 @@ bash test/run_all_backend.sh
 
 ```
 test/opt-NNN-description.sh     # Optimization integration test (curl-based)
+test/features/<feature>_test.dart   # Flutter widget/unit tests per feature
+test/router/, test/providers/, test/services/, test/theme/, test/widgets/  # per-layer tests
+integration_test/<module>_flow_test.dart  # Flutter modular integration (I-01, planned)
+supabase/tests/schema_test.sql   # pgTAP schema assertions
 ```
 
-Each test file is self-contained: creates its own test users, seeds data, runs assertions, and reports pass/fail. Tests use `exit 0` on success, `exit 1` on failure.
+Each curl test file is self-contained: creates its own test users, seeds data, runs assertions, and reports pass/fail. Tests use `exit 0` on success, `exit 1` on failure.
 
 ---
 

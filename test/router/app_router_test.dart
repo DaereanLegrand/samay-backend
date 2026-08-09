@@ -3,7 +3,29 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/router/app_router.dart';
+import 'package:samay/core/router/route_paths.dart';
+import 'package:samay/features/auth/age_gate_screen.dart';
+import 'package:samay/features/auth/otp_verification_screen.dart';
+import 'package:samay/features/auth/privacy_terms_screen.dart';
+import 'package:samay/features/auth/profile_setup_screen.dart';
+import 'package:samay/features/auth/signup_contact_screen.dart';
+import 'package:samay/features/feed/feed_screen.dart';
+import 'package:samay/features/friends/blocked_users_screen.dart';
+import 'package:samay/features/friends/friends_list_screen.dart';
+import 'package:samay/features/friends/requests_screen.dart';
+import 'package:samay/features/friends/search_screen.dart';
+import 'package:samay/features/groups/create_group_screen.dart';
+import 'package:samay/features/groups/donate_shards_screen.dart';
+import 'package:samay/features/groups/group_detail_screen.dart';
 import 'package:samay/features/groups/group_members_screen.dart';
+import 'package:samay/features/groups/invite_screen.dart';
+import 'package:samay/features/groups/leaderboard_screen.dart';
+import 'package:samay/features/groups/my_groups_screen.dart';
+import 'package:samay/features/profile/delete_account_screen.dart';
+import 'package:samay/features/profile/edit_profile_screen.dart';
+import 'package:samay/features/profile/profile_screen.dart';
+import 'package:samay/features/profile/public_profile_screen.dart';
+import 'package:samay/features/profile/settings_screen.dart';
 import 'package:samay/shared/widgets/v_coming_soon.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
@@ -69,10 +91,11 @@ ProviderContainer _newContainer() {
 Future<void> _pumpRoute(
   WidgetTester tester,
   ProviderContainer container,
-  String path,
-) async {
+  String path, {
+  Object? extra,
+}) async {
   final router = container.read(routerProvider);
-  router.go(path);
+  router.go(path, extra: extra);
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
@@ -103,17 +126,17 @@ void main() {
 
     group('coming soon routes', () {
       for (final (path, title) in [
-        ('/event/$_eventId', 'Evento'),
-        ('/event/$_eventId/edit', 'Editar evento'),
-        ('/event/$_eventId/invite', 'Invitar'),
-        ('/event/$_eventId/photos', 'Fotos'),
-        ('/event/$_eventId/collage', 'Collage'),
-        ('/group/$_groupId/create-event', 'Crear evento'),
-        ('/chat/$_chatId', 'Chat'),
-        ('/qr/$_eventId', 'QR'),
-        ('/scanner/$_eventId', 'Esc\u00e1ner'),
-        ('/subscriptions', 'Suscripciones'),
-        ('/party-finder', 'Party Finder'),
+        (RoutePaths.eventDetail(_eventId), 'Evento'),
+        (RoutePaths.eventEdit(_eventId), 'Editar evento'),
+        (RoutePaths.eventInvite(_eventId), 'Invitar'),
+        (RoutePaths.eventPhotos(_eventId), 'Fotos'),
+        (RoutePaths.eventCollage(_eventId), 'Collage'),
+        (RoutePaths.createGroupEvent(_groupId), 'Crear evento'),
+        (RoutePaths.chat(_chatId), 'Chat'),
+        (RoutePaths.qr(_eventId), 'QR'),
+        (RoutePaths.scanner(_eventId), 'Esc\u00e1ner'),
+        (RoutePaths.subscriptions, 'Suscripciones'),
+        (RoutePaths.partyFinder, 'Party Finder'),
       ]) {
         testWidgets('$path renders coming soon screen', (tester) async {
           final container = _newContainer();
@@ -124,10 +147,10 @@ void main() {
         });
       }
 
-      testWidgets('/main/events renders coming soon with bottom nav',
+      testWidgets('${RoutePaths.mainEvents} renders coming soon with bottom nav',
           (tester) async {
         final container = _newContainer();
-        await _pumpRoute(tester, container, '/main/events');
+        await _pumpRoute(tester, container, RoutePaths.mainEvents);
         expect(find.byType(VComingSoonScreen), findsOneWidget);
         expect(find.byType(BottomNavigationBar), findsOneWidget);
         expect(
@@ -136,10 +159,10 @@ void main() {
         );
       });
 
-      testWidgets('/main/notifications renders coming soon with bottom nav',
+      testWidgets('${RoutePaths.mainNotifications} renders coming soon with bottom nav',
           (tester) async {
         final container = _newContainer();
-        await _pumpRoute(tester, container, '/main/notifications');
+        await _pumpRoute(tester, container, RoutePaths.mainNotifications);
         expect(find.byType(VComingSoonScreen), findsOneWidget);
         expect(find.byType(BottomNavigationBar), findsOneWidget);
         expect(
@@ -148,20 +171,123 @@ void main() {
         );
       });
 
-      testWidgets('/group/:groupId/members renders GroupMembersScreen',
+      testWidgets('${RoutePaths.groupMembers(_groupId)} renders GroupMembersScreen',
           (tester) async {
         final container = _newContainer();
-        await _pumpRoute(tester, container, '/group/$_groupId/members');
+        await _pumpRoute(tester, container, RoutePaths.groupMembers(_groupId));
         expect(find.byType(GroupMembersScreen), findsOneWidget);
         expect(find.byType(VComingSoonScreen), findsNothing);
       });
 
-      testWidgets('/event/:inviteToken resolves to the event detail route',
+      testWidgets('${RoutePaths.eventInviteToken(_token)} resolves to the event detail route',
           (tester) async {
         final container = _newContainer();
-        await _pumpRoute(tester, container, '/event/$_token');
+        await _pumpRoute(tester, container, RoutePaths.eventInviteToken(_token));
         expect(find.byType(VComingSoonScreen), findsOneWidget);
         expect(find.text('Evento'), findsOneWidget);
+      });
+    });
+
+    group('RoutePaths coherence', () {
+      for (final (path, widget) in [
+        (RoutePaths.mainFeed, FeedScreen),
+        (RoutePaths.mainGroups, MyGroupsScreen),
+        (RoutePaths.mainEvents, VComingSoonScreen),
+        (RoutePaths.mainNotifications, VComingSoonScreen),
+        (RoutePaths.mainProfile, ProfileScreen),
+        (RoutePaths.groupCreate, CreateGroupScreen),
+        (RoutePaths.groupsLeaderboard, LeaderboardScreen),
+        (RoutePaths.userSearch, SearchScreen),
+        (RoutePaths.friendsRequests, RequestsScreen),
+        (RoutePaths.friendsList, FriendsListScreen),
+        (RoutePaths.blockedUsers, BlockedUsersScreen),
+        (RoutePaths.subscriptions, VComingSoonScreen),
+        (RoutePaths.partyFinder, VComingSoonScreen),
+        (RoutePaths.settings, SettingsScreen),
+        (RoutePaths.deleteAccount, DeleteAccountScreen),
+        (RoutePaths.profileEdit, EditProfileScreen),
+        (RoutePaths.signup, SignupContactScreen),
+        (RoutePaths.ageGate, AgeGateScreen),
+        (RoutePaths.eventDetail(_eventId), VComingSoonScreen),
+        (RoutePaths.eventEdit(_eventId), VComingSoonScreen),
+        (RoutePaths.eventInvite(_eventId), VComingSoonScreen),
+        (RoutePaths.eventPhotos(_eventId), VComingSoonScreen),
+        (RoutePaths.eventCollage(_eventId), VComingSoonScreen),
+        (RoutePaths.eventInviteToken(_token), VComingSoonScreen),
+        (RoutePaths.createGroupEvent(_groupId), VComingSoonScreen),
+        (RoutePaths.chat(_chatId), VComingSoonScreen),
+        (RoutePaths.qr(_eventId), VComingSoonScreen),
+        (RoutePaths.scanner(_eventId), VComingSoonScreen),
+        (RoutePaths.groupMembers(_groupId), GroupMembersScreen),
+        (RoutePaths.donateToGroup(_groupId), DonateShardsScreen),
+        (RoutePaths.inviteToGroup(_groupId), InviteScreen),
+        (RoutePaths.userProfile(_eventId), PublicProfileScreen),
+      ]) {
+        testWidgets('$path resolves to a screen', (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(tester, container, path);
+          expect(find.byType(widget), findsOneWidget);
+        });
+      }
+
+      testWidgets('${RoutePaths.welcome} redirects to the feed', (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, RoutePaths.welcome);
+        expect(find.byType(FeedScreen), findsOneWidget);
+      });
+
+      testWidgets('${RoutePaths.login} redirects to the feed', (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, RoutePaths.login);
+        expect(find.byType(FeedScreen), findsOneWidget);
+      });
+
+      testWidgets('${RoutePaths.verify} resolves with extra', (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(
+          tester,
+          container,
+          RoutePaths.verify,
+          extra: {'email': 'a@b.com', 'password': 'secret1'},
+        );
+        expect(find.byType(OtpVerificationScreen), findsOneWidget);
+      });
+
+      testWidgets('${RoutePaths.privacyTerms} resolves with extra', (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(
+          tester,
+          container,
+          RoutePaths.privacyTerms,
+          extra: {'email': 'a@b.com', 'dateOfBirth': '2000-01-01'},
+        );
+        expect(find.byType(PrivacyTermsScreen), findsOneWidget);
+      });
+
+      testWidgets('${RoutePaths.profileSetup} resolves with extra', (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(
+          tester,
+          container,
+          RoutePaths.profileSetup,
+          extra: {'email': 'a@b.com', 'dateOfBirth': '2000-01-01'},
+        );
+        expect(find.byType(ProfileSetupScreen), findsOneWidget);
+      });
+
+      testWidgets('${RoutePaths.groupDetail(_groupId)} resolves to a screen',
+          (tester) async {
+        final container = _newContainer();
+        final router = container.read(routerProvider);
+        router.go(RoutePaths.groupDetail(_groupId));
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(find.byType(GroupDetailScreen), findsOneWidget);
       });
     });
   });

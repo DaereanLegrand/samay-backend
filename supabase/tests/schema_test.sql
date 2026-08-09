@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all 16 migrations (20260510000001 through 20260520000001).
+-- Covers all 18 migrations (20260510000001 through 20260724000002).
 BEGIN;
 
-SELECT plan(125);
+SELECT plan(129);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -83,7 +83,7 @@ SELECT col_type_is('group_members', 'status', 'text', 'group_members.status is t
 SELECT col_not_null('group_members', 'status', 'group_members.status is NOT NULL');
 
 -- ============================================================
--- SECTION 6: Migration 20260513000002 — signup_tracker table
+-- SECTION 6: Migrations 20260513000002 + 20260724000001 — signup_tracker table
 -- ============================================================
 SELECT has_table('signup_tracker');
 SELECT has_column('signup_tracker', 'email');
@@ -92,10 +92,15 @@ SELECT has_column('signup_tracker', 'created_at');
 SELECT has_column('signup_tracker', 'updated_at');
 SELECT col_is_pk('signup_tracker', 'email');
 
--- signup_tracker RLS is enabled (wide-open, accepted for MVP)
+-- signup_tracker RLS is enabled AND forced (migration 20260724000001
+-- added FORCE ROW LEVEL SECURITY so even the table owner must obey policies)
 SELECT ok(
     (SELECT relrowsecurity FROM pg_class WHERE oid = 'signup_tracker'::regclass),
     'signup_tracker has RLS enabled'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'signup_tracker'::regclass),
+    'signup_tracker has FORCE ROW LEVEL SECURITY (migration 20260724000001)'
 );
 
 -- ============================================================
@@ -129,8 +134,14 @@ SELECT has_function('update_photo_likes_count');
 SELECT has_function('dispatch_shard_distribution');
 
 -- ============================================================
--- SECTION 10: RPC — donate_shards_to_group (migration 20260512000001)
+-- SECTION 10: RPC — donate_shards_to_group
+-- (migrations 20260512000001, 20260724000002)
 -- ============================================================
+-- Migration 20260724000002 hardened the RPC: an auth.uid() != p_user_id
+-- guard rejects cross-user donations and EXECUTE was REVOKEd from PUBLIC
+-- and GRANTed to authenticated only. Behavioral checks (anon denied,
+-- cross-user donation blocked) are covered by the curl integration test
+-- test/opt-001-rls-security.sh (TEST H1-H3) — run it once the stack is up.
 SELECT has_function('donate_shards_to_group', ARRAY['uuid', 'uuid', 'integer', 'timestamptz'],
     'donate_shards_to_group(p_group_id, p_user_id, p_amount, p_expires_at)');
 
@@ -167,14 +178,17 @@ SELECT policies_are('users', ARRAY[
 ], 'users has expected RLS policies');
 
 -- ============================================================
--- SECTION 15: RLS Policies — signup_tracker (wide-open, accepted)
+-- SECTION 15: RLS Policies — signup_tracker (email-scoped, migration 20260724000001)
 -- ============================================================
+-- The four wide-open "Anyone can ..." policies were dropped in
+-- 20260724000001 and replaced with email-scoped policies
+-- (email = auth.jwt() ->> 'email').
 SELECT policies_are('signup_tracker', ARRAY[
-    'Anyone can select signup_tracker',
-    'Anyone can insert signup_tracker',
-    'Anyone can update signup_tracker',
-    'Anyone can delete signup_tracker'
-], 'signup_tracker has 4 wide-open RLS policies');
+    'signup_tracker_select_own',
+    'signup_tracker_insert_own',
+    'signup_tracker_update_own',
+    'signup_tracker_delete_own'
+], 'signup_tracker has email-scoped RLS policies (own email only)');
 
 -- ============================================================
 -- SECTION 16: RLS Policies — friendships
@@ -391,6 +405,19 @@ SELECT ok(
     ),
     'handle_signup function is confirmed absent from pg_proc'
 );
+
+-- ============================================================
+-- SECTION 37: RPC — check_signup_email (migration 20260724000001)
+-- ============================================================
+-- SECURITY DEFINER pre-auth email lookup used by checkSignupEmail()
+-- (lib/core/services/supabase_service.dart). Migration 20260724000001
+-- REVOKEd EXECUTE from PUBLIC and granted it to anon + authenticated.
+SELECT has_function('check_signup_email', ARRAY['text'],
+    'check_signup_email(p_email text) exists');
+SELECT has_function_priv('public', 'check_signup_email', ARRAY['text'], 'anon', 'EXECUTE',
+    'anon has EXECUTE on check_signup_email');
+SELECT has_function_priv('public', 'check_signup_email', ARRAY['text'], 'authenticated', 'EXECUTE',
+    'authenticated has EXECUTE on check_signup_email');
 
 SELECT * FROM finish();
 ROLLBACK;
