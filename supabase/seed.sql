@@ -1,6 +1,10 @@
 -- Samay — Seed Data
--- Applied after migrations during supabase db reset
--- Duplicates are safe (ON CONFLICT DO NOTHING)
+-- SINGLE SOURCE OF TRUTH for seed data (SUP-04, agent I-33).
+-- The admin_users + app_config INSERTs were removed from
+-- migrations/20260510000001_full_schema.sql §7 — never re-add them there.
+-- Applied after migrations by `supabase db reset` (config.toml [db.seed]
+-- sql_paths = ["./seed.sql"]), supabase/reset.sh and supabase/migrate.sh.
+-- Idempotent: ON CONFLICT DO NOTHING (safe to re-run on an existing DB).
 
 INSERT INTO admin_users (id, email, display_name, role)
 VALUES ('00000000-0000-0000-0000-000000000000', 'system@qallariy.lat', 'system', 'super_admin')
@@ -30,7 +34,7 @@ INSERT INTO app_config (key, value, description, default_value) VALUES
     ('groups.pro_max_members', '256', 'Max members per group when promotor is PRO', '256'),
     ('groups.vip_max_members', '999999', 'Effectively unlimited for VIP (use as sentinel)', '999999'),
     ('feed.nearby_radius_km_default', '50', 'Default radius for geographical feed filter', '50'),
-    ('feed.nearby_radius_km_options', '5,20,50,999', 'Comma-separated radius options shown in filter', '5,20,50,999'),
+    ('feed.nearby_radius_km_options', '5,20,50,999', 'Comma-separated radius options shown in filter (999 = anywhere)', '5,20,50,999'),
     ('minigame.poke_timeout_minutes', '5', 'Default minutes a poked user has to poke someone else', '5'),
     ('minigame.challenge_timeout_minutes', '60', 'Default minutes to complete a challenge before it expires', '60'),
     ('ranks.update_cron', '59 23 * * *', 'Cron expression for daily rank recalculation', '59 23 * * *'),
@@ -39,9 +43,10 @@ INSERT INTO app_config (key, value, description, default_value) VALUES
     ('subs.vip_monthly_price_pen', '4999', 'VIP monthly price in Peruvian centimos (S/. 49.99)', '4999'),
     ('subs.pro_annual_price_pen', '19990', 'PRO annual price in Peruvian centimos (S/. 199.90)', '19990'),
     ('subs.vip_annual_price_pen', '49990', 'VIP annual price in Peruvian centimos (S/. 499.90)', '49990'),
-    ('events.status_poll_cron', '* * * * *', 'Cron expression for polling event status transitions', '* * * * *'),
+    ('events.status_poll_cron', '* * * * *', 'Cron expression for polling upcoming -> live and live -> ended transitions', '* * * * *'),
     ('security.max_events_per_minute', '3', 'Rapid creation flag threshold', '3'),
     ('security.max_concurrent_event_invites', '50', 'Max pending invites per user', '50'),
     ('security.max_qr_token_rotations', '20', 'Max rotations per user per event', '20'),
-    ('security.max_failed_qr_validations', '5', 'Max failed attempts per token', '5')
+    ('security.max_failed_qr_validations', '5', 'Max failed attempts per token', '5'),
+    ('app.search_debounce_ms', '300', 'Debounce delay (ms) for search/invite screens (PERF-05/L-24; fallback 300 in lib)', '300')
 ON CONFLICT (key) DO NOTHING;

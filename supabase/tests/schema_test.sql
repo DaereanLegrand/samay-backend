@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all 18 migrations (20260510000001 through 20260724000002).
+-- Covers all 20 migrations (20260510000001 through 20260809000002).
 BEGIN;
 
-SELECT plan(129);
+SELECT plan(204);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -202,22 +202,31 @@ SELECT policies_are('friendships', ARRAY[
 
 -- ============================================================
 -- SECTION 17: RLS Policies — groups
+-- groups_delete_own added by migration 20260809000002 (I-32) — creator
+-- deletes own group during leaveGroup's empty-group cleanup.
 -- ============================================================
 SELECT policies_are('groups', ARRAY[
     'groups_read_member',
     'groups_read_own',
     'groups_update_promotor',
-    'groups_insert_own'
+    'groups_insert_own',
+    'groups_delete_own'
 ], 'groups has expected RLS policies');
 
 -- ============================================================
 -- SECTION 18: RLS Policies — group_members (no recursion)
+-- Migration 20260809000002 (I-32): insert_creator → insert_promotor
+-- (creator self-insert + promotor invites), read_same restored via
+-- SECURITY DEFINER is_group_member() (member lists), update_own_status
+-- added (invitees accept their own invite; role pinned to 'member').
 -- ============================================================
 SELECT policies_are('group_members', ARRAY[
     'group_members_read_own',
-    'group_members_insert_creator',
+    'group_members_read_same',
+    'group_members_insert_promotor',
     'group_members_delete_own',
     'group_members_delete_promotor',
+    'group_members_update_own_status',
     'group_members_update_promotor'
 ], 'group_members has expected RLS policies (no recursion)');
 
@@ -279,10 +288,13 @@ SELECT policies_are('event_photo_likes', ARRAY[
 
 -- ============================================================
 -- SECTION 26: RLS Policies — chats
+-- chats_delete_related added by migration 20260809000002 (I-32) — creator
+-- deletes the group/event chat during leaveGroup cleanup.
 -- ============================================================
 SELECT policies_are('chats', ARRAY[
     'chats_insert_related',
-    'chats_read_participant'
+    'chats_read_participant',
+    'chats_delete_related'
 ], 'chats has expected RLS policies');
 
 -- ============================================================
@@ -376,14 +388,20 @@ SELECT policies_are('processed_webhooks', ARRAY[
 
 -- ============================================================
 -- SECTION 34: Seed data
+-- NOTE (I-33, 2026-08-09): seed INSERTs were removed from
+-- migrations/20260510000001_full_schema.sql §7 — supabase/seed.sql is now the
+-- single source of truth (SUP-04). Applied post-migration via config.toml
+-- [db.seed] / reset.sh / migrate.sh. Post-reset state is unchanged except for
+-- app.search_debounce_ms which I-33 added to seed.sql (read by invite/search
+-- screens, PERF-05/L-24) → count is 38.
 -- ============================================================
 SELECT ok(
     (SELECT count(*) = 1 FROM admin_users),
-    'admin_users has 1 seed row (system admin)'
+    'admin_users has 1 seed row (system admin, from seed.sql)'
 );
 SELECT ok(
-    (SELECT count(*) = 37 FROM app_config),
-    'app_config has 37 seed rows'
+    (SELECT count(*) = 38 FROM app_config),
+    'app_config has 38 seed rows (37 original + app.search_debounce_ms, from seed.sql)'
 );
 
 -- ============================================================
@@ -418,6 +436,303 @@ SELECT has_function_priv('public', 'check_signup_email', ARRAY['text'], 'anon', 
     'anon has EXECUTE on check_signup_email');
 SELECT has_function_priv('public', 'check_signup_email', ARRAY['text'], 'authenticated', 'EXECUTE',
     'authenticated has EXECUTE on check_signup_email');
+
+-- ============================================================
+-- SECTION 38: Hardening migration 20260809000001 (agent I-31)
+--   38a. FORCE ROW LEVEL SECURITY on all 31 RLS-enabled tables
+--        (30 from 20260510000001 §6 + signup_tracker, re-asserted).
+--        relforcerowsecurity mirrors D-04's signup_tracker pattern (Section 6).
+--   38b. SET search_path = '' on all 12 hardened SECURITY DEFINER
+--        functions — asserted via pg_proc.proconfig containing 'search_path='.
+--   38c. service_role BYPASSRLS — FORCE RLS must NOT lock out the admin CLI
+--        (Go + SUPABASE_SERVICE_ROLE_KEY via PostgREST as service_role;
+--        bypassrls granted by the supabase/postgres image's baked-in
+--        00-initial-schema.sql, verified against upstream at commit 8d3216973).
+-- ============================================================
+
+-- 38a: FORCE ROW LEVEL SECURITY
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'users'::regclass),
+    'users has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'user_cosmetics'::regclass),
+    'user_cosmetics has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'cosmetics'::regclass),
+    'cosmetics has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'group_cosmetics'::regclass),
+    'group_cosmetics has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'friendships'::regclass),
+    'friendships has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'groups'::regclass),
+    'groups has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'group_members'::regclass),
+    'group_members has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'group_shard_contributions'::regclass),
+    'group_shard_contributions has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'group_rank_snapshots'::regclass),
+    'group_rank_snapshots has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'events'::regclass),
+    'events has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_promotores'::regclass),
+    'event_promotores has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_invites'::regclass),
+    'event_invites has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_qr_tokens'::regclass),
+    'event_qr_tokens has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_attendances'::regclass),
+    'event_attendances has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_photos'::regclass),
+    'event_photos has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_photo_likes'::regclass),
+    'event_photo_likes has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'chats'::regclass),
+    'chats has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'messages'::regclass),
+    'messages has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'chat_participants'::regclass),
+    'chat_participants has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'shard_ledger'::regclass),
+    'shard_ledger has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'preshard_ledger'::regclass),
+    'preshard_ledger has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'minigame_sessions'::regclass),
+    'minigame_sessions has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'notifications'::regclass),
+    'notifications has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'feature_requests'::regclass),
+    'feature_requests has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'reports'::regclass),
+    'reports has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'app_config'::regclass),
+    'app_config has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'admin_users'::regclass),
+    'admin_users has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'admin_audit_log'::regclass),
+    'admin_audit_log has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'subscription_overrides'::regclass),
+    'subscription_overrides has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'processed_webhooks'::regclass),
+    'processed_webhooks has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'signup_tracker'::regclass),
+    'signup_tracker has FORCE ROW LEVEL SECURITY (migration 20260809000001 re-assertion)'
+);
+
+-- 38b: SECURITY DEFINER functions hardened with SET search_path = ''
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'update_group_size_tier'),
+    'update_group_size_tier sets search_path = '''' (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'set_dynamic_qr_enabled'),
+    'set_dynamic_qr_enabled sets search_path = '''' (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'enforce_message_cap'),
+    'enforce_message_cap sets search_path = '''' (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'increment_group_shards'),
+    'increment_group_shards sets search_path = '''' (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'update_photo_likes_count'),
+    'update_photo_likes_count sets search_path = '''' (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'dispatch_shard_distribution'),
+    'dispatch_shard_distribution sets search_path = '''' (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'hard_delete_expired_users'),
+    'hard_delete_expired_users sets search_path = '''' (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'donate_shards_to_group'),
+    'donate_shards_to_group sets search_path = '''' (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'grant_shards'),
+    'grant_shards sets search_path = '''' (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'grant_preshards'),
+    'grant_preshards sets search_path = '''' (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'distribute_shards'),
+    'distribute_shards sets search_path = '''' (migration 20260809000001)'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'recalculate_ranks'),
+    'recalculate_ranks sets search_path = '''' (migration 20260809000001)'
+);
+
+-- 38c: service_role BYPASSRLS — admin CLI keeps bypassing RLS under FORCE
+SELECT ok(
+    (SELECT rolbypassrls FROM pg_roles WHERE rolname = 'service_role'),
+    'service_role has BYPASSRLS — FORCE RLS does not lock out admin (migration 20260809000001)'
+);
+
+-- ============================================================
+-- SECTION 39: RLS audit fixes migration 20260809000002 (agent I-32)
+--   39a. G-03 users UPDATE mass-assignment: column-level REVOKE UPDATE on
+--        the 7 protected columns (personal_shards, preshards,
+--        subscription_tier, subscription_expires_at, banned_at, ban_reason,
+--        date_of_birth). PostgREST-safe standard approach — RLS policies
+--        cannot restrict columns. REVOKE'd from authenticated + anon.
+--   39b. assert_safe_user_update_trigger + function. SECURITY INVOKER on
+--        purpose: SECURITY DEFINER would set current_user = postgres
+--        (superuser) and the BYPASSRLS/superuser gate would always pass —
+--        the trigger would never block anyone.
+--   39c. Admin RPCs no longer PUBLIC-EXECUTABLE: grant_shards,
+--        grant_preshards, distribute_shards, recalculate_ranks,
+--        hard_delete_expired_users were SECURITY DEFINER with default
+--        PUBLIC EXECUTE → any anon/authenticated caller could mint shards
+--        or drain event pools via PostgREST. Now service_role only
+--        (pg_cron runs as postgres — unaffected).
+--   39d. Server-managed groups/events columns revoked from authenticated:
+--        groups INSERT (group_shards, size_tier, frozen_at) + UPDATE
+--        (group_shards, size_tier, frozen_at, rank_bracket); events UPDATE
+--        (preshards_distributed, featured, featured_until).
+--   39e. user_search_view anon SELECT revoked (authenticated search only).
+--   39f. Recreated/added policies asserted via policies_are (Section
+--        17/18/26 lists updated in place).
+-- ============================================================
+
+-- 39a: users protected columns are not UPDATE-able by authenticated
+SELECT hasnt_column_priv('public', 'users', 'personal_shards', 'authenticated', 'UPDATE',
+    'users.personal_shards is not UPDATE-able by authenticated (G-03)');
+SELECT hasnt_column_priv('public', 'users', 'preshards', 'authenticated', 'UPDATE',
+    'users.preshards is not UPDATE-able by authenticated (G-03)');
+SELECT hasnt_column_priv('public', 'users', 'subscription_tier', 'authenticated', 'UPDATE',
+    'users.subscription_tier is not UPDATE-able by authenticated (G-03)');
+SELECT hasnt_column_priv('public', 'users', 'subscription_expires_at', 'authenticated', 'UPDATE',
+    'users.subscription_expires_at is not UPDATE-able by authenticated (G-03)');
+SELECT hasnt_column_priv('public', 'users', 'banned_at', 'authenticated', 'UPDATE',
+    'users.banned_at is not UPDATE-able by authenticated (G-03)');
+SELECT hasnt_column_priv('public', 'users', 'ban_reason', 'authenticated', 'UPDATE',
+    'users.ban_reason is not UPDATE-able by authenticated (G-03)');
+SELECT hasnt_column_priv('public', 'users', 'date_of_birth', 'authenticated', 'UPDATE',
+    'users.date_of_birth is not UPDATE-able by authenticated (G-03)');
+
+-- 39b: assert_safe_user_update trigger + function
+SELECT has_trigger('users', 'assert_safe_user_update_trigger',
+    'users has assert_safe_user_update_trigger (migration 20260809000002)');
+SELECT has_function('public', 'assert_safe_user_update', ARRAY[]::text[],
+    'assert_safe_user_update() exists (migration 20260809000002)');
+SELECT ok(
+    (SELECT NOT prosecdef FROM pg_proc WHERE proname = 'assert_safe_user_update'),
+    'assert_safe_user_update is SECURITY INVOKER (gate must see the real caller)'
+);
+
+-- 39c: admin RPC EXECUTE lockdown (REVOKE PUBLIC / GRANT service_role)
+SELECT hasnt_function_priv('public', 'grant_shards', ARRAY['uuid', 'integer', 'text'], 'public', 'EXECUTE',
+    'grant_shards is not PUBLIC-EXECUTABLE (migration 20260809000002)');
+SELECT has_function_priv('public', 'grant_shards', ARRAY['uuid', 'integer', 'text'], 'service_role', 'EXECUTE',
+    'grant_shards is service_role-EXECUTABLE');
+SELECT hasnt_function_priv('public', 'grant_preshards', ARRAY['uuid', 'integer', 'text'], 'public', 'EXECUTE',
+    'grant_preshards is not PUBLIC-EXECUTABLE (migration 20260809000002)');
+SELECT has_function_priv('public', 'grant_preshards', ARRAY['uuid', 'integer', 'text'], 'service_role', 'EXECUTE',
+    'grant_preshards is service_role-EXECUTABLE');
+SELECT hasnt_function_priv('public', 'distribute_shards', ARRAY['uuid'], 'public', 'EXECUTE',
+    'distribute_shards is not PUBLIC-EXECUTABLE (migration 20260809000002)');
+SELECT has_function_priv('public', 'distribute_shards', ARRAY['uuid'], 'service_role', 'EXECUTE',
+    'distribute_shards is service_role-EXECUTABLE');
+SELECT hasnt_function_priv('public', 'recalculate_ranks', ARRAY['text'], 'public', 'EXECUTE',
+    'recalculate_ranks is not PUBLIC-EXECUTABLE (migration 20260809000002)');
+SELECT has_function_priv('public', 'recalculate_ranks', ARRAY['text'], 'service_role', 'EXECUTE',
+    'recalculate_ranks is service_role-EXECUTABLE');
+SELECT hasnt_function_priv('public', 'hard_delete_expired_users', ARRAY[]::text[], 'public', 'EXECUTE',
+    'hard_delete_expired_users is not PUBLIC-EXECUTABLE (migration 20260809000002)');
+SELECT has_function_priv('public', 'hard_delete_expired_users', ARRAY[]::text[], 'service_role', 'EXECUTE',
+    'hard_delete_expired_users is service_role-EXECUTABLE');
+
+-- 39d: server-managed groups/events columns revoked from authenticated
+SELECT hasnt_column_priv('public', 'groups', 'group_shards', 'authenticated', 'INSERT',
+    'groups.group_shards is not INSERT-able by authenticated');
+SELECT hasnt_column_priv('public', 'groups', 'size_tier', 'authenticated', 'INSERT',
+    'groups.size_tier is not INSERT-able by authenticated');
+SELECT hasnt_column_priv('public', 'groups', 'frozen_at', 'authenticated', 'INSERT',
+    'groups.frozen_at is not INSERT-able by authenticated');
+SELECT hasnt_column_priv('public', 'groups', 'group_shards', 'authenticated', 'UPDATE',
+    'groups.group_shards is not UPDATE-able by authenticated');
+SELECT hasnt_column_priv('public', 'groups', 'size_tier', 'authenticated', 'UPDATE',
+    'groups.size_tier is not UPDATE-able by authenticated');
+SELECT hasnt_column_priv('public', 'groups', 'frozen_at', 'authenticated', 'UPDATE',
+    'groups.frozen_at is not UPDATE-able by authenticated');
+SELECT hasnt_column_priv('public', 'groups', 'rank_bracket', 'authenticated', 'UPDATE',
+    'groups.rank_bracket is not UPDATE-able by authenticated');
+SELECT hasnt_column_priv('public', 'events', 'preshards_distributed', 'authenticated', 'UPDATE',
+    'events.preshards_distributed is not UPDATE-able by authenticated');
+SELECT hasnt_column_priv('public', 'events', 'featured', 'authenticated', 'UPDATE',
+    'events.featured is not UPDATE-able by authenticated');
+SELECT hasnt_column_priv('public', 'events', 'featured_until', 'authenticated', 'UPDATE',
+    'events.featured_until is not UPDATE-able by authenticated');
+
+-- 39e: user_search_view authenticated-only
+SELECT hasnt_table_priv('public', 'user_search_view', 'anon', 'SELECT',
+    'user_search_view is not SELECT-able by anon (authenticated search only)');
+
+-- 39f: policy sets asserted in Sections 17/18/26 (updated lists)
 
 SELECT * FROM finish();
 ROLLBACK;

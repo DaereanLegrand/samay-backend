@@ -30,16 +30,30 @@ void main() {
       'hive',
       'hive_flutter',
       'supabase_flutter',
-      'qr_flutter',
-      'mobile_scanner',
-      'purchases_flutter',
       'image_picker',
-      'share_plus',
       'intl',
-      'flutter_dotenv',
+      'flutter_localizations',
+      'cached_network_image',
+      'freezed_annotation',
+      'json_annotation',
+      'path_provider',
+      'uuid',
     ]) {
       test('includes $pkg', () {
         expect(deps.containsKey(pkg), isTrue, reason: '$pkg not found in dependencies');
+      });
+    }
+
+    for (final pkg in [
+      'qr_flutter',
+      'mobile_scanner',
+      'purchases_flutter',
+      'share_plus',
+      'flutter_dotenv',
+    ]) {
+      test('does not include dead dependency $pkg', () {
+        expect(deps.containsKey(pkg), isFalse,
+            reason: '$pkg is a dead dependency (DEP-01..DEP-04, SEC-09) and must be removed');
       });
     }
   });

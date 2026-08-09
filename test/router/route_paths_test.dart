@@ -6,6 +6,7 @@ void main() {
     final constants = [
       RoutePaths.welcome,
       RoutePaths.login,
+      RoutePaths.banned,
       RoutePaths.signup,
       RoutePaths.verify,
       RoutePaths.ageGate,
@@ -30,8 +31,8 @@ void main() {
       RoutePaths.profileEdit,
     ];
 
-    test('exposes all 24 route constants used by the app', () {
-      expect(constants, hasLength(24));
+    test('exposes all 25 route constants used by the app', () {
+      expect(constants, hasLength(25));
     });
 
     test('every constant is non-empty and starts with /', () {

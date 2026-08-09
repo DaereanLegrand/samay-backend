@@ -1,13 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_coming_soon.dart';
+
+MaterialApp _app({required Widget home}) {
+  return MaterialApp(
+    locale: const Locale('es'),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    home: home,
+  );
+}
 
 void main() {
   group('VComingSoonScreen', () {
     testWidgets('renders title, headline and description', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: VComingSoonScreen(
+        _app(
+          home: const VComingSoonScreen(
             title: 'Eventos',
             description: 'Descripcion de prueba',
           ),
@@ -20,8 +30,8 @@ void main() {
 
     testWidgets('renders default icon', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: VComingSoonScreen(
+        _app(
+          home: const VComingSoonScreen(
             title: 'Eventos',
             description: 'Descripcion de prueba',
           ),
@@ -32,7 +42,7 @@ void main() {
 
     testWidgets('shows Volver button and pops the navigator', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
+        _app(
           home: Builder(
             builder: (context) => TextButton(
               onPressed: () => Navigator.of(context).push(
@@ -60,8 +70,8 @@ void main() {
     testWidgets('hides Volver button when showBackButton is false',
         (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: VComingSoonScreen(
+        _app(
+          home: const VComingSoonScreen(
             title: 'Eventos',
             description: 'Descripcion de prueba',
             showBackButton: false,

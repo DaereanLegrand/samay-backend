@@ -3,8 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/router/app_router.dart';
+import 'package:samay/core/router/route_extras.dart';
 import 'package:samay/core/router/route_paths.dart';
+import 'package:samay/shared/widgets/route_error_screen.dart';
 import 'package:samay/features/auth/age_gate_screen.dart';
+import 'package:samay/features/auth/login_screen.dart';
 import 'package:samay/features/auth/otp_verification_screen.dart';
 import 'package:samay/features/auth/privacy_terms_screen.dart';
 import 'package:samay/features/auth/profile_setup_screen.dart';
@@ -26,6 +29,7 @@ import 'package:samay/features/profile/edit_profile_screen.dart';
 import 'package:samay/features/profile/profile_screen.dart';
 import 'package:samay/features/profile/public_profile_screen.dart';
 import 'package:samay/features/profile/settings_screen.dart';
+import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_coming_soon.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
@@ -75,14 +79,30 @@ class _MemoryAsyncStorage extends GotrueAsyncStorage {
 }
 
 class _FakeAuthNotifier extends AuthNotifier {
-  _FakeAuthNotifier() : super() {
-    state = const AuthState(authenticated: true, hasProfile: true);
+  /// Pins the fake identity as authenticated. With the AsyncNotifier pattern
+  /// the fake pins its identity in `build()` (the real notifier's `build()`
+  /// would resolve the initial session from Supabase); without the pin, the
+  /// router's `refreshListenable` would bounce the app to login mid-test.
+  bool _pinAuthenticated = true;
+
+  @override
+  Future<AuthState> build() async =>
+      const AuthState(authenticated: true, hasProfile: true);
+
+  /// Opts out of the pin so tests can simulate a sign-out and exercise the
+  /// auth redirect.
+  void allowSignOut() => _pinAuthenticated = false;
+
+  @override
+  set state(AsyncValue<AuthState> value) {
+    if (_pinAuthenticated && value.valueOrNull?.authenticated != true) return;
+    super.state = value;
   }
 }
 
 ProviderContainer _newContainer() {
   final container = ProviderContainer(overrides: [
-    authStateProvider.overrideWith((ref) => _FakeAuthNotifier()),
+    authStateProvider.overrideWith(() => _FakeAuthNotifier()),
   ]);
   addTearDown(container.dispose);
   return container;
@@ -99,7 +119,12 @@ Future<void> _pumpRoute(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: MaterialApp.router(routerConfig: router),
+      child: MaterialApp.router(
+        routerConfig: router,
+        locale: const Locale('es'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -248,7 +273,7 @@ void main() {
           tester,
           container,
           RoutePaths.verify,
-          extra: {'email': 'a@b.com', 'password': 'secret1'},
+          extra: const VerifyExtra(email: 'a@b.com', password: 'secret1'),
         );
         expect(find.byType(OtpVerificationScreen), findsOneWidget);
       });
@@ -259,7 +284,7 @@ void main() {
           tester,
           container,
           RoutePaths.privacyTerms,
-          extra: {'email': 'a@b.com', 'dateOfBirth': '2000-01-01'},
+          extra: const PrivacyTermsExtra(email: 'a@b.com', dateOfBirth: '2000-01-01'),
         );
         expect(find.byType(PrivacyTermsScreen), findsOneWidget);
       });
@@ -270,7 +295,7 @@ void main() {
           tester,
           container,
           RoutePaths.profileSetup,
-          extra: {'email': 'a@b.com', 'dateOfBirth': '2000-01-01'},
+          extra: const ProfileSetupExtra(email: 'a@b.com', dateOfBirth: '2000-01-01'),
         );
         expect(find.byType(ProfileSetupScreen), findsOneWidget);
       });
@@ -283,11 +308,85 @@ void main() {
         await tester.pumpWidget(
           UncontrolledProviderScope(
             container: container,
-            child: MaterialApp.router(routerConfig: router),
+            child: MaterialApp.router(
+              routerConfig: router,
+              locale: const Locale('es'),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
           ),
         );
         await tester.pump(const Duration(milliseconds: 50));
         expect(find.byType(GroupDetailScreen), findsOneWidget);
+      });
+    });
+
+    group('route hardening (H-03/H-04/M-08/M-09)', () {
+      testWidgets('${RoutePaths.groupDetail('')} renders RouteErrorScreen, no crash',
+          (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, RoutePaths.groupDetail(''));
+        expect(find.byType(RouteErrorScreen), findsOneWidget);
+      });
+
+      testWidgets('${RoutePaths.userProfile('')} renders RouteErrorScreen, no crash',
+          (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, RoutePaths.userProfile(''));
+        expect(find.byType(RouteErrorScreen), findsOneWidget);
+      });
+
+      testWidgets('${RoutePaths.verify} without extra renders RouteErrorScreen, no crash',
+          (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, RoutePaths.verify);
+        expect(find.byType(RouteErrorScreen), findsOneWidget);
+        expect(find.byType(OtpVerificationScreen), findsNothing);
+      });
+
+      testWidgets('${RoutePaths.privacyTerms} without extra renders RouteErrorScreen, no crash',
+          (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, RoutePaths.privacyTerms);
+        expect(find.byType(RouteErrorScreen), findsOneWidget);
+        expect(find.byType(PrivacyTermsScreen), findsNothing);
+      });
+
+      testWidgets('${RoutePaths.profileSetup} without extra renders RouteErrorScreen, no crash',
+          (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, RoutePaths.profileSetup);
+        expect(find.byType(RouteErrorScreen), findsOneWidget);
+        expect(find.byType(ProfileSetupScreen), findsNothing);
+      });
+
+      testWidgets('${RoutePaths.ageGate} with a wrong-typed extra does not crash',
+          (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, RoutePaths.ageGate, extra: 42);
+        expect(find.byType(AgeGateScreen), findsOneWidget);
+      });
+
+      testWidgets('unknown route renders the error screen via errorBuilder',
+          (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, '/does/not/exist');
+        expect(find.byType(RouteErrorScreen), findsOneWidget);
+      });
+
+      testWidgets('auth state change re-evaluates the redirect via refreshListenable',
+          (tester) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, RoutePaths.mainProfile);
+        expect(find.byType(ProfileScreen), findsOneWidget);
+
+        final notifier = container.read(authStateProvider.notifier) as _FakeAuthNotifier;
+        notifier.allowSignOut();
+        notifier.state = const AsyncData(AuthState());
+        await tester.pumpAndSettle();
+
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(find.byType(ProfileScreen), findsNothing);
       });
     });
   });

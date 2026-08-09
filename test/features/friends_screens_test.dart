@@ -1,64 +1,313 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/features/friends/friends_providers.dart';
 import 'package:samay/features/friends/search_screen.dart';
 import 'package:samay/features/friends/requests_screen.dart';
 import 'package:samay/features/friends/friends_list_screen.dart';
 import 'package:samay/features/friends/blocked_users_screen.dart';
+import 'package:samay/features/groups/groups_providers.dart';
+import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/error_view.dart';
 
-Widget _wrap(Widget child) {
-  return ProviderScope(
-    child: MaterialApp(home: child),
+const _userId1 = '11111111-1111-1111-1111-111111111111';
+const _userId2 = '22222222-2222-2222-2222-222222222222';
+
+Map<String, dynamic> _user(String id, String username) =>
+    {'id': id, 'username': username, 'avatar_url': null};
+
+class _FakeFriendsListNotifier extends FriendsListNotifier {
+  final List<Map<String, dynamic>> data;
+  final Object? error;
+  _FakeFriendsListNotifier({this.data = const [], this.error});
+
+  @override
+  Future<List<Map<String, dynamic>>> build() async {
+    if (error != null) throw error!;
+    return data;
+  }
+}
+
+class _PendingFriendsListNotifier extends FriendsListNotifier {
+  @override
+  Future<List<Map<String, dynamic>>> build() async {
+    return Completer<List<Map<String, dynamic>>>().future;
+  }
+}
+
+class _FakeFriendRequestsNotifier extends FriendRequestsNotifier {
+  final FriendRequestsData data;
+  _FakeFriendRequestsNotifier({this.data = const FriendRequestsData(requests: [], names: {})});
+
+  @override
+  Future<FriendRequestsData> build() async => data;
+}
+
+class _FakeGroupInvitesNotifier extends GroupInvitesNotifier {
+  final List<Map<String, dynamic>> data;
+  _FakeGroupInvitesNotifier({this.data = const []});
+
+  @override
+  Future<List<Map<String, dynamic>>> build() async => data;
+}
+
+class _FakeBlockedUsersNotifier extends BlockedUsersNotifier {
+  final List<Map<String, dynamic>> data;
+  _FakeBlockedUsersNotifier({this.data = const []});
+
+  @override
+  Future<List<Map<String, dynamic>>> build() async => data;
+}
+
+class _FakeSearchResultsNotifier extends SearchResultsNotifier {
+  final List<Map<String, dynamic>> data;
+  _FakeSearchResultsNotifier({this.data = const []});
+
+  @override
+  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+}
+
+/// Records every query the provider is asked to resolve, so tests can assert
+/// that keystrokes were debounced into a single search.
+class _RecordingSearchResultsNotifier extends SearchResultsNotifier {
+  final List<String> queries = [];
+
+  @override
+  Future<List<Map<String, dynamic>>> build(String arg) async {
+    queries.add(arg);
+    return const [];
+  }
+}
+
+Future<ProviderContainer> _pump(
+  WidgetTester tester,
+  Widget child,
+  List<Override> overrides,
+) async {
+  final container = ProviderContainer(overrides: overrides);
+  addTearDown(container.dispose);
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        locale: const Locale('es'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: child,
+      ),
+    ),
   );
+  return container;
 }
 
 void main() {
-  group('SearchScreen', () {
-    testWidgets('renders search bar and title', (tester) async {
-      await tester.pumpWidget(_wrap(const SearchScreen()));
-      expect(find.text('Buscar usuarios'), findsOneWidget);
-      expect(find.byType(TextField), findsOneWidget);
+  group('FriendsListScreen', () {
+    testWidgets('shows loading spinner while the provider is pending',
+        (tester) async {
+      await _pump(
+        tester,
+        const FriendsListScreen(),
+        [friendsListProvider.overrideWith(_PendingFriendsListNotifier.new)],
+      );
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    });
+
+    testWidgets('shows empty state when the provider returns no friends',
+        (tester) async {
+      await _pump(
+        tester,
+        const FriendsListScreen(),
+        [friendsListProvider.overrideWith(_FakeFriendsListNotifier.new)],
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Sin amigos aún'), findsOneWidget);
+      expect(find.text('Busca usuarios para agregar amigos'), findsOneWidget);
+    });
+
+    testWidgets('renders friend rows from the provider', (tester) async {
+      await _pump(
+        tester,
+        const FriendsListScreen(),
+        [
+          friendsListProvider.overrideWith(
+            () => _FakeFriendsListNotifier(
+              data: [_user(_userId1, 'ana'), _user(_userId2, 'lucas')],
+            ),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('@ana'), findsNWidgets(2));
+      expect(find.text('@lucas'), findsNWidgets(2));
+      expect(find.text('Sin amigos aún'), findsNothing);
+    });
+
+    testWidgets('renders ErrorView with retry when the provider fails',
+        (tester) async {
+      await _pump(
+        tester,
+        const FriendsListScreen(),
+        [
+          friendsListProvider.overrideWith(
+            () => _FakeFriendsListNotifier(error: Exception('boom')),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ErrorView), findsOneWidget);
+      expect(find.text('Reintentar'), findsOneWidget);
     });
   });
 
   group('RequestsScreen', () {
-    testWidgets('renders received, sent and invites tabs', (tester) async {
-      await tester.pumpWidget(_wrap(const RequestsScreen()));
+    testWidgets('renders received, sent and invites tabs from providers',
+        (tester) async {
+      await _pump(
+        tester,
+        const RequestsScreen(),
+        [
+          friendRequestsProvider.overrideWith(
+            () => _FakeFriendRequestsNotifier(
+              data: FriendRequestsData(
+                requests: [
+                  {'type': 'received', 'friendship_id': 'f1', 'user_id': _userId1},
+                  {'type': 'sent', 'friendship_id': 'f2', 'user_id': _userId2},
+                ],
+                names: {_userId1: 'ana', _userId2: 'lucas'},
+              ),
+            ),
+          ),
+          groupInvitesProvider.overrideWith(
+            () => _FakeGroupInvitesNotifier(
+              data: [
+                {'id': 'm1', 'groups': {'name': 'Disco Crew'}, 'role': 'member'},
+              ],
+            ),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
       expect(find.text('Recibidas'), findsOneWidget);
       expect(find.text('Enviadas'), findsOneWidget);
       expect(find.text('Invitaciones'), findsOneWidget);
-    });
-  });
+      expect(find.text('ana'), findsOneWidget);
+      expect(find.text('Aceptar'), findsWidgets);
 
-  group('FriendsListScreen', () {
-    testWidgets('renders friends list title', (tester) async {
-      await tester.pumpWidget(_wrap(const FriendsListScreen()));
-      expect(find.text('Amigos'), findsOneWidget);
-    });
-
-    testWidgets('renders search within friends', (tester) async {
-      await tester.pumpWidget(_wrap(const FriendsListScreen()));
-      expect(find.byType(TextField), findsOneWidget);
+      await tester.tap(find.text('Enviadas'));
+      await tester.pumpAndSettle();
+      expect(find.text('lucas'), findsOneWidget);
+      expect(find.text('Solicitud enviada'), findsOneWidget);
     });
 
-    testWidgets('shows empty state when no friends', (tester) async {
-      await tester.pumpWidget(_wrap(const FriendsListScreen()));
-      await tester.pump(const Duration(seconds: 1));
-      expect(find.text('Sin amigos aún'), findsOneWidget);
-      expect(find.text('Busca usuarios para agregar amigos'), findsOneWidget);
+    testWidgets('shows empty states when there is nothing to show',
+        (tester) async {
+      await _pump(
+        tester,
+        const RequestsScreen(),
+        [
+          friendRequestsProvider.overrideWith(_FakeFriendRequestsNotifier.new),
+          groupInvitesProvider.overrideWith(_FakeGroupInvitesNotifier.new),
+        ],
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Sin solicitudes recibidas'), findsOneWidget);
+
+      await tester.tap(find.text('Enviadas'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sin solicitudes enviadas'), findsOneWidget);
+
+      await tester.tap(find.text('Invitaciones'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sin invitaciones'), findsOneWidget);
     });
   });
 
   group('BlockedUsersScreen', () {
-    testWidgets('renders blocked users title', (tester) async {
-      await tester.pumpWidget(_wrap(const BlockedUsersScreen()));
-      expect(find.text('Usuarios bloqueados'), findsOneWidget);
+    testWidgets('shows empty state when no users are blocked', (tester) async {
+      await _pump(
+        tester,
+        const BlockedUsersScreen(),
+        [blockedUsersProvider.overrideWith(_FakeBlockedUsersNotifier.new)],
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('No has bloqueado a nadie'), findsOneWidget);
     });
 
-    testWidgets('shows empty state when no blocked users', (tester) async {
-      await tester.pumpWidget(_wrap(const BlockedUsersScreen()));
-      await tester.pump(const Duration(seconds: 1));
-      expect(find.text('No has bloqueado a nadie'), findsOneWidget);
+    testWidgets('renders blocked users with unblock button', (tester) async {
+      await _pump(
+        tester,
+        const BlockedUsersScreen(),
+        [
+          blockedUsersProvider.overrideWith(
+            () => _FakeBlockedUsersNotifier(data: [_user(_userId1, 'ana')]),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('@ana'), findsNWidgets(2));
+      expect(find.text('Desbloquear'), findsOneWidget);
+    });
+  });
+
+  group('SearchScreen', () {
+    testWidgets('shows hint until the user types a query', (tester) async {
+      await _pump(
+        tester,
+        const SearchScreen(),
+        [searchResultsProvider.overrideWith(_FakeSearchResultsNotifier.new)],
+      );
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text('No se encontraron usuarios'), findsNothing);
+    });
+
+    testWidgets('renders search results from the provider after debounce',
+        (tester) async {
+      await _pump(
+        tester,
+        const SearchScreen(),
+        [
+          searchResultsProvider.overrideWith(
+            () => _FakeSearchResultsNotifier(
+              data: [
+                _user(_userId1, 'ana'),
+                {
+                  ..._user(_userId2, 'lucas'),
+                  'friendship_status': 'pending',
+                },
+              ],
+            ),
+          ),
+        ],
+      );
+      await tester.enterText(find.byType(TextField), 'a');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      expect(find.text('@ana'), findsOneWidget);
+      expect(find.text('@lucas'), findsOneWidget);
+      expect(find.text('Solicitado'), findsOneWidget);
+      expect(find.text('Agregar'), findsOneWidget);
+    });
+
+    testWidgets('debounces rapid keystrokes into a single provider query',
+        (tester) async {
+      final recording = _RecordingSearchResultsNotifier();
+      await _pump(
+        tester,
+        const SearchScreen(),
+        [searchResultsProvider.overrideWith(() => recording)],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'a');
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.enterText(find.byType(TextField), 'an');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+
+      expect(recording.queries, ['an'],
+          reason: 'intermediate keystrokes must not fire a query');
     });
   });
 }

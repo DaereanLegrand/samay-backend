@@ -9,6 +9,7 @@ import 'package:samay/features/auth/otp_verification_screen.dart';
 import 'package:samay/features/auth/age_gate_screen.dart';
 import 'package:samay/features/auth/privacy_terms_screen.dart';
 import 'package:samay/features/auth/profile_setup_screen.dart';
+import 'package:samay/l10n/app_localizations.dart';
 
 Widget _wrap(Widget child) {
   final router = GoRouter(
@@ -59,6 +60,9 @@ Widget _wrap(Widget child) {
   return ProviderScope(
     child: MaterialApp.router(
       routerConfig: router,
+      locale: const Locale('es'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
     ),
   );
 }
@@ -83,6 +87,9 @@ void main() {
 
     testWidgets('renders login button', (tester) async {
       await tester.pumpWidget(_wrap(const LoginScreen()));
+      // Settle the async auth provider: the very first frame is AsyncLoading
+      // (button shows a spinner), which is not the state under test.
+      await tester.pumpAndSettle();
       expect(find.widgetWithText(TextButton, 'Iniciar sesión'), findsOneWidget);
     });
 
@@ -106,6 +113,9 @@ void main() {
       await tester.pumpWidget(_wrap(
         OtpVerificationScreen(email: 'test@test.com', password: 'test123'),
       ));
+      // Settle the async auth provider: the very first frame is AsyncLoading
+      // (button shows a spinner), which is not the state under test.
+      await tester.pumpAndSettle();
       expect(find.text('Verificar'), findsOneWidget);
     });
   });
@@ -134,6 +144,9 @@ void main() {
       await tester.pumpWidget(_wrap(
         ProfileSetupScreen(email: 'test@test.com', dateOfBirth: '2000-01-15'),
       ));
+      // Settle the async auth provider: the very first frame is AsyncLoading
+      // (button shows a spinner), which is not the state under test.
+      await tester.pumpAndSettle();
       expect(find.text('Nombre de usuario'), findsOneWidget);
       expect(find.text('Guardar'), findsOneWidget);
       expect(find.text('Completar despu\u00e9s'), findsNothing);

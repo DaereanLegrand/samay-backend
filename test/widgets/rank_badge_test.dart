@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/rank_badge.dart';
 
 Widget _wrap(Widget child) {
-  return MaterialApp(home: child);
+  return MaterialApp(
+    locale: const Locale('es'),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    home: child,
+  );
 }
 
 void main() {

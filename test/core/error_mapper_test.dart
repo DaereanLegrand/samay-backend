@@ -1,0 +1,303 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/errors/app_error.dart';
+import 'package:samay/core/extensions/error_mapper.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+const _genericServerMessage = 'Error del servidor. Intenta de nuevo.';
+
+void main() {
+  group('AppError passthrough', () {
+    test('returns the same instance for every AppError subtype', () {
+      final errors = <AppError>[
+        NetworkError(),
+        UnauthorizedError(),
+        ServerError(),
+        ServerError('detalle'),
+        ValidationError('campo', 'problema'),
+        PermissionError(),
+        RateLimitError(),
+        NotFoundError(),
+        NotFoundError('grupo'),
+      ];
+      for (final error in errors) {
+        expect(error.toAppError(), same(error), reason: '$error');
+      }
+    });
+  });
+
+  group('AuthException code mappings', () {
+    for (final code in [
+      'over_request_rate_limit',
+      'over_email_send_rate_limit',
+      'over_sms_send_rate_limit',
+    ]) {
+      test('$code → RateLimitError', () {
+        expect(
+          AuthException('rate limited', code: code).toAppError(),
+          isA<RateLimitError>(),
+        );
+      });
+    }
+
+    test('invalid_credentials → ValidationError(credenciales)', () {
+      final error = AuthException(
+        'Invalid login credentials',
+        code: 'invalid_credentials',
+      ).toAppError();
+      expect(error, isA<ValidationError>());
+      final validation = error as ValidationError;
+      expect(validation.field, 'credenciales');
+      expect(validation.issue, 'Correo o contraseña inválidos');
+    });
+
+    test('otp_expired → ValidationError(código)', () {
+      final error =
+          AuthException('OTP has expired', code: 'otp_expired').toAppError();
+      expect(error, isA<ValidationError>());
+      expect((error as ValidationError).field, 'código');
+    });
+
+    test('jwt/token/session in the message → UnauthorizedError', () {
+      for (final msg in [
+        'JWT expired',
+        'Invalid token',
+        'Session from this device has been terminated',
+        'Your JWT token has expired and your refresh token could not be refreshed',
+      ]) {
+        expect(AuthException(msg).toAppError(), isA<UnauthorizedError>(),
+            reason: msg);
+      }
+    });
+
+    test('known jwt code without keyword message → UnauthorizedError', () {
+      expect(
+        AuthException('signature check failed', code: 'invalid_jwt')
+            .toAppError(),
+        isA<UnauthorizedError>(),
+      );
+    });
+
+    test('unmapped code → UnauthorizedError (auth fallback)', () {
+      expect(
+        AuthException('user not found', code: 'user_not_found').toAppError(),
+        isA<UnauthorizedError>(),
+      );
+    });
+
+    test('null code → UnauthorizedError, no crash (null-safe)', () {
+      expect(
+        AuthException('something happened').toAppError(),
+        isA<UnauthorizedError>(),
+      );
+    });
+  });
+
+  group('PostgrestException code mappings', () {
+    test('PGRST301 → UnauthorizedError', () {
+      expect(
+        PostgrestException(message: 'JWT expired', code: 'PGRST301')
+            .toAppError(),
+        isA<UnauthorizedError>(),
+      );
+    });
+
+    test('23503 → ValidationError(data, Referencia inválida)', () {
+      final error = PostgrestException(
+        message: 'insert or update on table violates foreign key constraint',
+        code: '23503',
+      ).toAppError();
+      expect(error, isA<ValidationError>());
+      final validation = error as ValidationError;
+      expect(validation.field, 'data');
+      expect(validation.issue, 'Referencia inválida');
+    });
+
+    test('23505 → ValidationError(data, Ya existe)', () {
+      final error = PostgrestException(
+        message: 'duplicate key value violates unique constraint',
+        code: '23505',
+      ).toAppError();
+      expect(error, isA<ValidationError>());
+      final validation = error as ValidationError;
+      expect(validation.field, 'data');
+      expect(validation.issue, 'Ya existe');
+    });
+
+    test('42501 → PermissionError', () {
+      expect(
+        PostgrestException(message: 'permission denied', code: '42501')
+            .toAppError(),
+        isA<PermissionError>(),
+      );
+    });
+
+    test('P0001 → ServerError carrying the server detail', () {
+      final error =
+          PostgrestException(message: 'division by zero', code: 'P0001')
+              .toAppError();
+      expect(error, isA<ServerError>());
+      expect((error as ServerError).detail, 'division by zero');
+    });
+
+    for (final code in ['28000', '28502', '28P01']) {
+      test('$code (28* connection class) → NetworkError', () {
+        expect(
+          PostgrestException(message: 'connection failed', code: code)
+              .toAppError(),
+          isA<NetworkError>(),
+        );
+      });
+    }
+
+    for (final code in ['42601', '42P01', '42P17']) {
+      test('$code (42* syntax/undefined class) → ServerError with detail', () {
+        final error =
+            PostgrestException(message: 'syntax error', code: code)
+                .toAppError();
+        expect(error, isA<ServerError>());
+        expect((error as ServerError).detail, 'syntax error');
+      });
+    }
+
+    test('unmapped code → ServerError with server detail', () {
+      final error = PostgrestException(
+        message: 'invalid input syntax for type integer',
+        code: '22P02',
+      ).toAppError();
+      expect(error, isA<ServerError>());
+      expect((error as ServerError).detail,
+          'invalid input syntax for type integer');
+    });
+
+    test('null code → ServerError with server detail (null-safe)', () {
+      final error =
+          PostgrestException(message: 'Unknown db error').toAppError();
+      expect(error, isA<ServerError>());
+      expect((error as ServerError).detail, 'Unknown db error');
+    });
+  });
+
+  group('FormatException', () {
+    test('→ ValidationError(data, Formato inválido)', () {
+      final error = FormatException('bad format').toAppError();
+      expect(error, isA<ValidationError>());
+      expect((error as ValidationError).issue, 'Formato inválido');
+    });
+  });
+
+  group('Network-class errors', () {
+    test('SocketException → NetworkError carrying the original', () {
+      const socket = SocketException('connection refused');
+      final error = socket.toAppError();
+      expect(error, isA<NetworkError>());
+      final network = error as NetworkError;
+      expect(network.original, isA<SocketException>());
+      expect(identical(network.original, socket), isTrue);
+    });
+
+    test('HttpException → NetworkError carrying the original', () {
+      const http = HttpException('404 not found');
+      final error = http.toAppError();
+      expect(error, isA<NetworkError>());
+      final network = error as NetworkError;
+      expect(network.original, isA<HttpException>());
+      expect(identical(network.original, http), isTrue);
+    });
+
+    test('TimeoutException → NetworkError carrying the original (NEW)', () {
+      final timeout = TimeoutException('Operation timed out after 10s');
+      final error = timeout.toAppError();
+      expect(error, isA<NetworkError>());
+      final network = error as NetworkError;
+      expect(network.original, isA<TimeoutException>());
+      expect(identical(network.original, timeout), isTrue);
+    });
+
+    test('TimeoutException internals never leak into the message', () {
+      final error = TimeoutException('Operation timed out after 10s')
+          .toAppError();
+      expect(error.message, 'Error de conexión. Verifica tu internet.');
+      expect(error.message.contains('timed out'), isFalse);
+      expect(error.message.contains('TimeoutException'), isFalse);
+    });
+
+    test('TimeoutException with a duration still maps to NetworkError', () {
+      expect(
+        TimeoutException('Operation timed out after 10s',
+                const Duration(seconds: 10))
+            .toAppError(),
+        isA<NetworkError>(),
+      );
+    });
+  });
+
+  group('Unknown errors → user-safe fallback', () {
+    test('raw Exception → generic ServerError, raw internals NOT in message',
+        () {
+      final raw =
+          Exception('syntax error at lib/core/services/supabase_service.dart:88');
+      final error = raw.toAppError();
+      expect(error, isA<ServerError>());
+      expect(error.message, _genericServerMessage);
+      expect(error.message.contains('syntax error'), isFalse);
+      expect(error.message.contains('Exception'), isFalse);
+      expect(error.message.contains('supabase_service'), isFalse);
+      expect(error.message.contains('lib/core'), isFalse);
+    });
+
+    test('StateError → generic ServerError with original preserved', () {
+      final raw = StateError('Bad state: boom');
+      final error = raw.toAppError();
+      expect(error, isA<ServerError>());
+      final server = error as ServerError;
+      expect(server.detail, '');
+      expect(error.message, _genericServerMessage);
+      expect(identical(server.original, raw), isTrue);
+      expect(server.original.toString(), contains('boom'),
+          reason: 'original carries the raw error for logging');
+    });
+
+    test('no type names or stack fragments leak for unknown errors', () {
+      final error = Exception('SecretStackLine@/private/var/folders/x')
+          .toAppError();
+      expect(error.message, _genericServerMessage);
+      expect(error.message.contains('SecretStackLine'), isFalse);
+      expect(error.message.contains('Exception'), isFalse);
+      expect(error.message.contains('/private/var'), isFalse);
+    });
+
+    test('non-empty String passes through verbatim (already user-safe)', () {
+      final error = 'Correo o contraseña inválidos'.toAppError();
+      expect(error, isA<ServerError>());
+      expect(error.message, 'Correo o contraseña inválidos');
+      expect((error as ServerError).detail, 'Correo o contraseña inválidos');
+    });
+
+    test('empty String → generic ServerError (nothing to show)', () {
+      final error = ''.toAppError();
+      expect(error, isA<ServerError>());
+      expect(error.message, _genericServerMessage);
+    });
+  });
+
+  group('original field (logging)', () {
+    test('ServerError defaults to a null original', () {
+      expect(ServerError().original, isNull);
+      expect(ServerError('detail').original, isNull);
+    });
+
+    test('ServerError carries the original when provided', () {
+      final raw = StateError('x');
+      final error = ServerError('detail', raw);
+      expect(error.detail, 'detail');
+      expect(identical(error.original, raw), isTrue);
+    });
+
+    test('NetworkError defaults to a null original', () {
+      expect(NetworkError().original, isNull);
+    });
+  });
+}

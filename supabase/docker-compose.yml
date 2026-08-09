@@ -10,7 +10,7 @@ services:
       timeout: 5s
       retries: 10
     ports:
-      - "5432:5432"
+      - "54382:5432"
     environment:
       POSTGRES_HOST: /var/run/postgresql
       POSTGRES_PORT: 5432
@@ -41,7 +41,7 @@ services:
       KONG_PROXY_LISTEN_SSL: 0.0.0.0:8443
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
     ports:
-      - "54321:8000"
+      - "54386:8000"
       - "54443:8443"
     volumes:
       - ./volumes/api/kong.yml:/api/kong.yml
@@ -86,8 +86,6 @@ services:
       GOTRUE_RATE_LIMIT_EMAIL_SENT: 2
       GOTRUE_OPERATOR_TOKEN: ""
       GOTRUE_DISABLE_SIGNUP: false
-    ports:
-      - "9999:9999"
 
   rest:
     container_name: samay-rest
@@ -102,11 +100,9 @@ services:
       PGRST_JWT_SECRET: "your-jwt-secret-change-in-production"
       PGRST_DB_AGGREGATES_ENABLED: true
       PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
-      PGRST_DB_OPENAPI_SERVER_PROXY_URI: http://localhost:54321
+      PGRST_DB_OPENAPI_SERVER_PROXY_URI: http://127.0.0.1:54386
       PGRST_OPENAPI_SECURITY_ACTIVE: true
       PGRST_DB_POOL: 10
-    ports:
-      - "3000:3000"
 
   realtime:
     container_name: samay-realtime
@@ -131,8 +127,6 @@ services:
       SLOT_NAME: "supabase_realtime_replication_slot"
       TEMPORARY_SLOT: "true"
       PLUGIN_NAME: "pgoutput"
-    ports:
-      - "4000:4000"
 
   storage:
     container_name: samay-storage
@@ -155,8 +149,6 @@ services:
       FILE_STORAGE_PATH: /var/lib/storage
       TENANT_AUTO_CREATE: true
       LOG_LEVEL: warn
-    ports:
-      - "5000:5000"
     volumes:
       - ./volumes/storage:/var/lib/storage
 
@@ -173,8 +165,6 @@ services:
       PG_META_PG_PASSWORD: postgres
       PG_META_PG_DATABASE: postgres
       PG_META_PG_META_SCHEMA: extensions
-    ports:
-      - "8080:8080"
 
   studio:
     container_name: samay-studio
@@ -186,14 +176,13 @@ services:
         condition: service_started
     environment:
       STUDIO_PG_META_URL: http://samay-meta:8080
-      SUPABASE_URL: http://localhost:54321
+      SUPABASE_URL: http://127.0.0.1:54386
       SUPABASE_ANON_KEY: "your-anon-key"
       SUPABASE_SERVICE_KEY: "your-service-role-key"
-      SUPABASE_PUBLIC_URL: http://localhost:54321
+      SUPABASE_PUBLIC_URL: http://127.0.0.1:54386
     ports:
       - "54381:3000"
 
 volumes:
   db-config:
-  deno-cache:
   deno-cache:

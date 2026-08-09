@@ -23,10 +23,10 @@ docker compose up -d --wait
 echo "Running migrations..."
 for f in migrations/*.sql; do
   echo "  Applying $(basename "$f")..."
-  PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -f "$f"
+  PGPASSWORD=postgres psql -h localhost -p 54382 -U postgres -d postgres -f "$f"
 done
 
 echo "Applying seed data..."
-PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -f seed.sql
+PGPASSWORD=postgres psql -h localhost -p 54382 -U postgres -d postgres -f seed.sql
 
 echo "Samay Supabase has been reset."
