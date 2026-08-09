@@ -61,6 +61,12 @@ const _dataAllowlist = <String>{
   'b40_60',
   'b20_40',
   'b0_20',
+  'En la Búsqueda', // rank-bracket label (I-46 — BuildContext-free constant
+  // in lib/shared/widgets/rank_bracket.dart, same rationale as error strings)
+  'Creadores de la Vibra', // rank-bracket label (contains stopword 'creado')
+  'La contraseña debe tener al menos 6 caracteres y contener un número.',
+  // password-policy message (I-46 — BuildContext-free constant in
+  // lib/features/auth/password_policy.dart, same rationale as error strings)
 };
 
 /// Common Spanish stopwords that no user-facing literal may contain once

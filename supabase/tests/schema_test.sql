@@ -2,7 +2,7 @@
 -- Covers all 21 migrations (20260510000001 through 20260809000003).
 BEGIN;
 
-SELECT plan(233);
+SELECT plan(235);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -791,6 +791,18 @@ SELECT hasnt_function_priv('public', 'fetch_prekey_bundle', ARRAY['uuid'], 'publ
     'fetch_prekey_bundle is not PUBLIC-EXECUTABLE');
 SELECT has_function_priv('public', 'fetch_prekey_bundle', ARRAY['uuid'], 'authenticated', 'EXECUTE',
     'fetch_prekey_bundle is authenticated-EXECUTABLE');
+SELECT is(
+    (SELECT relreplident FROM pg_class WHERE oid = 'public.messages'::regclass),
+    'f',
+    'messages has REPLICA IDENTITY FULL (realtime full-row delivery, E2EE §9.3)'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'messages'
+    ),
+    'messages is in the supabase_realtime publication (E2EE §9.3)'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

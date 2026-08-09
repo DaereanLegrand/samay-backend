@@ -125,3 +125,37 @@ $$;
 
 REVOKE ALL ON FUNCTION public.fetch_prekey_bundle(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fetch_prekey_bundle(uuid) TO authenticated;
+
+-- ============================================================
+-- 4. Realtime delivery (E2EE-ARCHITECTURE.md §9.3 / §9.4, R13)
+-- ============================================================
+-- The chat screen subscribes to Postgres INSERTs on `messages` (channel
+-- `messages:<chatId>`). Postgres-change events only fire for tables in the
+-- `supabase_realtime` publication, and full-row delivery for UPDATE/DELETE
+-- needs REPLICA IDENTITY FULL (I-38 resume: both statements were specified
+-- in E2EE-ARCHITECTURE §12.2 step 1 but missing from this migration's
+-- first commit — without them the live-insert path never fires).
+--
+-- The publication is created when missing (the hosted platform and the
+-- self-hosted postgres image normally provide it; creating it here keeps
+-- this migration self-sufficient on any stack).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+        CREATE PUBLICATION supabase_realtime WITH (publish = 'insert, update, delete');
+    END IF;
+END
+$$;
+
+ALTER TABLE public.messages REPLICA IDENTITY FULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'messages'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+    END IF;
+END
+$$;
