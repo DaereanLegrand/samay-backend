@@ -127,4 +127,118 @@ void main() {
               'not be re-added to pubspec.yaml: $dead');
     });
   });
+
+  group('feature-flag route gating (I-69)', () {
+    // LIVE routes: no FlagGate required. Any GoRoute NOT in this allowlist
+    // must be wrapped in FlagGate carrying the flag mapped in [gatedRoutes] —
+    // the release knob for its feature (I-49 system, I-69 audit 2026-08-09).
+    const liveRoutes = <String>{
+      // auth flow
+      'RoutePaths.welcome',
+      'RoutePaths.banned',
+      'RoutePaths.login',
+      'RoutePaths.signup',
+      'RoutePaths.verify',
+      'RoutePaths.ageGate',
+      'RoutePaths.privacyTerms',
+      'RoutePaths.profileSetup',
+      // shell tabs without a kill-switch knob
+      'RoutePaths.mainGroups',
+      'RoutePaths.mainProfile',
+      // events: detail/edit are live; the hub/create/invite stay gated
+      "RoutePaths.eventDetail(':eventId')",
+      "RoutePaths.eventEdit(':eventId')",
+      // groups: live feature
+      'RoutePaths.groupCreate',
+      "RoutePaths.groupDetail(':groupId')",
+      "RoutePaths.groupMembers(':groupId')",
+      "RoutePaths.donateToGroup(':groupId')",
+      "RoutePaths.inviteToGroup(':groupId')",
+      'RoutePaths.groupsLeaderboard',
+      // friends + public profiles: live features
+      'RoutePaths.userSearch',
+      "RoutePaths.userProfile(':userId')",
+      'RoutePaths.friendsRequests',
+      'RoutePaths.friendsList',
+      'RoutePaths.blockedUsers',
+      // shards economy (I-64: live, reads-only) + settings
+      'RoutePaths.shardsLedger',
+      'RoutePaths.settings',
+      'RoutePaths.deleteAccount',
+      'RoutePaths.profileEdit',
+    };
+
+    // Non-live routes (or live routes whose flag is the kill-switch knob) and
+    // the flag their builder MUST gate on. Kept in lockstep with
+    // lib/core/feature_flags.dart.
+    const gatedRoutes = <String, String>{
+      'RoutePaths.mainFeed': 'AppFeatureFlag.feed',
+      'RoutePaths.mainEvents': 'AppFeatureFlag.events',
+      'RoutePaths.mainNotifications': 'AppFeatureFlag.notifications',
+      "RoutePaths.eventInvite(':eventId')": 'AppFeatureFlag.events',
+      "RoutePaths.eventPhotos(':eventId')": 'AppFeatureFlag.photoUpload',
+      "RoutePaths.eventCollage(':eventId')": 'AppFeatureFlag.photoUpload',
+      "RoutePaths.createGroupEvent(':groupId')": 'AppFeatureFlag.events',
+      "RoutePaths.minigames(':groupId')": 'AppFeatureFlag.minigames',
+      "RoutePaths.chat(':chatId')": 'AppFeatureFlag.chat',
+      "RoutePaths.qr(':eventId')": 'AppFeatureFlag.qr',
+      "RoutePaths.scanner(':eventId')": 'AppFeatureFlag.qr',
+      'RoutePaths.subscriptions': 'AppFeatureFlag.subscriptions',
+      'RoutePaths.partyFinder': 'AppFeatureFlag.partyFinder',
+      'RoutePaths.cosmetics': 'AppFeatureFlag.cosmeticsSection',
+    };
+
+    // Every GoRoute(path: ...) in app_router.dart, paired with its full route
+    // block (balanced-paren scan — robust to any formatting). The path value
+    // is matched as its RoutePaths expression, never a resolved string.
+    List<(String, String)> goRoutesWithPaths(String source) {
+      final pathPattern =
+          RegExp(r"""path:\s*([A-Za-z0-9_.:'"/()]+)""");
+      final routes = <(String, String)>[];
+      var cursor = 0;
+      while (true) {
+        final open = source.indexOf('GoRoute(', cursor);
+        if (open == -1) break;
+        var depth = 0;
+        var close = open;
+        for (; close < source.length; close++) {
+          if (source[close] == '(') depth++;
+          if (source[close] == ')') {
+            depth--;
+            if (depth == 0) break;
+          }
+        }
+        final block = source.substring(open, close + 1);
+        final path = pathPattern.firstMatch(block)?.group(1);
+        if (path != null) routes.add((path, block));
+        cursor = close + 1;
+      }
+      return routes;
+    }
+
+    test('every non-live route is wrapped in FlagGate with its flag', () {
+      final source =
+          File('$root/lib/core/router/app_router.dart').readAsStringSync();
+      final routes = goRoutesWithPaths(source);
+      final seenPaths = routes.map((r) => r.$1).toSet();
+      final problems = <String>[];
+      for (final (path, block) in routes) {
+        if (liveRoutes.contains(path)) continue;
+        final flag = gatedRoutes[path];
+        if (flag == null) {
+          problems.add('$path: no gate decision — add it to liveRoutes or '
+              'gatedRoutes (I-69 audit)');
+        } else if (!block.contains('FlagGate') || !block.contains(flag)) {
+          problems.add('$path: expected FlagGate($flag) in its builder');
+        }
+      }
+      for (final path in gatedRoutes.keys) {
+        if (!seenPaths.contains(path)) {
+          problems.add('$path: gatedRoutes entry not found in app_router.dart');
+        }
+      }
+      expect(problems, isEmpty,
+          reason: 'feature-flag route gating violations: $problems');
+    });
+  });
 }

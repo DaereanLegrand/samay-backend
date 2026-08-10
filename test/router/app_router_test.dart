@@ -32,6 +32,8 @@ import 'package:samay/features/groups/group_members_screen.dart';
 import 'package:samay/features/groups/invite_screen.dart';
 import 'package:samay/features/groups/leaderboard_screen.dart';
 import 'package:samay/features/groups/my_groups_screen.dart';
+import 'package:samay/features/minigames/minigames_providers.dart';
+import 'package:samay/features/minigames/minigames_screen.dart';
 import 'package:samay/features/notifications/notification_center_screen.dart';
 import 'package:samay/features/party_finder/party_finder_providers.dart';
 import 'package:samay/features/party_finder/party_finder_screen.dart';
@@ -45,6 +47,8 @@ import 'package:samay/features/profile/settings_screen.dart';
 import 'package:samay/features/qr/attendance_qr_screen.dart';
 import 'package:samay/features/qr/qr_providers.dart';
 import 'package:samay/features/qr/qr_scanner_screen.dart';
+import 'package:samay/features/shards/shard_ledger_providers.dart';
+import 'package:samay/features/shards/shard_ledger_screen.dart';
 import 'package:samay/features/subscriptions/paywall_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_coming_soon.dart';
@@ -195,6 +199,23 @@ class _FakeEventPhotosNotifier extends EventPhotosNotifier {
   Future<List<EventPhoto>> build(String eventId) async => const [];
 }
 
+/// Minigames provider pinned to an inert value (I-63): the router tests only
+/// assert which screen the route builds — the real notifier would hit the
+/// network via MinigameService.
+class _FakeMinigameSessionsNotifier extends MinigameSessionsNotifier {
+  @override
+  Future<List<Map<String, dynamic>>> build(String groupId) async => const [];
+}
+
+/// Shard-ledger provider pinned to an inert value (I-64): the router tests
+/// only assert which screen the route builds — the real notifier would hit
+/// the network via ShardsService.
+class _FakeShardLedgerNotifier extends ShardLedgerNotifier {
+  @override
+  Future<ShardLedgerData> build() async =>
+      const ShardLedgerData(shards: [], preshards: []);
+}
+
 ProviderContainer _newContainer({
   AppFeatureFlags flags = const AppFeatureFlags(),
   bool qrProviders = false,
@@ -207,7 +228,9 @@ ProviderContainer _newContainer({
     myEventInviteProvider.overrideWith(_FakeMyEventInviteNotifier.new),
     discoveryOptInProvider.overrideWith(_FakeDiscoveryOptInNotifier.new),
     partyMatchesProvider.overrideWith(_FakePartyMatchesNotifier.new),
+    minigameSessionsProvider.overrideWith(_FakeMinigameSessionsNotifier.new),
     eventPhotosProvider.overrideWith(_FakeEventPhotosNotifier.new),
+    shardLedgerProvider.overrideWith(_FakeShardLedgerNotifier.new),
     appConfigProvider.overrideWith((ref) async => const {}),
     if (qrProviders) ...[
       myQrTokenProvider.overrideWith(_FakeQrTokenNotifier.new),
@@ -279,6 +302,7 @@ void main() {
         (RoutePaths.subscriptions, 'Suscripciones'),
         (RoutePaths.partyFinder, 'Party Finder'),
         (RoutePaths.cosmetics, 'Cosm\u00e9ticos'),
+        (RoutePaths.minigames(_groupId), 'Juegos'),
       ]) {
         testWidgets('$path renders coming soon screen', (tester) async {
           final container = _newContainer();
@@ -352,6 +376,8 @@ void main() {
         (RoutePaths.subscriptions, VComingSoonScreen),
         (RoutePaths.partyFinder, VComingSoonScreen),
         (RoutePaths.cosmetics, VComingSoonScreen),
+        (RoutePaths.shardsLedger, ShardLedgerScreen),
+        (RoutePaths.minigames(_groupId), VComingSoonScreen),
         (RoutePaths.settings, SettingsScreen),
         (RoutePaths.deleteAccount, DeleteAccountScreen),
         (RoutePaths.profileEdit, EditProfileScreen),
@@ -431,6 +457,17 @@ void main() {
         );
         await _pumpRoute(tester, container, RoutePaths.eventPhotos(_eventId));
         expect(find.byType(PhotoGalleryScreen), findsOneWidget);
+        expect(find.byType(VComingSoonScreen), findsNothing);
+      });
+
+      testWidgets(
+          '${RoutePaths.minigames(_groupId)} renders MinigamesScreen when the '
+          'minigames flag is on (dark-first gating, I-63)', (tester) async {
+        final container = _newContainer(
+          flags: const AppFeatureFlags(minigames: true),
+        );
+        await _pumpRoute(tester, container, RoutePaths.minigames(_groupId));
+        expect(find.byType(MinigamesScreen), findsOneWidget);
         expect(find.byType(VComingSoonScreen), findsNothing);
       });
 

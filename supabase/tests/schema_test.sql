@@ -2,7 +2,7 @@
 -- Covers all 23 migrations (20260510000001 through 20260809000005).
 BEGIN;
 
-SELECT plan(254);
+SELECT plan(262);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -876,6 +876,49 @@ SELECT hasnt_function_priv('public', 'validate_qr_token', ARRAY['uuid', 'text'],
     'validate_qr_token is not PUBLIC-EXECUTABLE');
 SELECT has_function_priv('public', 'validate_qr_token', ARRAY['uuid', 'text'], 'authenticated', 'EXECUTE',
     'validate_qr_token is authenticated-EXECUTABLE');
+
+-- ============================================================
+-- SECTION 45: create_minigame_session RPC (migration 20260809000006,
+-- agent I-63) — GMCR/GWAG foundation: SECURITY DEFINER + SET search_path = ''
+-- (I-31 pattern), membership gate via the I-32 is_group_member helper,
+-- atomic wager deduct + minigame_wager ledger + session insert (escrow
+-- contract, GWAG), business outcomes returned as jsonb statuses, PUBLIC
+-- EXECUTE revoked, authenticated-only EXECUTE. Winner-settlement RPCs
+-- (minigame_win/minigame_refund) are the documented I-77/S-03 handoff.
+-- ============================================================
+SELECT has_function('create_minigame_session', ARRAY['uuid', 'text', 'integer'],
+    'create_minigame_session(p_group_id uuid, p_game_type text, p_wager integer) exists (migration 20260809000006)');
+SELECT ok(
+    (SELECT prosecdef FROM pg_proc WHERE proname = 'create_minigame_session'),
+    'create_minigame_session is SECURITY DEFINER'
+);
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'create_minigame_session'),
+    'create_minigame_session sets search_path = '''' (migration 20260809000006)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.is_group_member(p_group_id)%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session references is_group_member'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_wager%'
+       AND pg_get_functiondef(p.oid) LIKE '%public.shard_ledger%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session writes the minigame_wager ledger'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''insufficient_shards''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''not_member''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''created''%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session returns typed jsonb statuses (I-57 contract)'
+);
+SELECT hasnt_function_priv('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer'], 'public', 'EXECUTE',
+    'create_minigame_session is not PUBLIC-EXECUTABLE');
+SELECT has_function_priv('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer'], 'authenticated', 'EXECUTE',
+    'create_minigame_session is authenticated-EXECUTABLE');
 
 SELECT * FROM finish();
 ROLLBACK;

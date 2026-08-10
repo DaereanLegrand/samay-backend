@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/errors/app_error.dart';
+import 'package:samay/core/models/ledger_entry.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/services/shards_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
@@ -494,6 +495,91 @@ void main() {
         rows.filters,
         contains(const RecordedFilter('size_tier', 'micro')),
       );
+    });
+  });
+
+  group('ShardsService.getShardLedger', () {
+    test('returns the own rows as typed LedgerEntry, newest first', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final table = MockQueryBuilder();
+      when(() => client.from('shard_ledger')).thenAnswer((_) => table);
+      final rows = ResolvingBuilder<PostgrestList>([
+        {
+          'id': 'l-1',
+          'delta': 50,
+          'reason': 'event_attendance',
+          'reference_id': _groupId,
+          'created_at': DateTime.utc(2026, 8, 1, 21, 30).toIso8601String(),
+        },
+        {
+          'id': 'l-2',
+          'delta': -20,
+          'reason': 'cosmetic_purchase',
+          'reference_id': null,
+          'created_at': DateTime.utc(2026, 8, 1, 20, 0).toIso8601String(),
+        },
+      ]);
+      when(() => table.select(any())).thenAnswer((_) => rows);
+
+      final result = await service().getShardLedger();
+
+      expect(result, hasLength(2));
+      expect(result.first, isA<LedgerEntry>());
+      expect(result.first.delta, 50);
+      expect(result.first.reason, 'event_attendance');
+      expect(result.first.referenceId, _groupId);
+      expect(result.last.delta, -20);
+      expect(result.last.referenceId, isNull);
+      expect(
+        result.first.createdAt,
+        DateTime.utc(2026, 8, 1, 21, 30),
+      );
+      // Own rows only (`sl_read_own` filter mirror) and a bounded page.
+      expect(rows.filters, contains(RecordedFilter('user_id', _userId)));
+      expect(
+        () => table.select(
+          'id, delta, reason, reference_id, created_at',
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('throws when there is no authenticated user', () async {
+      when(() => auth.currentUser).thenReturn(null);
+      expect(() => service().getShardLedger(), throwsA(isA<Exception>()));
+      verifyNever(() => client.from('shard_ledger'));
+    });
+  });
+
+  group('ShardsService.getPreshardLedger', () {
+    test('returns the own preshard rows as typed LedgerEntry', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final table = MockQueryBuilder();
+      when(() => client.from('preshard_ledger')).thenAnswer((_) => table);
+      final rows = ResolvingBuilder<PostgrestList>([
+        {
+          'id': 'pl-1',
+          'delta': 100,
+          'reason': 'purchased',
+          'reference_id': null,
+          'created_at': DateTime.utc(2026, 8, 1, 21, 30).toIso8601String(),
+        },
+      ]);
+      when(() => table.select(any())).thenAnswer((_) => rows);
+
+      final result = await service().getPreshardLedger();
+
+      expect(result, hasLength(1));
+      expect(result.single.reason, 'purchased');
+      expect(result.single.delta, 100);
+      expect(result.single.referenceId, isNull);
+      expect(rows.filters, contains(RecordedFilter('user_id', _userId)));
+    });
+
+    test('throws when there is no authenticated user', () async {
+      when(() => auth.currentUser).thenReturn(null);
+      expect(() => service().getPreshardLedger(), throwsA(isA<Exception>()));
+      verifyNever(() => client.from('preshard_ledger'));
     });
   });
 }

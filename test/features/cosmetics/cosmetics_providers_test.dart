@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/models/ledger_entry.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/config_service.dart';
 import 'package:samay/core/services/shards_service.dart';
@@ -103,6 +104,13 @@ class _FakeShardsService implements ShardsService {
     equips.add((userCosmeticId, equipped));
     owned.firstWhere((r) => r['id'] == userCosmeticId)['equipped'] = equipped;
   }
+
+  @override
+  Future<List<LedgerEntry>> getShardLedger({int limit = 100}) async => const [];
+
+  @override
+  Future<List<LedgerEntry>> getPreshardLedger({int limit = 100}) async =>
+      const [];
 }
 
 class _StubProfileFetcher {

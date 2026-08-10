@@ -293,7 +293,9 @@ void main() {
           find.text('Tu armario de cosméticos aparecerá aquí.'),
           findsNothing,
         );
-        expect(find.byIcon(Icons.chevron_right), findsOneWidget);
+        // Both the balance card (I-64 ledger link) and the cosmetics row
+        // carry the chevron affordance.
+        expect(find.byIcon(Icons.chevron_right), findsNWidgets(2));
       },
     );
   });
@@ -342,6 +344,9 @@ void main() {
       await tester.pumpWidget(_wrap(const SettingsScreen()));
       expect(find.text('Configuración'), findsOneWidget);
       expect(find.text('Suscripción'), findsOneWidget);
+      // The settings list grew (I-65 Tema section); the sign-out row sits
+      // below the 600px test viewport — scroll to it before asserting.
+      await tester.scrollUntilVisible(find.text('Cerrar sesión'), 100);
       expect(find.text('Cerrar sesión'), findsOneWidget);
     });
   });

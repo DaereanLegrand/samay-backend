@@ -45,6 +45,10 @@ class _FakeEventService implements EventService {
       throw UnimplementedError();
 
   @override
+  Future<Event?> getEventByInviteToken(String token) =>
+      throw UnimplementedError();
+
+  @override
   Future<Map<String, dynamic>?> getMyQrToken(String eventId) =>
       throw UnimplementedError();
 

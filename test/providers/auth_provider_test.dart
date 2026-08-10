@@ -8,6 +8,7 @@ import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/auth_service.dart';
 import 'package:samay/core/services/ban_service.dart';
+import 'package:samay/core/services/telemetry_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
@@ -66,11 +67,32 @@ supabase.Session _session(Map<String, dynamic> user) => supabase.Session(
 Future<void> _settle() =>
     Future<void>.delayed(const Duration(milliseconds: 20));
 
-ProviderContainer _newContainer(AuthService service) {
+/// Recording fake for the [TelemetrySink] seam (I-68): asserts the notifier
+/// emits the `auth_sign_in` event after a successful sign-in.
+class _RecordingTelemetrySink implements TelemetrySink {
+  final List<String> events = [];
+
+  @override
+  void track(String event, Map<String, dynamic> properties) {
+    events.add(event);
+  }
+
+  @override
+  void identify(String userId) {}
+
+  @override
+  void reset() {}
+}
+
+ProviderContainer _newContainer(
+  AuthService service, {
+  List<Override> extraOverrides = const [],
+}) {
   final container = ProviderContainer(
     overrides: [
       authServiceProvider.overrideWithValue(service),
       banServiceProvider.overrideWithValue(_stubbedBanService()),
+      ...extraOverrides,
     ],
   );
   addTearDown(container.dispose);
@@ -141,6 +163,58 @@ void main() {
       expect(state.hasError, isTrue);
       expect(state.errorMessage, 'Correo o contraseña inválidos');
       expect(state.valueOrNull?.authenticated, isFalse);
+    });
+
+    test('signIn reports the auth_sign_in telemetry event on success', () async {
+      final service = _stubbedService();
+      when(() => service.signIn(any(), any())).thenAnswer((_) async {});
+      when(() => service.getCurrentUser()).thenReturn(_user);
+      final sink = _RecordingTelemetrySink();
+      final container = _newContainer(
+        service,
+        extraOverrides: [
+          telemetryServiceProvider.overrideWithValue(
+            TelemetryService(
+              apiKey: 'phc_test_key',
+              host: 'https://posthog.samay.example.com',
+              sink: sink,
+            ),
+          ),
+        ],
+      );
+      await container.read(authStateProvider.future);
+
+      await container.read(authStateProvider.notifier).signIn('a@b.com', 'secret1');
+
+      expect(sink.events, ['auth_sign_in']);
+    });
+
+    test('signIn failure does not report the auth_sign_in telemetry event',
+        () async {
+      final service = _stubbedService();
+      when(() => service.signIn(any(), any())).thenThrow(
+        const AuthException(
+          'Invalid login credentials',
+          code: 'invalid_credentials',
+        ),
+      );
+      final sink = _RecordingTelemetrySink();
+      final container = _newContainer(
+        service,
+        extraOverrides: [
+          telemetryServiceProvider.overrideWithValue(
+            TelemetryService(
+              apiKey: 'phc_test_key',
+              sink: sink,
+            ),
+          ),
+        ],
+      );
+      await container.read(authStateProvider.future);
+
+      await container.read(authStateProvider.notifier).signIn('a@b.com', 'wrong1');
+
+      expect(sink.events, isEmpty);
     });
 
     test('refresh() invalidates and re-runs build()', () async {

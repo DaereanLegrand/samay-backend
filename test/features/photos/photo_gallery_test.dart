@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:samay/core/providers/config_provider.dart';
+import 'package:samay/core/models/event.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/event_service.dart';
 import 'package:samay/core/services/media_service.dart';
@@ -179,6 +180,10 @@ class _FakeEventService implements EventService {
 
   @override
   Future<Map<String, dynamic>> getEvent(String id) =>
+      throw UnimplementedError();
+
+  @override
+  Future<Event?> getEventByInviteToken(String token) =>
       throw UnimplementedError();
 
   @override

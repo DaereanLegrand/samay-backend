@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -8,6 +9,7 @@ import 'package:samay/app.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/router/app_router.dart';
 import 'package:samay/core/router/route_paths.dart';
+import 'package:samay/core/services/connectivity_service.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:yaml/yaml.dart';
 
@@ -150,6 +152,12 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           authStateProvider.overrideWith(_StubAuthNotifier.new),
+          // I-67: inert connectivity seam (plugin-free test environment).
+          connectivityServiceProvider.overrideWithValue(
+            ConnectivityService(
+              onConnectivityChanged: () => Stream<bool>.multi((_) {}),
+            ),
+          ),
         ],
       );
       addTearDown(container.dispose);

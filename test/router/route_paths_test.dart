@@ -27,13 +27,14 @@ void main() {
       RoutePaths.subscriptions,
       RoutePaths.partyFinder,
       RoutePaths.cosmetics,
+      RoutePaths.shardsLedger,
       RoutePaths.settings,
       RoutePaths.deleteAccount,
       RoutePaths.profileEdit,
     ];
 
-    test('exposes all 26 route constants used by the app', () {
-      expect(constants, hasLength(26));
+    test('exposes all 27 route constants used by the app', () {
+      expect(constants, hasLength(27));
     });
 
     test('every constant is non-empty and starts with /', () {
@@ -111,6 +112,10 @@ void main() {
 
     test('scanner interpolates', () {
       expect(RoutePaths.scanner('e1'), '/scanner/e1');
+    });
+
+    test('minigames interpolates', () {
+      expect(RoutePaths.minigames('g1'), '/minigames/g1');
     });
   });
 }
