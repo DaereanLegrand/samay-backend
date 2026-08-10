@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:samay/core/errors/app_error.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/router/route_paths.dart';
-import 'package:samay/features/auth/otp_verification_screen.dart';
+import 'package:samay/features/auth/screens/otp_verification_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
 /// Deterministic auth notifier for the OTP UX tests (I-29, SEC-05/H-23):

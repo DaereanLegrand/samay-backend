@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Samay — STATIC gate for the base docker-compose overhaul
-# (agents M-01, M-09, M-06).
+# (agents M-01, M-09, M-06, M-02, M-03, M-07).
 #
 # Stack-free verification of the compose target state (SELFHOSTING.md §2,
 # DKR-04/DKR-09/DKR-06/DKR-02/DKR-08) — no containers are started, no Docker
@@ -17,7 +17,9 @@
 #      also mailpit service_started).
 #   4. Env compatibility for the pinned tags (realtime v2.102.3 contract,
 #      storage-api v1.60.4 DATABASE_URL, postgres-meta v0.96.6 PG_META_DB_*,
-#      postgrest v14.12 admin server, gotrue v2.189.0 GOTRUE_JWT_EXP).
+#      postgrest v14.12 admin server, gotrue v2.189.0 GOTRUE_JWT_EXP,
+#      edge-runtime v1.74.0 main-service/SUPABASE_* contract, imgproxy v3.30.1
+#      IMGPROXY_BIND/LOCAL_FILESYSTEM_ROOT/AUTO_WEBP contract — M-07).
 #   5. Approved host port map present (54382/54386/54381/54384/54443) and NO
 #      Juega host mappings (5432/54321/54323/8443) nor any non-approved host
 #      port binding.
@@ -27,7 +29,9 @@
 #      /entrypoint.sh (no self-exec over /docker-entrypoint.sh, no
 #      never-passing `until kong health` loop, bounded DB wait), kong.yml
 #      upstream URLs reference only compose service hostnames, kong service
-#      mounts the wrapper at /home/kong/kong-entrypoint.sh.
+#      mounts the wrapper at /home/kong/kong-entrypoint.sh, and key-auth
+#      credentials are $VAR refs templated into $KONG_DECLARATIVE_CONFIG by
+#      the wrapper (M-03).
 #   9. Stack parity (M-10): supabase/ vs supabase-testing/ are byte-for-byte
 #      behaviorally identical — migration count + per-file byte identity,
 #      seed.sql/seed-dev.sql byte identity, config.toml identity after
@@ -48,6 +52,16 @@
 #      and wires auth SMTP to mailpit:1025; when docker is available the
 #      merged `docker compose config` output is asserted to contain each
 #      override's key vars.
+#  11. Env-driven ports (M-02, DKR-03): NO hardcoded host-port literals in
+#      compose (${VAR:-default} is the only allowed shape, defaults = the
+#      approved map); internal URL envs (SUPABASE_URL / SUPABASE_PUBLIC_URL /
+#      PGRST_DB_OPENAPI_SERVER_PROXY_URI) interpolate ${KONG_HTTP_PORT:-54386};
+#      the rate-limit env is consumed by compose (GOTRUE_RATE_LIMIT_EMAIL_SENT
+#      = ${AUTH_RATE_LIMIT_EMAIL_SENT:-2}, .env = 2 in both stacks — the M-10
+#      documentation fiction is gone); `.env` carries the port map as source
+#      of truth; `docker compose config` resolves the approved published
+#      ports and a POSTGRES_PORT/KONG_HTTP_PORT/MAILPIT_PORT override
+#      roundtrips in a subshell (restored after).
 #
 # No stack, no DB required. Exit 0 = all static checks pass.
 # Usage: bash test/opt-007-compose-static.sh
@@ -91,7 +105,7 @@ echo "━━━ 3. Pinned image tags + no :latest ━━━"
 # service -> pinned tag contract (verified against supabase/supabase master
 # docker/docker-compose.yml, 2026-08-10 — matches SELFHOSTING.md §2.2).
 # Flat "svc=image" list (macOS bash 3.2 — no associative arrays).
-PIN_LIST="db=supabase/postgres:17.6.1.136 kong=kong/kong:3.9.3 auth=supabase/gotrue:v2.189.0 rest=postgrest/postgrest:v14.12 realtime=supabase/realtime:v2.102.3 storage=supabase/storage-api:v1.60.4 meta=supabase/postgres-meta:v0.96.6 studio=supabase/studio:2026.08.03-sha-022b374 mailpit=axllent/mailpit:v1.30.7"
+PIN_LIST="db=supabase/postgres:17.6.1.136 kong=kong/kong:3.9.3 auth=supabase/gotrue:v2.189.0 rest=postgrest/postgrest:v14.12 realtime=supabase/realtime:v2.102.3 storage=supabase/storage-api:v1.60.4 meta=supabase/postgres-meta:v0.96.6 studio=supabase/studio:2026.08.03-sha-022b374 functions=supabase/edge-runtime:v1.74.0 imgproxy=darthsim/imgproxy:v3.30.1 mailpit=axllent/mailpit:v1.30.7"
 pinned_for() { # pinned_for <service> — prints the pinned tag, or nothing
   printf '%s\n' "$PIN_LIST" | tr ' ' '\n' | grep "^$1=" | cut -d= -f2-
 }
@@ -139,7 +153,7 @@ block_of() { # block_of <file> <service> — prints the service block
   ' "$1"
 }
 for f in "${BASE[@]}"; do
-  for svc in db kong auth rest realtime storage meta studio; do
+  for svc in db kong auth rest realtime storage meta studio functions imgproxy; do
     b="$(block_of "$f" "$svc")"
     [ -z "$b" ] && { fail "$(basename "$f") [$svc] service block missing"; continue; }
     printf '%s' "$b" | grep -q "healthcheck:" && pass "$(basename "$f") [$svc] healthcheck" || fail "$(basename "$f") [$svc] MISSING healthcheck"
@@ -153,6 +167,22 @@ for f in "${BASE[@]}"; do
   printf '%s' "$b" | grep -q "condition: service_started" && pass "$(basename "$f") [storage] depends_on rest: service_started" || fail "$(basename "$f") [storage] missing rest service_started"
   b="$(block_of "$f" studio)"
   printf '%s' "$b" | grep -q "condition: service_started" && pass "$(basename "$f") [studio] depends_on meta: service_started" || fail "$(basename "$f") [studio] missing meta service_started"
+  b="$(block_of "$f" functions)"
+  printf '%s' "$b" | grep -q "condition: service_healthy" && pass "$(basename "$f") [functions] depends_on kong: service_healthy (M-07)" || fail "$(basename "$f") [functions] missing kong service_healthy"
+  b="$(block_of "$f" storage)"
+  printf '%s' "$b" | grep -q "condition: service_started" && pass "$(basename "$f") [storage] depends_on imgproxy: service_started (M-07)" || fail "$(basename "$f") [storage] missing imgproxy service_started"
+  b="$(block_of "$f" imgproxy)"
+  if printf '%s' "$b" | grep -q "^    ports:" || printf '%s' "$b" | grep -q "ports:"; then
+    fail "$(basename "$f") [imgproxy] MUST NOT publish host ports (internal-only 5001)"
+  else
+    pass "$(basename "$f") [imgproxy] no host ports (internal-only)"
+  fi
+  b="$(block_of "$f" functions)"
+  if printf '%s' "$b" | grep -q "ports:"; then
+    fail "$(basename "$f") [functions] MUST NOT publish host ports (internal-only 9000)"
+  else
+    pass "$(basename "$f") [functions] no host ports (internal-only)"
+  fi
 done
 # testing-only: auth depends on mailpit (service_started)
 b="$(block_of "$MAILPIT" auth)"
@@ -177,6 +207,25 @@ for f in "${BASE[@]}"; do
   a="$(block_of "$f" auth)"
   printf '%s' "$a" | grep -q "GOTRUE_JWT_EXP:" && pass "$(basename "$f") [auth] env GOTRUE_JWT_EXP (v2.189.0)" || fail "$(basename "$f") [auth] MISSING GOTRUE_JWT_EXP"
   printf '%s' "$a" | grep -q "GOTRUE_JWT_DEFAULT_EXP" && fail "$(basename "$f") [auth] obsolete GOTRUE_JWT_DEFAULT_EXP still present" || pass "$(basename "$f") [auth] no obsolete GOTRUE_JWT_DEFAULT_EXP"
+  fn="$(block_of "$f" functions)"
+  printf '%s' "$fn" | grep -q "image: supabase/edge-runtime:v1.74.0" && pass "$(basename "$f") [functions] edge-runtime v1.74.0 pinned (M-07)" || fail "$(basename "$f") [functions] MISSING edge-runtime pin"
+  printf '%s' "$fn" | grep -Fq '"start", "--main-service", "/home/deno/functions/main"' && pass "$(basename "$f") [functions] command start --main-service (M-07)" || fail "$(basename "$f") [functions] MISSING main-service command"
+  printf '%s' "$fn" | grep -q "SUPABASE_URL: http://samay" && pass "$(basename "$f") [functions] SUPABASE_URL -> kong (internal)" || fail "$(basename "$f") [functions] MISSING SUPABASE_URL -> kong"
+  printf '%s' "$fn" | grep -q 'VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT:-false}"' && pass "$(basename "$f") [functions] VERIFY_JWT env-driven default false (M-07)" || fail "$(basename "$f") [functions] MISSING VERIFY_JWT wiring"
+  printf '%s' "$fn" | grep -q 'functions:/home/deno/functions' && pass "$(basename "$f") [functions] mounts ./functions (boot placeholder dir)" || fail "$(basename "$f") [functions] MISSING ./functions mount"
+  printf '%s' "$fn" | grep -q "deno-cache:/root/.cache/deno" && pass "$(basename "$f") [functions] deno-cache volume mounted" || fail "$(basename "$f") [functions] MISSING deno-cache mount"
+  printf '%s' "$fn" | grep -q "/dev/tcp/127.0.0.1/9000" && pass "$(basename "$f") [functions] TCP 9000 healthcheck (official)" || fail "$(basename "$f") [functions] MISSING TCP 9000 healthcheck"
+  ip="$(block_of "$f" imgproxy)"
+  printf '%s' "$ip" | grep -q "image: darthsim/imgproxy:v3.30.1" && pass "$(basename "$f") [imgproxy] v3.30.1 pinned (M-07)" || fail "$(basename "$f") [imgproxy] MISSING imgproxy pin"
+  printf '%s' "$ip" | grep -Fq 'test: ["CMD", "imgproxy", "health"]' && pass "$(basename "$f") [imgproxy] 'imgproxy health' healthcheck (official)" || fail "$(basename "$f") [imgproxy] MISSING imgproxy health healthcheck"
+  printf '%s' "$ip" | grep -q 'IMGPROXY_BIND: ":5001"' && pass "$(basename "$f") [imgproxy] IMGPROXY_BIND :5001" || fail "$(basename "$f") [imgproxy] MISSING IMGPROXY_BIND"
+  printf '%s' "$ip" | grep -q 'IMGPROXY_LOCAL_FILESYSTEM_ROOT: /' && pass "$(basename "$f") [imgproxy] IMGPROXY_LOCAL_FILESYSTEM_ROOT /" || fail "$(basename "$f") [imgproxy] MISSING IMGPROXY_LOCAL_FILESYSTEM_ROOT"
+  printf '%s' "$ip" | grep -q 'IMGPROXY_USE_ETAG: "true"' && pass "$(basename "$f") [imgproxy] IMGPROXY_USE_ETAG true" || fail "$(basename "$f") [imgproxy] MISSING IMGPROXY_USE_ETAG"
+  printf '%s' "$ip" | grep -q 'IMGPROXY_AUTO_WEBP: ${IMGPROXY_AUTO_WEBP:-true}' && pass "$(basename "$f") [imgproxy] IMGPROXY_AUTO_WEBP env-driven default true" || fail "$(basename "$f") [imgproxy] MISSING IMGPROXY_AUTO_WEBP"
+  printf '%s' "$ip" | grep -q 'volumes/storage:/var/lib/storage' && pass "$(basename "$f") [imgproxy] shares ./volumes/storage with storage-api" || fail "$(basename "$f") [imgproxy] MISSING ./volumes/storage mount"
+  b="$(block_of "$f" storage)"
+  printf '%s' "$b" | grep -q 'ENABLE_IMAGE_TRANSFORMATION: "true"' && pass "$(basename "$f") [storage] ENABLE_IMAGE_TRANSFORMATION (M-07)" || fail "$(basename "$f") [storage] MISSING ENABLE_IMAGE_TRANSFORMATION"
+  printf '%s' "$b" | grep -q 'IMGPROXY_URL: http://imgproxy:5001' && pass "$(basename "$f") [storage] IMGPROXY_URL -> imgproxy:5001 (M-07)" || fail "$(basename "$f") [storage] MISSING IMGPROXY_URL"
 done
 
 # ── 6. Approved port map; no Juega / non-approved host bindings ──────────────
@@ -185,32 +234,34 @@ echo "━━━ 6. Port map (host bindings) ━━━"
 APPROVED_HOST_PORTS="54381 54382 54384 54386 54388 54443"
 for f in "${ALL_FILES[@]}"; do
   while IFS= read -r line; do
-    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*\"([0-9]+):([0-9]+)\" ]]; then
-      host="${BASH_REMATCH[1]}"; container="${BASH_REMATCH[2]}"
+    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*\"\$\{([A-Za-z_][A-Za-z0-9_]*):-([0-9]+)\}:([0-9]+)\" ]]; then
+      host="${BASH_REMATCH[2]}"; container="${BASH_REMATCH[3]}"
       if [[ " $APPROVED_HOST_PORTS " != *" $host "* ]]; then
-        fail "$(basename "$f") host binding $host:$container NOT in approved set ($APPROVED_HOST_PORTS)"
+        fail "$(basename "$f") host binding \${${BASH_REMATCH[1]}} default $host:$container NOT in approved set ($APPROVED_HOST_PORTS)"
       else
-        pass "$(basename "$f") host binding $host -> $container approved"
+        pass "$(basename "$f") host binding \${${BASH_REMATCH[1]}} default $host -> $container approved"
       fi
+    elif [[ "$line" =~ ^[[:space:]]*-[[:space:]]*\"([0-9]+):([0-9]+)\" ]]; then
+      fail "$(basename "$f") HARDCODED host binding ${BASH_REMATCH[1]}:${BASH_REMATCH[2]} — env-driven ports required (DKR-03/M-02)"
     fi
   done < "$f"
 done
-# Required host bindings present in the right files
+# Required host bindings present in the right files (env-driven form)
 for req in \
-  "$REPO/supabase/docker-compose.yml|54382:5432" \
-  "$REPO/supabase/docker-compose.yml|54386:8000" \
-  "$REPO/supabase/docker-compose.yml|54443:8443" \
-  "$REPO/supabase/docker-compose.yml|54381:3000" \
-  "$REPO/supabase-testing/docker-compose.yml|54382:5432" \
-  "$REPO/supabase-testing/docker-compose.yml|54386:8000" \
-  "$REPO/supabase-testing/docker-compose.yml|54443:8443" \
-  "$REPO/supabase-testing/docker-compose.yml|54381:3000" \
-  "$REPO/supabase-testing/docker-compose.mailpit.yml|54384:8025"; do
+  "$REPO/supabase/docker-compose.yml|\${POSTGRES_PORT:-54382}:5432" \
+  "$REPO/supabase/docker-compose.yml|\${KONG_HTTP_PORT:-54386}:8000" \
+  "$REPO/supabase/docker-compose.yml|\${KONG_HTTPS_PORT:-54443}:8443" \
+  "$REPO/supabase/docker-compose.yml|\${STUDIO_PORT:-54381}:3000" \
+  "$REPO/supabase-testing/docker-compose.yml|\${POSTGRES_PORT:-54382}:5432" \
+  "$REPO/supabase-testing/docker-compose.yml|\${KONG_HTTP_PORT:-54386}:8000" \
+  "$REPO/supabase-testing/docker-compose.yml|\${KONG_HTTPS_PORT:-54443}:8443" \
+  "$REPO/supabase-testing/docker-compose.yml|\${STUDIO_PORT:-54381}:3000" \
+  "$REPO/supabase-testing/docker-compose.mailpit.yml|\${MAILPIT_PORT:-54384}:8025"; do
   file="${req%%|*}"; port="${req#*|}"
-  if grep -q "\"$port\"" "$file"; then
-    pass "$(basename "$file") has $port"
+  if grep -Fq "\"$port\"" "$file"; then
+    pass "$(basename "$file") has \"$port\""
   else
-    fail "$(basename "$file") MISSING $port"
+    fail "$(basename "$file") MISSING \"$port\""
   fi
 done
 
@@ -251,6 +302,8 @@ for f in "${KONG_EP[@]}"; do
   if grep -Fq 'exec /docker-entrypoint.sh' "$f"; then fail "$n SELF-EXEC /docker-entrypoint.sh (recursion bug)"; else pass "$n no self-exec over /docker-entrypoint.sh"; fi
   if grep -Fq 'until kong health' "$f"; then fail "$n still has never-passing 'until kong health' loop"; else pass "$n no 'until kong health' loop"; fi
   if grep -Fq 'DB_WAIT_ATTEMPTS' "$f" && grep -Fq 'DB_WAIT_INTERVAL' "$f"; then pass "$n bounded DB wait loop (DB_WAIT_ATTEMPTS/DB_WAIT_INTERVAL)"; else fail "$n MISSING bounded DB wait loop"; fi
+  if grep -Fq 'KONG_DECLARATIVE_TEMPLATE' "$f" && grep -Fq 'ENVIRON' "$f"; then pass "$n templates declarative config via awk (\$VAR substitution, M-03)"; else fail "$n MISSING awk templating block (KONG_DECLARATIVE_TEMPLATE/ENVIRON)"; fi
+  if grep -Fq 'no templating' "$f"; then fail "$n stale 'no templating' claim (M-03 rewrote the wrapper)"; else pass "$n no stale 'no templating' claim"; fi
 done
 if cmp -s "${KONG_EP[0]}" "${KONG_EP[1]}"; then
   pass "both kong-entrypoint.sh byte-identical"
@@ -260,7 +313,8 @@ fi
 
 # 8.2 kong.yml: upstream URLs only ever point at compose service hostnames
 #     (samay-* / samay-testing-* + the pinned internal ports), all expected
-#     routes present, key-auth keys stay placeholders (MKE/S-10 handoff).
+#     routes present, key-auth credentials are $VAR refs (M-03 — resolved by
+#     the entrypoint from the kong env; no literal key material).
 check_kongyml() { # check_kongyml <file> <service-prefix>
   local f="$1" pre="$2" n urls_other
   n="$(basename "$f")"
@@ -270,25 +324,38 @@ check_kongyml() { # check_kongyml <file> <service-prefix>
     "url: http://${pre}-realtime:4000/socket"
     "url: http://${pre}-storage:5000"
     "url: http://${pre}-meta:8080"
+    "url: http://${pre}-functions:9000/"
   )
   local u
   for u in "${expected[@]}"; do
     if grep -Fq "$u" "$f"; then pass "$n has $u"; else fail "$n MISSING $u"; fi
   done
-  urls_other="$(grep -E '^[[:space:]]*url:' "$f" | grep -vE "url: http://${pre}-(auth|rest|realtime|storage|meta):(9999|3000|4000|5000|8080)(/socket)?$" | wc -l | tr -d ' ')"
+  urls_other="$(grep -E '^[[:space:]]*url:' "$f" | grep -vE "url: http://${pre}-(auth|rest|realtime|storage|meta|functions):(9999|3000|4000|5000|8080|9000)(/socket)?/?$" | wc -l | tr -d ' ')"
   if [ "$urls_other" = "0" ]; then
     pass "$n no foreign/absolute upstream url refs"
   else
-    fail "$n has non-compose url refs ($(grep -E '^[[:space:]]*url:' "$f" | grep -vE "url: http://${pre}-(auth|rest|realtime|storage|meta):(9999|3000|4000|5000|8080)(/socket)?$" | tr '\n' ';'))"
+    fail "$n has non-compose url refs ($(grep -E '^[[:space:]]*url:' "$f" | grep -vE "url: http://${pre}-(auth|rest|realtime|storage|meta|functions):(9999|3000|4000|5000|8080|9000)(/socket)?/?$" | tr '\n' ';'))"
   fi
   local svc
-  for svc in auth-v1 rest-v1 rest-admin realtime-v1 storage-v1 storage-admin meta-v1; do
+  for svc in auth-v1 rest-v1 rest-admin realtime-v1 storage-v1 storage-admin meta-v1 functions-v1; do
     if grep -Fq "name: $svc" "$f"; then pass "$n route service $svc"; else fail "$n MISSING route service $svc"; fi
   done
-  if grep -Fq 'key: your-anon-key' "$f" && grep -Fq 'key: your-service-role-key' "$f"; then
-    pass "$n key-auth placeholders kept (MKE/S-10 handoff pinned)"
+  # functions-v1 (M-07): edge-runtime upstream, cors only (no key-auth —
+  # official supabase pattern), long read_timeout for long-running functions.
+  if grep -q "read_timeout: 150000" "$f"; then
+    pass "$n functions-v1 read_timeout: 150000"
   else
-    fail "$n key-auth placeholder keys changed — re-read the MKE/S-10 handoff"
+    fail "$n MISSING read_timeout: 150000 (functions-v1)"
+  fi
+  if grep -Fq 'key: $ANON_KEY' "$f" && grep -Fq 'key: $SERVICE_ROLE_KEY' "$f"; then
+    pass "$n key-auth credentials are \$VAR refs (M-03, entrypoint-resolved)"
+  else
+    fail "$n key-auth credentials not \$VAR refs — expected 'key: \$ANON_KEY' + 'key: \$SERVICE_ROLE_KEY'"
+  fi
+  if grep -Eq 'your-anon-key|your-service-role-key' "$f"; then
+    fail "$n still has literal your-* key placeholders"
+  else
+    pass "$n no literal your-* key placeholders"
   fi
   if grep -Eq 'sb_publishable|sb_secret|your-jwt-secret' "$f"; then
     fail "$n contains real/secret key material — DO NOT COMMIT"
@@ -326,6 +393,107 @@ for f in "${BASE[@]}"; do
     pass "$n [kong] no command: /docker-entrypoint.sh"
   fi
 done
+
+# 8.4 Kong key-auth credentials (M-03 — SELFHOSTING.md row 22 closed):
+#     kong.yml holds $VAR refs resolved by the entrypoint from the kong
+#     container env (ANON_KEY / SERVICE_ROLE_KEY); compose feeds them from
+#     .env (SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY) with safe
+#     .env.example placeholder defaults; no literal key material (neither the
+#     old your-* placeholders nor dev key strings) is committed anywhere.
+echo ""
+echo "━━━ 8.4 Kong key-auth credentials (\$VAR refs, M-03) ━━━"
+ENV_A="$REPO/supabase/.env"
+ENV_T="$REPO/supabase-testing/.env"
+
+# 8.4.1 No your-(anon|service) literals in volumes/ (mission rg gate)
+VGREP=$(grep -rEn 'your-(anon|service)' "$REPO/supabase/volumes" "$REPO/supabase-testing/volumes" | wc -l | tr -d ' ')
+if [ "$VGREP" = "0" ]; then
+  pass "no 'your-(anon|service)' literals in supabase/volumes + supabase-testing/volumes"
+else
+  fail "your-* literals remain: $(grep -rEn 'your-(anon|service)' "$REPO/supabase/volumes" "$REPO/supabase-testing/volumes" | tr '\n' ';')"
+fi
+
+# 8.4.2 kong service env wiring (both stacks): interpolated env from .env
+#       with safe defaults, resolved-config output path, template :ro mount,
+#       no literal key material.
+for f in "${BASE[@]}"; do
+  n="$(basename "$f")"
+  b="$(block_of "$f" kong)"
+  if printf '%s' "$b" | grep -Fq 'ANON_KEY: ${SUPABASE_ANON_KEY:-your_supabase_anon_key_here}' && printf '%s' "$b" | grep -Fq 'SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}'; then
+    pass "$n [kong] ANON_KEY/SERVICE_ROLE_KEY env from .env with safe defaults"
+  else
+    fail "$n [kong] MISSING ANON_KEY/SERVICE_ROLE_KEY env wiring"
+  fi
+  if printf '%s' "$b" | grep -Fq 'KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml'; then
+    pass "$n [kong] resolved config path /usr/local/kong/kong.yml"
+  else
+    fail "$n [kong] KONG_DECLARATIVE_CONFIG not /usr/local/kong/kong.yml"
+  fi
+  if printf '%s' "$b" | grep -Fq 'kong.yml:/api/kong.yml:ro'; then
+    pass "$n [kong] template mounted :ro at /api/kong.yml"
+  else
+    fail "$n [kong] template mount not :ro at /api/kong.yml"
+  fi
+  if printf '%s' "$b" | grep -Eq 'sb_publishable|sb_service_role_key_change|your-anon-key|your-service-role-key'; then
+    fail "$n [kong] literal key material in kong env block"
+  else
+    pass "$n [kong] no literal key material in kong env block"
+  fi
+done
+
+# 8.4.3 opt-test defaults aligned to the .env dev values (dev-only; CI
+#       overrides via env) + the M-03 header note in each of the 5 files.
+ENV_ANON="$(grep -E '^SUPABASE_ANON_KEY=' "$ENV_A" | head -1 | cut -d= -f2-)"
+ENV_SVC="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' "$ENV_A" | head -1 | cut -d= -f2-)"
+if [ -n "$ENV_SVC" ]; then
+  HITS=0; MISS=0
+  for t in opt-001-rls-security.sh opt-002-events.sh opt-003-chat.sh opt-004-photos.sh opt-006-e2ee-rpc.sh; do
+    if grep -Fq "SERVICE_KEY=\"\${SERVICE_KEY:-$ENV_SVC}\"" "$REPO/test/$t"; then
+      HITS=$((HITS+1))
+    else
+      MISS=$((MISS+1)); echo "  ❌ $t SERVICE_KEY default != .env dev value"
+    fi
+    if grep -Fq 'M-03 alignment' "$REPO/test/$t"; then
+      HITS=$((HITS+1))
+    else
+      MISS=$((MISS+1)); echo "  ❌ $t missing M-03 header note"
+    fi
+  done
+  if [ "$MISS" = "0" ]; then
+    pass "all 5 opt-tests use the .env dev SERVICE_KEY default + M-03 header note ($HITS asserts)"
+  else
+    fail "$MISS opt-test alignment assert(s) failed"
+  fi
+else
+  fail "supabase/.env missing SUPABASE_SERVICE_ROLE_KEY (cannot verify opt-test alignment)"
+fi
+
+# 8.4.4 No fabricated real-looking service key (sb_secret_*) left in the
+#       committed files that could carry it (the 5 opt-tests + volumes +
+#       base compose). opt-007 itself is excluded — its own grep patterns
+#       would self-match.
+SECRET_HITS=$(grep -rEn 'sb_secret_' "$REPO/test/opt-001-rls-security.sh" "$REPO/test/opt-002-events.sh" "$REPO/test/opt-003-chat.sh" "$REPO/test/opt-004-photos.sh" "$REPO/test/opt-006-e2ee-rpc.sh" "$REPO/supabase/volumes" "$REPO/supabase-testing/volumes" "${BASE[@]}" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$SECRET_HITS" = "0" ]; then
+  pass "no 'sb_secret_*' string in opt-tests/volumes/compose (fabricated key removed)"
+else
+  fail "sb_secret_* still present: $(grep -rEn 'sb_secret_' "$REPO/test/opt-001-rls-security.sh" "$REPO/test/opt-002-events.sh" "$REPO/test/opt-003-chat.sh" "$REPO/test/opt-004-photos.sh" "$REPO/test/opt-006-e2ee-rpc.sh" "$REPO/supabase/volumes" "$REPO/supabase-testing/volumes" "${BASE[@]}" 2>/dev/null | tr '\n' ';')"
+fi
+
+# 8.4.5 docker-only: the RESOLVED `docker compose config` output carries the
+#       interpolated key values (from .env) in the kong service env — the
+#       entrypoint resolves kong.yml from exactly these values.
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  if [ -n "$ENV_ANON" ] && [ -n "$ENV_SVC" ]; then
+    (cd "$REPO/supabase" && docker compose config 2>/dev/null | grep -Fq "ANON_KEY: $ENV_ANON") && pass "supabase resolved config has ANON_KEY from .env" || fail "supabase resolved config MISSING interpolated ANON_KEY"
+    (cd "$REPO/supabase" && docker compose config 2>/dev/null | grep -Fq "SERVICE_ROLE_KEY: $ENV_SVC") && pass "supabase resolved config has SERVICE_ROLE_KEY from .env" || fail "supabase resolved config MISSING interpolated SERVICE_ROLE_KEY"
+    (cd "$REPO/supabase-testing" && docker compose config 2>/dev/null | grep -Fq "ANON_KEY: $ENV_ANON") && pass "supabase-testing resolved config has ANON_KEY from .env" || fail "supabase-testing resolved config MISSING interpolated ANON_KEY"
+    (cd "$REPO/supabase-testing" && docker compose config 2>/dev/null | grep -Fq "SERVICE_ROLE_KEY: $ENV_SVC") && pass "supabase-testing resolved config has SERVICE_ROLE_KEY from .env" || fail "supabase-testing resolved config MISSING interpolated SERVICE_ROLE_KEY"
+  else
+    echo "  (supabase/.env keys absent — §8.4.5 resolved-config asserts skipped)"
+  fi
+else
+  echo "  (docker not available — §8.4.5 resolved-config asserts skipped)"
+fi
 
 # ── 9. Stack parity: supabase/ vs supabase-testing/ (M-10) ────────────────────
 # Byte-for-byte behavioral parity between the two stacks. The ONLY permitted
@@ -499,7 +667,7 @@ fi
 mp="$(block_of "$MAILPIT" mailpit)"
 a="$(block_of "$MAILPIT" auth)"
 printf '%s' "$mp" | grep -q 'image: axllent/mailpit:v1.30.7' && pass "mailpit image pinned to v1.30.7 (no :latest)" || fail "mailpit image NOT pinned to v1.30.7"
-printf '%s' "$mp" | grep -q '54384:8025' && pass "mailpit UI published on 54384:8025" || fail "mailpit MISSING 54384:8025"
+printf '%s' "$mp" | grep -Eq '\$\{MAILPIT_PORT:-54384\}:8025' && pass "mailpit UI published on \${MAILPIT_PORT:-54384}:8025" || fail "mailpit MISSING \${MAILPIT_PORT:-54384}:8025"
 if printf '%s' "$mp" | grep -Eq '"[0-9]+:1025"|1025:1025'; then
   fail "mailpit publishes SMTP 1025 on the host (must stay internal)"
 else
@@ -543,20 +711,91 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
     "image: supabase/postgres:17.6.1.136" \
     "image: minio/minio:RELEASE.2025-09-07T16-13-09Z" \
     "image: minio/mc:RELEASE.2025-08-13T08-35-41Z" \
+    "image: supabase/edge-runtime:v1.74.0" \
+    "image: darthsim/imgproxy:v3.30.1" \
     "STORAGE_BACKEND: s3" \
     "GLOBAL_S3_ENDPOINT: http://minio:9000" \
     "GLOBAL_S3_FORCE_PATH_STYLE: \"true\"" \
     "GLOBAL_S3_BUCKET: samay-storage" \
     "AWS_ACCESS_KEY_ID: supa-storage" \
-    "service_completed_successfully"
+    "service_completed_successfully" \
+    "IMGPROXY_URL: http://imgproxy:5001" \
+    "ENABLE_IMAGE_TRANSFORMATION: \"true\"" \
+    "container_name: samay-functions" \
+    "container_name: samay-imgproxy"
   merged_has "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.s3.yml -f docker-compose.mailpit.yml -- \
     "image: axllent/mailpit:v1.30.7" \
     "GOTRUE_SMTP_HOST: mailpit" \
     "GOTRUE_SMTP_PORT: \"?1025\"?\$" \
     "GLOBAL_S3_BUCKET: samay-testing-storage" \
-    "container_name: samay-testing-minio"
+    "container_name: samay-testing-minio" \
+    "container_name: samay-testing-functions" \
+    "container_name: samay-testing-imgproxy" \
+    "SUPABASE_URL: http://samay-testing-kong:8000"
 else
   echo "  (docker not available — merged-config override assertions skipped)"
+fi
+
+# ── 11. Env-driven ports + env URL wiring (M-02, DKR-03) ────────────────────
+# Host ports are NOT hardcoded anymore: compose reads ${VAR:-default} with
+# the approved values as defaults, and `.env` carries the same values as
+# the source of truth (overriding .env re-homes the stack). This section
+# pins: no hardcoded host-port literals anywhere in compose; every binding
+# carries the approved default; internal URL envs (SUPABASE_URL /
+# SUPABASE_PUBLIC_URL / PGRST_DB_OPENAPI_SERVER_PROXY_URI) interpolate
+# ${KONG_HTTP_PORT:-54386}; the rate-limit env is consumed (not a fiction);
+# `docker compose config` resolves the approved map and an env override
+# roundtrips WITHOUT touching .env (subshell, restored after).
+echo ""
+echo "━━━ 11. Env-driven ports (DKR-03, M-02) ━━━"
+
+# 11.1 No hardcoded host-port bindings remain in any compose file.
+HARDCODED_HITS=$(grep -nE '^[[:space:]]*-[[:space:]]*"[0-9]{4,5}:[0-9]+"' "${ALL_FILES[@]}" | wc -l | tr -d ' ')
+if [ "$HARDCODED_HITS" = "0" ]; then
+  pass "no hardcoded host-port bindings (env-driven only)"
+else
+  fail "hardcoded host-port bindings remain: $(grep -nE '^[[:space:]]*-[[:space:]]*"[0-9]{4,5}:[0-9]+"' "${ALL_FILES[@]}" | tr '\n' ';')"
+fi
+
+# 11.2 Internal URL envs + rate limit are env-driven in the base compose.
+for f in "${BASE[@]}"; do
+  n="$(basename "$f")"
+  st="$(block_of "$f" studio)"
+  rs="$(block_of "$f" rest)"
+  a="$(block_of "$f" auth)"
+  printf '%s' "$st" | grep -Fq 'SUPABASE_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}' && pass "$n [studio] SUPABASE_URL env-driven (\${KONG_HTTP_PORT:-54386})" || fail "$n [studio] SUPABASE_URL not env-driven"
+  printf '%s' "$st" | grep -Fq 'SUPABASE_PUBLIC_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}' && pass "$n [studio] SUPABASE_PUBLIC_URL env-driven" || fail "$n [studio] SUPABASE_PUBLIC_URL not env-driven"
+  printf '%s' "$rs" | grep -Fq 'PGRST_DB_OPENAPI_SERVER_PROXY_URI: http://127.0.0.1:${KONG_HTTP_PORT:-54386}' && pass "$n [rest] PGRST_DB_OPENAPI_SERVER_PROXY_URI env-driven" || fail "$n [rest] PGRST_DB_OPENAPI_SERVER_PROXY_URI not env-driven"
+  printf '%s' "$a" | grep -Fq 'GOTRUE_RATE_LIMIT_EMAIL_SENT: ${AUTH_RATE_LIMIT_EMAIL_SENT:-2}' && pass "$n [auth] rate limit reads \${AUTH_RATE_LIMIT_EMAIL_SENT:-2} (M-10 fiction fixed)" || fail "$n [auth] rate limit not env-driven"
+done
+
+# 11.3 `.env` files carry the port map + rate limit as source of truth.
+ENV_A="$REPO/supabase/.env"
+ENV_T="$REPO/supabase-testing/.env"
+for kv in POSTGRES_PORT=54382 STUDIO_PORT=54381 KONG_HTTP_PORT=54386 KONG_HTTPS_PORT=54443 ANALYTICS_PORT=54388 AUTH_RATE_LIMIT_EMAIL_SENT=2; do
+  grep -Eq "^$kv([[:space:]]|$)" "$ENV_A" && pass "supabase/.env $kv" || fail "supabase/.env MISSING $kv"
+  grep -Eq "^$kv([[:space:]]|$)" "$ENV_T" && pass "supabase-testing/.env $kv" || fail "supabase-testing/.env MISSING $kv"
+done
+grep -Eq "^MAILPIT_PORT=54384([[:space:]]|$)" "$ENV_T" && pass "supabase-testing/.env MAILPIT_PORT=54384 (testing-only service)" || fail "supabase-testing/.env MISSING MAILPIT_PORT=54384"
+grep -Eq "^MAILPIT_PORT=54384([[:space:]]|$)" "$ENV_A" && pass "supabase/.env MAILPIT_PORT=54384 documented (no mailpit service in prod)" || fail "supabase/.env MISSING MAILPIT_PORT=54384"
+
+# 11.4 Resolved config + override roundtrip (docker only) — inline env vars
+#     in a subshell, so the shell/.env state is restored immediately after.
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  for p in 54382 54386 54443 54381; do
+    (cd "$REPO/supabase" && docker compose config 2>/dev/null | grep -q "published: \"$p\"") && pass "supabase default config resolves $p" || fail "supabase default config MISSING published $p"
+  done
+  for p in 54382 54386 54443 54381 54384; do
+    (cd "$REPO/supabase-testing" && docker compose config 2>/dev/null | grep -q "published: \"$p\"") && pass "supabase-testing default config resolves $p" || fail "supabase-testing default config MISSING published $p"
+  done
+  (cd "$REPO/supabase" && docker compose config 2>/dev/null | grep -q 'GOTRUE_RATE_LIMIT_EMAIL_SENT: "2"') && pass "supabase config rate limit = 2 (from .env)" || fail "supabase config rate limit != 2"
+  (cd "$REPO/supabase-testing" && docker compose config 2>/dev/null | grep -q 'GOTRUE_RATE_LIMIT_EMAIL_SENT: "2"') && pass "supabase-testing config rate limit = 2 (from .env)" || fail "supabase-testing config rate limit != 2"
+  (cd "$REPO/supabase" && POSTGRES_PORT=54444 docker compose config 2>/dev/null | grep -q 'published: "54444"') && pass "POSTGRES_PORT=54444 override roundtrip (supabase)" || fail "POSTGRES_PORT=54444 override FAILED"
+  (cd "$REPO/supabase" && docker compose config 2>/dev/null | grep -q 'published: "54382"') && pass "roundtrip restored (supabase default 54382)" || fail "roundtrip did NOT restore 54382"
+  (cd "$REPO/supabase" && KONG_HTTP_PORT=54555 docker compose config 2>/dev/null | grep -Eq 'SUPABASE_URL: http://127.0.0.1:54555') && pass "KONG_HTTP_PORT=54555 propagates to SUPABASE_URL" || fail "KONG_HTTP_PORT override NOT in SUPABASE_URL"
+  (cd "$REPO/supabase-testing" && MAILPIT_PORT=54666 docker compose config 2>/dev/null | grep -q 'published: "54666"') && pass "MAILPIT_PORT=54666 override roundtrip (supabase-testing)" || fail "MAILPIT_PORT=54666 override FAILED"
+else
+  echo "  (docker not available — §11.4 resolved-config assertions skipped)"
 fi
 
 echo ""

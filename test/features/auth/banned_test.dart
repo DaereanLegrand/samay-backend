@@ -8,8 +8,8 @@ import 'package:samay/core/router/app_router.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/auth_service.dart';
 import 'package:samay/core/services/ban_service.dart';
-import 'package:samay/features/auth/banned_screen.dart';
-import 'package:samay/features/feed/feed_screen.dart';
+import 'package:samay/features/auth/screens/banned_screen.dart';
+import 'package:samay/features/feed/screens/feed_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
 class _FakeAuthService extends Mock implements AuthService {}

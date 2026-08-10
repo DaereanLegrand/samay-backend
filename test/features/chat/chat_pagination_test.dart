@@ -8,7 +8,7 @@ import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/repositories/chat_repository.dart';
 import 'package:samay/core/services/chat_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
-import 'package:samay/features/chat/chat_providers.dart';
+import 'package:samay/features/chat/providers/chat_providers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 import '../../support/resolving_builder.dart';

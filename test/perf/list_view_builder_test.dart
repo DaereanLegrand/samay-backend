@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:samay/features/groups/group_detail_screen.dart';
-import 'package:samay/features/groups/groups_providers.dart';
+import 'package:samay/features/groups/screens/group_detail_screen.dart';
+import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
 /// Static guard for finding PERF-01 (H-27): every list whose children are
@@ -24,30 +24,30 @@ import 'package:samay/l10n/app_localizations.dart';
 /// MUST carry a justification. Never add a data-derived list here; convert it
 /// to `ListView.builder` instead.
 const _justifiedFixedLists = <String, String>{
-  'lib/features/profile/edit_profile_screen.dart':
+  'lib/features/profile/screens/edit_profile_screen.dart':
       'fixed 5-child form (avatar, bio input, save button, password link) — no data list',
-  'lib/features/profile/public_profile_screen.dart':
+  'lib/features/profile/screens/public_profile_screen.dart':
       'fixed profile header + friendship actions — no data list',
-  'lib/features/profile/profile_screen.dart':
+  'lib/features/profile/screens/profile_screen.dart':
       'fixed profile header; its only data-derived list (my groups) is a '
       'ListView.builder child; the outer ListView type is asserted by '
       'test/features/profile_screens_test.dart (pull-to-refresh fling)',
-  'lib/features/profile/settings_screen.dart':
+  'lib/features/profile/screens/settings_screen.dart':
       'fixed 7-item settings menu — static routes, not data',
-  'lib/features/groups/donate_shards_screen.dart':
+  'lib/features/groups/screens/donate_shards_screen.dart':
       'fixed 4-child donation form — no data list',
-  'lib/features/groups/create_group_screen.dart':
+  'lib/features/groups/screens/create_group_screen.dart':
       'fixed 5-child create-group form — no data list',
-  'lib/features/events/event_detail_screen.dart':
+  'lib/features/events/screens/event_detail_screen.dart':
       'fixed event header + section stack (cover, name, badges, info rows, '
       'pool card, promotores section, actions); the only data-derived content '
       '(promotores avatars, invite row) renders inside the fixed sections '
       'via Wrap/conditionals, not as list children',
-  'lib/features/events/create_event_screen.dart':
+  'lib/features/events/screens/create_event_screen.dart':
       'fixed ECRT creation form (cover, inputs, pickers, chips, preshards '
       'section, submit); the only data-derived content (myGroups dropdown '
       'items) renders inside the fixed group section, not as list children',
-  'lib/features/subscriptions/paywall_screen.dart':
+  'lib/features/subscriptions/screens/paywall_screen.dart':
       'fixed paywall: header + 3 const tier cards (Free/PRO/VIP) + restore '
       'button — the tier/feature catalogs are const (paywallTiers/'
       'paywallRows), only price values come from app_config, so the child '

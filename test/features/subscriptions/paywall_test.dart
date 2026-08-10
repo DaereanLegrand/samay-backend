@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/config_provider.dart';
-import 'package:samay/features/subscriptions/paywall_screen.dart';
+import 'package:samay/features/subscriptions/screens/paywall_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
 import 'package:samay/shared/widgets/v_button.dart';

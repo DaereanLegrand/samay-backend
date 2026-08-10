@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:samay/features/friends/friends_providers.dart';
-import 'package:samay/features/friends/search_screen.dart';
-import 'package:samay/features/friends/requests_screen.dart';
-import 'package:samay/features/friends/friends_list_screen.dart';
-import 'package:samay/features/friends/blocked_users_screen.dart';
-import 'package:samay/features/groups/groups_providers.dart';
+import 'package:samay/features/friends/providers/friends_providers.dart';
+import 'package:samay/features/friends/screens/search_screen.dart';
+import 'package:samay/features/friends/screens/requests_screen.dart';
+import 'package:samay/features/friends/screens/friends_list_screen.dart';
+import 'package:samay/features/friends/screens/blocked_users_screen.dart';
+import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
 

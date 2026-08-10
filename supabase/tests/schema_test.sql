@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all 24 migrations (20260510000001 through 20260809000006).
+-- Covers all 25 migrations (20260510000001 through 20260810000007).
 BEGIN;
 
-SELECT plan(304);
+SELECT plan(312);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -1083,6 +1083,62 @@ SELECT ok(
      FROM pg_proc WHERE proname = 'is_group_member'),
     'is_group_member sets search_path = '''' (migration 20260809000002)'
 );
+
+-- ============================================================
+-- SECTION 47: Storage buckets + storage.objects RLS (agent M-08,
+-- migration 20260810000007 — S-09/M-track bucket-creation gap closure)
+--   47a. The storage schema tables exist — storage.buckets /
+--        storage.objects are created by the storage-api tenant migrations
+--        (0002/0007/0008, all present in the pinned storage-api v1.60.4),
+--        NOT by the app migrations; the bucket rows + objects RLS policies
+--        below are what 20260810000007 adds. has_table with an explicit
+--        schema also guards against the storage schema being dropped.
+--   47b. Bucket rows exist with the exact public flags: avatars=true,
+--        groups=true (public reads via getPublicUrl), events=false (private
+--        — PHUP signed-URL retrieval only).
+--   47c. storage.objects RLS is enabled (relrowsecurity) and the five
+--        migration policies are present under their exact names
+--        (policies_are).
+-- ============================================================
+
+-- 47a: storage schema tables
+SELECT has_table('storage', 'buckets',
+    'storage.buckets exists (storage-api tenant schema, asserted by M-08)');
+SELECT has_table('storage', 'objects',
+    'storage.objects exists (storage-api tenant schema, asserted by M-08)');
+
+-- 47b: bucket rows + public flags (migration 20260810000007 §1)
+SELECT results_eq(
+    'SELECT id FROM storage.buckets WHERE id IN (''avatars'', ''groups'', ''events'') ORDER BY id',
+    ARRAY['avatars', 'events', 'groups']::text[],
+    'avatars/groups/events bucket rows exist (migration 20260810000007)'
+);
+SELECT ok(
+    (SELECT public FROM storage.buckets WHERE id = 'avatars'),
+    'avatars bucket is public=true (app reads avatars via getPublicUrl)'
+);
+SELECT ok(
+    (SELECT public FROM storage.buckets WHERE id = 'groups'),
+    'groups bucket is public=true (app reads group covers via getPublicUrl)'
+);
+SELECT ok(
+    NOT (SELECT public FROM storage.buckets WHERE id = 'events'),
+    'events bucket is public=false (private — PHUP signed-URL retrieval only)'
+);
+
+-- 47c: objects RLS enabled + exact policy set
+SELECT ok(
+    (SELECT relrowsecurity FROM pg_catalog.pg_class
+     WHERE oid = 'storage.objects'::regclass),
+    'storage.objects has ROW LEVEL SECURITY enabled (storage-api 0002)'
+);
+SELECT policies_are('storage', 'objects', ARRAY[
+    'storage_objects_delete_own',
+    'storage_objects_events_select_access',
+    'storage_objects_insert_own',
+    'storage_objects_public_read_avatars_groups',
+    'storage_objects_update_own'
+], 'storage.objects has exactly the 5 M-08 policies (public read avatars/groups, events select-access, own insert/update/delete)');
 
 SELECT * FROM finish();
 ROLLBACK;

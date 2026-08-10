@@ -26,11 +26,14 @@ set -uo pipefail
 # make supabase-docker-reset && bash test/opt-003-chat.sh
 #
 # Usage: bash test/opt-003-chat.sh
+#
+# Keys (M-03 alignment): ANON_KEY / SERVICE_KEY default to the DEV values
+# from supabase/.env — dev-only; CI/checkpoint overrides them via env vars.
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
 ANON_KEY="${ANON_KEY:-sb_publishable_q7NDNoV4TCGqCgheg4tcvC_odjEiEdN}"
-SERVICE_KEY="${SERVICE_KEY:-sb_secret_ecIXdsS9IJwFtzgPOHNOtj_eVgxyq37}"
+SERVICE_KEY="${SERVICE_KEY:-sb_service_role_key_change_in_production}"
 
 PASS=0
 FAIL=0

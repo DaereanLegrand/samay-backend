@@ -8,8 +8,8 @@ import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/notification_service.dart';
 import 'package:samay/core/services/rest_client.dart';
 import 'package:samay/core/services/realtime_service.dart';
-import 'package:samay/features/notifications/notification_center_screen.dart';
-import 'package:samay/features/notifications/notifications_providers.dart';
+import 'package:samay/features/notifications/screens/notification_center_screen.dart';
+import 'package:samay/features/notifications/providers/notifications_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 

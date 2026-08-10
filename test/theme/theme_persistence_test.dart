@@ -12,7 +12,7 @@ import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/theme/app_theme.dart';
 import 'package:samay/core/services/connectivity_service.dart';
 import 'package:samay/core/services/storage_service.dart';
-import 'package:samay/features/profile/settings_screen.dart';
+import 'package:samay/features/profile/screens/settings_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
 /// In-memory [HiveService] stand-in (I-65) — records writes, seeds reads.

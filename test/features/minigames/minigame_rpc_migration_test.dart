@@ -239,7 +239,7 @@ void main() {
       // test/features/qr/qr_rpc_migration_test.dart (+ I-78's Section 46
       // prefixes trigger_is / volatility_is).
       return RegExp(
-        r'^SELECT (ok|is|has_|hasnt_|col_|trigger_is|volatility_is|policies_are|columns_are)[a-z_]*\(',
+        r'^SELECT (ok|is|has_|hasnt_|col_|trigger_is|volatility_is|policies_are|columns_are|results_eq)[a-z_]*\(',
         multiLine: true,
       ).allMatches(content).length;
     }

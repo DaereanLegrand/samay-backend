@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:samay/features/profile/profile_providers.dart';
+import 'package:samay/features/profile/providers/profile_providers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 class _MemoryStorage extends LocalStorage {

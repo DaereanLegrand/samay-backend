@@ -6,10 +6,10 @@ import 'package:samay/core/errors/app_error.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/router/route_extras.dart';
 import 'package:samay/core/router/route_paths.dart';
-import 'package:samay/features/auth/login_screen.dart';
-import 'package:samay/features/auth/otp_verification_screen.dart';
-import 'package:samay/features/auth/profile_setup_screen.dart';
-import 'package:samay/features/auth/signup_contact_screen.dart';
+import 'package:samay/features/auth/screens/login_screen.dart';
+import 'package:samay/features/auth/screens/otp_verification_screen.dart';
+import 'package:samay/features/auth/screens/profile_setup_screen.dart';
+import 'package:samay/features/auth/screens/signup_contact_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
 /// Deterministic auth notifier for the auth-screen interaction tests (I-45,

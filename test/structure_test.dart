@@ -55,6 +55,31 @@ void main() {
     }
   });
 
+  group('feature sublayers (ARC-01, M-23)', () {
+    test('every lib/features/<feature>/ has a screens/ subdir with a Dart '
+        'file', () {
+      final broken = <String>[];
+      final features = Directory('$root/lib/features').listSync()
+          .whereType<Directory>();
+      expect(features.length, greaterThan(0),
+          reason: 'lib/features/ should contain at least one feature dir');
+      for (final dir in features) {
+        final name = dir.path.split(Platform.pathSeparator).last;
+        final screens = Directory('${dir.path}/screens');
+        if (!screens.existsSync()) {
+          broken.add('$name (no screens/ subdir)');
+          continue;
+        }
+        final hasDart = screens.listSync().whereType<File>().any(
+            (f) => f.path.endsWith('.dart'));
+        if (!hasDart) broken.add('$name (screens/ has no .dart file)');
+      }
+      expect(broken, isEmpty,
+          reason: 'feature dirs missing a screens/ sublayer (ARC-01/M-23): '
+              '$broken');
+    });
+  });
+
   group('shared and crypto', () {
     test('lib/shared/widgets exists', () {
       expect(Directory('$root/lib/shared/widgets').existsSync(), isTrue,

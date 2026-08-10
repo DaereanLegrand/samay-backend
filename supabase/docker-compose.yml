@@ -9,7 +9,7 @@ services:
       timeout: 5s
       retries: 10
     ports:
-      - "54382:5432"
+      - "${POSTGRES_PORT:-54382}:5432"
     environment:
       POSTGRES_HOST: /var/run/postgresql
       POSTGRES_PORT: 5432
@@ -37,7 +37,7 @@ services:
       retries: 5
     environment:
       KONG_DATABASE: off
-      KONG_DECLARATIVE_CONFIG: /api/kong.yml
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_PLUGINS: request-transformer,cors,key-auth,acl
       KONG_LOG_LEVEL: warn
@@ -45,11 +45,16 @@ services:
       KONG_PROXY_LISTEN: 0.0.0.0:8000
       KONG_PROXY_LISTEN_SSL: 0.0.0.0:8443
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      # kong.yml keyauth_credentials resolve these $VAR refs (M-03): values
+      # come from .env (SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY) with
+      # safe .env.example placeholder defaults — no key material committed.
+      ANON_KEY: ${SUPABASE_ANON_KEY:-your_supabase_anon_key_here}
+      SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
     ports:
-      - "54386:8000"
-      - "54443:8443"
+      - "${KONG_HTTP_PORT:-54386}:8000"
+      - "${KONG_HTTPS_PORT:-54443}:8443"
     volumes:
-      - ./volumes/api/kong.yml:/api/kong.yml
+      - ./volumes/api/kong.yml:/api/kong.yml:ro
       - ./volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro
     entrypoint: ["/bin/bash", "/home/kong/kong-entrypoint.sh"]
 
@@ -93,7 +98,7 @@ services:
       GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@samay-db:5432/postgres
       GOTRUE_DB_MAX_POOL_SIZE: 10
       GOTRUE_LOG_LEVEL: warn
-      GOTRUE_RATE_LIMIT_EMAIL_SENT: 2
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: ${AUTH_RATE_LIMIT_EMAIL_SENT:-2}
       GOTRUE_OPERATOR_TOKEN: ""
       GOTRUE_DISABLE_SIGNUP: false
 
@@ -116,7 +121,7 @@ services:
       PGRST_JWT_SECRET: "your-jwt-secret-change-in-production"
       PGRST_DB_AGGREGATES_ENABLED: true
       PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
-      PGRST_DB_OPENAPI_SERVER_PROXY_URI: http://127.0.0.1:54386
+      PGRST_DB_OPENAPI_SERVER_PROXY_URI: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
       PGRST_OPENAPI_SECURITY_ACTIVE: true
       PGRST_DB_POOL: 10
       PGRST_ADMIN_SERVER_PORT: 3001
@@ -162,6 +167,8 @@ services:
         condition: service_healthy
       rest:
         condition: service_started
+      imgproxy:
+        condition: service_started
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:5000/status
       interval: 5s
@@ -180,9 +187,30 @@ services:
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
       TENANT_AUTO_CREATE: true
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: http://imgproxy:5001
       LOG_LEVEL: warn
     volumes:
       - ./volumes/storage:/var/lib/storage
+
+  imgproxy:
+    container_name: samay-imgproxy
+    image: darthsim/imgproxy:v3.30.1
+    restart: unless-stopped
+    volumes:
+      - ./volumes/storage:/var/lib/storage
+    healthcheck:
+      test: ["CMD", "imgproxy", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      IMGPROXY_BIND: ":5001"
+      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+      IMGPROXY_USE_ETAG: "true"
+      IMGPROXY_AUTO_WEBP: ${IMGPROXY_AUTO_WEBP:-true}
+      IMGPROXY_MAX_SRC_RESOLUTION: 16.8
 
   meta:
     container_name: samay-meta
@@ -225,12 +253,48 @@ services:
     environment:
       HOSTNAME: "0.0.0.0"
       STUDIO_PG_META_URL: http://samay-meta:8080
-      SUPABASE_URL: http://127.0.0.1:54386
+      SUPABASE_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
       SUPABASE_ANON_KEY: "your-anon-key"
       SUPABASE_SERVICE_KEY: "your-service-role-key"
-      SUPABASE_PUBLIC_URL: http://127.0.0.1:54386
+      SUPABASE_PUBLIC_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
     ports:
-      - "54381:3000"
+      - "${STUDIO_PORT:-54381}:3000"
+
+  functions:
+    container_name: samay-functions
+    image: supabase/edge-runtime:v1.74.0
+    restart: unless-stopped
+    volumes:
+      - ./functions:/home/deno/functions
+      - deno-cache:/root/.cache/deno
+    depends_on:
+      kong:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - timeout 1 bash -c '</dev/tcp/127.0.0.1/9000'
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      # Edge Functions env contract (M-07, official supabase compose for
+      # edge-runtime v1.74.0): the SUPABASE_* vars are passed through to the
+      # Deno runtime for future function code (EEDG) — none are required at
+      # boot (verified in edge-runtime source). The runtime DOES require a
+      # main service entrypoint (`functions/main/index.ts` boot placeholder,
+      # see supabase/functions/README.md) or the container crash-loops.
+      JWT_SECRET: "your-jwt-secret-change-in-production"
+      SUPABASE_URL: http://samay-kong:8000
+      SUPABASE_PUBLIC_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-your_supabase_anon_key_here}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SUPABASE_PUBLISHABLE_KEYS: "{\"default\":\"${SUPABASE_PUBLISHABLE_KEY:-}\"}"
+      SUPABASE_SECRET_KEYS: "{\"default\":\"${SUPABASE_SECRET_KEY:-}\"}"
+      SUPABASE_DB_URL: postgresql://postgres:postgres@samay-db:5432/postgres
+      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT:-false}"
+    command: ["start", "--main-service", "/home/deno/functions/main"]
 
 volumes:
   db-config:

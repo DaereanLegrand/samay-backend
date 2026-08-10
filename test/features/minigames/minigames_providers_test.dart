@@ -7,7 +7,7 @@ import 'package:samay/core/providers/realtime_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/minigame_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
-import 'package:samay/features/minigames/minigames_providers.dart';
+import 'package:samay/features/minigames/providers/minigames_providers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 const _userId = '11111111-1111-1111-1111-111111111111';

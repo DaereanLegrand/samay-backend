@@ -4,8 +4,8 @@ import 'package:samay/core/models/ledger_entry.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/config_service.dart';
 import 'package:samay/core/services/shards_service.dart';
-import 'package:samay/features/cosmetics/cosmetics_providers.dart';
-import 'package:samay/features/profile/profile_providers.dart';
+import 'package:samay/features/cosmetics/providers/cosmetics_providers.dart';
+import 'package:samay/features/profile/providers/profile_providers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 /// Provider-level behavioral tests for the cosmetics shop state (I-62):

@@ -15,8 +15,8 @@ import 'package:samay/core/services/event_service.dart';
 import 'package:samay/core/services/group_service.dart';
 import 'package:samay/core/services/media_service.dart';
 import 'package:samay/core/services/permission_service.dart';
-import 'package:samay/features/events/create_event_screen.dart';
-import 'package:samay/features/events/event_form_data.dart';
+import 'package:samay/features/events/screens/create_event_screen.dart';
+import 'package:samay/features/events/logic/event_form_data.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_button.dart';
 

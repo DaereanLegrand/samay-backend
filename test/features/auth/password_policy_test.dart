@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:samay/features/auth/password_policy.dart';
+import 'package:samay/features/auth/logic/password_policy.dart';
 
 void main() {
   group('isPasswordValid', () {

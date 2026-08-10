@@ -1,6 +1,12 @@
 _format_version: "2.1"
 _transform: true
 
+# keyauth_credentials below reference $VAR env names (ANON_KEY /
+# SERVICE_ROLE_KEY) — the official supabase pattern (M-03, 2026-08-10):
+# kong-entrypoint.sh substitutes them from the kong container env (fed by
+# compose from .env with safe placeholder defaults) BEFORE Kong loads this
+# file. Kong 3.9 does not expand env vars in declarative config natively.
+
 services:
   - name: auth-v1
     url: http://samay-auth:9999
@@ -101,6 +107,16 @@ services:
           allow:
             - service_role
 
+  - name: functions-v1
+    url: http://samay-functions:9000/
+    read_timeout: 150000
+    routes:
+      - name: functions-v1-all
+        paths:
+          - /functions/v1/
+    plugins:
+      - name: cors
+
   - name: meta-v1
     url: http://samay-meta:8080
     routes:
@@ -132,6 +148,6 @@ consumers:
 
 keyauth_credentials:
   - consumer: anon
-    key: your-anon-key
+    key: $ANON_KEY
   - consumer: service_role
-    key: your-service-role-key
+    key: $SERVICE_ROLE_KEY

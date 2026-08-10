@@ -7,8 +7,8 @@ import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/event_service.dart';
 import 'package:samay/core/services/permission_service.dart';
 import 'package:samay/core/theme/app_theme.dart';
-import 'package:samay/features/events/events_providers.dart';
-import 'package:samay/features/qr/qr_scanner_screen.dart';
+import 'package:samay/features/events/providers/events_providers.dart';
+import 'package:samay/features/qr/screens/qr_scanner_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 

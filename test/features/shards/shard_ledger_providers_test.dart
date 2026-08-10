@@ -4,7 +4,7 @@ import 'package:samay/core/models/ledger_entry.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/config_service.dart';
 import 'package:samay/core/services/shards_service.dart';
-import 'package:samay/features/shards/shard_ledger_providers.dart';
+import 'package:samay/features/shards/providers/shard_ledger_providers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 /// Provider-level behavioral tests for the shard ledger state (SLED — I-64):

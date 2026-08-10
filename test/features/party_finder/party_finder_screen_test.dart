@@ -8,8 +8,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/repositories/friends_repository.dart';
 import 'package:samay/core/repositories/repository_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
-import 'package:samay/features/party_finder/party_finder_providers.dart';
-import 'package:samay/features/party_finder/party_finder_screen.dart';
+import 'package:samay/features/party_finder/providers/party_finder_providers.dart';
+import 'package:samay/features/party_finder/screens/party_finder_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
 

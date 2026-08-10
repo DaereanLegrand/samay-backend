@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:samay/core/services/permission_service.dart';
-import 'package:samay/features/groups/create_group_screen.dart';
+import 'package:samay/features/groups/screens/create_group_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
 /// PermissionService tests (SEC-07 / DEP-11, agent I-28).

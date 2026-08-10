@@ -9,10 +9,10 @@ import 'package:samay/core/repositories/friends_repository.dart';
 import 'package:samay/core/repositories/groups_repository.dart';
 import 'package:samay/core/repositories/profile_repository.dart';
 import 'package:samay/core/repositories/repository_providers.dart';
-import 'package:samay/features/chat/chat_providers.dart';
-import 'package:samay/features/friends/friends_providers.dart';
-import 'package:samay/features/groups/groups_providers.dart';
-import 'package:samay/features/profile/profile_providers.dart' as profile;
+import 'package:samay/features/chat/providers/chat_providers.dart';
+import 'package:samay/features/friends/providers/friends_providers.dart';
+import 'package:samay/features/groups/providers/groups_providers.dart';
+import 'package:samay/features/profile/providers/profile_providers.dart' as profile;
 
 class _MockFriendsRepository extends Mock implements FriendsRepository {}
 

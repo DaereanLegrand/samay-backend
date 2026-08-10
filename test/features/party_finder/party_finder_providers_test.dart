@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/user_service.dart';
-import 'package:samay/features/party_finder/party_finder_providers.dart';
+import 'package:samay/features/party_finder/providers/party_finder_providers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 import '../../support/resolving_builder.dart';

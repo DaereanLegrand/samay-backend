@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/router/route_paths.dart';
-import 'package:samay/features/profile/delete_account_screen.dart';
+import 'package:samay/features/profile/screens/delete_account_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
 import '../../support/fake_supabase_http.dart' as support;

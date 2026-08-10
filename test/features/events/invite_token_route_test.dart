@@ -10,7 +10,7 @@ import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/router/app_router.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/event_service.dart';
-import 'package:samay/features/events/event_detail_screen.dart';
+import 'package:samay/features/events/screens/event_detail_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
 import 'package:samay/shared/widgets/route_error_screen.dart';

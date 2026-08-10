@@ -80,6 +80,24 @@ void main() {
       expect(broken, isEmpty,
           reason: 'feature dirs without a screens/providers file: $broken');
     });
+
+    test('ARC-01: no .dart files directly in a feature dir root (M-23 '
+        'restructure)', () {
+      final flat = <String>[];
+      for (final dir
+          in Directory('$root/lib/features').listSync().whereType<Directory>()) {
+        final name = dir.path.split(Platform.pathSeparator).last;
+        final rootFiles = dir.listSync().whereType<File>().where(
+            (f) => f.path.endsWith('.dart')).toList();
+        if (rootFiles.isNotEmpty) {
+          flat.add('$name: '
+              '${rootFiles.map((f) => f.path.split(Platform.pathSeparator).last).join(', ')}');
+        }
+      }
+      expect(flat, isEmpty,
+          reason: 'feature files must live in screens/providers/widgets/'
+              'logic/ subdirs, not the feature root (ARC-01/M-23): $flat');
+    });
   });
 
   group('approved port map', () {

@@ -8,9 +8,9 @@ import 'package:samay/core/router/app_router.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/config_service.dart';
 import 'package:samay/core/services/shards_service.dart';
-import 'package:samay/features/profile/profile_providers.dart';
-import 'package:samay/features/profile/profile_screen.dart';
-import 'package:samay/features/shards/shard_ledger_screen.dart';
+import 'package:samay/features/profile/providers/profile_providers.dart';
+import 'package:samay/features/profile/screens/profile_screen.dart';
+import 'package:samay/features/shards/screens/shard_ledger_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 

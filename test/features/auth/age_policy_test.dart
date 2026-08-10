@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:samay/features/auth/age_policy.dart';
+import 'package:samay/features/auth/logic/age_policy.dart';
 
 void main() {
   group('isAdult', () {

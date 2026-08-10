@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:samay/features/profile/interests.dart';
+import 'package:samay/features/profile/widgets/interests.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
 /// PRFL interest-tags foundation tests (I-36): catalog integrity, the

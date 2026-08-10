@@ -6,8 +6,8 @@ import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/chat_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
-import 'package:samay/features/chat/chat_providers.dart';
-import 'package:samay/features/chat/chat_screen.dart';
+import 'package:samay/features/chat/providers/chat_providers.dart';
+import 'package:samay/features/chat/screens/chat_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import 'package:samay/l10n/app_localizations.dart';
 
