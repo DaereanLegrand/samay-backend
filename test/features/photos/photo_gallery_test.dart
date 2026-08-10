@@ -22,6 +22,7 @@ import 'package:samay/shared/widgets/error_view.dart';
 import 'package:samay/shared/widgets/v_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
+import '../../support/fake_config_provider.dart';
 /// PHUP gallery tests (I-59): provider list/signed-url caching/like
 /// optimistic+rollback/report/upload against fake services injected through
 /// the service providers, plus the screen's grid/empty/error/upload/window
@@ -267,7 +268,7 @@ ProviderContainer _container({
     eventServiceProvider.overrideWithValue(events ?? _FakeEventService()),
     moderationServiceProvider
         .overrideWithValue(moderation ?? _FakeModerationService()),
-    appConfigProvider.overrideWith((ref) async => config),
+    appConfigProvider.overrideWith(() => FakeAppConfigNotifier(config)),
     eventDetailProvider
         .overrideWith(() => _FakeEventDetailNotifier(endsAt)),
     if (fakeUpload)

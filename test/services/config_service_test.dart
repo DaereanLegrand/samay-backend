@@ -10,9 +10,9 @@ import '../support/resolving_builder.dart';
 /// ConfigService behavioral tests (I-44, TST-04/H-17 + TST-05/H-18):
 /// row→map mapping, the signup-grant default fallback, and error behavior.
 ///
-/// The facade-level ConfigService tests in `supabase_service_test.dart`
-/// (I-11) remain; this file adds the dedicated mapping + fallback + error
-/// coverage.
+/// (The facade-level ConfigService tests that lived in
+/// `supabase_service_test.dart` were migrated here when the facade was
+/// deleted — I-78; fetchAppConfig/getSignupShardGrant coverage is below.)
 void main() {
   late MockSupabaseClient client;
 

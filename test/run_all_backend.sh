@@ -4,8 +4,18 @@ set -uo pipefail
 # Samay — Backend Integration Test Runner
 # Runs all opt-*.sh test scripts in order and reports summary.
 #
+# Suite (all auto-discovered via the test/opt-*.sh glob — no registration):
+#   opt-001-rls-security.sh      RLS / anon vs auth vs service_role security
+#   opt-002-events.sh            event lifecycle (fields, CHECK, QR trigger, RLS)
+#   opt-003-chat.sh              chat + E2EE envelope contract (RLS, message cap)
+#   opt-004-photos.sh            photo gallery contract (RLS, likes trigger, UNIQUE)
+#   opt-005-seed-dev-static.sh   STATIC gate for seed-dev.sql (no stack needed)
+#   opt-006-e2ee-rpc.sh          fetch_prekey_bundle contract (OPK consumption)
+#
 # Usage: bash test/run_all_backend.sh
-# Prerequisites: make supabase-start, make supabase-reset
+# Prerequisites: make supabase-docker-start, make supabase-docker-reset
+# (all opt-tests except opt-005 need the stack on Kong 127.0.0.1:54386;
+#  opt-005 is a static gate that runs anywhere)
 #
 # NOTE: The Flutter modular integration suite (integration_test/) is a SEPARATE
 # suite and is NOT run here (it needs no server in hermetic mode, but runs

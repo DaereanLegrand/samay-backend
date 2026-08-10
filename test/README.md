@@ -9,7 +9,7 @@ one-paragraph overview see the root [`README.md`](../README.md#testing-summary).
 |-------|-------|---------|-------|
 | **Flutter unit/widget** | `test/` | `make flutter-test` | Mirrors `lib/` layout: `test/features/`, `test/router/`, `test/providers/`, `test/services/`, `test/theme/`, `test/widgets/`. Baseline: **176 pass / 23 documented pre-existing fail** (Supabase-not-initialized harness tests + brittle `structure_test.dart` — fixing those 23 is I-47's assignment, not your fault). |
 | **Flutter modular integration** | `integration_test/` | `flutter test integration_test/<module>_test.dart -d <device>` | **Landed (I-01, 2026-08-09).** One file per module/feature — `auth_flow_test.dart`, `error_flow_test.dart`, `profile_flow_test.dart` (friends/groups/events/chat flow files listed in `runner.sh`'s `ORDERED_FLOWS` and skipped until written) — plus `integration_test/README.md` and `runner.sh` (dependency-safe order, exit 0/1). Each file is **independently runnable** and **hermetic by default**: flows run against the in-memory Supabase harness (`integration_test/support/fake_supabase.dart`) with zero network; live-stack flows are opt-in (`support/test_users.dart`, skips when the stack is down). When you build a feature, add its flow file here and register it in `runner.sh`. |
-| **Backend (curl opt-tests)** | `test/opt-*.sh` | `bash test/run_all_backend.sh` | Self-contained curl scripts that hit Supabase REST/Auth exactly like the Dart client (see "How to Test Backend Changes" below). Run against Kong at `http://127.0.0.1:54386`. Prerequisites: `make supabase-docker-start`, `make supabase-docker-reset`. |
+| **Backend (curl opt-tests)** | `test/opt-*.sh` | `bash test/run_all_backend.sh` | Self-contained curl scripts that hit Supabase REST/Auth exactly like the Dart client (see "How to Test Backend Changes" below). Run against Kong at `http://127.0.0.1:54386`. Prerequisites: `make supabase-docker-start`, `make supabase-docker-reset`. Suite: `opt-001` RLS security · `opt-002` event lifecycle (fields/CHECK/QR-trigger/RLS) · `opt-003` chat + E2EE envelope contract · `opt-004` photo gallery contract · `opt-005` seed-dev static gate (no stack) · `opt-006` `fetch_prekey_bundle` contract (OPK consumption). All auto-discovered by the `test/opt-*.sh` glob in the runner. |
 | **Go (admin CLI + ops)** | `*_test.go` | `go test ./...` | 82 tests: CLI flag/validation behavior (cobra) and `internal/ops` business logic against `httptest` servers. Run via `make test` together with Flutter. |
 | **SQL (pgTAP)** | `supabase/tests/schema_test.sql` | `supabase db test` | 125 assertions: extensions, 21 enums, 30+ tables, 9 triggers, RPCs, RLS policy sets per table, seed data (`app_config` 37 keys, 1 system admin). New migrations must extend this file. |
 | **Manual end-user QA** | `test_runner.sh` (root) | `bash test_runner.sh` | gum-based interactive runner — 63 cases across auth → leaderboard (Phases 00–04). Wipes local user data, records results to a timestamped markdown file. Not part of the automated TDD suite; used for pre-release device testing. |
@@ -204,7 +204,36 @@ Each curl test file is self-contained: creates its own test users, seeds data, r
 - **Edge cases** — group membership visibility, authenticated vs unauthenticated access
 - **Schema** — RLS policies correct, public vs protected tables
 
+Backend opt-test coverage by surface (I-76, 2026-08-10):
+
+- **opt-002 (events)** — full-field `juerga` insert via service role (pool/cap/
+  remainder/join_mode/location/status), `check_casual_no_preshards` rejection
+  (`casual` + pool > 0 → 23514), `dynamic_qr_enabled` auto-set by the
+  `set_dynamic_qr_enabled` trigger (pool > 0 → true, INSERT and UPDATE
+  branches), `events_read_access` (non-member cannot see group-scoped events;
+  public events readable by anon), `ep_insert_promotor` creator branch,
+  `events_update_promotor` (promotor can update, non-promotor filtered).
+- **opt-003 (chat)** — `chats` rows for `group`/`event` types, opaque base64url
+  E2EE envelope storage in `messages.content` (server never inspects it,
+  E2EE-ARCHITECTURE §6.6), `messages_read_participant` (member/promotor reads,
+  non-member `[]`), `message_cap` below-cap retention (cap semantics + trigger
+  existence asserted in pgTAP — a trigger function is not callable via RPC).
+- **opt-004 (photos)** — `event_photos` row + `storage_path` round-trip,
+  `eph_read_access` (member reads, non-member/anon `[]`),
+  `photo_likes_count_trigger` (`likes_count` = 2 after 2 likes),
+  `UNIQUE (photo_id, user_id)` duplicate-like rejection (23505),
+  `epl_insert_own` access check (no likes on invisible events).
+- **opt-006 (E2EE)** — `e2ee_identity_keys` bundle publish, `fetch_prekey_bundle`
+  via authenticated peer: bundle shape, atomic one-time-prekey consumption
+  (2 → 1 → 0, audit list grows), exhausted-pool `one_time_prekey: null`
+  (no OPK reuse), anon denied (EXECUTE revoked from PUBLIC), own-row RLS.
+- **opt-005 (seed-dev)** — static gate (files, `bash -n`, UUID uniqueness,
+  table/column/constraint/enum parity, Makefile + SEED_DEV semantics); runs
+  without a stack.
+
 Tests do **not** cover:
 - UI rendering (handled by Flutter widget tests)
 - Device-level features (GPS, sensors, file system)
 - Performance benchmarks (run separately)
+- Storage API signed URLs / object uploads (bucket-dependent — the opt-tests
+  assert the `event_photos`/`storage_path` DB contract only)

@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all 23 migrations (20260510000001 through 20260809000005).
+-- Covers all 24 migrations (20260510000001 through 20260809000006).
 BEGIN;
 
-SELECT plan(262);
+SELECT plan(304);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -919,6 +919,170 @@ SELECT hasnt_function_priv('public', 'create_minigame_session', ARRAY['uuid', 't
     'create_minigame_session is not PUBLIC-EXECUTABLE');
 SELECT has_function_priv('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer'], 'authenticated', 'EXECUTE',
     'create_minigame_session is authenticated-EXECUTABLE');
+
+-- ============================================================
+-- SECTION 46: Static trigger/constraint/RPC contract (agent I-77,
+-- I-76 handoff + I-31/I-32/I-38/I-57/I-63 regression net)
+--   46a. Trigger→function bindings (trigger_is) for all 9 triggers from
+--        migration 20260510000001 §5 (existence already asserted in
+--        Section 8; binding guards against a trigger pointing at the
+--        wrong function after a CREATE OR REPLACE).
+--   46b. Trigger-function BODY contract (pg_get_functiondef LIKE, I-63
+--        Section 45 pattern) — the static equivalent of the behavioral
+--        coverage that opt-002/003/004 delegate to pgTAP: message_cap
+--        reads app_config chat.message_cap with the 1000 fallback,
+--        dynamic_qr derives the flag from preshards_pool in both
+--        branches, likes-count recomputes from event_photo_likes.
+--   46c. Constraints: check_casual_no_preshards + group_members_status_check
+--        (name-anchored pg_constraint checks — pgTAP has_check() only
+--        asserts "some check exists", not the name/table) and the UNIQUE
+--        column pairs (col_is_unique) that opt-002/004 exercise
+--        (event_photo_likes(photo_id,user_id) → 23505, group_members
+--        (group_id,user_id), events.invite_token, ...).
+--   46d. e2ee_identity_keys full structure (completes Section 41):
+--        exact column projection + types + jsonb defaults; fetch_prekey_bundle
+--        SECURITY DEFINER (is_definer — Section 41 asserts search_path +
+--        grants only).
+--   46e. RPC completeness: validate_qr_token SECURITY DEFINER (Section 44
+--        gap — prosecdef was not asserted); is_group_member helper
+--        (20260809000002 §11.1) existence + SECURITY DEFINER + STABLE +
+--        search_path hardening (used by create_minigame_session and
+--        group_members_read_same).
+-- ============================================================
+
+-- 46a: trigger → function bindings
+SELECT trigger_is('public', 'users', 'users_updated_at', 'extensions', 'moddatetime',
+    'users_updated_at fires extensions.moddatetime');
+SELECT trigger_is('public', 'groups', 'groups_updated_at', 'extensions', 'moddatetime',
+    'groups_updated_at fires extensions.moddatetime');
+SELECT trigger_is('public', 'events', 'events_updated_at', 'extensions', 'moddatetime',
+    'events_updated_at fires extensions.moddatetime');
+SELECT trigger_is('public', 'group_members', 'group_size_tier_trigger', 'public', 'update_group_size_tier',
+    'group_size_tier_trigger fires update_group_size_tier');
+SELECT trigger_is('public', 'events', 'dynamic_qr_enabled_trigger', 'public', 'set_dynamic_qr_enabled',
+    'dynamic_qr_enabled_trigger fires set_dynamic_qr_enabled');
+SELECT trigger_is('public', 'messages', 'message_cap_trigger', 'public', 'enforce_message_cap',
+    'message_cap_trigger fires enforce_message_cap');
+SELECT trigger_is('public', 'group_shard_contributions', 'group_shards_increment_trigger', 'public', 'increment_group_shards',
+    'group_shards_increment_trigger fires increment_group_shards');
+SELECT trigger_is('public', 'event_photo_likes', 'photo_likes_count_trigger', 'public', 'update_photo_likes_count',
+    'photo_likes_count_trigger fires update_photo_likes_count');
+SELECT trigger_is('public', 'events', 'shard_distribution_dispatch_trigger', 'public', 'dispatch_shard_distribution',
+    'shard_distribution_dispatch_trigger fires dispatch_shard_distribution');
+
+-- 46b: trigger-function bodies (static behavioral contract)
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.app_config%'
+       AND pg_get_functiondef(p.oid) LIKE '%chat.message_cap%'
+       AND pg_get_functiondef(p.oid) LIKE '%1000%'
+     FROM pg_proc p WHERE proname = 'enforce_message_cap'),
+    'enforce_message_cap reads app_config chat.message_cap with 1000 fallback (I-76 full-cap contract)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%NEW.dynamic_qr_enabled = (NEW.preshards_pool > 0)%'
+     FROM pg_proc p WHERE proname = 'set_dynamic_qr_enabled'),
+    'set_dynamic_qr_enabled derives dynamic_qr_enabled from preshards_pool (both INSERT and UPDATE branches)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%UPDATE public.event_photos SET likes_count = (%'
+       AND pg_get_functiondef(p.oid) LIKE '%SELECT COUNT(*) FROM public.event_photo_likes WHERE photo_id = target_photo_id%'
+     FROM pg_proc p WHERE proname = 'update_photo_likes_count'),
+    'update_photo_likes_count recomputes likes_count from event_photo_likes (count accuracy)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%UPDATE public.groups SET size_tier = CASE%'
+       AND pg_get_functiondef(p.oid) LIKE '%member_count >= 257%'
+       AND pg_get_functiondef(p.oid) LIKE '%member_count >= 15%'
+     FROM pg_proc p WHERE proname = 'update_group_size_tier'),
+    'update_group_size_tier maps member_count to size_tier thresholds (large 257+ / small 15+)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%UPDATE public.groups SET group_shards = group_shards + NEW.shards_contributed%'
+     FROM pg_proc p WHERE proname = 'increment_group_shards'),
+    'increment_group_shards adds shards_contributed to groups.group_shards'
+);
+
+-- 46c: constraints
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'events'::regclass
+          AND conname = 'check_casual_no_preshards'
+          AND contype = 'c'
+    ),
+    'events has check_casual_no_preshards (casual events cannot carry a preshards pool, opt-002 TEST B)'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'group_members'::regclass
+          AND conname = 'group_members_status_check'
+          AND contype = 'c'
+    ),
+    'group_members has group_members_status_check (status IN active/invited, migration 20260512000011)'
+);
+SELECT col_is_unique('event_photo_likes', ARRAY['photo_id', 'user_id'],
+    'event_photo_likes has UNIQUE (photo_id, user_id) — duplicate likes are 23505 (opt-004 TEST D)');
+SELECT col_is_unique('group_members', ARRAY['group_id', 'user_id'],
+    'group_members has UNIQUE (group_id, user_id)');
+SELECT col_is_unique('event_attendances', ARRAY['event_id', 'user_id'],
+    'event_attendances has UNIQUE (event_id, user_id)');
+SELECT col_is_unique('user_cosmetics', ARRAY['user_id', 'cosmetic_id'],
+    'user_cosmetics has UNIQUE (user_id, cosmetic_id)');
+SELECT col_is_unique('event_promotores', ARRAY['event_id', 'user_id'],
+    'event_promotores has UNIQUE (event_id, user_id) (opt-002 promotor contract)');
+SELECT col_is_unique('event_invites', ARRAY['event_id', 'user_id'],
+    'event_invites has UNIQUE (event_id, user_id)');
+SELECT col_is_unique('chat_participants', ARRAY['chat_id', 'user_id'],
+    'chat_participants has UNIQUE (chat_id, user_id)');
+SELECT col_is_unique('group_cosmetics', ARRAY['group_id', 'cosmetic_id'],
+    'group_cosmetics has UNIQUE (group_id, cosmetic_id)');
+SELECT col_is_unique('events', 'invite_token',
+    'events.invite_token is UNIQUE (invite links, opt-002 TEST A)');
+
+-- 46d: e2ee_identity_keys structure (completes Section 41)
+SELECT columns_are('e2ee_identity_keys', ARRAY[
+    'user_id', 'identity_key', 'identity_sig_key', 'signed_prekey_id',
+    'signed_prekey', 'signed_prekey_sig', 'signed_prekey_expires_at',
+    'one_time_prekeys', 'consumed_one_time_prekeys', 'updated_at'
+], 'e2ee_identity_keys exposes exactly the 10 X3DH columns (migration 20260809000003)');
+SELECT col_type_is('e2ee_identity_keys', 'user_id', 'uuid',
+    'e2ee_identity_keys.user_id is uuid (FK to users.id)');
+SELECT col_type_is('e2ee_identity_keys', 'identity_sig_key', 'text',
+    'identity_sig_key is text (base64url Ed25519)');
+SELECT col_type_is('e2ee_identity_keys', 'signed_prekey_id', 'integer',
+    'signed_prekey_id is integer (spk_id carried by init envelopes)');
+SELECT col_type_is('e2ee_identity_keys', 'signed_prekey', 'text',
+    'signed_prekey is text (base64url X25519 signed prekey)');
+SELECT col_type_is('e2ee_identity_keys', 'signed_prekey_sig', 'text',
+    'signed_prekey_sig is text (Ed25519 sig over signed_prekey)');
+SELECT col_type_is('e2ee_identity_keys', 'signed_prekey_expires_at', 'timestamptz',
+    'signed_prekey_expires_at is timestamptz');
+SELECT col_type_is('e2ee_identity_keys', 'consumed_one_time_prekeys', 'jsonb',
+    'consumed_one_time_prekeys is jsonb (audit trail)');
+SELECT col_type_is('e2ee_identity_keys', 'updated_at', 'timestamptz',
+    'updated_at is timestamptz');
+SELECT col_default_is('e2ee_identity_keys', 'one_time_prekeys', '''[]''::jsonb',
+    'one_time_prekeys defaults to the empty array');
+SELECT col_default_is('e2ee_identity_keys', 'consumed_one_time_prekeys', '''[]''::jsonb',
+    'consumed_one_time_prekeys defaults to the empty array');
+SELECT is_definer('public', 'fetch_prekey_bundle', ARRAY['uuid'],
+    'fetch_prekey_bundle is SECURITY DEFINER');
+
+-- 46e: RPC completeness
+SELECT is_definer('public', 'validate_qr_token', ARRAY['uuid', 'text'],
+    'validate_qr_token is SECURITY DEFINER (migration 20260809000005)');
+SELECT has_function('is_group_member', ARRAY['uuid'],
+    'is_group_member(p_group_id uuid) exists (migration 20260809000002 §11.1)');
+SELECT is_definer('public', 'is_group_member', ARRAY['uuid'],
+    'is_group_member is SECURITY DEFINER (RLS-recursion-safe helper)');
+SELECT volatility_is('public', 'is_group_member', ARRAY['uuid'], 'stable',
+    'is_group_member is STABLE (usable inside RLS policies)');
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'is_group_member'),
+    'is_group_member sets search_path = '''' (migration 20260809000002)'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -54,6 +54,8 @@ import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_coming_soon.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
+import '../support/fake_config_provider.dart';
+
 const _eventId = '11111111-1111-1111-1111-111111111111';
 const _groupId = '22222222-2222-2222-2222-222222222222';
 const _chatId = '33333333-3333-3333-3333-333333333333';
@@ -231,7 +233,7 @@ ProviderContainer _newContainer({
     minigameSessionsProvider.overrideWith(_FakeMinigameSessionsNotifier.new),
     eventPhotosProvider.overrideWith(_FakeEventPhotosNotifier.new),
     shardLedgerProvider.overrideWith(_FakeShardLedgerNotifier.new),
-    appConfigProvider.overrideWith((ref) async => const {}),
+    appConfigProvider.overrideWith(() => FakeAppConfigNotifier(const {})),
     if (qrProviders) ...[
       myQrTokenProvider.overrideWith(_FakeQrTokenNotifier.new),
       qrDisplayWindowProvider.overrideWith((ref) async => 15),

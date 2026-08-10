@@ -412,6 +412,31 @@ void main() {
       expect(find.text('Límite alcanzado'), findsNothing);
       expect(find.byType(CreateGroupScreen), findsOneWidget);
     });
+
+    testWidgets('whitespace-only name: no service call and no limit dialog '
+        '(I-73 requiredValidator trim-empty)', (tester) async {
+      final media = _MockMediaService();
+      final group = _MockGroupService();
+
+      await _pumpWithRouter(
+        tester,
+        const CreateGroupScreen(),
+        [
+          mediaServiceProvider.overrideWithValue(media),
+          groupServiceProvider.overrideWithValue(group),
+        ],
+      );
+
+      await tester.enterText(find.byType(TextField).first, '   ');
+      await tester.tap(find.text('Crear'));
+      await tester.pumpAndSettle();
+
+      verifyNever(() => group.getUserGroupCount());
+      verifyNever(() => group.createGroup(any()));
+      verifyNever(() => media.uploadGroupCover(any()));
+      expect(find.text('Límite alcanzado'), findsNothing);
+      expect(find.byType(CreateGroupScreen), findsOneWidget);
+    });
   });
 
   group('MyGroupsScreen', () {
@@ -600,6 +625,38 @@ void main() {
         [],
       );
       expect(find.text('Donar'), findsOneWidget);
+    });
+
+    testWidgets('amount below 1 shows the invalid-amount snackbar and never '
+        'touches the repository (I-73 numericValidator)', (tester) async {
+      await _pump(
+        tester,
+        const DonateShardsScreen(groupId: _groupId, groupName: 'Test Group'),
+        [],
+      );
+
+      await tester.enterText(find.byType(TextField), '0');
+      await tester.tap(find.text('Donar'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ingresa un monto válido'), findsOneWidget);
+      expect(find.byType(DonateShardsScreen), findsOneWidget);
+    });
+
+    testWidgets('non-numeric amount shows the invalid-amount snackbar and '
+        'never touches the repository (I-73 numericValidator)', (tester) async {
+      await _pump(
+        tester,
+        const DonateShardsScreen(groupId: _groupId, groupName: 'Test Group'),
+        [],
+      );
+
+      await tester.enterText(find.byType(TextField), 'abc');
+      await tester.tap(find.text('Donar'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ingresa un monto válido'), findsOneWidget);
+      expect(find.byType(DonateShardsScreen), findsOneWidget);
     });
   });
 

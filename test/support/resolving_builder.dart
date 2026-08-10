@@ -10,9 +10,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// Shared mocktail fakes + network-free Postgrest builders for the
 /// behavioral service/provider tests (I-44, TST-02..TST-05).
 ///
-/// The patterns here are the ones proven in
-/// `test/services/supabase_service_test.dart` and
-/// `test/services/event_service_test.dart` (I-11/EF-03): mocktail cannot stub
+/// The patterns here are the ones proven in the I-44 per-service behavioral
+/// suites (the facade `supabase_service_test.dart` that started them was
+/// removed with the `SupabaseService` facade — I-78): mocktail cannot stub
 /// `then` on classes implementing `Future`, so Postgrest chains are resolved
 /// by *real* builder subclasses that override `then` (and every chain method
 /// the services call) to resolve locally — zero network I/O.

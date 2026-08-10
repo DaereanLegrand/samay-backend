@@ -134,10 +134,13 @@ void main() {
       // (nested SQL inside ok(...) is also indented), so line-start matches
       // count exactly one per assertion. The function-name pattern covers
       // every pgTAP assertion prefix used in this file (ok/is/has_* /hasnt_* /
-      // col_* /policies_are /columns_are...). Verified against the pre-existing
-      // file: 250 assertions ↔ plan(250); Section 44 adds 4 → plan(254).
+      // col_* /policies_are /columns_are /trigger_is /volatility_is — the
+      // last two from I-77's Section 46). Verified against the pre-existing
+      // file: 250 assertions ↔ plan(250); Section 44 adds 4 → plan(254);
+      // Section 46 adds 42 → plan(304) (I-78 re-verified the regex against
+      // every `^SELECT <fn>(` prefix in the file).
       return RegExp(
-        r'^SELECT (ok|is|has_|hasnt_|col_|policies_are|columns_are)[a-z_]*\(',
+        r'^SELECT (ok|is|has_|hasnt_|col_|trigger_is|volatility_is|policies_are|columns_are)[a-z_]*\(',
         multiLine: true,
       ).allMatches(content).length;
     }

@@ -9,9 +9,11 @@ import '../support/resolving_builder.dart';
 
 /// AuthService behavioral tests (I-44, TST-04/H-17 + TST-05/H-18).
 ///
-/// The RPC passthrough + network-free fallback tests in
-/// `supabase_service_test.dart` (I-11) remain; this file adds the
-/// GoTrue passthroughs (signIn/signUp/OTP/signOut/updateUser), the
+/// The RPC passthrough + fallback cases migrated from the deleted facade
+/// suite (I-78: `supabase_service_test.dart` was removed with the
+/// `SupabaseService` facade; the checkSignupEmail/upsertSignupTracker/
+/// getCurrentUser/refreshSession coverage moved here) and the GoTrue
+/// passthroughs (signIn/signUp/OTP/signOut/updateUser), the
 /// `softDeleteUser`/`createUserProfile` table shapes and error propagation.
 const _userId = '11111111-1111-1111-1111-111111111111';
 
@@ -229,6 +231,66 @@ void main() {
       );
 
       expect(await service().userHasProfile(_userId), isFalse);
+    });
+  });
+
+  group('AuthService.signup RPC passthroughs (migrated from the facade suite)',
+      () {
+    test('checkSignupEmail returns the RPC result', () async {
+      when(() => client.rpc('check_signup_email',
+              params: any(named: 'params')))
+          .thenAnswer((_) => ResolvingBuilder<String>('signup'));
+
+      expect(await service().checkSignupEmail('nuevo@test.com'), 'signup');
+      verify(() => client.rpc('check_signup_email',
+              params: {'p_email': 'nuevo@test.com'}))
+          .called(1);
+    });
+
+    test('upsertSignupTracker upserts the tracker row', () async {
+      final tracker = MockQueryBuilder();
+      when(() => client.from('signup_tracker')).thenAnswer((_) => tracker);
+      when(() => tracker.upsert(any(), onConflict: any(named: 'onConflict')))
+          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+
+      await service().upsertSignupTracker('a@test.com', true);
+
+      final payload = verify(() => tracker.upsert(captureAny(),
+              onConflict: any(named: 'onConflict')))
+          .captured
+          .single as Map;
+      expect(payload['email'], 'a@test.com');
+      expect(payload['profile_created'], isTrue);
+    });
+  });
+
+  group('AuthService session helpers (migrated from the facade suite)', () {
+    test('getCurrentUser returns null when there is no session', () {
+      when(() => auth.currentUser).thenReturn(null);
+
+      expect(service().getCurrentUser(), isNull);
+    });
+
+    test('refreshSession returns null when there is no session', () async {
+      when(() => auth.refreshSession()).thenAnswer((_) async => AuthResponse());
+
+      expect(await service().refreshSession(), isNull);
+    });
+
+    test('refreshSession returns the refreshed user on success', () async {
+      when(() => auth.refreshSession()).thenAnswer(
+        (_) async => AuthResponse(
+          session: Session.fromJson({
+            'access_token': 't',
+            'refresh_token': 'r',
+            'token_type': 'bearer',
+            'expires_in': 3600,
+            'user': {'id': _userId, 'email': 'a@b.com'},
+          }),
+        ),
+      );
+
+      expect((await service().refreshSession())?['id'], _userId);
     });
   });
 }

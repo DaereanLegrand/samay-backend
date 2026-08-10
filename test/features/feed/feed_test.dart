@@ -15,6 +15,8 @@ import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
+import '../../support/fake_config_provider.dart';
+
 /// Feed tests (I-58, FEED): feedProvider ordering contract (public events
 /// only, featured pinned, starts_at ASC), radius providers reading app_config
 /// (options + default, 'anywhere' default selection while no device location
@@ -126,7 +128,7 @@ ProviderContainer _container(
   final container = ProviderContainer(overrides: [
     eventServiceProvider.overrideWithValue(service),
     if (config != null)
-      appConfigProvider.overrideWith((ref) async => config),
+      appConfigProvider.overrideWith(() => FakeAppConfigNotifier(config)),
   ]);
   addTearDown(container.dispose);
   return container;
@@ -271,10 +273,12 @@ void main() {
 
     test('option and default providers read app_config', () async {
       final container = ProviderContainer(overrides: [
-        appConfigProvider.overrideWith((ref) async => {
-              'feed.nearby_radius_km_options': '10,30,999',
-              'feed.nearby_radius_km_default': '30',
-            }),
+        appConfigProvider.overrideWith(
+          () => FakeAppConfigNotifier(const {
+            'feed.nearby_radius_km_options': '10,30,999',
+            'feed.nearby_radius_km_default': '30',
+          }),
+        ),
       ]);
       addTearDown(container.dispose);
       await container.read(appConfigProvider.future);

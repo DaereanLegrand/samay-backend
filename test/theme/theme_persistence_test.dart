@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/app.dart';
 import 'package:samay/core/providers/auth_provider.dart';
+import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/providers/theme_provider.dart';
 import 'package:samay/core/router/app_router.dart';
 import 'package:samay/core/router/route_paths.dart';

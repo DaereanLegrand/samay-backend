@@ -151,6 +151,21 @@ void main() {
       expect(find.byType(LoginScreen), findsOneWidget);
     });
 
+    testWidgets('whitespace-only password does not fire signIn (I-73 '
+        'requiredValidator trim-empty)', (tester) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const LoginScreen(), notifier);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).at(0), 'a@b.com');
+      await tester.enterText(find.byType(TextField).at(1), '   ');
+      await tester.tap(find.widgetWithText(TextButton, 'Iniciar sesión'));
+      await tester.pumpAndSettle();
+
+      expect(notifier.signInCalls, isEmpty);
+      expect(find.byType(LoginScreen), findsOneWidget);
+    });
+
     testWidgets('failed signIn surfaces the AsyncError message inline and in '
         'the blocking dialog, staying on the screen', (tester) async {
       final notifier = _RecordingAuthNotifier()..failSignIn = true;

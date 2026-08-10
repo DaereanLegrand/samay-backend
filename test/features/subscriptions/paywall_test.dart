@@ -8,6 +8,8 @@ import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
 import 'package:samay/shared/widgets/v_button.dart';
 
+import '../../support/fake_config_provider.dart';
+
 /// Paywall screen tests (I-61, PLAN): tier table rendered from a fake
 /// `app_config` (`subs.*_price_pen`), PEN formatting, current-tier badge from
 /// the auth state, and stub-mode disabled purchase buttons.
@@ -42,7 +44,7 @@ class _FakeAuthNotifier extends AuthNotifier {
 ProviderContainer _container({Map<String, dynamic>? user}) {
   final container = ProviderContainer(overrides: [
     authStateProvider.overrideWith(() => _FakeAuthNotifier(user)),
-    appConfigProvider.overrideWith((ref) async => _fakeConfig()),
+    appConfigProvider.overrideWith(() => FakeAppConfigNotifier(_fakeConfig())),
   ]);
   addTearDown(container.dispose);
   return container;
@@ -209,8 +211,9 @@ void main() {
         (tester) async {
       final container = ProviderContainer(overrides: [
         authStateProvider.overrideWith(() => _FakeAuthNotifier(null)),
-        appConfigProvider.overrideWith((ref) async =>
-            throw Exception('connection refused')),
+        appConfigProvider.overrideWith(
+          () => FailingAppConfigNotifier(Exception('connection refused')),
+        ),
       ]);
       addTearDown(container.dispose);
 
