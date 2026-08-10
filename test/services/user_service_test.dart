@@ -584,4 +584,232 @@ void main() {
       verifyNever(() => table.insert(any()));
     });
   });
+
+  group('UserService.getDiscoveryOptIn (PFND opt-in — I-60)', () {
+    test('returns false when no row is returned', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final table = MockQueryBuilder();
+      when(() => client.from('users')).thenAnswer((_) => table);
+      when(() => table.select(any()))
+          .thenAnswer((_) => ResolvingBuilder<PostgrestList>(null));
+
+      expect(await service().getDiscoveryOptIn(), isFalse);
+    });
+
+    test('returns the stored opt-in value', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final table = MockQueryBuilder();
+      when(() => client.from('users')).thenAnswer((_) => table);
+      when(() => table.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>({'discovery_opt_in': true}),
+      );
+
+      expect(await service().getDiscoveryOptIn(), isTrue);
+    });
+
+    test('returns false without a session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+
+      expect(await service().getDiscoveryOptIn(), isFalse);
+      verifyNever(() => client.from('users'));
+    });
+  });
+
+  group('UserService.setDiscoveryOptIn (PFND opt-in — I-60)', () {
+    test('updates users.discovery_opt_in scoped to the current user',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final table = MockQueryBuilder();
+      when(() => client.from('users')).thenAnswer((_) => table);
+      final update = ResolvingBuilder<dynamic>(null);
+      when(() => table.update(any())).thenAnswer((_) => update);
+
+      await service().setDiscoveryOptIn(true);
+
+      verify(() => table.update({'discovery_opt_in': true})).called(1);
+      expect(update.filters.single.column, 'id');
+      expect(update.filters.single.value, _userId);
+    });
+  });
+
+  group('UserService.getMyInterestTags (PFND — I-60)', () {
+    test('parses the PostgREST list form of interest_tags', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final table = MockQueryBuilder();
+      when(() => client.from('users')).thenAnswer((_) => table);
+      when(() => table.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>(
+          {'interest_tags': ['musica', 'fiestas']},
+        ),
+      );
+
+      final tags = await service().getMyInterestTags();
+
+      expect(tags, ['fiestas', 'musica']);
+    });
+
+    test('parses a JSON-encoded interest_tags string', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final table = MockQueryBuilder();
+      when(() => client.from('users')).thenAnswer((_) => table);
+      when(() => table.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>(
+          {'interest_tags': '["cine","viajes"]'},
+        ),
+      );
+
+      final tags = await service().getMyInterestTags();
+
+      expect(tags, ['cine', 'viajes']);
+    });
+
+    test('returns an empty list when the row has no tags', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final table = MockQueryBuilder();
+      when(() => client.from('users')).thenAnswer((_) => table);
+      when(() => table.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>(
+          {'interest_tags': <String>[]},
+        ),
+      );
+
+      expect(await service().getMyInterestTags(), isEmpty);
+    });
+  });
+
+  group('UserService.findMatches (PFND — I-60)', () {
+    setUp(() {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+    });
+
+    test('queries discovery_view with self-exclusion + tag overlap and '
+        'sorts by shared count desc', () async {
+      final view = MockQueryBuilder();
+      when(() => client.from('discovery_view')).thenAnswer((_) => view);
+      final viewBuilder = ResolvingBuilder<PostgrestList>([
+        {
+          'id': _otherId,
+          'username': 'ana',
+          'avatar_url': null,
+          'interest_tags': ['musica', 'fiestas'],
+        },
+        {
+          'id': _thirdId,
+          'username': 'luis',
+          'avatar_url': null,
+          'interest_tags': ['musica', 'deportes', 'cine'],
+        },
+      ]);
+      when(() => view.select(any())).thenAnswer((_) => viewBuilder);
+      final frTable = MockQueryBuilder();
+      when(() => client.from('friendships')).thenAnswer((_) => frTable);
+      when(() => frTable.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>([]),
+      );
+
+      final matches = await service().findMatches(['musica', 'cine']);
+
+      expect(matches.map((m) => m['id']), [_thirdId, _otherId]);
+      expect(matches.first['shared_count'], 2);
+      expect(matches.first['shared_tags'], ['cine', 'musica']);
+      expect(matches.last['shared_count'], 1);
+      expect(matches.last['shared_tags'], ['musica']);
+      expect(viewBuilder.filters.any((f) =>
+          f.column == 'id' && f.value == _userId), isTrue);
+      expect(viewBuilder.filters.any((f) =>
+          f.column == 'interest_tags' &&
+          f.value is List &&
+          (f.value! as List).join(',') == ['musica', 'cine'].join(',')),
+          isTrue);
+    });
+
+    test('drops matches I have blocked (block → never appears again)',
+        () async {
+      final view = MockQueryBuilder();
+      when(() => client.from('discovery_view')).thenAnswer((_) => view);
+      when(() => view.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>([
+          {'id': _otherId, 'username': 'ana', 'avatar_url': null, 'interest_tags': ['musica']},
+          {'id': _thirdId, 'username': 'luis', 'avatar_url': null, 'interest_tags': ['musica']},
+        ]),
+      );
+      final frTable = MockQueryBuilder();
+      when(() => client.from('friendships')).thenAnswer((_) => frTable);
+      final asRequester = ResolvingBuilder<PostgrestList>([
+        {
+          'requester_id': _userId,
+          'addressee_id': _otherId,
+          'status': 'blocked',
+        },
+      ]);
+      final asAddressee = ResolvingBuilder<PostgrestList>([]);
+      var selectCalls = 0;
+      when(() => frTable.select(any())).thenAnswer((_) {
+        selectCalls++;
+        return selectCalls == 1 ? asRequester : asAddressee;
+      });
+
+      final matches = await service().findMatches(['musica']);
+
+      expect(matches.map((m) => m['id']), [_thirdId]);
+    });
+
+    test('hides matches who blocked me', () async {
+      final view = MockQueryBuilder();
+      when(() => client.from('discovery_view')).thenAnswer((_) => view);
+      when(() => view.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>([
+          {'id': _otherId, 'username': 'ana', 'avatar_url': null, 'interest_tags': ['musica']},
+          {'id': _thirdId, 'username': 'luis', 'avatar_url': null, 'interest_tags': ['musica']},
+        ]),
+      );
+      final frTable = MockQueryBuilder();
+      when(() => client.from('friendships')).thenAnswer((_) => frTable);
+      final asRequester = ResolvingBuilder<PostgrestList>([]);
+      final asAddressee = ResolvingBuilder<PostgrestList>([
+        {
+          'requester_id': _otherId,
+          'addressee_id': _userId,
+          'status': 'blocked',
+        },
+      ]);
+      var selectCalls = 0;
+      when(() => frTable.select(any())).thenAnswer((_) {
+        selectCalls++;
+        return selectCalls == 1 ? asRequester : asAddressee;
+      });
+
+      final matches = await service().findMatches(['musica']);
+
+      expect(matches.map((m) => m['id']), [_thirdId]);
+    });
+
+    test('returns an empty list without a session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+
+      expect(await service().findMatches(['musica']), isEmpty);
+      verifyNever(() => client.from('discovery_view'));
+    });
+
+    test('returns an empty list when I have no tags and queries nothing',
+        () async {
+      expect(await service().findMatches(const []), isEmpty);
+      verifyNever(() => client.from('discovery_view'));
+    });
+
+    test('propagates a network-class PostgrestException', () async {
+      final view = MockQueryBuilder();
+      when(() => client.from('discovery_view')).thenAnswer((_) => view);
+      when(() => view.select(any())).thenThrow(
+        const PostgrestException(
+          message: 'connection refused',
+          code: '28000',
+        ),
+      );
+
+      final err = await captureError(() => service().findMatches(['musica']));
+      expect(err, isA<PostgrestException>());
+      expectMapped(err, NetworkError);
+    });
+  });
 }

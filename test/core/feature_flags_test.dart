@@ -7,14 +7,15 @@ import 'package:samay/shared/widgets/v_coming_soon.dart';
 
 /// Every flag's expected default (I-49 release-gating contract): only the
 /// features that are LIVE today ship enabled — chat (I-38 E2EE),
-/// notifications (I-53 notification center) and e2ee (always on by design).
-/// Everything else ships dark until its feature stack lands behind the flag.
+/// notifications (I-53 notification center), feed (I-58 — it's the landing
+/// tab) and e2ee (always on by design). Everything else ships dark until its
+/// feature stack lands behind the flag.
 const Map<AppFeatureFlag, bool> kDefaultFlagStates = {
   AppFeatureFlag.cosmeticsSection: false,
   AppFeatureFlag.events: false,
   AppFeatureFlag.chat: true,
   AppFeatureFlag.qr: false,
-  AppFeatureFlag.feed: false,
+  AppFeatureFlag.feed: true,
   AppFeatureFlag.notifications: true,
   AppFeatureFlag.subscriptions: false,
   AppFeatureFlag.partyFinder: false,

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/feature_flags.dart';
+import 'package:samay/core/models/event_photo.dart';
 import 'package:samay/core/providers/auth_provider.dart';
+import 'package:samay/core/providers/config_provider.dart';
 import 'package:samay/core/router/app_router.dart';
 import 'package:samay/core/router/route_extras.dart';
 import 'package:samay/core/router/route_paths.dart';
@@ -31,11 +33,19 @@ import 'package:samay/features/groups/invite_screen.dart';
 import 'package:samay/features/groups/leaderboard_screen.dart';
 import 'package:samay/features/groups/my_groups_screen.dart';
 import 'package:samay/features/notifications/notification_center_screen.dart';
+import 'package:samay/features/party_finder/party_finder_providers.dart';
+import 'package:samay/features/party_finder/party_finder_screen.dart';
+import 'package:samay/features/photos/photo_gallery_screen.dart';
+import 'package:samay/features/photos/photos_providers.dart';
 import 'package:samay/features/profile/delete_account_screen.dart';
 import 'package:samay/features/profile/edit_profile_screen.dart';
 import 'package:samay/features/profile/profile_screen.dart';
 import 'package:samay/features/profile/public_profile_screen.dart';
 import 'package:samay/features/profile/settings_screen.dart';
+import 'package:samay/features/qr/attendance_qr_screen.dart';
+import 'package:samay/features/qr/qr_providers.dart';
+import 'package:samay/features/qr/qr_scanner_screen.dart';
+import 'package:samay/features/subscriptions/paywall_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_coming_soon.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
@@ -156,8 +166,38 @@ class _FakeAuthNotifier extends AuthNotifier {
   }
 }
 
+/// Party-finder providers pinned to inert values (I-60): the router tests
+/// only assert which screen the route builds, never the provider stack — the
+/// real notifiers would hit the network via UserService.
+class _FakeDiscoveryOptInNotifier extends DiscoveryOptInNotifier {
+  @override
+  Future<bool> build() async => false;
+}
+
+class _FakePartyMatchesNotifier extends PartyMatchesNotifier {
+  @override
+  Future<List<Map<String, dynamic>>> build() async => const [];
+}
+
+/// QR-token provider pinned to "no token issued" (I-57): the router tests
+/// only assert which screen the route builds — the real notifier would hit
+/// the network via EventService.
+class _FakeQrTokenNotifier extends MyQrTokenNotifier {
+  @override
+  Future<Map<String, dynamic>?> build(String arg) async => null;
+}
+
+/// Photos providers pinned to inert values (I-59): the router tests only
+/// assert which screen the route builds — the real notifiers would hit the
+/// network via MediaService/EventService.
+class _FakeEventPhotosNotifier extends EventPhotosNotifier {
+  @override
+  Future<List<EventPhoto>> build(String eventId) async => const [];
+}
+
 ProviderContainer _newContainer({
   AppFeatureFlags flags = const AppFeatureFlags(),
+  bool qrProviders = false,
 }) {
   final container = ProviderContainer(overrides: [
     authStateProvider.overrideWith(() => _FakeAuthNotifier()),
@@ -165,6 +205,14 @@ ProviderContainer _newContainer({
     eventDetailProvider.overrideWith(_FakeEventDetailNotifier.new),
     eventPromotoresProvider.overrideWith(_FakeEventPromotoresNotifier.new),
     myEventInviteProvider.overrideWith(_FakeMyEventInviteNotifier.new),
+    discoveryOptInProvider.overrideWith(_FakeDiscoveryOptInNotifier.new),
+    partyMatchesProvider.overrideWith(_FakePartyMatchesNotifier.new),
+    eventPhotosProvider.overrideWith(_FakeEventPhotosNotifier.new),
+    appConfigProvider.overrideWith((ref) async => const {}),
+    if (qrProviders) ...[
+      myQrTokenProvider.overrideWith(_FakeQrTokenNotifier.new),
+      qrDisplayWindowProvider.overrideWith((ref) async => 15),
+    ],
   ]);
   addTearDown(container.dispose);
   return container;
@@ -175,6 +223,10 @@ Future<void> _pumpRoute(
   ProviderContainer container,
   String path, {
   Object? extra,
+  // Some screens never settle under pumpAndSettle (I-57's QrScannerScreen
+  // embeds the real MobileScanner platform view, whose controller keeps
+  // scheduling frames) — bounded pumps then.
+  bool settle = true,
 }) async {
   final router = container.read(routerProvider);
   router.go(path, extra: extra);
@@ -189,7 +241,12 @@ Future<void> _pumpRoute(
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+  }
 }
 
 void main() {
@@ -221,6 +278,7 @@ void main() {
         (RoutePaths.scanner(_eventId), 'Esc\u00e1ner'),
         (RoutePaths.subscriptions, 'Suscripciones'),
         (RoutePaths.partyFinder, 'Party Finder'),
+        (RoutePaths.cosmetics, 'Cosm\u00e9ticos'),
       ]) {
         testWidgets('$path renders coming soon screen', (tester) async {
           final container = _newContainer();
@@ -293,6 +351,7 @@ void main() {
         (RoutePaths.blockedUsers, BlockedUsersScreen),
         (RoutePaths.subscriptions, VComingSoonScreen),
         (RoutePaths.partyFinder, VComingSoonScreen),
+        (RoutePaths.cosmetics, VComingSoonScreen),
         (RoutePaths.settings, SettingsScreen),
         (RoutePaths.deleteAccount, DeleteAccountScreen),
         (RoutePaths.profileEdit, EditProfileScreen),
@@ -326,6 +385,69 @@ void main() {
         final container = _newContainer(flags: const AppFeatureFlags(events: true));
         await _pumpRoute(tester, container, RoutePaths.createGroupEvent(_groupId));
         expect(find.byType(CreateEventScreen), findsOneWidget);
+        expect(find.byType(VComingSoonScreen), findsNothing);
+      });
+
+      testWidgets(
+          '${RoutePaths.partyFinder} renders PartyFinderScreen when the '
+          'partyFinder flag is on (dark-first gating, I-60)', (tester) async {
+        final container = _newContainer(
+          flags: const AppFeatureFlags(partyFinder: true),
+        );
+        await _pumpRoute(tester, container, RoutePaths.partyFinder);
+        expect(find.byType(PartyFinderScreen), findsOneWidget);
+        expect(find.byType(VComingSoonScreen), findsNothing);
+      });
+
+      testWidgets(
+          '${RoutePaths.subscriptions} renders PaywallScreen when the '
+          'subscriptions flag is on (dark-first gating, I-61)', (tester) async {
+        final container = _newContainer(
+          flags: const AppFeatureFlags(subscriptions: true),
+        );
+        await _pumpRoute(tester, container, RoutePaths.subscriptions);
+        expect(find.byType(PaywallScreen), findsOneWidget);
+        expect(find.byType(VComingSoonScreen), findsNothing);
+      });
+
+      testWidgets(
+          '${RoutePaths.qr(_eventId)} renders AttendanceQrScreen when the qr '
+          'flag is on (dark-first gating, I-57)', (tester) async {
+        final container = _newContainer(
+          flags: const AppFeatureFlags(qr: true),
+          qrProviders: true,
+        );
+        await _pumpRoute(tester, container, RoutePaths.qr(_eventId));
+        expect(find.byType(AttendanceQrScreen), findsOneWidget);
+        expect(find.byType(VComingSoonScreen), findsNothing);
+      });
+
+      testWidgets(
+          '${RoutePaths.eventPhotos(_eventId)} renders PhotoGalleryScreen '
+          'when the photoUpload flag is on (dark-first gating, I-59)',
+          (tester) async {
+        final container = _newContainer(
+          flags: const AppFeatureFlags(photoUpload: true),
+        );
+        await _pumpRoute(tester, container, RoutePaths.eventPhotos(_eventId));
+        expect(find.byType(PhotoGalleryScreen), findsOneWidget);
+        expect(find.byType(VComingSoonScreen), findsNothing);
+      });
+
+      testWidgets(
+          '${RoutePaths.scanner(_eventId)} renders QrScannerScreen when the '
+          'qr flag is on (dark-first gating, I-57)', (tester) async {
+        final container = _newContainer(
+          flags: const AppFeatureFlags(qr: true),
+          qrProviders: true,
+        );
+        await _pumpRoute(
+          tester,
+          container,
+          RoutePaths.scanner(_eventId),
+          settle: false,
+        );
+        expect(find.byType(QrScannerScreen), findsOneWidget);
         expect(find.byType(VComingSoonScreen), findsNothing);
       });
 

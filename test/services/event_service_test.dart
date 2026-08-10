@@ -326,4 +326,74 @@ void main() {
       expect(payload['name'], 'Renombrada');
     });
   });
+
+  group('EventService.unlikePhoto (PHUP like toggle — I-59)', () {
+    late MockQueryBuilder table;
+
+    setUp(() {
+      table = MockQueryBuilder();
+      when(() => client.from('event_photo_likes')).thenAnswer((_) => table);
+    });
+
+    test('deletes the current user row filtered by photo + user', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final deleted = ResolvingBuilder<dynamic>(null);
+      when(() => table.delete()).thenAnswer((_) => deleted);
+
+      await service().unlikePhoto(_photoId);
+
+      expect(deleted.filters, containsAllInOrder([
+        const RecordedFilter('photo_id', _photoId),
+        const RecordedFilter('user_id', _userId),
+      ]));
+    });
+
+    test('throws without an authenticated session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+
+      expect(() => service().unlikePhoto(_photoId),
+          throwsA(isA<Exception>()));
+      verifyNever(() => table.delete());
+    });
+  });
+
+  group('EventService.getMyPhotoLikes (PHUP — I-59)', () {
+    late MockQueryBuilder table;
+
+    setUp(() {
+      table = MockQueryBuilder();
+      when(() => client.from('event_photo_likes')).thenAnswer((_) => table);
+    });
+
+    test('returns the liked photo ids for the event via the inner join',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rows = ResolvingBuilder<PostgrestList>([
+        {
+          'photo_id': 'p-1',
+          'event_photos': {'event_id': 'e-1'},
+        },
+        {
+          'photo_id': 'p-2',
+          'event_photos': {'event_id': 'e-1'},
+        },
+      ]);
+      when(() => table.select(any())).thenAnswer((_) => rows);
+
+      final liked = await service().getMyPhotoLikes('e-1');
+
+      expect(liked, ['p-1', 'p-2']);
+      expect(rows.filters, containsAllInOrder([
+        const RecordedFilter('user_id', _userId),
+        const RecordedFilter('event_photos.event_id', 'e-1'),
+      ]));
+    });
+
+    test('returns an empty list without an authenticated session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+
+      expect(await service().getMyPhotoLikes('e-1'), isEmpty);
+      verifyNever(() => table.select(any()));
+    });
+  });
 }

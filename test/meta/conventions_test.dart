@@ -102,7 +102,7 @@ void main() {
   });
 
   group('pubspec dead dependencies', () {
-    test('DEP-01..04 + SEC-09 packages absent from the dependencies section', () {
+    test('DEP-02..04 + SEC-09 packages absent from the dependencies section', () {
       final content = File('$root/pubspec.yaml').readAsStringSync();
       final lines = content.split('\n');
       final depsStart = lines.indexWhere((l) => l.trimLeft() == 'dependencies:');
@@ -115,9 +115,6 @@ void main() {
       final section = lines.sublist(depsStart + 1, depsEnd).join('\n');
       final dead = <String>[];
       for (final pkg in const [
-        'purchases_flutter',
-        'mobile_scanner',
-        'qr_flutter',
         'share_plus',
         'flutter_dotenv',
       ]) {
@@ -126,7 +123,7 @@ void main() {
         }
       }
       expect(dead, isEmpty,
-          reason: 'dead dependencies (DEP-01..04, SEC-09 flutter_dotenv) must '
+          reason: 'dead dependencies (DEP-04, SEC-09 flutter_dotenv) must '
               'not be re-added to pubspec.yaml: $dead');
     });
   });

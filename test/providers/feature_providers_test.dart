@@ -581,7 +581,8 @@ void main() {
       final state = await container.read(chatMessagesProvider(_groupId).future);
 
       verify(() => repo.loadMessages(_groupId, limit: 50, offset: 0)).called(1);
-      expect(state.single['content'], 'hola');
+      expect(state.messages.single['content'], 'hola');
+      expect(state.hasMore, isFalse); // short page → no older history
     });
   });
 }

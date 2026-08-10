@@ -26,19 +26,24 @@ void main() {
       RoutePaths.blockedUsers,
       RoutePaths.subscriptions,
       RoutePaths.partyFinder,
+      RoutePaths.cosmetics,
       RoutePaths.settings,
       RoutePaths.deleteAccount,
       RoutePaths.profileEdit,
     ];
 
-    test('exposes all 25 route constants used by the app', () {
-      expect(constants, hasLength(25));
+    test('exposes all 26 route constants used by the app', () {
+      expect(constants, hasLength(26));
     });
 
     test('every constant is non-empty and starts with /', () {
       for (final path in constants) {
         expect(path, isNotEmpty);
-        expect(path.startsWith('/'), isTrue, reason: 'must start with "/": "$path"');
+        expect(
+          path.startsWith('/'),
+          isTrue,
+          reason: 'must start with "/": "$path"',
+        );
       }
     });
 

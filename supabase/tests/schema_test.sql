@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all 21 migrations (20260510000001 through 20260809000003).
+-- Covers all 23 migrations (20260510000001 through 20260809000005).
 BEGIN;
 
-SELECT plan(235);
+SELECT plan(254);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -803,6 +803,79 @@ SELECT ok(
     ),
     'messages is in the supabase_realtime publication (E2EE §9.3)'
 );
+
+-- ============================================================
+-- SECTION 43: Party Finder discovery (migration 20260809000004,
+-- agent I-60) — users.interest_tags + users.discovery_opt_in (user-owned,
+-- self-editable), discovery_view security-barrier view (authenticated only).
+--   43a. Columns exist with the right type/default/NOT NULL.
+--   43b. Trigger/REVOKE interplay (documented decision): the two columns are
+--        deliberately NOT in assert_safe_user_update()'s protected set nor in
+--        the I-32 column-level REVOKE UPDATE list → authenticated keeps
+--        UPDATE (users_update_own, id = auth.uid()) so the opt-in toggle and
+--        tags editor persist. Asserted via has_column_priv (UPDATE = true).
+--   43c. discovery_view: security barrier, exact column projection
+--        (id, username, avatar_url, interest_tags), authenticated SELECT
+--        only (anon revoked — no pre-auth enumeration, mirrors I-32 §13).
+-- ============================================================
+
+-- 43a: columns + defaults
+SELECT has_column('users', 'interest_tags',
+    'users.interest_tags exists (migration 20260809000004)');
+SELECT has_column('users', 'discovery_opt_in',
+    'users.discovery_opt_in exists (migration 20260809000004)');
+SELECT col_type_is('users', 'interest_tags', 'text[]',
+    'users.interest_tags is text[]');
+SELECT col_type_is('users', 'discovery_opt_in', 'boolean',
+    'users.discovery_opt_in is boolean');
+SELECT col_not_null('users', 'interest_tags',
+    'users.interest_tags is NOT NULL');
+SELECT col_not_null('users', 'discovery_opt_in',
+    'users.discovery_opt_in is NOT NULL');
+SELECT col_default_is('users', 'interest_tags', '''{}''::text[]',
+    'users.interest_tags defaults to the empty array (opt-in by default)');
+SELECT col_default_is('users', 'discovery_opt_in', 'false',
+    'users.discovery_opt_in defaults to false (discovery OFF by default)');
+
+-- 43b: user-owned columns keep UPDATE for authenticated
+SELECT has_column_priv('public', 'users', 'interest_tags', 'authenticated', 'UPDATE',
+    'users.interest_tags is UPDATE-able by authenticated (user-owned, PFND)');
+SELECT has_column_priv('public', 'users', 'discovery_opt_in', 'authenticated', 'UPDATE',
+    'users.discovery_opt_in is UPDATE-able by authenticated (user-owned, PFND)');
+
+-- 43c: discovery_view
+SELECT has_view('discovery_view',
+    'discovery_view exists (migration 20260809000004)');
+SELECT columns_are('discovery_view',
+    ARRAY['id', 'username', 'avatar_url', 'interest_tags'],
+    'discovery_view exposes only id, username, avatar_url, interest_tags');
+SELECT has_table_priv('public', 'discovery_view', 'authenticated', 'SELECT',
+    'discovery_view is SELECT-able by authenticated');
+SELECT hasnt_table_priv('public', 'discovery_view', 'anon', 'SELECT',
+    'discovery_view is not SELECT-able by anon (no pre-auth enumeration)');
+SELECT ok(
+    (SELECT 'security_barrier=on' = ANY (c.reloptions)
+     FROM pg_class c WHERE c.oid = 'discovery_view'::regclass),
+    'discovery_view is a security_barrier view (no predicate-pushdown leaks)'
+);
+
+-- ============================================================
+-- SECTION 44: QR validate RPC (migration 20260809000005, agent I-57) —
+-- validate_qr_token: SECURITY DEFINER + SET search_path = '' + FOR UPDATE
+-- serialization, PUBLIC EXECUTE revoked, authenticated-only EXECUTE
+-- (I-31 hardening pattern; QRSC validator contract).
+-- ============================================================
+SELECT has_function('validate_qr_token', ARRAY['uuid', 'text'],
+    'validate_qr_token(p_event_id uuid, p_token text) exists (migration 20260809000005)');
+SELECT ok(
+    (SELECT 'search_path=' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'validate_qr_token'),
+    'validate_qr_token sets search_path = '''' (migration 20260809000005)'
+);
+SELECT hasnt_function_priv('public', 'validate_qr_token', ARRAY['uuid', 'text'], 'public', 'EXECUTE',
+    'validate_qr_token is not PUBLIC-EXECUTABLE');
+SELECT has_function_priv('public', 'validate_qr_token', ARRAY['uuid', 'text'], 'authenticated', 'EXECUTE',
+    'validate_qr_token is authenticated-EXECUTABLE');
 
 SELECT * FROM finish();
 ROLLBACK;

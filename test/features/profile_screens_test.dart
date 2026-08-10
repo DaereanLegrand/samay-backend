@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/feature_flags.dart';
-import 'package:samay/features/feed/feed_screen.dart';
 import 'package:samay/features/profile/delete_account_screen.dart';
 import 'package:samay/features/profile/edit_profile_screen.dart';
 import 'package:samay/features/profile/profile_providers.dart';
@@ -141,24 +140,29 @@ void main() {
     });
 
     testWidgets('renders loading spinner then profile data', (tester) async {
-      final profileFetcher = _StubProfileFetcher(() async => const {
-            'username': 'dana',
-            'bio': 'hola mundo',
-            'personal_shards': 120,
-            'preshards': 3,
-          });
-      final groupsFetcher = _StubGroupsFetcher(() async => const [
-            {'id': 'g1', 'name': 'Fiesta Club', 'group_shards': 42},
-          ]);
-      await tester.pumpWidget(_wrapWithOverrides(
-        const ProfileScreen(),
-        [
-          myProfileProvider
-              .overrideWith(() => _StubProfileNotifier(profileFetcher)),
-          myGroupsProvider
-              .overrideWith(() => _StubGroupsNotifier(groupsFetcher)),
+      final profileFetcher = _StubProfileFetcher(
+        () async => const {
+          'username': 'dana',
+          'bio': 'hola mundo',
+          'personal_shards': 120,
+          'preshards': 3,
+        },
+      );
+      final groupsFetcher = _StubGroupsFetcher(
+        () async => const [
+          {'id': 'g1', 'name': 'Fiesta Club', 'group_shards': 42},
         ],
-      ));
+      );
+      await tester.pumpWidget(
+        _wrapWithOverrides(const ProfileScreen(), [
+          myProfileProvider.overrideWith(
+            () => _StubProfileNotifier(profileFetcher),
+          ),
+          myGroupsProvider.overrideWith(
+            () => _StubGroupsNotifier(groupsFetcher),
+          ),
+        ]),
+      );
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
@@ -172,109 +176,126 @@ void main() {
       expect(find.text('42 shards'), findsOneWidget);
     });
 
-    testWidgets('renders error state when the profile fetch fails',
-        (tester) async {
-      final profileFetcher =
-          _StubProfileFetcher(() async => throw Exception('boom'));
+    testWidgets('renders error state when the profile fetch fails', (
+      tester,
+    ) async {
+      final profileFetcher = _StubProfileFetcher(
+        () async => throw Exception('boom'),
+      );
       final groupsFetcher = _StubGroupsFetcher(() async => const []);
-      await tester.pumpWidget(_wrapWithOverrides(
-        const ProfileScreen(),
-        [
-          myProfileProvider
-              .overrideWith(() => _StubProfileNotifier(profileFetcher)),
-          myGroupsProvider
-              .overrideWith(() => _StubGroupsNotifier(groupsFetcher)),
-        ],
-      ));
+      await tester.pumpWidget(
+        _wrapWithOverrides(const ProfileScreen(), [
+          myProfileProvider.overrideWith(
+            () => _StubProfileNotifier(profileFetcher),
+          ),
+          myGroupsProvider.overrideWith(
+            () => _StubGroupsNotifier(groupsFetcher),
+          ),
+        ]),
+      );
 
       await tester.pumpAndSettle();
       expect(find.byType(ErrorView), findsOneWidget);
-      expect(find.text('Error del servidor. Intenta de nuevo.'), findsOneWidget);
+      expect(
+        find.text('Error del servidor. Intenta de nuevo.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('pull-to-refresh re-fetches profile data', (tester) async {
-      final profileFetcher = _StubProfileFetcher(() async => const {
-            'username': 'dana',
-            'personal_shards': 120,
-            'preshards': 3,
-          });
+      final profileFetcher = _StubProfileFetcher(
+        () async => const {
+          'username': 'dana',
+          'personal_shards': 120,
+          'preshards': 3,
+        },
+      );
       final groupsFetcher = _StubGroupsFetcher(() async => const []);
-      await tester.pumpWidget(_wrapWithOverrides(
-        const ProfileScreen(),
-        [
-          myProfileProvider
-              .overrideWith(() => _StubProfileNotifier(profileFetcher)),
-          myGroupsProvider
-              .overrideWith(() => _StubGroupsNotifier(groupsFetcher)),
-        ],
-      ));
+      await tester.pumpWidget(
+        _wrapWithOverrides(const ProfileScreen(), [
+          myProfileProvider.overrideWith(
+            () => _StubProfileNotifier(profileFetcher),
+          ),
+          myGroupsProvider.overrideWith(
+            () => _StubGroupsNotifier(groupsFetcher),
+          ),
+        ]),
+      );
       await tester.pumpAndSettle();
       expect(profileFetcher.calls, 1);
 
-      await tester.fling(
-        find.byType(ListView),
-        const Offset(0, 300),
-        1000,
-      );
+      await tester.fling(find.byType(ListView), const Offset(0, 300), 1000);
       await tester.pumpAndSettle();
       expect(profileFetcher.calls, 2);
     });
 
     testWidgets(
-        'cosmetics section renders nothing while the feature flag is off '
-        '(PRFL gap — I-36: zero visual diff until COSM ships)',
-        (tester) async {
-      final profileFetcher = _StubProfileFetcher(() async => const {
+      'cosmetics section renders nothing while the feature flag is off '
+      '(PRFL gap — I-36: zero visual diff until COSM ships)',
+      (tester) async {
+        final profileFetcher = _StubProfileFetcher(
+          () async => const {
             'username': 'dana',
             'personal_shards': 120,
             'preshards': 3,
-          });
-      final groupsFetcher = _StubGroupsFetcher(() async => const []);
-      await tester.pumpWidget(_wrapWithOverrides(
-        const ProfileScreen(),
-        [
-          myProfileProvider
-              .overrideWith(() => _StubProfileNotifier(profileFetcher)),
-          myGroupsProvider
-              .overrideWith(() => _StubGroupsNotifier(groupsFetcher)),
-        ],
-      ));
-      await tester.pumpAndSettle();
+          },
+        );
+        final groupsFetcher = _StubGroupsFetcher(() async => const []);
+        await tester.pumpWidget(
+          _wrapWithOverrides(const ProfileScreen(), [
+            myProfileProvider.overrideWith(
+              () => _StubProfileNotifier(profileFetcher),
+            ),
+            myGroupsProvider.overrideWith(
+              () => _StubGroupsNotifier(groupsFetcher),
+            ),
+          ]),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('Cosméticos'), findsNothing);
-      expect(find.text('Tu armario de cosméticos aparecerá aquí.'), findsNothing);
-    });
+        expect(find.text('Cosméticos'), findsNothing);
+        expect(
+          find.text('Tu armario de cosméticos aparecerá aquí.'),
+          findsNothing,
+        );
+      },
+    );
 
     testWidgets(
-        'cosmetics section renders when the flag is enabled (I-49 release '
-        'gating — provider override drives the I-36 placeholder)',
-        (tester) async {
-      final profileFetcher = _StubProfileFetcher(() async => const {
+      'cosmetics section renders as the shop entry row when the flag is '
+      'enabled (I-62 — navigation covered in cosmetics_navigation_test)',
+      (tester) async {
+        final profileFetcher = _StubProfileFetcher(
+          () async => const {
             'username': 'dana',
             'personal_shards': 120,
             'preshards': 3,
-          });
-      final groupsFetcher = _StubGroupsFetcher(() async => const []);
-      await tester.pumpWidget(_wrapWithOverrides(
-        const ProfileScreen(),
-        [
-          myProfileProvider
-              .overrideWith(() => _StubProfileNotifier(profileFetcher)),
-          myGroupsProvider
-              .overrideWith(() => _StubGroupsNotifier(groupsFetcher)),
-          featureFlagsProvider.overrideWithValue(
-            const AppFeatureFlags(cosmeticsSection: true),
-          ),
-        ],
-      ));
-      await tester.pumpAndSettle();
+          },
+        );
+        final groupsFetcher = _StubGroupsFetcher(() async => const []);
+        await tester.pumpWidget(
+          _wrapWithOverrides(const ProfileScreen(), [
+            myProfileProvider.overrideWith(
+              () => _StubProfileNotifier(profileFetcher),
+            ),
+            myGroupsProvider.overrideWith(
+              () => _StubGroupsNotifier(groupsFetcher),
+            ),
+            featureFlagsProvider.overrideWithValue(
+              const AppFeatureFlags(cosmeticsSection: true),
+            ),
+          ]),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('Cosméticos'), findsOneWidget);
-      expect(
-        find.text('Tu armario de cosméticos aparecerá aquí.'),
-        findsOneWidget,
-      );
-    });
+        expect(find.text('Cosméticos'), findsOneWidget);
+        expect(
+          find.text('Tu armario de cosméticos aparecerá aquí.'),
+          findsNothing,
+        );
+        expect(find.byIcon(Icons.chevron_right), findsOneWidget);
+      },
+    );
   });
 
   group('EditProfileScreen', () {
@@ -285,24 +306,28 @@ void main() {
       expect(find.text('Guardar cambios'), findsOneWidget);
     });
 
-    testWidgets('prefills the bio from myProfileProvider when available',
-        (tester) async {
-      final profileFetcher = _StubProfileFetcher(() async => const {
-            'username': 'dana',
-            'bio': 'bio desde provider',
-            'personal_shards': 120,
-            'preshards': 3,
-          });
+    testWidgets('prefills the bio from myProfileProvider when available', (
+      tester,
+    ) async {
+      final profileFetcher = _StubProfileFetcher(
+        () async => const {
+          'username': 'dana',
+          'bio': 'bio desde provider',
+          'personal_shards': 120,
+          'preshards': 3,
+        },
+      );
       final groupsFetcher = _StubGroupsFetcher(() async => const []);
-      await tester.pumpWidget(_wrapWithOverrides(
-        const EditProfileScreen(),
-        [
-          myProfileProvider
-              .overrideWith(() => _StubProfileNotifier(profileFetcher)),
-          myGroupsProvider
-              .overrideWith(() => _StubGroupsNotifier(groupsFetcher)),
-        ],
-      ));
+      await tester.pumpWidget(
+        _wrapWithOverrides(const EditProfileScreen(), [
+          myProfileProvider.overrideWith(
+            () => _StubProfileNotifier(profileFetcher),
+          ),
+          myGroupsProvider.overrideWith(
+            () => _StubGroupsNotifier(groupsFetcher),
+          ),
+        ]),
+      );
 
       await tester.pumpAndSettle();
       expect(
@@ -323,9 +348,9 @@ void main() {
 
   group('PublicProfileScreen', () {
     testWidgets('renders public profile', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const PublicProfileScreen(userId: 'test-id'),
-      ));
+      await tester.pumpWidget(
+        _wrap(const PublicProfileScreen(userId: 'test-id')),
+      );
       await tester.pump(const Duration(seconds: 1));
       expect(find.text('Usuario'), findsOneWidget);
       expect(find.text('Agregar amigo'), findsOneWidget);
@@ -346,21 +371,16 @@ void main() {
       expect(find.text('¿Eliminar cuenta?'), findsNothing);
     });
 
-    testWidgets('tapping delete with wrong email does not show confirm dialog',
-        (tester) async {
-      await tester.pumpWidget(_wrap(const DeleteAccountScreen()));
-      await tester.enterText(find.byType(TextField), 'wrong@email.com');
-      await tester.pump();
-      await tester.tap(find.text('Eliminar cuenta').last);
-      await tester.pumpAndSettle();
-      expect(find.text('¿Eliminar cuenta?'), findsNothing);
-    });
-  });
-
-  group('FeedScreen', () {
-    testWidgets('renders welcome message', (tester) async {
-      await tester.pumpWidget(_wrap(const FeedScreen()));
-      expect(find.text('Bienvenido a Samay'), findsOneWidget);
-    });
+    testWidgets(
+      'tapping delete with wrong email does not show confirm dialog',
+      (tester) async {
+        await tester.pumpWidget(_wrap(const DeleteAccountScreen()));
+        await tester.enterText(find.byType(TextField), 'wrong@email.com');
+        await tester.pump();
+        await tester.tap(find.text('Eliminar cuenta').last);
+        await tester.pumpAndSettle();
+        expect(find.text('¿Eliminar cuenta?'), findsNothing);
+      },
+    );
   });
 }

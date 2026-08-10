@@ -22,15 +22,31 @@ class _StubAuthNotifier extends AuthNotifier {
 class _FakeChatMessagesNotifier extends ChatMessagesNotifier {
   final List<Map<String, dynamic>> data;
   final List<String> sent = [];
+  final List<String> olderLoaded = [];
+  final bool hasMore;
+  final bool loadingOlder;
 
-  _FakeChatMessagesNotifier(this.data);
+  _FakeChatMessagesNotifier(
+    this.data, {
+    this.hasMore = false,
+    this.loadingOlder = false,
+  });
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+  Future<ChatMessagesState> build(String arg) async => ChatMessagesState(
+    messages: data,
+    hasMore: hasMore,
+    loadingOlder: loadingOlder,
+  );
 
   @override
   Future<void> send(String chatId, String text) async {
     sent.add(text);
+  }
+
+  @override
+  Future<void> loadOlder() async {
+    olderLoaded.add('loadOlder');
   }
 }
 
@@ -52,6 +68,8 @@ Future<ProviderContainer> _pump(
   WidgetTester tester,
   List<Map<String, dynamic>> messages, {
   _MockChatService? service,
+  bool hasMore = false,
+  bool loadingOlder = false,
 }) async {
   final chatService = service ?? _MockChatService();
   final channel = _MockRealtimeChannel();
@@ -59,8 +77,13 @@ Future<ProviderContainer> _pump(
   when(() => channel.unsubscribe()).thenAnswer((_) => Future.value('ok'));
   final container = ProviderContainer(overrides: [
     authStateProvider.overrideWith(_StubAuthNotifier.new),
-    chatMessagesProvider
-        .overrideWith(() => _FakeChatMessagesNotifier(messages)),
+    chatMessagesProvider.overrideWith(
+      () => _FakeChatMessagesNotifier(
+        messages,
+        hasMore: hasMore,
+        loadingOlder: loadingOlder,
+      ),
+    ),
     // The screen reads the E2EE repository, which is built from the E2EE
     // service (for the realtime subscription) and the realtime service
     // (raw-channel seam, I-50); mocks avoid touching Supabase.instance
@@ -145,5 +168,42 @@ void main() {
     await _pump(tester, const []);
 
     expect(find.text('No hay mensajes todavía'), findsOneWidget);
+  });
+
+  testWidgets('shows the load-older button only when hasMore is true',
+      (tester) async {
+    await _pump(tester, [_message('m-1', 'hola')], hasMore: true);
+
+    expect(find.text('Cargar anteriores'), findsOneWidget);
+  });
+
+  testWidgets('hides the load-older button when there is no more history',
+      (tester) async {
+    await _pump(tester, [_message('m-1', 'hola')], hasMore: false);
+
+    expect(find.text('Cargar anteriores'), findsNothing);
+  });
+
+  testWidgets('tapping the load-older button calls loadOlder on the provider',
+      (tester) async {
+    final container = await _pump(tester, [_message('m-1', 'hola')],
+        hasMore: true);
+
+    await tester.tap(find.text('Cargar anteriores'));
+    await tester.pump();
+
+    final notifier = container.read(chatMessagesProvider(_chatId).notifier)
+        as _FakeChatMessagesNotifier;
+    expect(notifier.olderLoaded, hasLength(1));
+  });
+
+  testWidgets('shows a small loader row instead of the button while loading '
+      'older messages', (tester) async {
+    await _pump(tester, [_message('m-1', 'hola')],
+        hasMore: true, loadingOlder: true);
+
+    expect(find.text('Cargar anteriores'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text('hola'), findsOneWidget); // the list stays visible
   });
 }

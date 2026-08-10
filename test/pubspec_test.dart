@@ -38,6 +38,12 @@ void main() {
       'json_annotation',
       'path_provider',
       'uuid',
+      'purchases_flutter',
+      // DEP-02/DEP-03 re-adoption (I-57): qr_flutter + mobile_scanner were
+      // removed by I-23 as dead while QR was unbuilt; the phase-06 QRAT/QRSC
+      // foundations import them (attendance QR render + promotor scanner).
+      'qr_flutter',
+      'mobile_scanner',
     ]) {
       test('includes $pkg', () {
         expect(deps.containsKey(pkg), isTrue, reason: '$pkg not found in dependencies');
@@ -45,15 +51,12 @@ void main() {
     }
 
     for (final pkg in [
-      'qr_flutter',
-      'mobile_scanner',
-      'purchases_flutter',
       'share_plus',
       'flutter_dotenv',
     ]) {
       test('does not include dead dependency $pkg', () {
         expect(deps.containsKey(pkg), isFalse,
-            reason: '$pkg is a dead dependency (DEP-01..DEP-04, SEC-09) and must be removed');
+            reason: '$pkg is a dead dependency (DEP-04, SEC-09) and must be removed');
       });
     }
   });

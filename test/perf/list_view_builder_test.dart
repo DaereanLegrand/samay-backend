@@ -47,6 +47,11 @@ const _justifiedFixedLists = <String, String>{
       'fixed ECRT creation form (cover, inputs, pickers, chips, preshards '
       'section, submit); the only data-derived content (myGroups dropdown '
       'items) renders inside the fixed group section, not as list children',
+  'lib/features/subscriptions/paywall_screen.dart':
+      'fixed paywall: header + 3 const tier cards (Free/PRO/VIP) + restore '
+      'button — the tier/feature catalogs are const (paywallTiers/'
+      'paywallRows), only price values come from app_config, so the child '
+      'count never depends on fetched data',
 };
 
 final _plainListView = RegExp(r'ListView\(');

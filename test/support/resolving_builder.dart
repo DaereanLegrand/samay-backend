@@ -124,6 +124,10 @@ class ResolvingBuilder<T> extends PostgrestFilterBuilder<T> {
       _record(column, values);
 
   @override
+  ResolvingBuilder<T> overlaps(String column, Object value) =>
+      _record(column, value);
+
+  @override
   ResolvingBuilder<T> order(
     String column, {
     bool ascending = true,

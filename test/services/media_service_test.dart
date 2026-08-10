@@ -309,8 +309,9 @@ void main() {
     test('uploads the file bytes and records the event_photos row', () async {
       when(() => auth.currentUser)
           .thenReturn(User.fromJson({'id': userId, 'email': 'a@b.com'}));
+      final png = await _solidPng(100, 100);
       final file = File('${tempDir.path}/foto.jpg')
-        ..writeAsBytesSync(Uint8List.fromList(List.filled(64, 1)));
+        ..writeAsBytesSync(png);
 
       await service.uploadEventPhoto(eventId, file.path);
 
@@ -320,8 +321,11 @@ void main() {
       final storagePath = captured[0] as String;
       final uploaded = captured[1] as Uint8List;
       expect(storagePath, startsWith('$eventId/photos/'));
-      expect(storagePath, endsWith('.jpg'));
-      expect(uploaded, hasLength(64));
+      // I-59: the path variant now delegates to the bytes variant, which
+      // stores a processed PNG like every other MediaService upload.
+      expect(storagePath, endsWith('.png'));
+      expect(uploaded, png,
+          reason: 'small payloads pass compression unchanged');
 
       final row =
           verify(() => photosTable.insert(captureAny())).captured.single as Map;
@@ -346,8 +350,9 @@ void main() {
     test('propagates a permission-denied PostgrestException', () async {
       when(() => auth.currentUser)
           .thenReturn(User.fromJson({'id': userId}));
+      final png = await _solidPng(100, 100);
       final file = File('${tempDir.path}/foto.jpg')
-        ..writeAsBytesSync(Uint8List(16));
+        ..writeAsBytesSync(png);
       when(() => photosTable.insert(any())).thenThrow(
         const PostgrestException(
           message: 'new row violates row-level security policy',
@@ -360,6 +365,100 @@ void main() {
       });
       expect(err, isA<PostgrestException>());
       expectMapped(err, PermissionError);
+    });
+  });
+
+  group('MediaService.uploadEventPhotoBytes (PHUP — I-59)', () {
+    late _MockSupabaseClient client;
+    late MockGoTrueClient auth;
+    late MockStorageClient storage;
+    late MockStorageFileApi fileApi;
+    late MockQueryBuilder photosTable;
+    late MediaService service;
+
+    const userId = '11111111-1111-1111-1111-111111111111';
+    const eventId = '66666666-6666-6666-6666-666666666666';
+
+    setUp(() {
+      storage = MockStorageClient();
+      client = _MockSupabaseClient(storage);
+      auth = MockGoTrueClient();
+      when(() => client.auth).thenReturn(auth);
+      fileApi = MockStorageFileApi();
+      when(() => storage.from('events')).thenReturn(fileApi);
+      when(() => fileApi.uploadBinary(any(), any()))
+          .thenAnswer((_) async => 'uploaded-path');
+      photosTable = MockQueryBuilder();
+      when(() => client.from('event_photos')).thenAnswer((_) => photosTable);
+      when(() => photosTable.insert(any()))
+          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+      service = MediaService(client: client);
+    });
+
+    test('compresses the payload, uploads a PNG and records the row',
+        () async {
+      when(() => auth.currentUser)
+          .thenReturn(User.fromJson({'id': userId}));
+      final input = await _noisePng(3000, 2000);
+      expect(input.length, greaterThan(ImageProcessor.skipThresholdBytes));
+
+      await service.uploadEventPhotoBytes(eventId, input);
+
+      final captured =
+          verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
+              .captured;
+      final storagePath = captured[0] as String;
+      final uploaded = captured[1] as Uint8List;
+      expect(storagePath, startsWith('$eventId/photos/'));
+      expect(storagePath, endsWith('.png'),
+          reason: 'processed output is always PNG, whatever the source format');
+      expect(uploaded.length, lessThan(input.length),
+          reason: 'downscaled payload must be smaller than the original');
+
+      final row =
+          verify(() => photosTable.insert(captureAny())).captured.single as Map;
+      expect(row['event_id'], eventId);
+      expect(row['uploaded_by_user_id'], userId);
+      expect(row['storage_path'], storagePath);
+      expect(row['likes_count'], 0);
+      expect(row['reported'], isFalse);
+    });
+
+    test('throws without an authenticated session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+
+      expect(() => service.uploadEventPhotoBytes(eventId, Uint8List(16)),
+          throwsA(isA<Exception>()));
+      verifyNever(() => fileApi.uploadBinary(any(), any()));
+      verifyNever(() => photosTable.insert(any()));
+    });
+  });
+
+  group('MediaService.listEventPhotos', () {
+    test('returns the event rows mapped from the table', () async {
+      final storage = MockStorageClient();
+      final client = _MockSupabaseClient(storage);
+      final table = MockQueryBuilder();
+      when(() => client.from('event_photos')).thenAnswer((_) => table);
+      final rows = ResolvingBuilder<PostgrestList>([
+        {
+          'id': 'p-1',
+          'event_id': 'e-1',
+          'uploaded_by_user_id': 'u-1',
+          'storage_path': 'e-1/photos/a.png',
+          'likes_count': 3,
+          'reported': false,
+          'created_at': '2026-08-01T00:00:00Z',
+        },
+      ]);
+      when(() => table.select()).thenAnswer((_) => rows);
+
+      final result = await MediaService(client: client)
+          .listEventPhotos('e-1');
+
+      expect(result, hasLength(1));
+      expect(result.single['storage_path'], 'e-1/photos/a.png');
+      expect(rows.filters, [const RecordedFilter('event_id', 'e-1')]);
     });
   });
 
