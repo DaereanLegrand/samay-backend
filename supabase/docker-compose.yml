@@ -1,9 +1,8 @@
-version: "3.8"
-
 services:
   db:
     container_name: samay-db
-    image: supabase/postgres:17.4.5.2
+    image: supabase/postgres:17.6.1.136
+    restart: unless-stopped
     healthcheck:
       test: pg_isready -U postgres -h localhost
       interval: 5s
@@ -26,10 +25,16 @@ services:
 
   kong:
     container_name: samay-kong
-    image: kong:2.8.1
+    image: kong/kong:3.9.3
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: kong health
+      interval: 5s
+      timeout: 5s
+      retries: 5
     environment:
       KONG_DATABASE: off
       KONG_DECLARATIVE_CONFIG: /api/kong.yml
@@ -45,23 +50,28 @@ services:
       - "54443:8443"
     volumes:
       - ./volumes/api/kong.yml:/api/kong.yml
-      - ./volumes/api/kong-entrypoint.sh:/docker-entrypoint.sh
-    entrypoint: []
-    command: /docker-entrypoint.sh
+      - ./volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/home/kong/kong-entrypoint.sh"]
 
   auth:
     container_name: samay-auth
-    image: supabase/gotrue:v2.174.6
+    image: supabase/gotrue:v2.189.0
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:9999/health
+      interval: 5s
+      timeout: 5s
+      retries: 3
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
       GOTRUE_SITE_URL: http://localhost:3000
       GOTRUE_ADDITIONAL_REDIRECT_URLS: ""
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
-      GOTRUE_JWT_DEFAULT_EXP: 3600
+      GOTRUE_JWT_EXP: 3600
       GOTRUE_JWT_ADMIN_ROLES: service_role
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_SECRET: "your-jwt-secret-change-in-production"
@@ -89,10 +99,16 @@ services:
 
   rest:
     container_name: samay-rest
-    image: postgrest/postgrest:v12.2.10
+    image: postgrest/postgrest:v14.12
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: postgrest --ready
+      interval: 5s
+      timeout: 5s
+      retries: 3
     environment:
       PGRST_DB_URI: postgres://postgres:postgres@samay-db:5432/postgres
       PGRST_DB_SCHEMA: public,storage,graphql_public
@@ -103,14 +119,24 @@ services:
       PGRST_DB_OPENAPI_SERVER_PROXY_URI: http://127.0.0.1:54386
       PGRST_OPENAPI_SECURITY_ACTIVE: true
       PGRST_DB_POOL: 10
+      PGRST_ADMIN_SERVER_PORT: 3001
+      PGRST_ADMIN_SERVER_HOST: localhost
 
   realtime:
     container_name: samay-realtime
-    image: supabase/realtime:v2.34.13
+    image: supabase/realtime:v2.102.3
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: curl -fsS http://localhost:4000/healthcheck
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     environment:
+      PORT: 4000
       DB_HOST: samay-db
       DB_PORT: 5432
       DB_USER: postgres
@@ -118,35 +144,41 @@ services:
       DB_NAME: postgres
       DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
       DB_ENC_KEY: "supabase-realtime-encryption-key-change-in-production"
-      FLY_ALLOW_NON_TLS: true
-      PORT: 4000
-      JWT_SECRET: "your-jwt-secret-change-in-production"
-      REPLICATION_MODE: "unpartitioned"
-      REPLICATION_POLL_INTERVAL: 100
-      SECURE_CHANNELS: "true"
-      SLOT_NAME: "supabase_realtime_replication_slot"
-      TEMPORARY_SLOT: "true"
-      PLUGIN_NAME: "pgoutput"
+      API_JWT_SECRET: "your-jwt-secret-change-in-production"
+      SECRET_KEY_BASE: "supabase-realtime-secret-key-base-change-in-production"
+      METRICS_JWT_SECRET: "your-jwt-secret-change-in-production"
+      APP_NAME: realtime
+      SEED_SELF_HOST: "true"
+      RUN_JANITOR: "true"
+      ERL_AFLAGS: "-proto_dist inet_tcp"
+      DNS_NODES: "''"
 
   storage:
     container_name: samay-storage
-    image: supabase/storage-api:v1.15.1
+    image: supabase/storage-api:v1.60.4
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
       rest:
         condition: service_started
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:5000/status
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     environment:
       ANON_KEY: "your-anon-key"
       SERVICE_KEY: "your-service-role-key"
       TENANT_ID: samay
       REGION: us-east-1
       GLOBAL_S3_BUCKET: samay-storage
-      PG_DATABASE_URL: postgres://postgres:postgres@samay-db:5432/postgres
+      DATABASE_URL: postgres://postgres:postgres@samay-db:5432/postgres
       PGRST_JWT_SECRET: "your-jwt-secret-change-in-production"
       FILE_SIZE_LIMIT: 52428800
       STORAGE_BACKEND: file
-      FILE_STORAGE_PATH: /var/lib/storage
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
       TENANT_AUTO_CREATE: true
       LOG_LEVEL: warn
     volumes:
@@ -154,27 +186,44 @@ services:
 
   meta:
     container_name: samay-meta
-    image: supabase/postgres-meta:v0.85.3
+    image: supabase/postgres-meta:v0.96.6
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://localhost:8080/health').then(r=>{if(!r.ok)throw new Error(r.status)}).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 3
     environment:
-      PG_META_PG_HOST: samay-db
-      PG_META_PG_PORT: 5432
-      PG_META_PG_USER: postgres
-      PG_META_PG_PASSWORD: postgres
-      PG_META_PG_DATABASE: postgres
-      PG_META_PG_META_SCHEMA: extensions
+      PG_META_DB_HOST: samay-db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: postgres
+      PG_META_DB_NAME: postgres
 
   studio:
     container_name: samay-studio
-    image: supabase/studio:20250129.1
+    image: supabase/studio:2026.08.03-sha-022b374
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
       meta:
         condition: service_started
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://localhost:3000/api/platform/profile').then((r) => {if (r.status !== 200) throw new Error(r.status)}).catch(()=>process.exit(1))"
+      timeout: 10s
+      interval: 5s
+      retries: 3
+      start_period: 20s
     environment:
+      HOSTNAME: "0.0.0.0"
       STUDIO_PG_META_URL: http://samay-meta:8080
       SUPABASE_URL: http://127.0.0.1:54386
       SUPABASE_ANON_KEY: "your-anon-key"

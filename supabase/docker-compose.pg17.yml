@@ -1,5 +1,19 @@
-version: "3.8"
+# Postgres 17 override for Samay's self-hosted Supabase (DKR-02, agent M-06).
+#
+# Postgres 17 is already the default in the base docker-compose.yml (db image
+# pinned by M-01 to supabase/postgres:17.6.1.136). This override is kept for
+# explicitness / backwards compatibility — a mirror of the official
+# supabase/supabase docker/docker-compose.pg17.yml pattern: it documents the
+# "stay on PG17" contract and is the escape hatch that keeps a PG17 pin even
+# after the base image moves to PG18.
+#
+# Keep the image tag here in sync with the db image in docker-compose.yml.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.pg17.yml up -d
+#   (or add docker-compose.pg17.yml to COMPOSE_FILE in .env — both Samay
+#    stacks already do)
 
 services:
   db:
-    image: supabase/postgres:17.4.5.2
+    image: supabase/postgres:17.6.1.136

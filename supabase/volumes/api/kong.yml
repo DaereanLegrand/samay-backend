@@ -49,7 +49,8 @@ services:
             - service_role
 
   - name: realtime-v1
-    url: http://samay-realtime:4000
+    url: http://samay-realtime:4000/socket
+    protocol: ws
     routes:
       - name: realtime-v1-all
         paths:
