@@ -169,7 +169,8 @@ void main() {
   });
 
   group('UserService.sendFriendRequest', () {
-    test('inserts a pending friendship when none exists', () async {
+    test('inserts a pending friendship when none exists and reports pending',
+        () async {
       when(() => auth.currentUser).thenReturn(_currentUser());
       final table = MockQueryBuilder();
       when(() => client.from('friendships')).thenAnswer((_) => table);
@@ -182,8 +183,10 @@ void main() {
       final insert = ResolvingBuilder<dynamic>(null);
       when(() => table.insert(any())).thenAnswer((_) => insert);
 
-      await service().sendFriendRequest(_otherId);
+      final status = await service().sendFriendRequest(_otherId);
 
+      expect(status, 'pending',
+          reason: 'a fresh request reports pending (R15)');
       verify(() => table.insert({
         'requester_id': _userId,
         'addressee_id': _otherId,
@@ -207,7 +210,9 @@ void main() {
       verifyNever(() => table.insert(any()));
     });
 
-    test('throws when the reverse-direction friendship exists', () async {
+    test(
+        'accepts the reverse-direction request instantly and reports '
+        'accepted (mutual, R15)', () async {
       when(() => auth.currentUser).thenReturn(_currentUser());
       final table = MockQueryBuilder();
       when(() => client.from('friendships')).thenAnswer((_) => table);
@@ -218,12 +223,15 @@ void main() {
             ? ResolvingBuilder<PostgrestList>(null)
             : ResolvingBuilder<PostgrestList>({'id': 'fr-rev'});
       });
+      final update = ResolvingBuilder<dynamic>(null);
+      when(() => table.update(any())).thenAnswer((_) => update);
 
-      expect(
-        () => service().sendFriendRequest(_otherId),
-        throwsA(predicate((e) =>
-            e is Exception && e.toString().contains('Ya existe'))),
-      );
+      final status = await service().sendFriendRequest(_otherId);
+
+      expect(status, 'accepted',
+          reason: 'a reverse pending request becomes an instant accept (R15)');
+      verify(() => table.update({'status': 'accepted'})).called(1);
+      expect(update.filters.single.value, 'fr-rev');
       verifyNever(() => table.insert(any()));
     });
 

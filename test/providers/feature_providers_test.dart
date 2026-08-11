@@ -49,6 +49,9 @@ class _CountingFriendsListNotifier extends FriendsListNotifier {
   int buildCount = 0;
 
   @override
+  Duration get refreshThrottle => Duration.zero;
+
+  @override
   Future<List<Map<String, dynamic>>> build() async {
     buildCount++;
     return [];
@@ -57,6 +60,9 @@ class _CountingFriendsListNotifier extends FriendsListNotifier {
 
 class _CountingMyGroupsNotifier extends MyGroupsNotifier {
   int buildCount = 0;
+
+  @override
+  Duration get refreshThrottle => Duration.zero;
 
   @override
   Future<List<Map<String, dynamic>>> build() async {
@@ -69,6 +75,9 @@ class _CountingMyProfileNotifier extends profile.MyProfileNotifier {
   int buildCount = 0;
 
   @override
+  Duration get refreshThrottle => Duration.zero;
+
+  @override
   Future<Map<String, dynamic>?> build() async {
     buildCount++;
     return null;
@@ -79,6 +88,9 @@ class _CountingProfileGroupsNotifier extends profile.ProfileGroupsNotifier {
   int buildCount = 0;
 
   @override
+  Duration get refreshThrottle => Duration.zero;
+
+  @override
   Future<List<Map<String, dynamic>>> build() async {
     buildCount++;
     return [];
@@ -87,6 +99,9 @@ class _CountingProfileGroupsNotifier extends profile.ProfileGroupsNotifier {
 
 class _CountingLeaderboardNotifier extends LeaderboardNotifier {
   int buildCount = 0;
+
+  @override
+  Duration get refreshThrottle => Duration.zero;
 
   @override
   Future<List<Map<String, dynamic>>> build(String arg) async {

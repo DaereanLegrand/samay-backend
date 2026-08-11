@@ -55,8 +55,9 @@ void main() {
     fail('Timed out after $timeout waiting for the image to settle');
   }
 
-  testWidgets('renders the decoded image on success (disk-cached flow)',
-      (tester) async {
+  testWidgets('renders the decoded image on success (disk-cached flow)', (
+    tester,
+  ) async {
     await tester.runAsync(() {
       return inTestNetworkZone(() async {
         cacheManager = CacheManager(

@@ -471,7 +471,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Disco Crew'), findsOneWidget);
       expect(find.text('Vinyl Lovers'), findsOneWidget);
-      expect(find.text('PROMOTOR · '), findsOneWidget);
+      // U-11 restyle: the role renders as a §5.5 VBadge (uppercase
+      // labelSmall) instead of the inline 'PROMOTOR · ' text.
+      expect(find.text('PROMOTOR'), findsOneWidget);
     });
 
     testWidgets('renders ErrorView with retry when the provider fails',
@@ -563,12 +565,13 @@ void main() {
     });
 
     testWidgets(
-        'leave-group flow: menu → confirm dialog → leaveGroup service call → '
-        'pops back (TST-07/M-14)', (tester) async {
+        'leave-group flow: inline row → confirm dialog → leaveGroup service '
+        'call → pops back (R16 repoint; TST-07/M-14)', (tester) async {
       await _pumpGroupDetail(tester, _loadedGroupDetailOverrides());
 
-      await tester.tap(find.byType(PopupMenuButton<String>));
-      await tester.pumpAndSettle();
+      // R16: the leave trigger is the inline danger row — the overflow menu
+      // is gone for non-frozen groups.
+      expect(find.byType(PopupMenuButton<String>), findsNothing);
       await tester.tap(find.text('Abandonar grupo'));
       await tester.pumpAndSettle();
 
@@ -580,8 +583,6 @@ void main() {
       expect(find.byType(GroupDetailScreen), findsOneWidget);
 
       // Confirming deletes the membership and pops to the parent route.
-      await tester.tap(find.byType(PopupMenuButton<String>));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Abandonar grupo'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Abandonar'));

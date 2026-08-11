@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
+import 'package:samay/core/design_tokens/app_radius.dart';
+import 'package:samay/core/design_tokens/app_typography.dart';
 import 'package:samay/core/theme/app_theme.dart';
 
 void main() {
@@ -32,6 +34,44 @@ void main() {
     });
 
     group('display typography (Playfair Display)', () {
+      test('theme textTheme is driven by AppTypography tokens', () {
+        final theme = SamayTheme.dark;
+        expect(
+          theme.textTheme.displayLarge!.fontFamily,
+          AppTypography.textTheme.displayLarge!.fontFamily,
+        );
+        expect(
+          theme.textTheme.displayLarge!.fontSize,
+          AppTypography.textTheme.displayLarge!.fontSize,
+        );
+        expect(
+          theme.textTheme.displayLarge!.shadows,
+          AppTypography.textTheme.displayLarge!.shadows,
+        );
+        expect(
+          theme.textTheme.headlineLarge!.shadows,
+          AppTypography.textTheme.headlineLarge!.shadows,
+        );
+        expect(
+          theme.textTheme.bodyMedium!.fontFamily,
+          AppTypography.textTheme.bodyMedium!.fontFamily,
+        );
+        expect(
+          theme.textTheme.labelLarge!.letterSpacing,
+          AppTypography.textTheme.labelLarge!.letterSpacing,
+        );
+      });
+
+      test('non-table roles keep Material defaults (no regressions)', () {
+        final theme = SamayTheme.dark;
+        // titleSmall is a TextTheme role outside the §3.3 table — it must
+        // survive the token takeover with the default Inter family.
+        expect(theme.textTheme.titleSmall, isNotNull);
+        expect(theme.textTheme.titleSmall!.fontFamily, 'Inter');
+        expect(theme.textTheme.bodySmall, isNotNull);
+        expect(theme.textTheme.labelSmall, isNotNull);
+      });
+
       test('displayLarge uses Playfair Display italic 700 at 64', () {
         final style = SamayTheme.dark.textTheme.displayLarge;
         expect(style, isNotNull);
@@ -76,13 +116,11 @@ void main() {
         expect(shadows, isNotNull);
         expect(shadows, isNotEmpty);
         expect(shadows!.length, 3);
-        expect(shadows.first.color,
-            AppColors.glowPink.withValues(alpha: 0.9));
+        expect(shadows.first.color, AppColors.glowPink.withValues(alpha: 0.9));
         expect(shadows.first.blurRadius, closeTo(64 * 0.35, 0.001));
         expect(shadows[1].color, AppColors.glowPink.withValues(alpha: 0.5));
         expect(shadows[1].blurRadius, closeTo(64 * 0.7, 0.001));
-        expect(shadows[2].color,
-            AppColors.glowPink.withValues(alpha: 0.25));
+        expect(shadows[2].color, AppColors.glowPink.withValues(alpha: 0.25));
         expect(shadows[2].blurRadius, closeTo(64 * 1.0, 0.001));
       });
 
@@ -91,11 +129,9 @@ void main() {
         final shadows = style.shadows;
         expect(shadows, isNotNull);
         expect(shadows!.length, 2);
-        expect(shadows.first.color,
-            AppColors.glowPink.withValues(alpha: 0.6));
+        expect(shadows.first.color, AppColors.glowPink.withValues(alpha: 0.6));
         expect(shadows.first.blurRadius, closeTo(28 * 0.3, 0.001));
-        expect(shadows[1].color,
-            AppColors.glowPink.withValues(alpha: 0.25));
+        expect(shadows[1].color, AppColors.glowPink.withValues(alpha: 0.25));
         expect(shadows[1].blurRadius, closeTo(28 * 0.6, 0.001));
       });
 
@@ -106,18 +142,20 @@ void main() {
         expect(theme.textTheme.headlineMedium?.shadows, isNull);
       });
 
-      test('glowTitleStyle computes the stack from the given fontSize', () {
-        final glow = SamayTheme.glowTitleStyle(const TextStyle(fontSize: 40));
+      test('fancyTitle computes the stack from the given fontSize', () {
+        final glow = AppTypography.fancyTitle(const TextStyle(fontSize: 40));
         expect(glow.shadows, hasLength(3));
         expect(glow.shadows!.first.blurRadius, closeTo(40 * 0.35, 0.001));
         expect(glow.shadows![1].blurRadius, closeTo(40 * 0.7, 0.001));
         expect(glow.shadows![2].blurRadius, closeTo(40 * 1.0, 0.001));
-        expect(glow.shadows!.first.color,
-            AppColors.glowPink.withValues(alpha: 0.9));
+        expect(
+          glow.shadows!.first.color,
+          AppColors.glowPink.withValues(alpha: 0.9),
+        );
       });
 
-      test('glowTitleStyle soft variant uses the 2-layer stack', () {
-        final glow = SamayTheme.glowTitleStyle(
+      test('fancyTitle soft variant uses the 2-layer stack', () {
+        final glow = AppTypography.fancyTitle(
           const TextStyle(fontSize: 28),
           soft: true,
         );
@@ -127,10 +165,13 @@ void main() {
       });
 
       test('glow keeps the glyph fill opaque (halo strictly behind text)', () {
-        final glow = SamayTheme.glowTitleStyle(const TextStyle(fontSize: 64));
+        final glow = AppTypography.fancyTitle(const TextStyle(fontSize: 64));
         expect(glow.shadows, isNotEmpty);
-        expect(glow.color, isNull,
-            reason: 'the fill color must stay inherited/full-opacity');
+        expect(
+          glow.color,
+          isNull,
+          reason: 'the fill color must stay inherited/full-opacity',
+        );
       });
     });
 
@@ -178,8 +219,7 @@ void main() {
       expect(appBarTheme.foregroundColor, Colors.white);
     });
 
-    test('BottomNav has black background, white selected, gray unselected',
-        () {
+    test('BottomNav has black background, white selected, gray unselected', () {
       final theme = SamayTheme.dark;
       final navTheme = theme.bottomNavigationBarTheme;
       expect(navTheme.backgroundColor, Colors.black);
@@ -188,6 +228,156 @@ void main() {
       expect(navTheme.type, BottomNavigationBarType.fixed);
       expect(navTheme.showUnselectedLabels, isFalse);
       expect(navTheme.showSelectedLabels, isFalse);
+    });
+
+    group('component themes (U-04 — DISCO-DESIGN-SYSTEM §2/§4.2/§5)', () {
+      test('snackBar: surface fill, white content, sharp', () {
+        final theme = SamayTheme.dark;
+        expect(theme.snackBarTheme.backgroundColor, AppColors.surface);
+        expect(theme.snackBarTheme.contentTextStyle?.color, AppColors.white);
+        final shape = theme.snackBarTheme.shape! as RoundedRectangleBorder;
+        expect(shape.borderRadius, AppRadius.sharp);
+      });
+
+      test('dialog: black surface, sharp corners', () {
+        final theme = SamayTheme.dark;
+        expect(theme.dialogTheme.backgroundColor, AppColors.discoBlack);
+        expect(theme.dialogTheme.surfaceTintColor, Colors.transparent);
+        final shape = theme.dialogTheme.shape! as RoundedRectangleBorder;
+        expect(shape.borderRadius, AppRadius.sharp);
+      });
+
+      test('input: white underline 1px/2px, §5.2 label mutedStrong, hint '
+          'muted, error glowPink', () {
+        final theme = SamayTheme.dark;
+        expect(
+          theme.inputDecorationTheme.labelStyle?.color,
+          AppColors.mutedStrong,
+        );
+        expect(theme.inputDecorationTheme.hintStyle?.color, AppColors.muted);
+        final enabled =
+            theme.inputDecorationTheme.enabledBorder! as UnderlineInputBorder;
+        expect(enabled.borderSide.color, AppColors.white);
+        expect(enabled.borderSide.width, 1);
+        final focused =
+            theme.inputDecorationTheme.focusedBorder! as UnderlineInputBorder;
+        expect(focused.borderSide.color, AppColors.white);
+        expect(focused.borderSide.width, 2);
+        expect(theme.inputDecorationTheme.errorStyle?.color, AppColors.error);
+      });
+
+      test('card: surface fill, hairline border, sharp (§5.3)', () {
+        final theme = SamayTheme.dark;
+        expect(theme.cardTheme.color, AppColors.surface);
+        expect(theme.cardTheme.surfaceTintColor, Colors.transparent);
+        final shape = theme.cardTheme.shape! as RoundedRectangleBorder;
+        expect(shape.borderRadius, AppRadius.sharp);
+        expect(shape.side.color, AppColors.hairline);
+      });
+
+      test('chip: transparent, white fill + black label on select (§5.4)', () {
+        final theme = SamayTheme.dark;
+        expect(theme.chipTheme.backgroundColor, Colors.transparent);
+        expect(theme.chipTheme.selectedColor, AppColors.white);
+        expect(theme.chipTheme.labelStyle?.color, AppColors.white);
+        expect(
+          theme.chipTheme.secondaryLabelStyle?.color,
+          AppColors.discoBlack,
+        );
+        expect(theme.chipTheme.side?.color, AppColors.white);
+        expect(theme.chipTheme.showCheckmark, isFalse);
+        final shape = theme.chipTheme.shape! as RoundedRectangleBorder;
+        expect(shape.borderRadius, AppRadius.sharp);
+      });
+
+      test('divider: hairline color (§2.1)', () {
+        expect(SamayTheme.dark.dividerTheme.color, AppColors.hairline);
+      });
+
+      test('textButton: white label, muted disabled, α0.1 overlay, sharp '
+          '(§5.1)', () {
+        final theme = SamayTheme.dark;
+        final style = theme.textButtonTheme.style!;
+        expect(style.foregroundColor!.resolve({}), AppColors.white);
+        expect(
+          style.foregroundColor!.resolve({WidgetState.disabled}),
+          AppColors.muted,
+        );
+        final pressedOverlay = style.overlayColor!.resolve({
+          WidgetState.pressed,
+        });
+        expect(pressedOverlay, isNotNull);
+        expect(
+          pressedOverlay!.a,
+          closeTo(0.1, 0.01),
+          reason: '§5.1 press feedback = α0.1 overlay on the base color',
+        );
+        final shape = style.shape!.resolve({})! as RoundedRectangleBorder;
+        expect(shape.borderRadius, AppRadius.sharp);
+      });
+
+      test(
+        'checkbox: transparent, white fill + black check on select, sharp',
+        () {
+          final theme = SamayTheme.dark;
+          expect(
+            theme.checkboxTheme.fillColor!.resolve({}),
+            isNull,
+            reason: 'unselected keeps the border-only look (no fill)',
+          );
+          expect(
+            theme.checkboxTheme.fillColor!.resolve({WidgetState.selected}),
+            AppColors.white,
+          );
+          expect(
+            theme.checkboxTheme.checkColor!.resolve({}),
+            AppColors.discoBlack,
+          );
+          final shape = theme.checkboxTheme.shape! as RoundedRectangleBorder;
+          expect(shape.borderRadius, AppRadius.sharp);
+        },
+      );
+
+      test('tabBar: white indicator and label', () {
+        final theme = SamayTheme.dark;
+        expect(theme.tabBarTheme.indicatorColor, AppColors.white);
+        expect(theme.tabBarTheme.labelColor, AppColors.white);
+      });
+
+      test('popupMenu: black surface, white text/icons, sharp', () {
+        final theme = SamayTheme.dark;
+        expect(theme.popupMenuTheme.color, AppColors.discoBlack);
+        expect(theme.popupMenuTheme.surfaceTintColor, Colors.transparent);
+        expect(theme.popupMenuTheme.textStyle?.color, AppColors.white);
+        expect(theme.popupMenuTheme.iconColor, AppColors.white);
+        final shape = theme.popupMenuTheme.shape! as RoundedRectangleBorder;
+        expect(shape.borderRadius, AppRadius.sharp);
+      });
+
+      test('datePicker: black surface + header, white header text, sharp', () {
+        final theme = SamayTheme.dark;
+        expect(theme.datePickerTheme.backgroundColor, AppColors.discoBlack);
+        expect(theme.datePickerTheme.surfaceTintColor, Colors.transparent);
+        expect(
+          theme.datePickerTheme.headerBackgroundColor,
+          AppColors.discoBlack,
+        );
+        expect(theme.datePickerTheme.headerForegroundColor, AppColors.white);
+        final shape = theme.datePickerTheme.shape! as RoundedRectangleBorder;
+        expect(shape.borderRadius, AppRadius.sharp);
+      });
+
+      test('progressIndicator: white per §5.8 (pink is brand-moment only)', () {
+        expect(SamayTheme.dark.progressIndicatorTheme.color, AppColors.white);
+      });
+
+      test('tooltip: dark raised surface, white text, sharp', () {
+        final theme = SamayTheme.dark;
+        final decoration = theme.tooltipTheme.decoration! as BoxDecoration;
+        expect(decoration.color, AppColors.surfaceAlt);
+        expect(theme.tooltipTheme.textStyle?.color, AppColors.white);
+        expect(decoration.borderRadius, AppRadius.sharp);
+      });
     });
 
     test('registers the SamayThemeExtension with the disco palette', () {
@@ -203,7 +393,6 @@ void main() {
       expect(ext.discoSilver, AppColors.discoSilver);
       expect(ext.discoBronze, AppColors.discoBronze);
     });
-
     test('color scheme has no accent colors, only black/white/gray', () {
       final theme = SamayTheme.dark;
       final scheme = theme.colorScheme;

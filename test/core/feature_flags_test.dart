@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/config/feature_flags.dart';
+import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_coming_soon.dart';
 
@@ -197,11 +198,11 @@ void main() {
 
     testWidgets('default fallback carries the localized title per gated flag',
         (tester) async {
-      for (final (flag, title) in [
-        (AppFeatureFlag.events, 'Eventos'),
-        (AppFeatureFlag.subscriptions, 'Suscripciones'),
-        (AppFeatureFlag.partyFinder, 'Party Finder'),
-        (AppFeatureFlag.qr, 'QR'),
+      for (final (flag, title, icon) in [
+        (AppFeatureFlag.events, 'Eventos', Icons.event),
+        (AppFeatureFlag.subscriptions, 'Suscripciones', Icons.subscriptions),
+        (AppFeatureFlag.partyFinder, 'Party Finder', Icons.celebration),
+        (AppFeatureFlag.qr, 'QR', Icons.qr_code),
       ]) {
         await _pumpGate(
           tester,
@@ -211,7 +212,22 @@ void main() {
             reason: '${flag.name} fallback title');
         expect(find.byType(VComingSoonScreen), findsOneWidget,
             reason: '${flag.name} fallback type');
+        expect(find.byIcon(icon), findsOneWidget,
+            reason: '${flag.name} fallback icon');
       }
+    });
+
+    testWidgets('partyFinder fallback icon uses the §5.7 faint glowPink hero '
+        'color', (tester) async {
+      await _pumpGate(
+        tester,
+        const FlagGate(
+          flag: AppFeatureFlag.partyFinder,
+          child: Text('REAL'),
+        ),
+      );
+      final icon = tester.widget<Icon>(find.byIcon(Icons.celebration));
+      expect(icon.color, AppColors.glowPink.withValues(alpha: 0.5));
     });
 
     testWidgets(
@@ -243,6 +259,7 @@ void main() {
         ],
       );
       expect(find.text('Notificaciones'), findsOneWidget);
+      expect(find.byIcon(Icons.notifications), findsOneWidget);
       expect(find.byType(VComingSoonScreen), findsOneWidget);
     });
 

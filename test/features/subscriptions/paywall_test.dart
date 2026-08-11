@@ -22,11 +22,11 @@ const _vipMonthly = '4999';
 const _vipAnnual = '49990';
 
 Map<String, String> _fakeConfig() => {
-      'subs.pro_monthly_price_pen': _proMonthly,
-      'subs.pro_annual_price_pen': _proAnnual,
-      'subs.vip_monthly_price_pen': _vipMonthly,
-      'subs.vip_annual_price_pen': _vipAnnual,
-    };
+  'subs.pro_monthly_price_pen': _proMonthly,
+  'subs.pro_annual_price_pen': _proAnnual,
+  'subs.vip_monthly_price_pen': _vipMonthly,
+  'subs.vip_annual_price_pen': _vipAnnual,
+};
 
 class _FakeAuthNotifier extends AuthNotifier {
   _FakeAuthNotifier(this.user);
@@ -34,18 +34,19 @@ class _FakeAuthNotifier extends AuthNotifier {
   final Map<String, dynamic>? user;
 
   @override
-  Future<AuthState> build() async => AuthState(
-        authenticated: true,
-        hasProfile: true,
-        user: user,
-      );
+  Future<AuthState> build() async =>
+      AuthState(authenticated: true, hasProfile: true, user: user);
 }
 
 ProviderContainer _container({Map<String, dynamic>? user}) {
-  final container = ProviderContainer(overrides: [
-    authStateProvider.overrideWith(() => _FakeAuthNotifier(user)),
-    appConfigProvider.overrideWith(() => FakeAppConfigNotifier(_fakeConfig())),
-  ]);
+  final container = ProviderContainer(
+    overrides: [
+      authStateProvider.overrideWith(() => _FakeAuthNotifier(user)),
+      appConfigProvider.overrideWith(
+        () => FakeAppConfigNotifier(_fakeConfig()),
+      ),
+    ],
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -121,9 +122,11 @@ void main() {
       );
       expect(
         currentTierFromAuth(
-          const AuthState(user: {
-            'user_metadata': {'subscription_tier': 'vip'},
-          }),
+          const AuthState(
+            user: {
+              'user_metadata': {'subscription_tier': 'vip'},
+            },
+          ),
         ),
         'vip',
       );
@@ -145,39 +148,38 @@ void main() {
   });
 
   group('PaywallScreen', () {
-    testWidgets('renders the three tiers with prices from the fake app_config',
-        (tester) async {
-      await _pump(tester, _container());
+    testWidgets(
+      'renders the three tiers with prices from the fake app_config',
+      (tester) async {
+        await _pump(tester, _container());
 
-      expect(find.byType(PaywallScreen), findsOneWidget);
+        expect(find.byType(PaywallScreen), findsOneWidget);
 
-      // Tier names (all three visible — App Store compliance).
-      for (final title in ['Free', 'PRO', 'VIP']) {
-        expect(find.text(title), findsOneWidget);
-      }
+        // Tier names (all three visible — App Store compliance).
+        for (final title in ['Free', 'PRO', 'VIP']) {
+          expect(find.text(title), findsOneWidget);
+        }
 
-      // Monthly prices, formatted PEN from app_config (never hardcoded).
-      expect(find.text('S/ 19.99/mes'), findsOneWidget);
-      expect(find.text('S/ 49.99/mes'), findsOneWidget);
+        // Monthly prices, formatted PEN from app_config (never hardcoded).
+        expect(find.text('S/ 19.99/mes'), findsOneWidget);
+        expect(find.text('S/ 49.99/mes'), findsOneWidget);
 
-      // Annual rows: monthly equivalent of the annual price + 17% savings.
-      expect(find.textContaining('S/ 16.66/mes'), findsOneWidget);
-      expect(find.textContaining('S/ 41.66/mes'), findsOneWidget);
-      expect(find.textContaining('ahorrando 17%'), findsNWidgets(2));
+        // Annual rows: monthly equivalent of the annual price + 17% savings.
+        expect(find.textContaining('S/ 16.66/mes'), findsOneWidget);
+        expect(find.textContaining('S/ 41.66/mes'), findsOneWidget);
+        expect(find.textContaining('ahorrando 17%'), findsNWidgets(2));
 
-      // Feature table rows render for each tier card.
-      expect(find.text('Eventos por día'), findsNWidgets(3));
-      // The spec §7 "Miembros" row: Free=14 / PRO=256 / VIP=Ilimitado —
-      // each card shows the full row, so the cell appears once per card.
-      expect(find.text('Ilimitado'), findsNWidgets(3));
-    });
+        // Feature table rows render for each tier card.
+        expect(find.text('Eventos por día'), findsNWidgets(3));
+        // The spec §7 "Miembros" row: Free=14 / PRO=256 / VIP=Ilimitado —
+        // each card shows the full row, so the cell appears once per card.
+        expect(find.text('Ilimitado'), findsNWidgets(3));
+      },
+    );
 
     testWidgets('marks the current tier with the Actual badge', (tester) async {
-      await _pump(
-        tester,
-        _container(user: {'subscription_tier': 'vip'}),
-      );
-      expect(find.text('Actual'), findsOneWidget);
+      await _pump(tester, _container(user: {'subscription_tier': 'vip'}));
+      expect(find.text('ACTUAL'), findsOneWidget);
       expect(
         find.descendant(
           of: find.byType(PaywallScreen),
@@ -187,10 +189,11 @@ void main() {
       );
     });
 
-    testWidgets('no Actual badge when the tier is unknown or absent',
-        (tester) async {
+    testWidgets('no ACTUAL badge when the tier is unknown or absent', (
+      tester,
+    ) async {
       await _pump(tester, _container());
-      expect(find.text('Actual'), findsNothing);
+      expect(find.text('ACTUAL'), findsNothing);
     });
 
     testWidgets('purchase buttons are disabled with a Próximamente tooltip '
@@ -201,20 +204,26 @@ void main() {
       final buttons = tester.widgetList<VButton>(find.byType(VButton));
       expect(buttons.length, 3);
       for (final button in buttons) {
-        expect(button.onPressed, isNull,
-            reason: 'stub mode must never enable a purchase');
+        expect(
+          button.onPressed,
+          isNull,
+          reason: 'stub mode must never enable a purchase',
+        );
       }
       expect(find.byTooltip('Próximamente'), findsNWidgets(3));
     });
 
-    testWidgets('renders the ErrorView when app_config fails to load',
-        (tester) async {
-      final container = ProviderContainer(overrides: [
-        authStateProvider.overrideWith(() => _FakeAuthNotifier(null)),
-        appConfigProvider.overrideWith(
-          () => FailingAppConfigNotifier(Exception('connection refused')),
-        ),
-      ]);
+    testWidgets('renders the ErrorView when app_config fails to load', (
+      tester,
+    ) async {
+      final container = ProviderContainer(
+        overrides: [
+          authStateProvider.overrideWith(() => _FakeAuthNotifier(null)),
+          appConfigProvider.overrideWith(
+            () => FailingAppConfigNotifier(Exception('connection refused')),
+          ),
+        ],
+      );
       addTearDown(container.dispose);
 
       await _pump(tester, container);

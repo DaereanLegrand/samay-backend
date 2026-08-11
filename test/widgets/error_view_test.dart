@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
 
@@ -15,12 +16,16 @@ Widget _wrap(Widget child) {
 void main() {
   group('ErrorView', () {
     testWidgets('renders the message', (tester) async {
-      await tester.pumpWidget(_wrap(const ErrorView(message: 'No se pudo cargar')));
+      await tester.pumpWidget(
+        _wrap(const ErrorView(message: 'No se pudo cargar')),
+      );
       expect(find.text('No se pudo cargar'), findsOneWidget);
     });
 
     testWidgets('renders the error icon by default', (tester) async {
-      await tester.pumpWidget(_wrap(const ErrorView(message: 'No se pudo cargar')));
+      await tester.pumpWidget(
+        _wrap(const ErrorView(message: 'No se pudo cargar')),
+      );
       expect(find.byIcon(Icons.error_outline), findsOneWidget);
     });
 
@@ -42,7 +47,13 @@ void main() {
 
     testWidgets('retry button uses the provided label', (tester) async {
       await tester.pumpWidget(
-        _wrap(ErrorView(message: 'Error', onRetry: () {}, retryLabel: 'Volver a intentar')),
+        _wrap(
+          ErrorView(
+            message: 'Error',
+            onRetry: () {},
+            retryLabel: 'Volver a intentar',
+          ),
+        ),
       );
       expect(find.text('Volver a intentar'), findsOneWidget);
     });
@@ -55,13 +66,13 @@ void main() {
     testWidgets('uses pink accent for the icon', (tester) async {
       await tester.pumpWidget(_wrap(const ErrorView(message: 'Error')));
       final icon = tester.widget<Icon>(find.byIcon(Icons.error_outline));
-      expect(icon.color, const Color(0xFFFF2E88));
+      expect(icon.color, AppColors.glowPink);
     });
 
     testWidgets('uses light gray for the message', (tester) async {
       await tester.pumpWidget(_wrap(const ErrorView(message: 'Error')));
       final text = tester.widget<Text>(find.text('Error'));
-      expect(text.style?.color, const Color(0xFF999999));
+      expect(text.style?.color, AppColors.mutedStrong);
     });
   });
 }

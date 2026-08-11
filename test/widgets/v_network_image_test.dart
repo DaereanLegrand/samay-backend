@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/theme/samay_durations.dart';
 import 'package:samay/shared/widgets/v_network_image.dart';
 
@@ -57,8 +58,9 @@ void main() {
   });
 
   group('VNetworkImage', () {
-    testWidgets('renders the branded placeholder while the image is loading',
-        (tester) async {
+    testWidgets('renders the branded placeholder while the image is loading', (
+      tester,
+    ) async {
       await pumpWithNetwork(tester, url: kTestHangingUrl, cacheKey: 'k1');
 
       expect(find.byIcon(Icons.photo_outlined), findsOneWidget);
@@ -66,19 +68,22 @@ void main() {
       expect(find.byType(RawImage), findsNothing);
     });
 
-    testWidgets('placeholder uses the grey[900] surface', (tester) async {
+    testWidgets('placeholder uses the surfaceAlt token surface (§5.8)', (
+      tester,
+    ) async {
       await pumpWithNetwork(tester, url: kTestHangingUrl, cacheKey: 'k2');
 
       final placeholder = tester.widget<ColoredBox>(
         find.byWidgetPredicate(
-          (w) => w is ColoredBox && w.color == Colors.grey[900],
+          (w) => w is ColoredBox && w.color == AppColors.surfaceAlt,
         ),
       );
-      expect(placeholder.color, Colors.grey[900]);
+      expect(placeholder.color, AppColors.surfaceAlt);
     });
 
-    testWidgets('renders the error widget on HTTP failure without crashing',
-        (tester) async {
+    testWidgets('renders the error widget on HTTP failure without crashing', (
+      tester,
+    ) async {
       await pumpWithNetwork(tester, url: kTestBrokenUrl, cacheKey: 'k3');
 
       expect(find.byIcon(Icons.broken_image_outlined), findsOneWidget);
@@ -86,15 +91,17 @@ void main() {
       expect(find.byType(RawImage), findsNothing);
     });
 
-    testWidgets('error widget uses the grey[800] surface', (tester) async {
+    testWidgets('error widget uses the border token surface (§5.8)', (
+      tester,
+    ) async {
       await pumpWithNetwork(tester, url: kTestBrokenUrl, cacheKey: 'k4');
 
       final errorSurface = tester.widget<ColoredBox>(
         find.byWidgetPredicate(
-          (w) => w is ColoredBox && w.color == Colors.grey[800],
+          (w) => w is ColoredBox && w.color == AppColors.border,
         ),
       );
-      expect(errorSurface.color, Colors.grey[800]);
+      expect(errorSurface.color, AppColors.border);
     });
 
     testWidgets('passes fit through to CachedNetworkImage', (tester) async {
@@ -115,8 +122,9 @@ void main() {
       expect(cached.fit, BoxFit.contain);
     });
 
-    testWidgets('passes width and height through to CachedNetworkImage',
-        (tester) async {
+    testWidgets('passes width and height through to CachedNetworkImage', (
+      tester,
+    ) async {
       await pumpWithNetwork(
         tester,
         url: kTestBrokenUrl,
@@ -136,8 +144,7 @@ void main() {
       expect(cached.height, 40);
     });
 
-    testWidgets('passes the imageUrl and cacheManager through',
-        (tester) async {
+    testWidgets('passes the imageUrl and cacheManager through', (tester) async {
       late CacheManager usedCache;
       await pumpWithNetwork(
         tester,
@@ -145,10 +152,7 @@ void main() {
         cacheKey: 'k8',
         builder: (cache) {
           usedCache = cache;
-          return VNetworkImage(
-            imageUrl: kTestBrokenUrl,
-            cacheManager: cache,
-          );
+          return VNetworkImage(imageUrl: kTestBrokenUrl, cacheManager: cache);
         },
       );
 
@@ -159,8 +163,9 @@ void main() {
       expect(cached.cacheManager, same(usedCache));
     });
 
-    testWidgets('is sharp by default (no borderRadius → no ClipRRect)',
-        (tester) async {
+    testWidgets('is sharp by default (no borderRadius → no ClipRRect)', (
+      tester,
+    ) async {
       await pumpWithNetwork(tester, url: kTestBrokenUrl, cacheKey: 'k9');
 
       expect(find.byType(ClipRRect), findsNothing);

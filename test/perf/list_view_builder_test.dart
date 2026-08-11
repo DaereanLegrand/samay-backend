@@ -7,6 +7,8 @@ import 'package:samay/features/groups/screens/group_detail_screen.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
+import '../support/fake_supabase_http.dart' as support;
+
 /// Static guard for finding PERF-01 (H-27): every list whose children are
 /// DERIVED FROM DATA must be a `ListView.builder` so off-screen rows are built
 /// lazily. The plain `ListView(children: [...])` constructor eagerly builds
@@ -135,6 +137,11 @@ void main() {
   });
 
   group('converted members tab (group_detail_screen.dart)', () {
+    // U-16 R17 (coordination with I-20, U-11 precedent): the members tab is
+    // admin-gated since R17 — it reads the current user's id from
+    // `authServiceProvider`, so the test now boots the Supabase harness.
+    setUpAll(() => support.initSupabaseHarness(sessionEmail: 'a@b.com'));
+
     testWidgets('renders the same contributors and members rows as before',
         (tester) async {
       final container = ProviderContainer(overrides: [
@@ -166,8 +173,10 @@ void main() {
       expect(find.text('ana'), findsNWidgets(2));
       expect(find.text('50 shards'), findsOneWidget);
       expect(find.text('lucas'), findsOneWidget);
-      expect(find.text('promotor'), findsOneWidget);
-      expect(find.text('member'), findsOneWidget);
+      // U-11 restyle: roles render as §5.5 VBadges (uppercase labelSmall)
+      // instead of raw subtitle text.
+      expect(find.text('PROMOTOR'), findsOneWidget);
+      expect(find.text('MEMBER'), findsOneWidget);
     });
   });
 }

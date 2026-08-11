@@ -15,22 +15,28 @@ MaterialApp _app() {
 
 void main() {
   group('showAppError', () {
-    testWidgets('maps a raw Exception to a generic user-safe message via SnackBar',
-        (tester) async {
-      await tester.pumpWidget(_app());
-      await showAppError(
-        tester.element(find.byType(Scaffold)),
-        Exception('boom'),
-      );
-      await tester.pump();
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(ServerError().message), findsOneWidget);
-      expect(find.textContaining('boom'), findsNothing,
-          reason: 'raw exception internals must never reach the user (ERR-03)');
-    });
+    testWidgets(
+      'maps a raw Exception to a generic user-safe message via SnackBar',
+      (tester) async {
+        await tester.pumpWidget(_app());
+        await showAppError(
+          tester.element(find.byType(Scaffold)),
+          Exception('boom'),
+        );
+        await tester.pump();
+        expect(find.byType(SnackBar), findsOneWidget);
+        expect(find.text(ServerError().message), findsOneWidget);
+        expect(
+          find.textContaining('boom'),
+          findsNothing,
+          reason: 'raw exception internals must never reach the user (ERR-03)',
+        );
+      },
+    );
 
-    testWidgets('shows a SnackBar for transient (non-blocking) errors',
-        (tester) async {
+    testWidgets('shows a SnackBar for transient (non-blocking) errors', (
+      tester,
+    ) async {
       await tester.pumpWidget(_app());
       await showAppError(
         tester.element(find.byType(Scaffold)),
@@ -84,8 +90,9 @@ void main() {
   });
 
   group('showErrorSnackBar', () {
-    testWidgets('shows a SnackBar with the mapped user-safe message',
-        (tester) async {
+    testWidgets('shows a SnackBar with the mapped user-safe message', (
+      tester,
+    ) async {
       await tester.pumpWidget(_app());
       await showErrorSnackBar(
         tester.element(find.byType(Scaffold)),

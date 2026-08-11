@@ -146,11 +146,15 @@ void main() {
   });
 
   group('FriendsRepository mutations', () {
-    test('sendFriendRequest forwards the target user id', () async {
-      when(() => users.sendFriendRequest(_otherId)).thenAnswer((_) async {});
+    test('sendFriendRequest forwards the target user id and its status',
+        () async {
+      when(() => users.sendFriendRequest(_otherId))
+          .thenAnswer((_) async => 'accepted');
 
-      await repo.sendFriendRequest(_otherId);
+      final status = await repo.sendFriendRequest(_otherId);
 
+      expect(status, 'accepted',
+          reason: 'the repo passes the service status through (R15)');
       verify(() => users.sendFriendRequest(_otherId)).called(1);
     });
 

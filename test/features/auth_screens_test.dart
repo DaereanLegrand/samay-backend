@@ -77,6 +77,16 @@ Widget _wrap(Widget child) {
   );
 }
 
+/// Phone-sized test surface for the OTP-pumping tests: the U-07 restyle grew
+/// the OTP column (displayMedium header + otpInputText field), and the
+/// 800×600 test default is smaller than any phone — the pinned-bottom layout
+/// overflowed in the Ahem-font harness.
+void _usePhoneSurface(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1170, 2532);
+  tester.view.devicePixelRatio = 3.0;
+  addTearDown(tester.view.reset);
+}
+
 void main() {
   group('WelcomeScreen', () {
     testWidgets('renders title and buttons', (tester) async {
@@ -110,19 +120,28 @@ void main() {
   });
 
   group('SignupContactScreen', () {
-    testWidgets('renders email, password, confirm password fields and create button', (tester) async {
-      await tester.pumpWidget(_wrap(const SignupContactScreen()));
-      expect(find.text('Correo electrónico'), findsOneWidget);
-      expect(find.textContaining('Contraseña'), findsWidgets);
-      expect(find.text('Crear cuenta'), findsWidgets);
-    });
+    testWidgets(
+      'renders email, password, confirm password fields and create button',
+      (tester) async {
+        await tester.pumpWidget(_wrap(const SignupContactScreen()));
+        expect(find.text('Correo electrónico'), findsOneWidget);
+        expect(find.textContaining('Contraseña'), findsWidgets);
+        expect(find.text('Crear cuenta'), findsWidgets);
+      },
+    );
   });
 
   group('OtpVerificationScreen', () {
     testWidgets('renders code input and verify button', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const OtpVerificationScreen(email: 'test@test.com', password: 'test123'),
-      ));
+      _usePhoneSurface(tester);
+      await tester.pumpWidget(
+        _wrap(
+          const OtpVerificationScreen(
+            email: 'test@test.com',
+            password: 'test123',
+          ),
+        ),
+      );
       // Settle the async auth provider: the very first frame is AsyncLoading
       // (button shows a spinner), which is not the state under test.
       await tester.pumpAndSettle();
@@ -132,9 +151,9 @@ void main() {
 
   group('AgeGateScreen', () {
     testWidgets('renders date picker button and continue', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const AgeGateScreen(email: 'test@test.com'),
-      ));
+      await tester.pumpWidget(
+        _wrap(const AgeGateScreen(email: 'test@test.com')),
+      );
       expect(find.text('Continuar'), findsOneWidget);
       expect(find.text('Seleccionar fecha'), findsOneWidget);
     });
@@ -142,18 +161,28 @@ void main() {
 
   group('PrivacyTermsScreen', () {
     testWidgets('renders checkboxes and create account button', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const PrivacyTermsScreen(email: 'test@test.com', dateOfBirth: '2000-01-15'),
-      ));
+      await tester.pumpWidget(
+        _wrap(
+          const PrivacyTermsScreen(
+            email: 'test@test.com',
+            dateOfBirth: '2000-01-15',
+          ),
+        ),
+      );
       expect(find.text('Crear cuenta'), findsOneWidget);
     });
   });
 
   group('ProfileSetupScreen', () {
     testWidgets('renders form fields and save button, no skip', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const ProfileSetupScreen(email: 'test@test.com', dateOfBirth: '2000-01-15'),
-      ));
+      await tester.pumpWidget(
+        _wrap(
+          const ProfileSetupScreen(
+            email: 'test@test.com',
+            dateOfBirth: '2000-01-15',
+          ),
+        ),
+      );
       // Settle the async auth provider: the very first frame is AsyncLoading
       // (button shows a spinner), which is not the state under test.
       await tester.pumpAndSettle();
@@ -164,8 +193,10 @@ void main() {
   });
 
   group('harness route extras (I-03 / NAV-04 / H-04)', () {
-    testWidgets('legacy map extras still reach the screens via RouteExtras',
-        (tester) async {
+    testWidgets('legacy map extras still reach the screens via RouteExtras', (
+      tester,
+    ) async {
+      _usePhoneSurface(tester);
       await tester.pumpWidget(_wrap(const WelcomeScreen()));
       await tester.pumpAndSettle();
 
@@ -179,8 +210,10 @@ void main() {
       expect(find.text('Verificar'), findsOneWidget);
     });
 
-    testWidgets('missing extras render RouteErrorScreen, never crash',
-        (tester) async {
+    testWidgets('missing extras render RouteErrorScreen, never crash', (
+      tester,
+    ) async {
+      _usePhoneSurface(tester);
       await tester.pumpWidget(_wrap(const WelcomeScreen()));
       await tester.pumpAndSettle();
 

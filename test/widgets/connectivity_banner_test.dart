@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/services/connectivity_service.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/connectivity_banner.dart';
@@ -47,6 +48,16 @@ void main() {
       expect(find.byIcon(Icons.wifi_off), findsOneWidget);
     });
 
+    testWidgets('offline icon uses AppColors.error — never raw red (§5.2)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(Stream.value(false)));
+      await tester.pumpAndSettle();
+
+      final icon = tester.widget<Icon>(find.byIcon(Icons.wifi_off));
+      expect(icon.color, AppColors.error);
+    });
+
     testWidgets('shows the localized offline copy (en)', (tester) async {
       await tester.pumpWidget(
         _wrap(Stream.value(false), locale: const Locale('en')),
@@ -56,8 +67,9 @@ void main() {
       expect(find.text(_enOffline), findsOneWidget);
     });
 
-    testWidgets('appears when connectivity drops and disappears on recovery',
-        (tester) async {
+    testWidgets('appears when connectivity drops and disappears on recovery', (
+      tester,
+    ) async {
       final controller = StreamController<bool>();
       addTearDown(controller.close);
       await tester.pumpWidget(_wrap(controller.stream));
@@ -84,8 +96,9 @@ void main() {
       expect(find.byIcon(Icons.wifi_off), findsNothing);
     });
 
-    testWidgets('stays hidden when the status stream errors (fail-open)',
-        (tester) async {
+    testWidgets('stays hidden when the status stream errors (fail-open)', (
+      tester,
+    ) async {
       final controller = StreamController<bool>();
       addTearDown(controller.close);
       await tester.pumpWidget(_wrap(controller.stream));

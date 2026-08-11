@@ -9,6 +9,7 @@ void main() {
       RoutePaths.banned,
       RoutePaths.signup,
       RoutePaths.verify,
+      RoutePaths.forgotPassword,
       RoutePaths.ageGate,
       RoutePaths.privacyTerms,
       RoutePaths.profileSetup,
@@ -33,8 +34,12 @@ void main() {
       RoutePaths.profileEdit,
     ];
 
-    test('exposes all 27 route constants used by the app', () {
-      expect(constants, hasLength(27));
+    test('exposes all 28 route constants used by the app', () {
+      expect(constants, hasLength(28));
+    });
+
+    test('forgotPassword is the dedicated password-recovery route', () {
+      expect(RoutePaths.forgotPassword, '/forgot-password');
     });
 
     test('every constant is non-empty and starts with /', () {

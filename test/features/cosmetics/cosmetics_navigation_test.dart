@@ -258,6 +258,9 @@ void main() {
       final container = _newContainer(cosmeticsOn: true);
       await _pumpRoute(tester, container, RoutePaths.mainProfile);
 
+      // U-15 R9's VEmptyView (empty groups) grew the profile list — the
+      // cosmetics row sits below the 800px logical fold; scroll to it first.
+      await tester.scrollUntilVisible(find.text('Cosméticos'), 100);
       expect(find.text('Cosméticos'), findsOneWidget);
 
       await tester.tap(find.text('Cosméticos'));

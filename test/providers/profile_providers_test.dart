@@ -77,6 +77,9 @@ class _StubProfileNotifier extends MyProfileNotifier {
   final _StubProfileFetcher fetcher;
 
   @override
+  Duration get refreshThrottle => Duration.zero;
+
+  @override
   Future<Map<String, dynamic>?> build() => fetcher.call();
 }
 
@@ -96,6 +99,9 @@ class _StubGroupsNotifier extends ProfileGroupsNotifier {
   _StubGroupsNotifier(this.fetcher);
 
   final _StubGroupsFetcher fetcher;
+
+  @override
+  Duration get refreshThrottle => Duration.zero;
 
   @override
   Future<List<Map<String, dynamic>>> build() => fetcher.call();

@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/app.dart';
 import 'package:samay/core/config/feature_flags.dart';
 import 'package:samay/core/models/event_photo.dart';
 import 'package:samay/core/providers/auth_provider.dart';
@@ -8,8 +11,10 @@ import 'package:samay/core/providers/config_provider.dart';
 import 'package:samay/core/router/app_router.dart';
 import 'package:samay/core/router/route_extras.dart';
 import 'package:samay/core/router/route_paths.dart';
+import 'package:samay/core/services/connectivity_service.dart';
 import 'package:samay/shared/widgets/route_error_screen.dart';
 import 'package:samay/features/auth/screens/age_gate_screen.dart';
+import 'package:samay/features/auth/screens/forgot_password_screen.dart';
 import 'package:samay/features/auth/screens/login_screen.dart';
 import 'package:samay/features/auth/screens/otp_verification_screen.dart';
 import 'package:samay/features/auth/screens/privacy_terms_screen.dart';
@@ -221,6 +226,7 @@ class _FakeShardLedgerNotifier extends ShardLedgerNotifier {
 ProviderContainer _newContainer({
   AppFeatureFlags flags = const AppFeatureFlags(),
   bool qrProviders = false,
+  List<Override> extras = const [],
 }) {
   final container = ProviderContainer(overrides: [
     authStateProvider.overrideWith(() => _FakeAuthNotifier()),
@@ -238,6 +244,7 @@ ProviderContainer _newContainer({
       myQrTokenProvider.overrideWith(_FakeQrTokenNotifier.new),
       qrDisplayWindowProvider.overrideWith((ref) async => 15),
     ],
+    ...extras,
   ]);
   addTearDown(container.dispose);
   return container;
@@ -294,17 +301,21 @@ void main() {
     });
 
     group('coming soon routes', () {
-      for (final (path, title) in [
-        (RoutePaths.eventInvite(_eventId), 'Invitar'),
-        (RoutePaths.eventPhotos(_eventId), 'Fotos'),
-        (RoutePaths.eventCollage(_eventId), 'Collage'),
-        (RoutePaths.createGroupEvent(_groupId), 'Crear evento'),
-        (RoutePaths.qr(_eventId), 'QR'),
-        (RoutePaths.scanner(_eventId), 'Esc\u00e1ner'),
-        (RoutePaths.subscriptions, 'Suscripciones'),
-        (RoutePaths.partyFinder, 'Party Finder'),
-        (RoutePaths.cosmetics, 'Cosm\u00e9ticos'),
-        (RoutePaths.minigames(_groupId), 'Juegos'),
+      for (final (path, title, icon) in [
+        (RoutePaths.eventInvite(_eventId), 'Invitar', Icons.mail),
+        (RoutePaths.eventPhotos(_eventId), 'Fotos', Icons.photo),
+        (RoutePaths.eventCollage(_eventId), 'Collage', Icons.grid_view),
+        (
+          RoutePaths.createGroupEvent(_groupId),
+          'Crear evento',
+          Icons.event_note,
+        ),
+        (RoutePaths.qr(_eventId), 'QR', Icons.qr_code),
+        (RoutePaths.scanner(_eventId), 'Esc\u00e1ner', Icons.qr_code_scanner),
+        (RoutePaths.subscriptions, 'Suscripciones', Icons.subscriptions),
+        (RoutePaths.partyFinder, 'Party Finder', Icons.celebration),
+        (RoutePaths.cosmetics, 'Cosm\u00e9ticos', Icons.checkroom),
+        (RoutePaths.minigames(_groupId), 'Juegos', Icons.sports_esports),
       ]) {
         testWidgets('$path renders coming soon screen', (tester) async {
           final container = _newContainer();
@@ -312,6 +323,8 @@ void main() {
           expect(find.byType(VComingSoonScreen), findsOneWidget);
           expect(find.text('Pr\u00f3ximamente'), findsOneWidget);
           expect(find.text(title), findsOneWidget);
+          expect(find.byIcon(icon), findsOneWidget,
+              reason: 'coming-soon icon for $path');
         });
       }
 
@@ -324,6 +337,14 @@ void main() {
         expect(
           find.text('Los eventos de tus grupos aparecer\u00e1n aqu\u00ed pronto.'),
           findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byType(VComingSoonScreen),
+            matching: find.byIcon(Icons.event),
+          ),
+          findsOneWidget,
+          reason: 'the events tab icon — scoped away from the nav tab glyph',
         );
       });
 
@@ -360,6 +381,19 @@ void main() {
         expect(find.byType(ChatScreen), findsOneWidget);
         expect(find.byType(VComingSoonScreen), findsNothing);
       });
+
+      testWidgets(
+          '${RoutePaths.chat(_chatId)} with the chat flag dark restores the '
+          'coming-soon kill-switch fallback (I-38/I-69)', (tester) async {
+        final container = _newContainer(
+          flags: const AppFeatureFlags(chat: false),
+        );
+        await _pumpRoute(tester, container, RoutePaths.chat(_chatId));
+        expect(find.byType(VComingSoonScreen), findsOneWidget);
+        expect(find.byType(ChatScreen), findsNothing);
+        expect(find.text('Chat'), findsOneWidget);
+        expect(find.byIcon(Icons.chat), findsOneWidget);
+      });
     });
 
     group('RoutePaths coherence', () {
@@ -384,6 +418,7 @@ void main() {
         (RoutePaths.deleteAccount, DeleteAccountScreen),
         (RoutePaths.profileEdit, EditProfileScreen),
         (RoutePaths.signup, SignupContactScreen),
+        (RoutePaths.forgotPassword, ForgotPasswordScreen),
         (RoutePaths.ageGate, AgeGateScreen),
         (RoutePaths.eventDetail(_eventId), EventDetailScreen),
         (RoutePaths.eventEdit(_eventId), EventEditScreen),
@@ -622,6 +657,51 @@ void main() {
 
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(find.byType(ProfileScreen), findsNothing);
+      });
+    });
+
+    group('connectivity banner on shell routes (I-67 + U-08)', () {
+      const offlineCopy =
+          'Sin conexión — los datos podrían no estar actualizados';
+
+      testWidgets('the app-level banner renders above the shell content '
+          'when offline and hides when online', (tester) async {
+        final controller = StreamController<bool>();
+        addTearDown(controller.close);
+        final container = _newContainer(extras: [
+          connectivityServiceProvider.overrideWithValue(
+            ConnectivityService(
+              onConnectivityChanged: () => controller.stream,
+            ),
+          ),
+        ]);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const SamayApp(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The fake auth pins authenticated → the router redirects the initial
+        // /login to /main/feed: the shell route with the bottom nav.
+        expect(find.byType(BottomNavigationBar), findsOneWidget);
+
+        controller.add(true);
+        await tester.pumpAndSettle();
+        expect(find.text(offlineCopy), findsNothing);
+
+        controller.add(false);
+        await tester.pumpAndSettle();
+        expect(find.text(offlineCopy), findsOneWidget);
+        expect(find.byIcon(Icons.wifi_off), findsOneWidget);
+        expect(find.byType(BottomNavigationBar), findsOneWidget,
+            reason: 'the banner overlays the shell — it must never replace it');
+
+        controller.add(true);
+        await tester.pumpAndSettle();
+        expect(find.text(offlineCopy), findsNothing);
       });
     });
   });

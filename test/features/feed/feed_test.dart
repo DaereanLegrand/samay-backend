@@ -324,11 +324,12 @@ void main() {
 
       expect(find.text('Samay'), findsOneWidget);
       expect(find.text('Destacados'), findsOneWidget);
-      expect(find.text('Destacado'), findsOneWidget);
+      // §3.3/§5.5: VBadge labels render uppercase (U-05 restyle).
+      expect(find.text('DESTACADO'), findsOneWidget);
       expect(find.text('Tono Destacado'), findsOneWidget);
       expect(find.text('Juerga en casa'), findsOneWidget);
       expect(find.text('Barranco, Lima'), findsOneWidget);
-      expect(find.text('Juerga'), findsOneWidget);
+      expect(find.text('JUERGA'), findsOneWidget);
     });
 
     testWidgets('renders the date range through the shared event formatter',

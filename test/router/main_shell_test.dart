@@ -1,9 +1,36 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:samay/core/router/main_shell.dart';
 import 'package:samay/core/router/route_paths.dart';
+import 'package:samay/core/theme/samay_durations.dart';
+import 'package:samay/features/friends/providers/friends_providers.dart';
+import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/v_count_badge.dart';
+
+const _emptyRequests = FriendRequestsData(requests: [], names: {});
+
+/// U-17 R18: the shell watches the pending-count sources, so the harness pins
+/// them to inert stubs (zero counts by default) — no Supabase needed.
+class _StubFriendRequestsNotifier extends FriendRequestsNotifier {
+  final FriendRequestsData data;
+
+  _StubFriendRequestsNotifier({this.data = _emptyRequests});
+
+  @override
+  Future<FriendRequestsData> build() async => data;
+}
+
+class _StubGroupInvitesNotifier extends GroupInvitesNotifier {
+  final List<Map<String, dynamic>> data;
+
+  _StubGroupInvitesNotifier({this.data = const []});
+
+  @override
+  Future<List<Map<String, dynamic>>> build() async => data;
+}
 
 ThemeData _navTheme() {
   return ThemeData(
@@ -15,13 +42,27 @@ ThemeData _navTheme() {
   );
 }
 
-Widget _localized(Widget child) {
-  return MaterialApp(
-    locale: const Locale('es'),
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    supportedLocales: AppLocalizations.supportedLocales,
-    theme: _navTheme(),
-    home: child,
+Widget _localized(
+  Widget child, {
+  FriendRequestsData requests = _emptyRequests,
+  List<Map<String, dynamic>> invites = const [],
+}) {
+  return ProviderScope(
+    overrides: [
+      friendRequestsProvider.overrideWith(
+        () => _StubFriendRequestsNotifier(data: requests),
+      ),
+      groupInvitesProvider.overrideWith(
+        () => _StubGroupInvitesNotifier(data: invites),
+      ),
+    ],
+    child: MaterialApp(
+      locale: const Locale('es'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      theme: _navTheme(),
+      home: child,
+    ),
   );
 }
 
@@ -57,12 +98,26 @@ GoRouter _stubRouter() {
   );
 }
 
-MaterialApp _localizedRouter(GoRouter router) {
-  return MaterialApp.router(
-    routerConfig: router,
-    locale: const Locale('es'),
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    supportedLocales: AppLocalizations.supportedLocales,
+Widget _localizedRouter(
+  GoRouter router, {
+  FriendRequestsData requests = _emptyRequests,
+  List<Map<String, dynamic>> invites = const [],
+}) {
+  return ProviderScope(
+    overrides: [
+      friendRequestsProvider.overrideWith(
+        () => _StubFriendRequestsNotifier(data: requests),
+      ),
+      groupInvitesProvider.overrideWith(
+        () => _StubGroupInvitesNotifier(data: invites),
+      ),
+    ],
+    child: MaterialApp.router(
+      routerConfig: router,
+      locale: const Locale('es'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+    ),
   );
 }
 
@@ -155,15 +210,61 @@ void main() {
       expect(find.byType(BottomNavigationBar), findsOneWidget);
     });
 
-    testWidgets('renders every tab icon', (tester) async {
+    testWidgets('renders every tab icon (filled for the selected tab, '
+        'outlined for the rest)', (tester) async {
       await tester.pumpWidget(
         _localized(const MainShell(currentIndex: 0, child: SizedBox())),
       );
 
-      for (final tab in mainShellTabs) {
-        expect(find.byIcon(tab.icon), findsOneWidget,
-            reason: 'missing icon for tab ${tab.label}');
+      // U-08: `activeIcon` is wired — the selected tab renders its filled
+      // `selectedIcon`, unselected tabs render the outlined `icon`.
+      expect(find.byIcon(mainShellTabs[0].selectedIcon), findsOneWidget,
+          reason: 'missing filled selected icon for tab ${mainShellTabs[0].label}');
+      expect(find.byIcon(mainShellTabs[0].icon), findsNothing,
+          reason: 'the selected tab must not render the outlined icon');
+      for (var i = 1; i < mainShellTabs.length; i++) {
+        expect(find.byIcon(mainShellTabs[i].icon), findsOneWidget,
+            reason: 'missing icon for tab ${mainShellTabs[i].label}');
+        expect(find.byIcon(mainShellTabs[i].selectedIcon), findsNothing,
+            reason: 'unselected tab ${mainShellTabs[i].label} must render its '
+                'outlined icon, not the filled one');
       }
+    });
+
+    testWidgets('wires each tab selectedIcon as the BottomNavigationBarItem '
+        'activeIcon (I-04 deferred item)', (tester) async {
+      await tester.pumpWidget(
+        _localized(const MainShell(currentIndex: 0, child: SizedBox())),
+      );
+
+      final items = tester
+          .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+          .items;
+      for (var i = 0; i < mainShellTabs.length; i++) {
+        final activeIcon = items[i].activeIcon;
+        expect(activeIcon, isNotNull,
+            reason: 'tab ${mainShellTabs[i].label} must wire activeIcon');
+        expect(
+          activeIcon is Icon ? activeIcon.icon : null,
+          mainShellTabs[i].selectedIcon,
+          reason: 'tab ${mainShellTabs[i].label} activeIcon must be its '
+              'selectedIcon',
+        );
+      }
+    });
+
+    testWidgets('switches the rendered icon when the selected tab changes',
+        (tester) async {
+      await tester.pumpWidget(
+        _localized(const MainShell(currentIndex: 1, child: SizedBox())),
+      );
+
+      expect(find.byIcon(mainShellTabs[1].selectedIcon), findsOneWidget,
+          reason: 'the groups tab is selected — filled group icon must show');
+      expect(find.byIcon(mainShellTabs[1].icon), findsNothing);
+      expect(find.byIcon(mainShellTabs[0].selectedIcon), findsNothing);
+      expect(find.byIcon(mainShellTabs[0].icon), findsOneWidget,
+          reason: 'the feed tab is unselected — outlined icon must show');
     });
 
     testWidgets('renders every tab label', (tester) async {
@@ -222,6 +323,164 @@ void main() {
         expect(find.text(expected), findsOneWidget,
             reason: 'tapping $icon should show $expected');
       }
+    });
+
+    group('R18 — Grupos-tab pending badge (U-13 §5.4)', () {
+      const received = FriendRequestsData(
+        requests: [
+          {'type': 'received', 'friendship_id': 'f1', 'user_id': 'u1'},
+          {'type': 'received', 'friendship_id': 'f2', 'user_id': 'u2'},
+        ],
+        names: {'u1': 'ana', 'u2': 'lucas'},
+      );
+      const invite = {
+        'id': 'm1',
+        'groups': {'name': 'Disco Crew'},
+        'role': 'member',
+      };
+
+      testWidgets('renders the pending-count badge on the Grupos tab icon '
+          'when pending counts exist', (tester) async {
+        await tester.pumpWidget(_localized(
+          const MainShell(currentIndex: 0, child: SizedBox()),
+          requests: received,
+          invites: const [invite],
+        ));
+        await tester.pumpAndSettle();
+
+        final badge = tester.widget<VCountBadge>(
+          find.byType(VCountBadge),
+        );
+        expect(badge.count, 3,
+            reason: '2 received friend requests + 1 group invite (R18)');
+        final badgeStack = find.ancestor(
+          of: find.byType(VCountBadge),
+          matching: find.byType(Stack),
+        );
+        expect(
+          find.descendant(
+            of: badgeStack,
+            matching: find.byIcon(Icons.group_outlined),
+          ),
+          findsOneWidget,
+          reason: 'the badge must ride the Grupos tab icon (R18)',
+        );
+      });
+
+      testWidgets('hides the badge when the pending counts are zero',
+          (tester) async {
+        await tester.pumpWidget(
+          _localized(const MainShell(currentIndex: 0, child: SizedBox())),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(VCountBadge), findsNothing,
+            reason: 'no pending requests/invites → no shell badge (R18)');
+      });
+
+      testWidgets('hides the badge while the Grupos tab is active',
+          (tester) async {
+        await tester.pumpWidget(_localized(
+          const MainShell(currentIndex: 1, child: SizedBox()),
+          requests: received,
+          invites: const [invite],
+        ));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(VCountBadge), findsNothing,
+            reason: 'the badge disappears when the user is on the Grupos '
+                'tab (R18 — Juega hides its feed badge the same way)');
+      });
+    });
+
+    group('R19 — shell tab fade honoring reduced motion (U-13 §5.4)', () {
+      testWidgets('mounts a fade keyed on the tab index and completes it '
+          'at 150ms', (tester) async {
+        await tester.pumpWidget(
+          _localized(const MainShell(currentIndex: 0, child: SizedBox())),
+        );
+        await tester.pump();
+
+        expect(find.byKey(const ValueKey(0)), findsOneWidget,
+            reason: 'the fade is keyed on currentIndex (R19)');
+
+        await tester.pump(SamayDurations.fast);
+        final fade = tester.widget<FadeTransition>(
+          find.descendant(
+            of: find.byKey(const ValueKey(0)),
+            matching: find.byType(FadeTransition),
+          ),
+        );
+        expect(fade.opacity.value, 1.0,
+            reason: 'the fade completes at SamayDurations.fast (R19)');
+      });
+
+      testWidgets('restarts the fade from zero when the tab switches',
+          (tester) async {
+        await tester.pumpWidget(
+          _localized(const MainShell(currentIndex: 0, child: SizedBox())),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey(0)), findsOneWidget);
+
+        await tester.pumpWidget(
+          _localized(const MainShell(currentIndex: 1, child: SizedBox())),
+        );
+        await tester.pump();
+
+        final fade = tester.widget<FadeTransition>(
+          find.descendant(
+            of: find.byKey(const ValueKey(1)),
+            matching: find.byType(FadeTransition),
+          ),
+        );
+        expect(fade.opacity.value, lessThan(1.0),
+            reason: 'a tab switch restarts the fade from opacity 0 (R19)');
+
+        await tester.pump(SamayDurations.fast);
+        expect(fade.opacity.value, 1.0,
+            reason: 'and it completes again at 150ms (R19)');
+      });
+
+      testWidgets('is static (no fade) under disableAnimations',
+          (tester) async {
+        await tester.pumpWidget(_localized(
+          const MediaQuery(
+            data: MediaQueryData(disableAnimations: true),
+            child: MainShell(currentIndex: 0, child: Text('Shell body')),
+          ),
+        ));
+        await tester.pump();
+
+        expect(find.byKey(const ValueKey(0)), findsNothing,
+            reason: 'reduced motion → the fade is skipped (R19)');
+        expect(find.text('Shell body'), findsOneWidget,
+            reason: 'the body still renders statically');
+      });
+    });
+
+    group('R21 — settings stays pushed (U-13 §5.4 explicit keep)', () {
+      test('settings is NOT a shell tab and the tab order stays product-first',
+          () {
+        expect(
+          mainShellTabs.map((t) => t.path).toList(),
+          [
+            RoutePaths.mainFeed,
+            RoutePaths.mainGroups,
+            RoutePaths.mainEvents,
+            RoutePaths.mainNotifications,
+            RoutePaths.mainProfile,
+          ],
+          reason: 'product tabs only — settings must stay a pushed screen '
+              '(R21, N6: no 6th tab)',
+        );
+        expect(
+          mainShellTabs.map((t) => t.path),
+          isNot(contains(RoutePaths.settings)),
+        );
+        expect(shellIndexFor(RoutePaths.settings), 0,
+            reason: 'settings resolves outside the shell — no tab slot (R21)');
+      });
     });
   });
 }

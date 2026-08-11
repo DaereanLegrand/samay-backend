@@ -7,6 +7,7 @@ import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/router/route_extras.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/features/auth/screens/login_screen.dart';
+import 'package:samay/features/auth/screens/forgot_password_screen.dart';
 import 'package:samay/features/auth/screens/otp_verification_screen.dart';
 import 'package:samay/features/auth/screens/profile_setup_screen.dart';
 import 'package:samay/features/auth/screens/signup_contact_screen.dart';
@@ -20,11 +21,16 @@ class _RecordingAuthNotifier extends AuthNotifier {
   final List<(String, String)> signInCalls = [];
   final List<String> checkEmailCalls = [];
   final List<String> sendOtpCalls = [];
+  final List<String> resetPasswordCalls = [];
   final List<(String, String?)> createProfileCalls = [];
 
   /// When true, `signIn` resolves to an [AsyncError] with the invalid
   /// credentials message — the login error path under test.
   bool failSignIn = false;
+
+  /// When true, `resetPasswordForEmail` resolves to an [AsyncError] — the
+  /// forgot-password error path under test.
+  bool failResetPassword = false;
 
   @override
   Future<AuthState> build() async => const AuthState();
@@ -51,6 +57,19 @@ class _RecordingAuthNotifier extends AuthNotifier {
   @override
   Future<void> sendOtp(String email) async {
     sendOtpCalls.add(email);
+    state = AsyncData(state.valueOrNull ?? const AuthState());
+  }
+
+  @override
+  Future<void> resetPasswordForEmail(String email) async {
+    resetPasswordCalls.add(email);
+    if (failResetPassword) {
+      state = AsyncError(
+        ValidationError('correo', 'No se pudo enviar el enlace'),
+        StackTrace.current,
+      );
+      return;
+    }
     state = AsyncData(state.valueOrNull ?? const AuthState());
   }
 
@@ -93,6 +112,14 @@ Future<_AuthHarness> _pump(
             password: extra?.password ?? '',
           );
         },
+      ),
+      GoRoute(
+        path: RoutePaths.forgotPassword,
+        builder: (_, _) => const ForgotPasswordScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.login,
+        builder: (_, _) => const LoginScreen(),
       ),
       GoRoute(
         path: RoutePaths.mainFeed,
@@ -279,6 +306,118 @@ void main() {
 
       expect(notifier.createProfileCalls, [('dana', '2000-01-15')]);
       expect(find.text('main-feed-marker'), findsOneWidget);
+    });
+  });
+
+  group('ForgotPasswordScreen — flow (U-14 R3)', () {
+    testWidgets('login "Olvidé mi contraseña" navigates to the dedicated '
+        'screen instead of calling reset inline', (tester) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const LoginScreen(), notifier);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(TextButton, 'Olvidé mi contraseña'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ForgotPasswordScreen), findsOneWidget);
+      expect(find.byType(LoginScreen), findsNothing);
+      expect(notifier.resetPasswordCalls, isEmpty);
+    });
+
+    testWidgets('empty email does not fire resetPasswordForEmail', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const ForgotPasswordScreen(), notifier);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(TextButton, 'Enviar enlace'));
+      await tester.pumpAndSettle();
+
+      expect(notifier.resetPasswordCalls, isEmpty);
+      expect(find.byType(ForgotPasswordScreen), findsOneWidget);
+      expect(find.text('Revisa tu correo'), findsNothing);
+    });
+
+    testWidgets('invalid email shape does not fire resetPasswordForEmail', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const ForgotPasswordScreen(), notifier);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'not-an-email');
+      await tester.tap(find.widgetWithText(TextButton, 'Enviar enlace'));
+      await tester.pumpAndSettle();
+
+      expect(notifier.resetPasswordCalls, isEmpty);
+      expect(
+        find.text('Ingresa un correo electrónico válido.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('email → send → confirmation: the form is swapped for the '
+        'success state and the snackbar appears', (tester) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const ForgotPasswordScreen(), notifier);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'a@b.com');
+      await tester.tap(find.widgetWithText(TextButton, 'Enviar enlace'));
+      await tester.pumpAndSettle();
+
+      expect(notifier.resetPasswordCalls, ['a@b.com']);
+      // F14 in-place success: the form morphs into the confirmation, no route.
+      expect(find.text('Revisa tu correo'), findsOneWidget);
+      expect(
+        find.text('Te enviamos un enlace para restablecer tu contraseña'),
+        findsOneWidget,
+        reason: 'floating snackbar on send (F7)',
+      );
+      expect(find.byType(TextField), findsNothing);
+      expect(find.byType(ForgotPasswordScreen), findsOneWidget);
+    });
+
+    testWidgets('"Volver a iniciar sesión" from the success state returns to '
+        'login', (tester) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const ForgotPasswordScreen(), notifier);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'a@b.com');
+      await tester.tap(find.widgetWithText(TextButton, 'Enviar enlace'));
+      await tester.pumpAndSettle();
+      expect(find.text('Revisa tu correo'), findsOneWidget);
+
+      await tester.tap(
+        find.widgetWithText(TextButton, 'Volver a iniciar sesión'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(find.byType(ForgotPasswordScreen), findsNothing);
+    });
+
+    testWidgets('failed send surfaces the error inline and keeps the form', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier()..failResetPassword = true;
+      await _pump(tester, const ForgotPasswordScreen(), notifier);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'a@b.com');
+      await tester.tap(find.widgetWithText(TextButton, 'Enviar enlace'));
+      await tester.pumpAndSettle();
+
+      expect(notifier.resetPasswordCalls, ['a@b.com']);
+      expect(find.text('No se pudo enviar el enlace'), findsOneWidget);
+      expect(find.text('Revisa tu correo'), findsNothing);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(
+        find.text('Te enviamos un enlace para restablecer tu contraseña'),
+        findsNothing,
+      );
     });
   });
 }

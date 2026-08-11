@@ -239,7 +239,7 @@ void main() {
       final service = _FakeShardsService(owned: [_ownedRow()]);
       await _pumpShop(tester, _wrap(service: service));
 
-      expect(find.text('Adquirido'), findsOneWidget);
+      expect(find.text('ADQUIRIDO'), findsOneWidget);
       expect(find.text('Equipar'), findsOneWidget);
     });
 
@@ -285,7 +285,7 @@ void main() {
 
       expect(service.purchased, [_cosmeticId]);
       expect(find.text('¡Cosmético adquirido!'), findsOneWidget);
-      expect(find.text('Adquirido'), findsOneWidget);
+      expect(find.text('ADQUIRIDO'), findsOneWidget);
     });
 
     testWidgets('cancelling the dialog does not purchase', (tester) async {
@@ -317,7 +317,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('No tienes suficientes shards'), findsOneWidget);
-      expect(find.text('Adquirido'), findsNothing);
+      expect(find.text('ADQUIRIDO'), findsNothing);
     });
 
     testWidgets('tier-locked items cannot be bought', (tester) async {

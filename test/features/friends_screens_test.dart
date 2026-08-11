@@ -421,7 +421,7 @@ void main() {
           ),
         ],
       );
-      await tester.enterText(find.byType(TextField), 'a');
+      await tester.enterText(find.byType(TextField), 'an');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
       expect(find.text('@ana'), findsOneWidget);
@@ -440,7 +440,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), 'a');
+      await tester.enterText(find.byType(TextField), 'an');
       await tester.pump(const Duration(milliseconds: 100));
       await tester.enterText(find.byType(TextField), 'an');
       await tester.pump(const Duration(milliseconds: 350));

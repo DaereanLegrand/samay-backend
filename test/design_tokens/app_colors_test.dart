@@ -1,8 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
+import 'package:samay/core/extensions/context_extensions.dart';
 
 const _black = Color(0xFF000000);
+
+/// All 16 canonical fields, in declaration order (mirrors the extension).
+List<Color> _fieldsOf(SamayThemeExtension e) => [
+  e.discoBlack,
+  e.surface,
+  e.surfaceAlt,
+  e.hairline,
+  e.border,
+  e.muted,
+  e.mutedStrong,
+  e.white,
+  e.glowPink,
+  e.glowPinkBright,
+  e.glowPinkDeep,
+  e.discoViolet,
+  e.discoCyan,
+  e.discoGold,
+  e.discoSilver,
+  e.discoBronze,
+];
 
 void main() {
   group('AppColors palette (DISCO-DESIGN-SYSTEM.md §2)', () {
@@ -107,19 +128,33 @@ void main() {
       }
     });
 
-    test('documented ratios match the design-doc §2 tables (tolerance 0.05)',
+    test('documented ratios match the design-doc §2 tables (tolerance 0.02)',
         () {
-      expect(AppColors.contrastRatio(AppColors.white, _black), closeTo(21.0, 0.05));
-      expect(AppColors.contrastRatio(AppColors.mutedStrong, _black), closeTo(7.37, 0.05));
-      expect(AppColors.contrastRatio(AppColors.muted, _black), closeTo(3.66, 0.05));
-      expect(AppColors.contrastRatio(AppColors.glowPink, _black), closeTo(6.00, 0.05));
-      expect(AppColors.contrastRatio(AppColors.glowPinkBright, _black), closeTo(7.35, 0.05));
-      expect(AppColors.contrastRatio(AppColors.glowPinkDeep, _black), closeTo(3.58, 0.05));
-      expect(AppColors.contrastRatio(AppColors.discoViolet, _black), closeTo(4.96, 0.05));
-      expect(AppColors.contrastRatio(AppColors.discoCyan, _black), closeTo(13.65, 0.05));
-      expect(AppColors.contrastRatio(AppColors.discoGold, _black), closeTo(13.71, 0.05));
-      expect(AppColors.contrastRatio(AppColors.discoSilver, _black), closeTo(11.54, 0.05));
-      expect(AppColors.contrastRatio(AppColors.discoBronze, _black), closeTo(6.68, 0.05));
+      expect(AppColors.contrastRatio(AppColors.white, _black), closeTo(21.0, 0.02));
+      expect(AppColors.contrastRatio(AppColors.mutedStrong, _black), closeTo(7.37, 0.02));
+      expect(AppColors.contrastRatio(AppColors.muted, _black), closeTo(3.66, 0.02));
+      expect(AppColors.contrastRatio(AppColors.glowPink, _black), closeTo(6.00, 0.02));
+      expect(AppColors.contrastRatio(AppColors.glowPinkBright, _black), closeTo(7.35, 0.02));
+      expect(AppColors.contrastRatio(AppColors.glowPinkDeep, _black), closeTo(3.58, 0.02));
+      expect(AppColors.contrastRatio(AppColors.discoViolet, _black), closeTo(4.96, 0.02));
+      expect(AppColors.contrastRatio(AppColors.discoCyan, _black), closeTo(13.65, 0.02));
+      expect(AppColors.contrastRatio(AppColors.discoGold, _black), closeTo(13.71, 0.02));
+      expect(AppColors.contrastRatio(AppColors.discoSilver, _black), closeTo(11.54, 0.02));
+      expect(AppColors.contrastRatio(AppColors.discoBronze, _black), closeTo(6.68, 0.02));
+    });
+
+    test('doc §2.5/§5.1 cross ratios: white-on-pink 3.50, white-on-deep 5.87',
+        () {
+      expect(
+        AppColors.contrastRatio(AppColors.white, AppColors.glowPink),
+        closeTo(3.50, 0.02),
+        reason: 'white text on a pink fill fails 1.4.3 — §2.5 rule 2',
+      );
+      expect(
+        AppColors.contrastRatio(AppColors.white, AppColors.glowPinkDeep),
+        closeTo(5.87, 0.02),
+        reason: 'white on glowPinkDeep is the only legal white-on-pink fill',
+      );
     });
 
     test('contrast is symmetric and white-on-black is 21:1', () {
@@ -146,6 +181,176 @@ void main() {
       final second = AppColors.contrastRatio(AppColors.glowPink, _black);
       expect(first, second);
       expect(first, greaterThan(0));
+    });
+  });
+
+  group('semantic aliases (§2 usage roles → canonical tokens)', () {
+    test('status/currency roles map to the documented tokens', () {
+      expect(AppColors.statusVip, AppColors.discoViolet,
+          reason: '§2.3: discoViolet = VIP/subscription tier');
+      expect(AppColors.statusOnline, AppColors.discoCyan,
+          reason: '§2.3: discoCyan = live/online indicators');
+      expect(AppColors.statusLive, AppColors.discoCyan,
+          reason: '§2.3: discoCyan = realtime dots');
+      expect(AppColors.currencyShards, AppColors.discoGold,
+          reason: '§2.3/§5.6: discoGold = shards currency');
+    });
+
+    test('success/error/danger roles resolve to legal accent tokens', () {
+      expect(AppColors.success, AppColors.discoCyan,
+          reason: 'positive signal = the bright cyan token (13.65:1)');
+      expect(AppColors.error, AppColors.glowPink,
+          reason: '§5.2: error TEXT is glowPink on black (6.00:1 AA)');
+      expect(AppColors.errorFill, AppColors.glowPinkDeep,
+          reason: '§5.2: error FILL is glowPinkDeep (white text 5.87:1)');
+      expect(AppColors.danger, AppColors.glowPinkDeep,
+          reason: '§5.1/§5.2: destructive accent is glowPinkDeep, never red');
+    });
+
+    test('every alias resolves to a canonical §2 token (no invented colors)',
+        () {
+      final canonicals = AppColors.all.values.toSet();
+      expect(AppColors.semantic, isNotEmpty);
+      for (final entry in AppColors.semantic.entries) {
+        expect(canonicals.contains(entry.value), isTrue,
+            reason: 'alias ${entry.key} must resolve to a §2 token');
+      }
+    });
+  });
+
+  group('SamayThemeExtension lerp (ThemeExtension contract)', () {
+    test('lerp(black→white, 0.5) yields #808080 for every color field', () {
+      const dark = SamayThemeExtension.dark;
+      const allWhite = SamayThemeExtension(
+        discoBlack: AppColors.white,
+        surface: AppColors.white,
+        surfaceAlt: AppColors.white,
+        hairline: AppColors.white,
+        border: AppColors.white,
+        muted: AppColors.white,
+        mutedStrong: AppColors.white,
+        white: AppColors.white,
+        glowPink: AppColors.white,
+        glowPinkBright: AppColors.white,
+        glowPinkDeep: AppColors.white,
+        discoViolet: AppColors.white,
+        discoCyan: AppColors.white,
+        discoGold: AppColors.white,
+        discoSilver: AppColors.white,
+        discoBronze: AppColors.white,
+      );
+      final mid = dark.lerp(allWhite, 0.5);
+      final darkFields = _fieldsOf(dark);
+      final midFields = _fieldsOf(mid);
+      for (var i = 0; i < darkFields.length; i++) {
+        final start = darkFields[i];
+        final midColor = midFields[i];
+        // True midpoint of a field: (start + white)/2 per channel.
+        expect(midColor.a, closeTo((start.a + 1) / 2, 0.0001),
+            reason: 'alpha midpoint of field $i');
+        expect(midColor.r, closeTo((start.r + 1) / 2, 0.0001),
+            reason: 'red midpoint of field $i');
+        expect(midColor.g, closeTo((start.g + 1) / 2, 0.0001),
+            reason: 'green midpoint of field $i');
+        expect(midColor.b, closeTo((start.b + 1) / 2, 0.0001),
+            reason: 'blue midpoint of field $i');
+      }
+      // The doc-cited case: lerp(black→white, 0.5) quantizes to #808080.
+      expect(mid.discoBlack.r, closeTo(0.5, 0.0001));
+      expect(mid.discoBlack.toARGB32(), 0xFF808080,
+          reason: 'black→white midpoint quantizes to #808080');
+    });
+
+    test('lerp interpolates every field independently', () {
+      const a = SamayThemeExtension.dark;
+      const b = SamayThemeExtension(
+        discoBlack: AppColors.white,
+        surface: AppColors.surface,
+        surfaceAlt: AppColors.surfaceAlt,
+        hairline: AppColors.hairline,
+        border: AppColors.border,
+        muted: AppColors.muted,
+        mutedStrong: AppColors.mutedStrong,
+        white: AppColors.white,
+        glowPink: AppColors.glowPinkBright,
+        glowPinkBright: AppColors.glowPink,
+        glowPinkDeep: AppColors.glowPinkDeep,
+        discoViolet: AppColors.discoViolet,
+        discoCyan: AppColors.discoCyan,
+        discoGold: AppColors.discoGold,
+        discoSilver: AppColors.discoSilver,
+        discoBronze: AppColors.discoBronze,
+      );
+      final mid = a.lerp(b, 0.5);
+      expect(mid.discoBlack.toARGB32(), 0xFF808080,
+          reason: 'only discoBlack differs → its quantized midpoint is #808080');
+      expect(mid.glowPink, isNot(a.glowPink));
+      expect(mid.glowPink, isNot(b.glowPink));
+      expect(mid.surface, a.surface, reason: 'identical fields stay identical');
+      expect(mid.discoCyan, a.discoCyan);
+    });
+  });
+
+  group('SamayThemeExtension copyWith (complete)', () {
+    test('each of the 16 fields can be overridden independently', () {
+      const dark = SamayThemeExtension.dark;
+      const other = Color(0xFF123456);
+      final fieldNames = _fieldsOf(dark);
+      final copies = <SamayThemeExtension>[
+        dark.copyWith(discoBlack: other),
+        dark.copyWith(surface: other),
+        dark.copyWith(surfaceAlt: other),
+        dark.copyWith(hairline: other),
+        dark.copyWith(border: other),
+        dark.copyWith(muted: other),
+        dark.copyWith(mutedStrong: other),
+        dark.copyWith(white: other),
+        dark.copyWith(glowPink: other),
+        dark.copyWith(glowPinkBright: other),
+        dark.copyWith(glowPinkDeep: other),
+        dark.copyWith(discoViolet: other),
+        dark.copyWith(discoCyan: other),
+        dark.copyWith(discoGold: other),
+        dark.copyWith(discoSilver: other),
+        dark.copyWith(discoBronze: other),
+      ];
+      expect(copies, hasLength(fieldNames.length));
+      for (var i = 0; i < copies.length; i++) {
+        final changed = _fieldsOf(copies[i]);
+        expect(changed[i], other,
+            reason: 'field $i must be overridden by copyWith');
+        for (var j = 0; j < changed.length; j++) {
+          if (j != i) {
+            expect(changed[j], fieldNames[j],
+                reason: 'field $j must be preserved by copyWith($i)');
+          }
+        }
+      }
+    });
+  });
+
+  group('context.samayColors resolution', () {
+    Widget appWithExtension(Widget child) {
+      return MaterialApp(
+        theme: ThemeData(extensions: const [SamayThemeExtension.dark]),
+        home: child,
+      );
+    }
+
+    testWidgets('resolves the registered SamayThemeExtension', (tester) async {
+      await tester.pumpWidget(appWithExtension(const SizedBox()));
+      final context = tester.element(find.byType(SizedBox));
+      expect(context.samayColors.glowPink, AppColors.glowPink);
+      expect(context.samayColors.discoGold, AppColors.discoGold);
+      expect(context.samayColors.discoViolet, AppColors.discoViolet);
+    });
+
+    testWidgets('falls back to the dark palette when unregistered',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      final context = tester.element(find.byType(SizedBox));
+      expect(context.samayColors.glowPink, AppColors.glowPink);
+      expect(context.samayColors.white, AppColors.white);
     });
   });
 }

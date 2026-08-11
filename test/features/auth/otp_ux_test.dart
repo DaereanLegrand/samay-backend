@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/errors/app_error.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/router/route_paths.dart';
@@ -9,12 +10,13 @@ import 'package:samay/features/auth/screens/otp_verification_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
 /// Deterministic auth notifier for the OTP UX tests (I-29, SEC-05/H-23):
-/// records every `verifyOtp`/`sendOtp` call and can be switched between
-/// success and failure modes. Injected via `authStateProvider.overrideWith`,
-/// so no Supabase/network is ever touched.
+/// records every `verifyOtp`/`sendOtp`/`signOut` call and can be switched
+/// between success and failure modes. Injected via
+/// `authStateProvider.overrideWith`, so no Supabase/network is ever touched.
 class _RecordingAuthNotifier extends AuthNotifier {
   final List<String> verifyCalls = [];
   final List<String> sendOtpCalls = [];
+  int signOutCalls = 0;
   bool failVerification = false;
 
   /// When true, the notifier resolves "successful" verifications as
@@ -29,6 +31,12 @@ class _RecordingAuthNotifier extends AuthNotifier {
   Future<void> sendOtp(String email) async {
     sendOtpCalls.add(email);
     state = AsyncData(state.valueOrNull ?? const AuthState());
+  }
+
+  @override
+  Future<void> signOut() async {
+    signOutCalls++;
+    state = const AsyncData(AuthState());
   }
 
   @override
@@ -53,10 +61,15 @@ Future<_Harness> _pumpScreen(
   WidgetTester tester,
   _RecordingAuthNotifier notifier,
 ) async {
+  // Phone-sized surface: the U-07 restyle grew the OTP column (displayMedium
+  // header + otpInputText field); the 800×600 test default is smaller than
+  // any phone and forced the pinned-bottom layout to overflow in the
+  // Ahem-font harness.
+  tester.view.physicalSize = const Size(1170, 2532);
+  tester.view.devicePixelRatio = 3.0;
+  addTearDown(tester.view.reset);
   final container = ProviderContainer(
-    overrides: [
-      authStateProvider.overrideWith(() => notifier),
-    ],
+    overrides: [authStateProvider.overrideWith(() => notifier)],
   );
   addTearDown(container.dispose);
   final router = GoRouter(
@@ -64,14 +77,16 @@ Future<_Harness> _pumpScreen(
     routes: [
       GoRoute(
         path: '/test',
-        builder: (_, _) => const OtpVerificationScreen(
-          email: 'a@b.com',
-          password: 'secret1',
-        ),
+        builder: (_, _) =>
+            const OtpVerificationScreen(email: 'a@b.com', password: 'secret1'),
       ),
       GoRoute(
         path: RoutePaths.ageGate,
         builder: (_, _) => const Scaffold(body: Text('age-gate')),
+      ),
+      GoRoute(
+        path: RoutePaths.login,
+        builder: (_, _) => const Scaffold(body: Text('login-marker')),
       ),
       GoRoute(path: RoutePaths.mainFeed, builder: (_, _) => const Scaffold()),
     ],
@@ -104,8 +119,9 @@ Future<void> _unmount(WidgetTester tester) async {
 
 void main() {
   group('OtpVerificationScreen — resend countdown (SEC-05/H-23)', () {
-    testWidgets('counts down and disables resend until the cooldown elapses',
-        (tester) async {
+    testWidgets('counts down and disables resend until the cooldown elapses', (
+      tester,
+    ) async {
       final notifier = _RecordingAuthNotifier();
       await _pumpScreen(tester, notifier);
       await tester.pump();
@@ -122,8 +138,10 @@ void main() {
 
       await tester.pump(const Duration(seconds: 59));
       expect(find.text('Reenviar código'), findsOneWidget);
-      expect(find.textContaining('Reenviar código (', findRichText: false),
-          findsNothing);
+      expect(
+        find.textContaining('Reenviar código (', findRichText: false),
+        findsNothing,
+      );
       button = tester.widget<TextButton>(
         find.widgetWithText(TextButton, 'Reenviar código'),
       );
@@ -157,10 +175,10 @@ void main() {
   });
 
   group('OtpVerificationScreen — auto-submit on 6 digits (AUTH spec gap)', () {
-    testWidgets('fires verification when the 6th digit is entered',
-        (tester) async {
-      final notifier = _RecordingAuthNotifier()
-        ..authenticatedResult = false;
+    testWidgets('fires verification when the 6th digit is entered', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier()..authenticatedResult = false;
       await _pumpScreen(tester, notifier);
       await tester.pump();
 
@@ -171,10 +189,10 @@ void main() {
       await _unmount(tester);
     });
 
-    testWidgets('manual Verificar button still verifies the entered code',
-        (tester) async {
-      final notifier = _RecordingAuthNotifier()
-        ..authenticatedResult = false;
+    testWidgets('manual Verificar button still verifies the entered code', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier()..authenticatedResult = false;
       await _pumpScreen(tester, notifier);
       await tester.pump();
 
@@ -189,8 +207,9 @@ void main() {
       await _unmount(tester);
     });
 
-    testWidgets('successful verification navigates to the age gate',
-        (tester) async {
+    testWidgets('successful verification navigates to the age gate', (
+      tester,
+    ) async {
       final notifier = _RecordingAuthNotifier();
       await _pumpScreen(tester, notifier);
       await tester.pump();
@@ -254,6 +273,89 @@ void main() {
       expect(
         find.text('Demasiados intentos fallidos. Solicita un nuevo código.'),
         findsNothing,
+      );
+      await _unmount(tester);
+    });
+  });
+
+  group('OtpVerificationScreen — back-to-login affordance (U-14 R1)', () {
+    testWidgets('"Volver a iniciar sesión" signs out and returns to login', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pumpScreen(tester, notifier);
+      await tester.pump();
+
+      await tester.tap(
+        find.widgetWithText(TextButton, 'Volver a iniciar sesión'),
+      );
+      // Settle the route transition: the OTP screen is removed from the tree
+      // once the go() animation completes (its countdown timer is then
+      // cancelled by dispose).
+      await tester.pumpAndSettle();
+
+      expect(notifier.signOutCalls, 1);
+      expect(find.text('login-marker'), findsOneWidget);
+      expect(find.byType(OtpVerificationScreen), findsNothing);
+      await _unmount(tester);
+    });
+
+    testWidgets('the back affordance is visible from the first frame', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pumpScreen(tester, notifier);
+      await tester.pump();
+
+      expect(
+        find.widgetWithText(TextButton, 'Volver a iniciar sesión'),
+        findsOneWidget,
+      );
+      await _unmount(tester);
+    });
+  });
+
+  group('OtpVerificationScreen — attempts-remaining counter (U-14 R2)', () {
+    testWidgets('counter appears after a wrong code and counts down', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier()..failVerification = true;
+      await _pumpScreen(tester, notifier);
+      await tester.pump();
+
+      expect(find.text('Te quedan 4 intentos'), findsNothing);
+
+      await tester.enterText(find.byType(TextField), '000000');
+      await tester.pump();
+
+      expect(find.text('Te quedan 4 intentos'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), '111111');
+      await tester.pump();
+
+      expect(find.text('Te quedan 3 intentos'), findsOneWidget);
+      expect(find.text('Te quedan 4 intentos'), findsNothing);
+      await _unmount(tester);
+    });
+
+    testWidgets('counter turns glowPink when only 1 attempt remains', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier()..failVerification = true;
+      await _pumpScreen(tester, notifier);
+      await tester.pump();
+
+      for (var i = 0; i < 4; i++) {
+        await tester.enterText(find.byType(TextField), '000000');
+        await tester.pump();
+      }
+
+      expect(find.text('Te queda 1 intento'), findsOneWidget);
+      final counter = tester.widget<Text>(find.text('Te queda 1 intento'));
+      expect(
+        counter.style?.color,
+        AppColors.error,
+        reason: '§5.2 — the last-attempt warning uses glowPink, never red',
       );
       await _unmount(tester);
     });
