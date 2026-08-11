@@ -13,15 +13,20 @@ services:
     environment:
       POSTGRES_HOST: /var/run/postgresql
       POSTGRES_PORT: 5432
-      POSTGRES_DB: supabase
-      POSTGRES_DB_NAME: supabase
-      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_USER: supabase_admin
       POSTGRES_PASSWORD: postgres
       POSTGRES_CONFIG_FILE: /etc/postgresql/postgresql.conf
       PGDATA: /var/lib/postgresql/data/pgdata
+      JWT_SECRET: "your-jwt-secret-change-in-production"
+      JWT_EXP: 3600
     volumes:
       - ./volumes/db/data:/var/lib/postgresql/data/pgdata
-      - ./volumes/db/init:/docker-entrypoint-initdb.d
+      - ./volumes/db/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:ro
+      - ./volumes/db/webhooks.sql:/docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql:ro
+      - ./volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
 
   kong:
     container_name: samay-kong
@@ -73,6 +78,7 @@ services:
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://127.0.0.1:54386}
       GOTRUE_SITE_URL: http://localhost:3000
       GOTRUE_ADDITIONAL_REDIRECT_URLS: ""
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
@@ -81,6 +87,7 @@ services:
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_SECRET: "your-jwt-secret-change-in-production"
       GOTRUE_EXTERNAL_EMAIL_ENABLED: true
+      GOTRUE_MAILER_AUTOCONFIRM: true
       GOTRUE_EXTERNAL_PHONE_ENABLED: false
       GOTRUE_SMTP_ADMIN_EMAIL: samayverif@qallariy.lat
       GOTRUE_SMTP_HOST: smtp.purelymail.com
@@ -95,7 +102,7 @@ services:
       GOTRUE_MAILER_SUBJECTS_RECOVERY: "Recupera tu contraseña — Samay"
       GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE: "Confirma tu nuevo correo — Samay"
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@samay-db:5432/postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:postgres@samay-db:5432/postgres
       GOTRUE_DB_MAX_POOL_SIZE: 10
       GOTRUE_LOG_LEVEL: warn
       GOTRUE_RATE_LIMIT_EMAIL_SENT: ${AUTH_RATE_LIMIT_EMAIL_SENT:-2}
@@ -115,7 +122,7 @@ services:
       timeout: 5s
       retries: 3
     environment:
-      PGRST_DB_URI: postgres://postgres:postgres@samay-db:5432/postgres
+      PGRST_DB_URI: postgres://authenticator:postgres@samay-db:5432/postgres
       PGRST_DB_SCHEMA: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: "your-jwt-secret-change-in-production"
@@ -144,11 +151,11 @@ services:
       PORT: 4000
       DB_HOST: samay-db
       DB_PORT: 5432
-      DB_USER: postgres
+      DB_USER: supabase_admin
       DB_PASSWORD: postgres
       DB_NAME: postgres
       DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
-      DB_ENC_KEY: "supabase-realtime-encryption-key-change-in-production"
+      DB_ENC_KEY: "supabaserealtime"
       API_JWT_SECRET: "your-jwt-secret-change-in-production"
       SECRET_KEY_BASE: "supabase-realtime-secret-key-base-change-in-production"
       METRICS_JWT_SECRET: "your-jwt-secret-change-in-production"
@@ -170,18 +177,18 @@ services:
       imgproxy:
         condition: service_started
     healthcheck:
-      test: wget --no-verbose --tries=1 --spider http://localhost:5000/status
+      test: wget --no-verbose --tries=1 --spider http://storage:5000/status
       interval: 5s
       timeout: 5s
       retries: 3
       start_period: 10s
     environment:
-      ANON_KEY: "your-anon-key"
-      SERVICE_KEY: "your-service-role-key"
+      ANON_KEY: ${SUPABASE_ANON_KEY:-your-anon-key}
+      SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-your-service-role-key}
       TENANT_ID: samay
       REGION: us-east-1
       GLOBAL_S3_BUCKET: samay-storage
-      DATABASE_URL: postgres://postgres:postgres@samay-db:5432/postgres
+      DATABASE_URL: postgres://supabase_storage_admin:postgres@samay-db:5432/postgres
       PGRST_JWT_SECRET: "your-jwt-secret-change-in-production"
       FILE_SIZE_LIMIT: 52428800
       STORAGE_BACKEND: file
@@ -254,8 +261,8 @@ services:
       HOSTNAME: "0.0.0.0"
       STUDIO_PG_META_URL: http://samay-meta:8080
       SUPABASE_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
-      SUPABASE_ANON_KEY: "your-anon-key"
-      SUPABASE_SERVICE_KEY: "your-service-role-key"
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-your-anon-key}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-your-service-role-key}
       SUPABASE_PUBLIC_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
     ports:
       - "${STUDIO_PORT:-54381}:3000"
