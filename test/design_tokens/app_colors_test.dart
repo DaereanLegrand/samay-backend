@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
-import 'package:samay/core/extensions/context_extensions.dart';
 
 const _black = Color(0xFF000000);
 
@@ -326,31 +325,6 @@ void main() {
           }
         }
       }
-    });
-  });
-
-  group('context.samayColors resolution', () {
-    Widget appWithExtension(Widget child) {
-      return MaterialApp(
-        theme: ThemeData(extensions: const [SamayThemeExtension.dark]),
-        home: child,
-      );
-    }
-
-    testWidgets('resolves the registered SamayThemeExtension', (tester) async {
-      await tester.pumpWidget(appWithExtension(const SizedBox()));
-      final context = tester.element(find.byType(SizedBox));
-      expect(context.samayColors.glowPink, AppColors.glowPink);
-      expect(context.samayColors.discoGold, AppColors.discoGold);
-      expect(context.samayColors.discoViolet, AppColors.discoViolet);
-    });
-
-    testWidgets('falls back to the dark palette when unregistered',
-        (tester) async {
-      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
-      final context = tester.element(find.byType(SizedBox));
-      expect(context.samayColors.glowPink, AppColors.glowPink);
-      expect(context.samayColors.white, AppColors.white);
     });
   });
 }

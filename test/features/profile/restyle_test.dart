@@ -17,6 +17,7 @@ import 'package:samay/features/profile/screens/public_profile_screen.dart';
 import 'package:samay/features/profile/screens/settings_screen.dart';
 import 'package:samay/features/profile/widgets/profile_avatar.dart';
 import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/skeletons.dart';
 import 'package:samay/shared/widgets/state_views.dart';
 import 'package:samay/shared/widgets/v_button.dart';
 import 'package:samay/shared/widgets/v_card.dart';
@@ -289,7 +290,15 @@ void main() {
       final segmented = tester.widget<SegmentedButton<ThemeMode>>(
         find.byType(SegmentedButton<ThemeMode>),
       );
-      final style = segmented.style!;
+      expect(
+        segmented.style,
+        isNull,
+        reason: 'U-27 — the §5.4 treatment is theme-owned: the screen no '
+            'longer styles the picker inline (segmentedButtonTheme)',
+      );
+      final style = Theme.of(
+        tester.element(find.byType(SegmentedButton<ThemeMode>)),
+      ).segmentedButtonTheme.style!;
       // styleFrom folds selected/unselected colors into the segment
       // backgroundColor/foregroundColor properties, resolved per state.
       expect(
@@ -461,30 +470,33 @@ void main() {
     });
   });
 
-  group('PublicProfileScreen (§5.1/§3.2/§5.9 — U-09 ledger)', () {
-    Widget pumpPublic({bool withProfile = false}) {
-      final overrides = <Override>[];
-      if (withProfile) {
-        final friends = _FakeFriendsRepository();
-        when(() => friends.getUserProfile(_userId)).thenAnswer(
-          (_) async => const UserProfile(
-            id: _userId,
-            username: 'dana',
-            bio: 'hola mundo',
-          ),
-        );
-        when(() => friends.getFriendshipDetail(_userId))
-            .thenAnswer((_) async => null);
-        when(() => friends.getBlockStatus(_userId))
-            .thenAnswer((_) async => false);
-        overrides.add(friendsRepositoryProvider.overrideWithValue(friends));
-      }
-      return _wrap(
-        const PublicProfileScreen(userId: _userId),
-        overrides: overrides,
-      );
-    }
+/// Pumps the public profile screen (optionally with a stubbed profile +
+/// friendship state); shared by the PublicProfileScreen group and the
+/// skeleton first-load pins.
+Widget pumpPublic({bool withProfile = false}) {
+  final overrides = <Override>[];
+  if (withProfile) {
+    final friends = _FakeFriendsRepository();
+    when(() => friends.getUserProfile(_userId)).thenAnswer(
+      (_) async => const UserProfile(
+        id: _userId,
+        username: 'dana',
+        bio: 'hola mundo',
+      ),
+    );
+    when(() => friends.getFriendshipDetail(_userId))
+        .thenAnswer((_) async => null);
+    when(() => friends.getBlockStatus(_userId))
+        .thenAnswer((_) async => false);
+    overrides.add(friendsRepositoryProvider.overrideWithValue(friends));
+  }
+  return _wrap(
+    const PublicProfileScreen(userId: _userId),
+    overrides: overrides,
+  );
+}
 
+  group('PublicProfileScreen (§5.1/§3.2/§5.9 — U-09 ledger)', () {
     testWidgets('primary "Agregar amigo" action uses glowAccent filled',
         (tester) async {
       await tester.pumpWidget(pumpPublic());
@@ -530,6 +542,51 @@ void main() {
 
       final empty = tester.widget<Text>(find.text('Sin grupos en común'));
       expect(empty.style?.color, AppColors.mutedStrong);
+    });
+  });
+
+  group('Skeleton first-load states (U-22 handoff — U-23)', () {
+    testWidgets('profile shows VSkeletonProfile on the first frame, then the '
+        'header', (tester) async {
+      await tester.pumpWidget(_wrap(
+        const ProfileScreen(),
+        overrides: _profileOverrides(),
+      ));
+      expect(find.byType(VSkeletonProfile), findsOneWidget,
+          reason: 'U-22 handoff — the profile hero loads with the §5.8 '
+              'skeleton (avatar + name/handle lines), not the bare '
+              'VLoadingView spinner');
+
+      await tester.pumpAndSettle();
+      expect(find.byType(VSkeletonProfile), findsNothing);
+      expect(find.text('dana'), findsOneWidget);
+    });
+
+    testWidgets('edit_profile shows VSkeletonProfile on the first frame, '
+        'then the form', (tester) async {
+      await tester.pumpWidget(_wrap(
+        const EditProfileScreen(),
+        overrides: _profileOverrides(),
+      ));
+      expect(find.byType(VSkeletonProfile), findsOneWidget,
+          reason: 'U-22 handoff — the edit screen mirrors the profile hero '
+              'skeleton while the bio loads');
+
+      await tester.pumpAndSettle();
+      expect(find.byType(VSkeletonProfile), findsNothing);
+      expect(find.byType(TextField), findsOneWidget);
+    });
+
+    testWidgets('public_profile shows VSkeletonProfile on the first frame, '
+        'then the actions', (tester) async {
+      await tester.pumpWidget(pumpPublic(withProfile: true));
+      expect(find.byType(VSkeletonProfile), findsOneWidget,
+          reason: 'U-22 handoff — the public profile hero skeleton stands in '
+              'while the profile/friendship loads resolve');
+
+      await tester.pumpAndSettle();
+      expect(find.byType(VSkeletonProfile), findsNothing);
+      expect(find.text('Agregar amigo'), findsOneWidget);
     });
   });
 

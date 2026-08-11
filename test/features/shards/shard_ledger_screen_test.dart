@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +11,8 @@ import 'package:samay/features/profile/providers/profile_providers.dart';
 import 'package:samay/features/shards/screens/shard_ledger_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
+import 'package:samay/shared/widgets/skeletons.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 /// Widget + mapping tests for the shard ledger screen (SLED — I-64): the two
@@ -86,6 +90,10 @@ class _FakeShardsService implements ShardsService {
   List<LedgerEntry> preshardLedger;
   Object? shardError;
 
+  /// When set, the first [getShardLedger] call waits on it (skeleton-frame
+  /// pinning, the U-22 feed-test pattern).
+  Future<void>? gate;
+
   @override
   SupabaseClient get client => throw UnimplementedError();
 
@@ -129,6 +137,7 @@ class _FakeShardsService implements ShardsService {
 
   @override
   Future<List<LedgerEntry>> getShardLedger({int limit = 100}) async {
+    if (gate != null) await gate;
     if (shardError != null) throw shardError!;
     return List.of(shardLedger);
   }
@@ -235,6 +244,45 @@ void main() {
   });
 
   group('ShardLedgerScreen tabs', () {
+    testWidgets(
+        'shows the avatar+lines skeleton while the ledger is pending '
+        '(U-22 handoff, §5.8)', (tester) async {
+      final gate = Completer<void>();
+      final service = _FakeShardsService(
+        shardLedger: [
+          LedgerEntry.fromJson(_row()),
+          LedgerEntry.fromJson(
+            _row(
+              id: '22222222-2222-2222-2222-222222222222',
+              delta: -20,
+              reason: 'cosmetic_purchase',
+            ),
+          ),
+        ],
+        preshardLedger: [],
+      )..gate = gate.future;
+      // Bounded pump: the shimmer sweep never settles while the gate is
+      // pending, so pumpAndSettle would time out (the U-22 feed-test pattern).
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(_wrap(service: service));
+      await tester.pump();
+
+      expect(
+        find.byType(VSkeletonList),
+        findsOneWidget,
+        reason: 'the list-y ledger shows the row skeleton on first load, '
+            'not the bare spinner',
+      );
+      expect(find.byType(VLoadingView), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(VSkeletonList), findsNothing);
+      expect(find.text('Asistencia a evento'), findsOneWidget);
+    });
+
     testWidgets('renders the balance header from the profile provider', (
       tester,
     ) async {
@@ -296,6 +344,7 @@ void main() {
       await _pumpLedger(tester, _wrap(service: service));
 
       expect(find.text('Sin movimientos todavía'), findsOneWidget);
+      expect(find.byType(VEmptyView), findsOneWidget);
     });
 
     testWidgets('renders an ErrorView with retry when the ledger fails', (

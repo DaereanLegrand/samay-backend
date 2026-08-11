@@ -10,6 +10,7 @@ import 'package:samay/core/theme/app_theme.dart';
 import 'package:samay/features/events/providers/events_providers.dart';
 import 'package:samay/features/qr/screens/qr_scanner_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 /// QR scanner screen (QRSC foundation, I-57):
@@ -94,6 +95,42 @@ void main() {
   });
 
   group('QrScannerScreen — permission flow (I-28 seam)', () {
+    testWidgets(
+        'camera-error panel is the §5.9 empty state with a working retry '
+        '(U-21 handoff)', (tester) async {
+      var retried = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SamayTheme.dark,
+          locale: const Locale('es'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: QrScannerScreen.cameraErrorPanel(
+              await AppLocalizations.delegate.load(const Locale('es')),
+              () => retried = true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(VEmptyView), findsOneWidget,
+          reason: 'the runtime camera error renders the canonical §5.9 view '
+              '(same panel the unavailable state uses), not a hand-rolled '
+              'column');
+      expect(find.byIcon(Icons.no_photography_outlined), findsOneWidget);
+      expect(find.text('No se pudo acceder a la cámara.'), findsOneWidget);
+      expect(
+        find.text(
+          'Cierra y vuelve a abrir el escáner, o revisa los permisos de la cámara.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Reintentar'));
+      expect(retried, isTrue);
+    });
+
     testWidgets('denied shows the rationale snackbar + camera panel',
         (tester) async {
       final permissions = PermissionService(
@@ -107,6 +144,7 @@ void main() {
       );
       expect(find.text('Se necesita acceso a la cámara para escanear.'), findsOneWidget);
       expect(find.text('Reintentar'), findsOneWidget);
+      expect(find.byType(VEmptyView), findsOneWidget);
     });
 
     testWidgets('permanently denied offers the settings dialog', (tester) async {

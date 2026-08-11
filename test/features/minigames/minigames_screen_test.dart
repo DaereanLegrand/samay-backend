@@ -6,6 +6,7 @@ import 'package:samay/features/minigames/providers/minigames_providers.dart';
 import 'package:samay/features/minigames/screens/minigames_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 
 /// GMCR foundation screen tests (I-63): the five game-type cards render,
 /// the wager create flow drives the provider action with a fake service,
@@ -263,6 +264,7 @@ void main() {
         find.text('Crea la primera partida con uno de los juegos de arriba.'),
         findsOneWidget,
       );
+      expect(find.byType(VEmptyView), findsOneWidget);
     });
 
     testWidgets('shows an error view with retry when loading fails',

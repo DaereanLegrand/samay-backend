@@ -15,6 +15,7 @@ import 'package:samay/core/services/event_service.dart';
 import 'package:samay/core/services/group_service.dart';
 import 'package:samay/core/services/media_service.dart';
 import 'package:samay/core/services/permission_service.dart';
+import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/features/events/screens/create_event_screen.dart';
 import 'package:samay/features/events/logic/event_form_data.dart';
 import 'package:samay/l10n/app_localizations.dart';
@@ -312,6 +313,69 @@ void main() {
       expect(find.text('Modo de acceso'), findsOneWidget);
       // Casual is the default type: the preshards section stays hidden.
       expect(find.text('Pool de preshards'), findsNothing);
+    });
+
+    testWidgets(
+        'cover slot uses the token surfaces — never raw greys '
+        '(DISCO §2.1, create_group precedent)', (tester) async {
+      await _pumpScreen(
+        tester,
+        const CreateEventScreen(),
+        '/create',
+        _defaultOverrides(
+            _MockEventService(), _MockMediaService(), _MockGroupService()),
+      );
+
+      final label = tester.widget<Text>(find.text('Agregar foto de portada'));
+      expect(label.style?.color, AppColors.mutedStrong,
+          reason: 'cover-slot label is mutedStrong (§2.4), not Colors.grey');
+
+      final camera = tester.widget<Icon>(find.byIcon(Icons.camera_alt));
+      expect(camera.color, AppColors.muted,
+          reason: 'cover-slot camera icon is the muted token, not Colors.grey');
+
+      final slot = tester.widget<Container>(
+        find
+            .ancestor(
+              of: find.text('Agregar foto de portada'),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      final decoration = slot.decoration! as BoxDecoration;
+      expect(decoration.color, AppColors.surfaceAlt,
+          reason: 'empty cover slot fill is §5.8 skeleton-base surface');
+      expect(
+        (decoration.border! as Border).top.color,
+        AppColors.border,
+        reason: 'cover slot ring is the §2.1 interactive-outline token',
+      );
+    });
+
+    testWidgets('date-row labels render mutedStrong (§5.2 label rule)',
+        (tester) async {
+      await _pumpScreen(
+        tester,
+        const CreateEventScreen(),
+        '/create',
+        _defaultOverrides(
+            _MockEventService(), _MockMediaService(), _MockGroupService()),
+      );
+
+      for (final label in ['Inicio', 'Fin']) {
+        // The InputDecorator applies the label style via an animated default
+        // text style, so the Text's own style is null — assert the
+        // decoration's labelStyle instead (§5.2/§2.4).
+        final decorator = tester.widget<InputDecorator>(
+          find.ancestor(
+            of: find.text(label),
+            matching: find.byType(InputDecorator),
+          ),
+        );
+        expect(decorator.decoration.labelStyle?.color, AppColors.mutedStrong,
+            reason: 'the $label label is mutedStrong (#999999 AA), never '
+                'muted #666666 (fails 1.4.3 at normal size)');
+      }
     });
 
     testWidgets(

@@ -78,6 +78,8 @@ void main() {
   });
 
   group('context.samayColors convenience', () {
+    // Canonical home for the context resolution pins (U-27 consolidation —
+    // the duplicated group in app_colors_test.dart was merged here).
     testWidgets('returns the registered extension', (tester) async {
       await tester.pumpWidget(
         _appWithExtension(const SizedBox()),
@@ -85,6 +87,8 @@ void main() {
       final context = tester.element(find.byType(SizedBox));
       expect(context.samayColors.glowPink, AppColors.glowPink);
       expect(context.samayColors.discoCyan, AppColors.discoCyan);
+      expect(context.samayColors.discoViolet, AppColors.discoViolet);
+      expect(context.samayColors.discoGold, AppColors.discoGold);
     });
 
     testWidgets('falls back to the dark palette when unregistered',

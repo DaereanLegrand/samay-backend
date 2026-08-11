@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -12,6 +13,8 @@ import 'package:samay/features/party_finder/providers/party_finder_providers.dar
 import 'package:samay/features/party_finder/screens/party_finder_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
+import 'package:samay/shared/widgets/skeletons.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 
 /// PFND screen widget tests (I-60): discovery-off first-run explainer,
 /// opt-in toggle persistence, match cards (username, shared count, tag
@@ -38,15 +41,20 @@ class _FakeDiscoveryOptInNotifier extends DiscoveryOptInNotifier {
 }
 
 class _FakePartyMatchesNotifier extends PartyMatchesNotifier {
-  _FakePartyMatchesNotifier(this.data, {this.error});
+  _FakePartyMatchesNotifier(this.data, {this.error, this.gate});
 
   final List<Map<String, dynamic>> data;
   final Object? error;
+
+  /// When set, the first [build] waits on it (skeleton-frame pinning, the
+  /// U-22 feed-test pattern).
+  final Future<void>? gate;
   int builds = 0;
 
   @override
   Future<List<Map<String, dynamic>>> build() async {
     builds++;
+    if (gate != null) await gate;
     if (error != null) throw error!;
     return data;
   }
@@ -73,6 +81,7 @@ ProviderContainer _container({
   bool optIn = false,
   List<Map<String, dynamic>> matches = const [],
   Object? matchesError,
+  Future<void>? matchesGate,
   FriendsRepository? friends,
 }) {
   final container = ProviderContainer(
@@ -81,7 +90,11 @@ ProviderContainer _container({
         () => _FakeDiscoveryOptInNotifier(optIn),
       ),
       partyMatchesProvider.overrideWith(
-        () => _FakePartyMatchesNotifier(matches, error: matchesError),
+        () => _FakePartyMatchesNotifier(
+          matches,
+          error: matchesError,
+          gate: matchesGate,
+        ),
       ),
       if (friends != null)
         friendsRepositoryProvider.overrideWithValue(friends),
@@ -96,6 +109,7 @@ Future<ProviderContainer> _pumpScreen(
   bool optIn = false,
   List<Map<String, dynamic>> matches = const [],
   Object? matchesError,
+  Future<void>? matchesGate,
   FriendsRepository? friends,
   GoRouter? router,
 }) async {
@@ -103,6 +117,7 @@ Future<ProviderContainer> _pumpScreen(
     optIn: optIn,
     matches: matches,
     matchesError: matchesError,
+    matchesGate: matchesGate,
     friends: friends,
   );
   await tester.pumpWidget(
@@ -130,6 +145,45 @@ Future<ProviderContainer> _pumpScreen(
 
 void main() {
   group('PartyFinderScreen', () {
+    testWidgets(
+        'shows the avatar+lines skeleton while the matches load '
+        '(U-22 handoff, §5.8)', (tester) async {
+      final gate = Completer<void>();
+      final container = _container(
+        optIn: true,
+        matches: [_match(_otherId, username: 'ana')],
+        matchesGate: gate.future,
+      );
+      // Bounded pump: the shimmer sweep never settles while the gate is
+      // pending, so _pumpScreen's pumpAndSettle would time out (the U-22
+      // feed-test pattern).
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            locale: Locale('es'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: PartyFinderScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byType(VSkeletonList),
+        findsOneWidget,
+        reason: 'the list-y match rows show the skeleton on first load, '
+            'not the bare spinner',
+      );
+      expect(find.byType(VLoadingView), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(VSkeletonList), findsNothing);
+      expect(find.text('@ana'), findsOneWidget);
+    });
+
     testWidgets('shows the discovery-off explainer with the toggle when off',
         (tester) async {
       await _pumpScreen(tester);
@@ -183,6 +237,7 @@ void main() {
       expect(find.text('Aún no hay coincidencias'), findsOneWidget);
       expect(find.text('Agrega más intereses a tu perfil para encontrar '
           'personas afines.'), findsOneWidget);
+      expect(find.byType(VEmptyView), findsOneWidget);
     });
 
     testWidgets('shows an error view with retry when loading fails',

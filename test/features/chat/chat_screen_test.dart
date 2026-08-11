@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/chat_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
 import 'package:samay/features/chat/providers/chat_providers.dart';
 import 'package:samay/features/chat/screens/chat_screen.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import 'package:samay/l10n/app_localizations.dart';
 
@@ -160,7 +162,37 @@ void main() {
           sender: 'other')..['decryptFailed'] = true,
     ]);
 
-    expect(find.text('Mensaje no descifrable'), findsOneWidget);
+    final text = tester.widget<Text>(find.text('Mensaje no descifrable'));
+    expect(text.style?.color, AppColors.mutedStrong,
+        reason: '§2.4: informational text is mutedStrong (#999999 AA), never '
+            'muted #666666 (3.66:1 fails 1.4.3 at normal size)');
+  });
+
+  testWidgets('message bubbles are sharp — §4.2 radius-0 (no rounded pastel)',
+      (tester) async {
+    await _pump(tester, [
+      _message('m-1', 'hola', sender: 'other'),
+      _message('m-2', 'responde'),
+    ]);
+
+    for (final label in ['hola', 'responde']) {
+      final bubble = tester.widget<Container>(
+        find
+            .ancestor(of: find.text(label), matching: find.byType(Container))
+            .first,
+      );
+      final decoration = bubble.decoration! as BoxDecoration;
+      expect(
+        decoration.borderRadius,
+        BorderRadius.zero,
+        reason: 'DISCO §4.2 lists every component radius = 0 (exceptions: '
+            'avatars, dots, spinners only) — the 16px bubble pill was the '
+            'pre-disco Material default',
+      );
+      expect(decoration.border, isNotNull,
+          reason: 'the hairline/white boundary carries the bubble shape '
+              'signal (disco §7.2)');
+    }
   });
 
   testWidgets('shows the empty state when there are no messages',
@@ -168,6 +200,7 @@ void main() {
     await _pump(tester, const []);
 
     expect(find.text('No hay mensajes todavía'), findsOneWidget);
+    expect(find.byType(VEmptyView), findsOneWidget);
   });
 
   testWidgets('shows the load-older button only when hasMore is true',

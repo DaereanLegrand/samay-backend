@@ -500,6 +500,62 @@ void main() {
     });
   });
 
+  group('state-widget sweep guard (U-21)', () {
+    // M-28/UI-04 (U-21, 2026-08-11): every full-area loading/empty/error
+    // state in feature screens must go through the shared state widgets
+    // (VLoadingView/VEmptyView/ErrorView — lib/shared/widgets/state_views.dart
+    // + error_view.dart, DISCO-DESIGN-SYSTEM §5.8/§5.9). Raw spinners are
+    // allowed ONLY for inline/button contexts that are NOT screen-level
+    // states: busy buttons, per-row actions, upload progress, pagination
+    // loaders, scan-processing chips. Shared widgets (v_button.dart,
+    // state_views.dart) live outside lib/features and are exempt.
+    //
+    // Path:line entries below pin the justified inline-spinner sites so a
+    // future screen-state regression fails this guard. The regex matches the
+    // constructor form only (a bare word in a doc comment doesn't trip it).
+    const rawSpinnerAllowlist = <String>{
+      // photo gallery: 18px upload-button spinner in the AppBar action.
+      'lib/features/photos/screens/photo_gallery_screen.dart:148',
+      // requests: R11 per-row busy spinner (16px, in a row action).
+      'lib/features/friends/screens/requests_screen.dart:313',
+      // edit profile: 16px avatar-upload spinner inside the avatar circle
+      // (line 208 since the U-26 disabled-password-button comment block +
+      // `dart format` shifted the spinner by 6 lines).
+      'lib/features/profile/screens/edit_profile_screen.dart:208',
+      // qr scanner: 16px scan-processing chip (inline in the scan overlay;
+      // line 379 since the U-25 camera-error panel moved the overlay down).
+      'lib/features/qr/screens/qr_scanner_screen.dart:379',
+      // chat: 20px pagination loader row (list stays visible).
+      'lib/features/chat/screens/chat_screen.dart:154',
+      // invite: 20px AppBar-action spinner while sending (line 108 since the
+      // U-24 `dart format` pass expanded the SizedBox onto five lines).
+      'lib/features/groups/screens/invite_screen.dart:108',
+    };
+
+    test('no raw CircularProgressIndicator in lib/features — state widgets '
+        'only (M-28/UI-04/U-21)', () {
+      final featureFiles = filesUnder('lib/features')
+          .where((f) => f.path.endsWith('.dart'))
+          .map((f) => f.path)
+          .toList();
+      final raw = RegExp(r'CircularProgressIndicator\s*\(');
+      final offenders = offendersIn(
+        featureFiles,
+        raw,
+      ).where((site) => !rawSpinnerAllowlist.contains(site)).toList();
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            'raw CircularProgressIndicator in a feature screen — use '
+            'VLoadingView/VEmptyView/ErrorView from '
+            'lib/shared/widgets/state_views.dart (DISCO §5.8/§5.9); only '
+            'inline busy contexts may keep a spinner (document them in the '
+            'U-21 allowlist): $offenders',
+      );
+    });
+  });
+
   group('shared-widget palette guard (U-05)', () {
     final sharedWidgets = filesUnder(
       'lib/shared/widgets',
@@ -607,6 +663,178 @@ void main() {
         reason:
             'TOOL-04 (M-26): make install-hooks wires '
             'core.hooksPath=tool/hooks — document it in DEVELOPMENT-WORKFLOW',
+      );
+    });
+  });
+
+  group('launcher icons (TOOL-06, U-20)', () {
+    final pubspec = File('$root/pubspec.yaml').readAsStringSync();
+
+    test('pubspec declares flutter_launcher_icons with the TOOL-06 config '
+        'section', () {
+      expect(
+        pubspec,
+        contains('flutter_launcher_icons: ^0.14.4'),
+        reason:
+            'TOOL-06: flutter_launcher_icons must be a dev dependency '
+            '(0.14.x line — Juega parity, verified publisher)',
+      );
+      final lines = pubspec.split('\n');
+      // The config section is the top-level `flutter_launcher_icons:` line
+      // (the dev dependency is the indented `  flutter_launcher_icons:`
+      // line — exact equality picks the section). Its body runs until the
+      // next column-0 key or EOF.
+      final sectionStart = lines.indexWhere(
+        (l) => l == 'flutter_launcher_icons:',
+      );
+      final sectionEnd = lines.indexWhere(
+        (l) => sectionStart >= 0 && l.isNotEmpty && !l.startsWith(' '),
+        sectionStart + 1,
+      );
+      final section = sectionStart == -1
+          ? null
+          : lines
+              .sublist(sectionStart, sectionEnd == -1 ? lines.length : sectionEnd)
+              .join('\n');
+      expect(
+        section,
+        isNotNull,
+        reason: 'TOOL-06: a flutter_launcher_icons: config section is missing',
+      );
+      for (final expected in const [
+        'image_path:',
+        'assets/icons/app_icon.png',
+        'android: true',
+        'ios: true',
+        'remove_alpha_ios: true',
+      ]) {
+        expect(
+          section,
+          contains(expected),
+          reason: 'TOOL-06: config must carry "$expected"',
+        );
+      }
+    });
+
+    test('launcher source icon exists as a >=1MB 1024x1024 PNG', () {
+      final file = File('$root/assets/icons/app_icon.png');
+      expect(
+        file.existsSync(),
+        isTrue,
+        reason:
+            'TOOL-06: assets/icons/app_icon.png (the regenerable source) '
+            'is missing — run `dart run tool/icon_gen.dart`',
+      );
+      final bytes = file.readAsBytesSync();
+      expect(
+        bytes.length,
+        greaterThanOrEqualTo(1024 * 1024),
+        reason: 'the source icon must be >=1MB (1024x1024 RGB art)',
+      );
+      expect(
+        bytes.sublist(0, 8),
+        [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
+        reason: 'the source icon must be a PNG (magic signature)',
+      );
+      int be32(int at) =>
+          (bytes[at] << 24) | (bytes[at + 1] << 16) |
+          (bytes[at + 2] << 8) | bytes[at + 3];
+      // IHDR: length(4) 'IHDR'(4) width(4) height(4) — width at offset 16.
+      expect(
+        be32(16),
+        1024,
+        reason: 'IHDR width must be 1024',
+      );
+      expect(
+        be32(20),
+        1024,
+        reason: 'IHDR height must be 1024',
+      );
+    });
+
+    test('android launcher icon sets are generated (legacy mipmaps + '
+        'adaptive anydpi)', () {
+      for (final dpi in const ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
+        expect(
+          File('$root/android/app/src/main/res/mipmap-$dpi/ic_launcher.png')
+              .existsSync(),
+          isTrue,
+          reason:
+              'TOOL-06: legacy launcher icon missing for mipmap-$dpi — '
+              're-run `dart run flutter_launcher_icons`',
+        );
+      }
+      final anydpi = '$root/android/app/src/main/res/mipmap-anydpi-v26';
+      expect(
+        File('$anydpi/ic_launcher.xml').existsSync(),
+        isTrue,
+        reason:
+            'TOOL-06: the adaptive icon XML is missing — '
+            'adaptive_icon_background/foreground must be configured',
+      );
+      // flutter_launcher_icons 0.14.4 renders the adaptive foreground into
+      // density-scaled drawable-*dpi/ dirs (referenced by the XML above),
+      // with the black background declared as a color resource.
+      expect(
+        File('$root/android/app/src/main/res/drawable-mdpi/'
+                'ic_launcher_foreground.png')
+            .existsSync(),
+        isTrue,
+        reason: 'TOOL-06: the adaptive foreground drawable is missing',
+      );
+      final colors = File('$root/android/app/src/main/res/values/colors.xml');
+      expect(
+        colors.existsSync(),
+        isTrue,
+        reason: 'TOOL-06: colors.xml (adaptive background color) is missing',
+      );
+      expect(
+        colors.readAsStringSync(),
+        contains('ic_launcher_background'),
+        reason: 'TOOL-06: the adaptive background color must be declared',
+      );
+    });
+
+    test('iOS AppIcon set is generated (16+ PNGs + Contents.json)', () {
+      final appiconset =
+          Directory('$root/ios/Runner/Assets.xcassets/AppIcon.appiconset');
+      expect(
+        appiconset.existsSync(),
+        isTrue,
+        reason: 'TOOL-06: the iOS AppIcon set directory is missing',
+      );
+      final pngs = appiconset
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.png'))
+          .toList();
+      expect(
+        pngs.length,
+        greaterThanOrEqualTo(16),
+        reason:
+            'TOOL-06: the iOS AppIcon set must carry the full size matrix '
+            '(16 pngs + the marketing 1024) — found ${pngs.length}',
+      );
+      expect(
+        File('${appiconset.path}/Contents.json').existsSync(),
+        isTrue,
+        reason: 'TOOL-06: AppIcon Contents.json is missing',
+      );
+    });
+
+    test('android:label is the user-facing brand name Samay (M-29 drift #2)',
+        () {
+      final manifest =
+          File('$root/android/app/src/main/AndroidManifest.xml').readAsStringSync();
+      final label = RegExp(r'android:label="([^"]+)"')
+          .firstMatch(manifest)
+          ?.group(1);
+      expect(
+        label,
+        'Samay',
+        reason:
+            'M-29 issue #2: android:label must match iOS/web ("Samay") — '
+            'the internal pubspec name "samay" is not the home-screen label',
       );
     });
   });

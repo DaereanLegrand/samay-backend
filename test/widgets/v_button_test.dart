@@ -167,5 +167,81 @@ void main() {
       expect(spinner.strokeWidth, 2);
       expect(spinner.color, AppColors.discoBlack);
     });
+
+    group('press feedback (U-18 verify — §5.1/§6.1)', () {
+      testWidgets('pressed state resolves the α0.1 overlay of the variant '
+          'base color (§5.1)', (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VButton.outlined(
+              onPressed: () {},
+              child: const Text('Press'),
+            ),
+          ),
+        );
+        final overlay = tester
+            .widget<TextButton>(find.byType(TextButton))
+            .style
+            ?.overlayColor
+            ?.resolve({WidgetState.pressed});
+        expect(overlay, isNotNull,
+            reason: 'VButton must carry the §5.1 press overlay');
+        expect(overlay!.a, closeTo(0.1, 0.01),
+            reason: 'pressed overlay = α0.1 of the base (§5.1)');
+        expect(overlay.r, AppColors.white.r);
+        expect(overlay.g, AppColors.white.g);
+        expect(overlay.b, AppColors.white.b);
+      });
+
+      testWidgets('a real press never applies a scale transform (§6.1 '
+          '"no scale, no bounce")', (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VButton.outlined(
+              onPressed: () {},
+              child: const Text('Press'),
+            ),
+          ),
+        );
+
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.text('Press')),
+        );
+        await tester.pump();
+        expect(
+          find.descendant(
+            of: find.byType(TextButton),
+            matching: find.byType(Transform),
+          ),
+          findsNothing,
+          reason: 'DISCO §6.1 bans scale on press — the α0.1 overlay is the '
+              'whole press effect (the user CSS scale(0.97) does not apply)',
+        );
+        expect(
+          find.descendant(
+            of: find.byType(TextButton),
+            matching: find.byType(ScaleTransition),
+          ),
+          findsNothing,
+        );
+        await gesture.up();
+        await tester.pump();
+      });
+
+      testWidgets('pressing the button does not crash', (tester) async {
+        var pressed = false;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VButton.emphasized(
+              onPressed: () => pressed = true,
+              child: const Text('Press'),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Press'));
+        await tester.pumpAndSettle();
+        expect(pressed, isTrue);
+      });
+    });
   });
 }

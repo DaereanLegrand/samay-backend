@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +15,8 @@ import 'package:samay/features/feed/providers/feed_providers.dart';
 import 'package:samay/features/feed/screens/feed_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
+import 'package:samay/shared/widgets/skeletons.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 import '../../support/fake_config_provider.dart';
@@ -24,10 +28,14 @@ import '../../support/fake_config_provider.dart';
 /// pull-to-refresh / tap-to-event-detail behaviors against an in-memory fake
 /// [EventService].
 class _FakeEventService implements EventService {
-  _FakeEventService(this.rows, {this.error});
+  _FakeEventService(this.rows, {this.error, this.gate});
 
   final List<Map<String, dynamic>> rows;
   Object? error;
+
+  /// When set, [listEvents] awaits it before resolving — tests hold the
+  /// provider in the loading state deterministically.
+  final Future<void>? gate;
   int listCalls = 0;
   String? lastStatus;
   String? lastType;
@@ -63,11 +71,15 @@ class _FakeEventService implements EventService {
       throw UnimplementedError();
 
   @override
-  Future<List<Map<String, dynamic>>> listEvents(
-      [String? status, String? type]) async {
+  Future<List<Map<String, dynamic>>> listEvents([
+    String? status,
+    String? type,
+  ]) async {
     listCalls++;
     lastStatus = status;
     lastType = type;
+    final g = gate;
+    if (g != null) await g;
     if (error != null) throw error!;
     return List.of(rows);
   }
@@ -87,10 +99,7 @@ class _FakeEventService implements EventService {
       throw UnimplementedError();
 
   @override
-  Future<Map<String, dynamic>> validateQrToken(
-    String eventId,
-    String token,
-  ) =>
+  Future<Map<String, dynamic>> validateQrToken(String eventId, String token) =>
       throw UnimplementedError();
 }
 
@@ -116,8 +125,9 @@ Map<String, dynamic> _eventRow(
     'cover_url': coverUrl,
     'featured': featured,
     'starts_at': start.toUtc().toIso8601String(),
-    'ends_at':
-        (endsAt ?? start.add(const Duration(hours: 4))).toUtc().toIso8601String(),
+    'ends_at': (endsAt ?? start.add(const Duration(hours: 4)))
+        .toUtc()
+        .toIso8601String(),
   };
 }
 
@@ -125,11 +135,13 @@ ProviderContainer _container(
   _FakeEventService service, {
   Map<String, String>? config,
 }) {
-  final container = ProviderContainer(overrides: [
-    eventServiceProvider.overrideWithValue(service),
-    if (config != null)
-      appConfigProvider.overrideWith(() => FakeAppConfigNotifier(config)),
-  ]);
+  final container = ProviderContainer(
+    overrides: [
+      eventServiceProvider.overrideWithValue(service),
+      if (config != null)
+        appConfigProvider.overrideWith(() => FakeAppConfigNotifier(config)),
+    ],
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -199,31 +211,25 @@ void main() {
       expect(events.map((e) => e.id), ['e-public', 'e-draft']);
     });
 
-    test('pins featured events first, then sorts by starts_at ascending',
-        () async {
-      final service = _FakeEventService([
-        _eventRow('a', startsAt: DateTime(2026, 9, 17, 21)),
-        _eventRow(
-          'b',
-          featured: true,
-          startsAt: DateTime(2026, 9, 10, 21),
-        ),
-        _eventRow('c', startsAt: DateTime(2026, 9, 15, 21)),
-        _eventRow(
-          'd',
-          featured: true,
-          startsAt: DateTime(2026, 9, 12, 21),
-        ),
-      ]);
-      final container = _container(service);
+    test(
+      'pins featured events first, then sorts by starts_at ascending',
+      () async {
+        final service = _FakeEventService([
+          _eventRow('a', startsAt: DateTime(2026, 9, 17, 21)),
+          _eventRow('b', featured: true, startsAt: DateTime(2026, 9, 10, 21)),
+          _eventRow('c', startsAt: DateTime(2026, 9, 15, 21)),
+          _eventRow('d', featured: true, startsAt: DateTime(2026, 9, 12, 21)),
+        ]);
+        final container = _container(service);
 
-      final events = await container.read(feedProvider.future);
+        final events = await container.read(feedProvider.future);
 
-      expect(events.map((e) => e.id), ['b', 'd', 'c', 'a']);
-      expect(events[0].featured, isTrue);
-      expect(events[1].featured, isTrue);
-      expect(events[2].featured, isFalse);
-    });
+        expect(events.map((e) => e.id), ['b', 'd', 'c', 'a']);
+        expect(events[0].featured, isTrue);
+        expect(events[1].featured, isTrue);
+        expect(events[2].featured, isFalse);
+      },
+    );
 
     test('refresh reloads from the service', () async {
       final service = _FakeEventService([_eventRow('e-1')]);
@@ -239,16 +245,12 @@ void main() {
     });
 
     test('surfaces AsyncError when the service fails', () async {
-      final service = _FakeEventService(
-        [_eventRow('e-1')],
-        error: Exception('boom'),
-      );
+      final service = _FakeEventService([
+        _eventRow('e-1'),
+      ], error: Exception('boom'));
       final container = _container(service);
 
-      await expectLater(
-        container.read(feedProvider.future),
-        throwsException,
-      );
+      await expectLater(container.read(feedProvider.future), throwsException);
       expect(container.read(feedProvider), isA<AsyncError>());
     });
   });
@@ -272,14 +274,16 @@ void main() {
     });
 
     test('option and default providers read app_config', () async {
-      final container = ProviderContainer(overrides: [
-        appConfigProvider.overrideWith(
-          () => FakeAppConfigNotifier(const {
-            'feed.nearby_radius_km_options': '10,30,999',
-            'feed.nearby_radius_km_default': '30',
-          }),
-        ),
-      ]);
+      final container = ProviderContainer(
+        overrides: [
+          appConfigProvider.overrideWith(
+            () => FakeAppConfigNotifier(const {
+              'feed.nearby_radius_km_options': '10,30,999',
+              'feed.nearby_radius_km_default': '30',
+            }),
+          ),
+        ],
+      );
       addTearDown(container.dispose);
       await container.read(appConfigProvider.future);
 
@@ -287,13 +291,15 @@ void main() {
       expect(container.read(feedRadiusDefaultProvider), 30);
     });
 
-    test('radiusFilterProvider defaults to anywhere (999) without a location',
-        () {
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
+    test(
+      'radiusFilterProvider defaults to anywhere (999) without a location',
+      () {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
 
-      expect(container.read(radiusFilterProvider), kFeedRadiusAnywhereKm);
-    });
+        expect(container.read(radiusFilterProvider), kFeedRadiusAnywhereKm);
+      },
+    );
 
     test('select updates the selected radius', () {
       final container = ProviderContainer();
@@ -308,8 +314,43 @@ void main() {
   });
 
   group('FeedScreen', () {
-    testWidgets('renders the brand header, featured section and event cards',
-        (tester) async {
+    testWidgets('shows the cover+lines skeleton while the provider is '
+        'pending (U-22 §5.8)', (tester) async {
+      final gate = Completer<void>();
+      final service = _FakeEventService([
+        _eventRow('e-1', name: 'Fiesta Salvaje'),
+      ], gate: gate.future);
+      final container = _container(service);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            locale: Locale('es'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: FeedScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byType(VSkeletonDetail),
+        findsOneWidget,
+        reason: 'first load shows the event-card skeleton, not a spinner',
+      );
+      expect(find.byType(VLoadingView), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VSkeletonDetail), findsNothing);
+      expect(find.text('Fiesta Salvaje'), findsOneWidget);
+    });
+
+    testWidgets('renders the brand header, featured section and event cards', (
+      tester,
+    ) async {
       final service = _FakeEventService([
         _eventRow(
           'e-feat',
@@ -332,8 +373,9 @@ void main() {
       expect(find.text('JUERGA'), findsOneWidget);
     });
 
-    testWidgets('renders the date range through the shared event formatter',
-        (tester) async {
+    testWidgets('renders the date range through the shared event formatter', (
+      tester,
+    ) async {
       final start = DateTime(2026, 9, 15, 21);
       final end = DateTime(2026, 9, 16, 2);
       final service = _FakeEventService([
@@ -341,14 +383,12 @@ void main() {
       ]);
       await _pumpScreen(tester, service);
 
-      expect(
-        find.text(formatEventDateRange(start, end, 'es')),
-        findsOneWidget,
-      );
+      expect(find.text(formatEventDateRange(start, end, 'es')), findsOneWidget);
     });
 
-    testWidgets('radius chips render the app_config options and select',
-        (tester) async {
+    testWidgets('radius chips render the app_config options and select', (
+      tester,
+    ) async {
       final service = _FakeEventService([_eventRow('e-1')]);
       await _pumpScreen(
         tester,
@@ -375,8 +415,9 @@ void main() {
       expect(chip.selected, isTrue);
     });
 
-    testWidgets('default selection is anywhere while no location exists',
-        (tester) async {
+    testWidgets('default selection is anywhere while no location exists', (
+      tester,
+    ) async {
       final service = _FakeEventService([_eventRow('e-1')]);
       await _pumpScreen(tester, service);
 
@@ -389,18 +430,42 @@ void main() {
       expect(anywhereChip.selected, isTrue);
     });
 
-    testWidgets('shows the empty state when there are no events',
-        (tester) async {
+    testWidgets('shows the empty state when there are no events', (
+      tester,
+    ) async {
       await _pumpScreen(tester, _FakeEventService([]));
 
       expect(find.text('No hay eventos próximos'), findsOneWidget);
     });
 
-    testWidgets('shows ErrorView and retry reloads the feed', (tester) async {
-      final service = _FakeEventService(
-        [_eventRow('e-1', name: 'Fiesta Salvaje')],
-        error: Exception('boom'),
+    testWidgets('the EMPTY feed is still pull-to-refreshable (R13 pattern, '
+        'feed sliver form)', (tester) async {
+      final service = _FakeEventService([]);
+      await _pumpScreen(tester, service);
+      expect(service.listCalls, 1);
+      expect(find.text('No hay eventos próximos'), findsOneWidget);
+
+      await tester.fling(
+        find.byType(CustomScrollView),
+        const Offset(0, 300),
+        1000,
       );
+      await tester.pumpAndSettle();
+
+      expect(
+        service.listCalls,
+        greaterThanOrEqualTo(2),
+        reason:
+            'the empty feed keeps the refresh affordance (U-16 R13: '
+            'empties stay refreshable — feed variant)',
+      );
+      expect(find.text('No hay eventos próximos'), findsOneWidget);
+    });
+
+    testWidgets('shows ErrorView and retry reloads the feed', (tester) async {
+      final service = _FakeEventService([
+        _eventRow('e-1', name: 'Fiesta Salvaje'),
+      ], error: Exception('boom'));
       await _pumpScreen(tester, service);
 
       expect(find.byType(ErrorView), findsOneWidget);
@@ -429,8 +494,9 @@ void main() {
       expect(service.listCalls, greaterThanOrEqualTo(2));
     });
 
-    testWidgets('tapping an event card navigates to event detail',
-        (tester) async {
+    testWidgets('tapping an event card navigates to event detail', (
+      tester,
+    ) async {
       final service = _FakeEventService([
         _eventRow('e-1', name: 'Rave en el garaje'),
       ]);

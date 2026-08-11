@@ -33,32 +33,69 @@ void main() {
       expect(theme.colorScheme.onPrimary, Colors.black);
     });
 
-    group('display typography (Playfair Display)', () {
-      test('theme textTheme is driven by AppTypography tokens', () {
-        final theme = SamayTheme.dark;
+    group('typography table completeness (U-02 → U-27 consolidation)', () {
+      test('all 14 composed textTheme roles match their AppTypography tokens '
+          'field-for-field', () {
+        final theme = SamayTheme.dark.textTheme;
+        final tokens = AppTypography.textTheme;
+        // (name, theme role, token role) — every §3.3 role that
+        // AppTypography.textTheme composes must surface in SamayTheme.dark
+        // with the token's exact values. `ThemeData` merges Material
+        // defaults under the tokens, so each field the token sets wins.
+        final roles = <(String, TextStyle, TextStyle)>[
+          ('displayLarge', theme.displayLarge!, tokens.displayLarge!),
+          ('displayMedium', theme.displayMedium!, tokens.displayMedium!),
+          ('displaySmall', theme.displaySmall!, tokens.displaySmall!),
+          ('headlineLarge', theme.headlineLarge!, tokens.headlineLarge!),
+          ('headlineMedium', theme.headlineMedium!, tokens.headlineMedium!),
+          ('headlineSmall', theme.headlineSmall!, tokens.headlineSmall!),
+          ('titleLarge', theme.titleLarge!, tokens.titleLarge!),
+          ('titleMedium', theme.titleMedium!, tokens.titleMedium!),
+          ('bodyLarge', theme.bodyLarge!, tokens.bodyLarge!),
+          ('bodyMedium', theme.bodyMedium!, tokens.bodyMedium!),
+          ('bodySmall', theme.bodySmall!, tokens.bodySmall!),
+          ('labelLarge', theme.labelLarge!, tokens.labelLarge!),
+          ('labelMedium', theme.labelMedium!, tokens.labelMedium!),
+          ('labelSmall', theme.labelSmall!, tokens.labelSmall!),
+        ];
+        expect(roles, hasLength(14));
+        for (final (name, themed, token) in roles) {
+          expect(themed.fontFamily, token.fontFamily, reason: '$name family');
+          expect(themed.fontSize, token.fontSize, reason: '$name size');
+          expect(themed.fontWeight, token.fontWeight, reason: '$name weight');
+          expect(themed.fontStyle, token.fontStyle, reason: '$name style');
+          expect(
+            themed.letterSpacing,
+            token.letterSpacing,
+            reason: '$name letter-spacing',
+          );
+          expect(themed.height, token.height, reason: '$name height');
+          expect(themed.shadows, token.shadows, reason: '$name glow');
+        }
+      });
+
+      test('display roles are Playfair Display italic (the fancy voice)', () {
+        final theme = SamayTheme.dark.textTheme;
+        for (final style in [
+          theme.displayLarge!,
+          theme.displayMedium!,
+          theme.displaySmall!,
+          theme.headlineLarge!,
+        ]) {
+          expect(style.fontFamily, AppTypography.playfair);
+          expect(style.fontStyle, FontStyle.italic);
+        }
+      });
+
+      test('otpInputText is a token-only role — deliberately NOT in '
+          'textTheme (the OTP field styles itself)', () {
+        // otpInputText is a §3.3 token, not a TextTheme role — no composed
+        // role may collide with its metrics.
+        expect(AppTypography.otpInputText.fontSize, 30);
         expect(
-          theme.textTheme.displayLarge!.fontFamily,
-          AppTypography.textTheme.displayLarge!.fontFamily,
-        );
-        expect(
-          theme.textTheme.displayLarge!.fontSize,
-          AppTypography.textTheme.displayLarge!.fontSize,
-        );
-        expect(
-          theme.textTheme.displayLarge!.shadows,
-          AppTypography.textTheme.displayLarge!.shadows,
-        );
-        expect(
-          theme.textTheme.headlineLarge!.shadows,
-          AppTypography.textTheme.headlineLarge!.shadows,
-        );
-        expect(
-          theme.textTheme.bodyMedium!.fontFamily,
-          AppTypography.textTheme.bodyMedium!.fontFamily,
-        );
-        expect(
-          theme.textTheme.labelLarge!.letterSpacing,
-          AppTypography.textTheme.labelLarge!.letterSpacing,
+          SamayTheme.dark.textTheme.labelLarge?.fontSize,
+          isNot(AppTypography.otpInputText.fontSize),
+          reason: 'no §3.3 role may collide with the OTP field metrics',
         );
       });
 
@@ -70,42 +107,6 @@ void main() {
         expect(theme.textTheme.titleSmall!.fontFamily, 'Inter');
         expect(theme.textTheme.bodySmall, isNotNull);
         expect(theme.textTheme.labelSmall, isNotNull);
-      });
-
-      test('displayLarge uses Playfair Display italic 700 at 64', () {
-        final style = SamayTheme.dark.textTheme.displayLarge;
-        expect(style, isNotNull);
-        expect(style!.fontFamily, 'Playfair Display');
-        expect(style.fontStyle, FontStyle.italic);
-        expect(style.fontWeight, FontWeight.w700);
-        expect(style.fontSize, 64);
-      });
-
-      test('displayMedium uses Playfair Display italic 700 at 40', () {
-        final style = SamayTheme.dark.textTheme.displayMedium;
-        expect(style, isNotNull);
-        expect(style!.fontFamily, 'Playfair Display');
-        expect(style.fontStyle, FontStyle.italic);
-        expect(style.fontWeight, FontWeight.w700);
-        expect(style.fontSize, 40);
-      });
-
-      test('displaySmall uses Playfair Display italic 700 at 32', () {
-        final style = SamayTheme.dark.textTheme.displaySmall;
-        expect(style, isNotNull);
-        expect(style!.fontFamily, 'Playfair Display');
-        expect(style.fontStyle, FontStyle.italic);
-        expect(style.fontWeight, FontWeight.w700);
-        expect(style.fontSize, 32);
-      });
-
-      test('headlineLarge uses Playfair Display italic 600 at 28', () {
-        final style = SamayTheme.dark.textTheme.headlineLarge;
-        expect(style, isNotNull);
-        expect(style!.fontFamily, 'Playfair Display');
-        expect(style.fontStyle, FontStyle.italic);
-        expect(style.fontWeight, FontWeight.w600);
-        expect(style.fontSize, 28);
       });
     });
 
@@ -140,73 +141,6 @@ void main() {
         expect(theme.textTheme.bodyLarge?.shadows, isNull);
         expect(theme.textTheme.bodyMedium?.shadows, isNull);
         expect(theme.textTheme.headlineMedium?.shadows, isNull);
-      });
-
-      test('fancyTitle computes the stack from the given fontSize', () {
-        final glow = AppTypography.fancyTitle(const TextStyle(fontSize: 40));
-        expect(glow.shadows, hasLength(3));
-        expect(glow.shadows!.first.blurRadius, closeTo(40 * 0.35, 0.001));
-        expect(glow.shadows![1].blurRadius, closeTo(40 * 0.7, 0.001));
-        expect(glow.shadows![2].blurRadius, closeTo(40 * 1.0, 0.001));
-        expect(
-          glow.shadows!.first.color,
-          AppColors.glowPink.withValues(alpha: 0.9),
-        );
-      });
-
-      test('fancyTitle soft variant uses the 2-layer stack', () {
-        final glow = AppTypography.fancyTitle(
-          const TextStyle(fontSize: 28),
-          soft: true,
-        );
-        expect(glow.shadows, hasLength(2));
-        expect(glow.shadows!.first.blurRadius, closeTo(28 * 0.3, 0.001));
-        expect(glow.shadows![1].blurRadius, closeTo(28 * 0.6, 0.001));
-      });
-
-      test('glow keeps the glyph fill opaque (halo strictly behind text)', () {
-        final glow = AppTypography.fancyTitle(const TextStyle(fontSize: 64));
-        expect(glow.shadows, isNotEmpty);
-        expect(
-          glow.color,
-          isNull,
-          reason: 'the fill color must stay inherited/full-opacity',
-        );
-      });
-    });
-
-    group('body typography (Inter)', () {
-      test('bodyLarge keeps Inter light 300 at 16', () {
-        final style = SamayTheme.dark.textTheme.bodyLarge;
-        expect(style, isNotNull);
-        expect(style!.fontFamily, 'Inter');
-        expect(style.fontWeight, FontWeight.w300);
-        expect(style.fontSize, 16);
-      });
-
-      test('bodyMedium keeps Inter light 300 at 14', () {
-        final style = SamayTheme.dark.textTheme.bodyMedium;
-        expect(style, isNotNull);
-        expect(style!.fontFamily, 'Inter');
-        expect(style.fontWeight, FontWeight.w300);
-        expect(style.fontSize, 14);
-      });
-
-      test('headlineMedium uses Inter bold at 24', () {
-        final style = SamayTheme.dark.textTheme.headlineMedium;
-        expect(style, isNotNull);
-        expect(style!.fontFamily, 'Inter');
-        expect(style.fontWeight, FontWeight.bold);
-        expect(style.fontSize, 24);
-      });
-
-      test('button label is bold with uppercase letter-spacing', () {
-        final style = SamayTheme.dark.textTheme.labelLarge;
-        expect(style, isNotNull);
-        expect(style!.fontFamily, 'Inter');
-        expect(style.fontWeight, FontWeight.w700);
-        expect(style.fontSize, 14);
-        expect(style.letterSpacing, 1.2);
       });
     });
 
@@ -314,6 +248,11 @@ void main() {
         );
         final shape = style.shape!.resolve({})! as RoundedRectangleBorder;
         expect(shape.borderRadius, AppRadius.sharp);
+        expect(
+          style.textStyle?.resolve({}),
+          AppTypography.labelLarge,
+          reason: '§3.3 labelLarge is the button voice',
+        );
       });
 
       test(
@@ -371,6 +310,30 @@ void main() {
         expect(SamayTheme.dark.progressIndicatorTheme.color, AppColors.white);
       });
 
+      test('segmentedButton: §5.4 chip treatment promoted from the settings '
+          'screen (U-09 → U-27)', () {
+        final theme = SamayTheme.dark;
+        final style = theme.segmentedButtonTheme.style!;
+        expect(
+          style.backgroundColor!.resolve({WidgetState.selected}),
+          AppColors.white,
+        );
+        expect(
+          style.backgroundColor!.resolve(const {}),
+          Colors.transparent,
+        );
+        expect(
+          style.foregroundColor!.resolve({WidgetState.selected}),
+          AppColors.discoBlack,
+        );
+        expect(style.foregroundColor!.resolve(const {}), AppColors.white);
+        final side = style.side!.resolve(const {});
+        expect(side!.color, AppColors.white);
+        expect(side.width, 1);
+        final shape = style.shape!.resolve(const {})! as RoundedRectangleBorder;
+        expect(shape.borderRadius, AppRadius.sharp);
+      });
+
       test('tooltip: dark raised surface, white text, sharp', () {
         final theme = SamayTheme.dark;
         final decoration = theme.tooltipTheme.decoration! as BoxDecoration;
@@ -406,40 +369,20 @@ void main() {
       expect(allowedColors.contains(scheme.primary), isTrue);
       expect(allowedColors.contains(scheme.onPrimary), isTrue);
     });
-  });
 
-  group('SamayThemeExtension', () {
-    test('copyWith overrides only the given fields', () {
-      const ext = SamayThemeExtension.dark;
-      final copy = ext.copyWith(glowPink: Colors.red);
-      expect(copy.glowPink, Colors.red);
-      expect(copy.discoGold, AppColors.discoGold);
-      expect(copy.glowPinkBright, AppColors.glowPinkBright);
-    });
-
-    test('lerp interpolates colors', () {
-      const ext = SamayThemeExtension.dark;
-      const other = SamayThemeExtension(
-        discoBlack: Colors.black,
-        surface: Colors.black,
-        surfaceAlt: Colors.black,
-        hairline: Colors.black,
-        border: Colors.black,
-        muted: Colors.black,
-        mutedStrong: Colors.black,
-        white: Colors.black,
-        glowPink: Colors.black,
-        glowPinkBright: Colors.black,
-        glowPinkDeep: Colors.black,
-        discoViolet: Colors.black,
-        discoCyan: Colors.black,
-        discoGold: Colors.black,
-        discoSilver: Colors.black,
-        discoBronze: Colors.black,
-      );
-      final mid = ext.lerp(other, 0.5);
-      expect(mid, isA<SamayThemeExtension>());
-      expect(mid.glowPink, isNot(ext.glowPink));
+    test('SamayTheme.dark is value-equal and hash-stable (ThemeData '
+        'contract — U-04)', () {
+      // U-04's MISTAKE: a `WidgetStateProperty.resolveWith` closure broke
+      // `SamayTheme.dark == SamayTheme.dark` (identity-hashed). The theme
+      // persistence tests pin `app.theme == SamayTheme.dark` indirectly;
+      // this is the direct pin the ledger promised. Any future
+      // `resolveWith` in a component theme fails red here.
+      final a = SamayTheme.dark;
+      final b = SamayTheme.dark;
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+      expect(a == SamayTheme.dark, isTrue);
+      expect(a.hashCode, SamayTheme.dark.hashCode);
     });
   });
 }

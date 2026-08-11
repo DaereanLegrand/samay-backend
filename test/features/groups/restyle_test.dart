@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +23,8 @@ import 'package:samay/features/groups/screens/my_groups_screen.dart';
 import 'package:samay/features/profile/widgets/profile_avatar.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/rank_badge.dart';
+import 'package:samay/shared/widgets/skeletons.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 import 'package:samay/shared/widgets/v_badge.dart';
 import 'package:samay/shared/widgets/v_button.dart';
 import 'package:samay/shared/widgets/v_chip.dart';
@@ -46,12 +50,12 @@ const _userId1 = '11111111-1111-1111-1111-111111111111';
 const _userId2 = '22222222-2222-2222-2222-222222222222';
 
 Map<String, dynamic> _group(String id, String name, {String? myRole}) => {
-      'id': id,
-      'name': name,
-      'group_shards': 100,
-      'rank_bracket': 'b0_20',
-      'my_role': myRole,
-    };
+  'id': id,
+  'name': name,
+  'group_shards': 100,
+  'rank_bracket': 'b0_20',
+  'my_role': myRole,
+};
 
 class _StubMyGroupsNotifier extends MyGroupsNotifier {
   final List<Map<String, dynamic>> data;
@@ -67,6 +71,17 @@ class _StubGroupDetailNotifier extends GroupDetailNotifier {
 
   @override
   Future<Map<String, dynamic>?> build(String arg) async => data;
+}
+
+/// Completer-gated group-detail variant — holds the provider pending so the
+/// first-frame skeleton can be asserted (U-24, §5.8).
+class _GatedGroupDetailNotifier extends GroupDetailNotifier {
+  _GatedGroupDetailNotifier(this.gate);
+
+  final Completer<Map<String, dynamic>?> gate;
+
+  @override
+  Future<Map<String, dynamic>?> build(String arg) => gate.future;
 }
 
 class _StubGroupMembersNotifier extends GroupMembersNotifier {
@@ -97,6 +112,14 @@ class _StubSearchResultsNotifier extends SearchResultsNotifier {
 
   @override
   Future<List<Map<String, dynamic>>> build(String arg) async => data;
+}
+
+/// Pending search-results variant — pins the invite search-loading surface
+/// (U-24: the §5.8 spinner replaced the Material linear bar).
+class _PendingSearchResultsNotifier extends SearchResultsNotifier {
+  @override
+  Future<List<Map<String, dynamic>>> build(String arg) =>
+      Completer<List<Map<String, dynamic>>>().future;
 }
 
 class _MockGroupsRepository extends Mock implements GroupsRepository {}
@@ -130,10 +153,8 @@ Color? _dividerColor(WidgetTester tester) {
 }
 
 /// The glow-soft stack the theme bakes into `headlineLarge` (U-02).
-List<Shadow> get _playfairGlow => AppTypography.fancyTitle(
-      AppTypography.headlineLarge,
-      soft: true,
-    ).shadows!;
+List<Shadow> get _playfairGlow =>
+    AppTypography.fancyTitle(AppTypography.headlineLarge, soft: true).shadows!;
 
 /// The [RankBadge] inside the leaderboard row whose title is [name].
 RankBadge _rowBadge(WidgetTester tester, String name) {
@@ -161,64 +182,79 @@ List<Override> _detailOverrides({
   Map<String, dynamic>? group,
   List<Map<String, dynamic>> members = const [],
 }) => [
-      groupDetailProvider.overrideWith(
-        () => _StubGroupDetailNotifier(
-          data:
-              group ??
-              {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
-        ),
-      ),
-      groupMembersProvider.overrideWith(
-        () => _StubGroupMembersNotifier(data: members),
-      ),
-      contributionsProvider.overrideWith(_StubContributionsNotifier.new),
-    ];
+  groupDetailProvider.overrideWith(
+    () => _StubGroupDetailNotifier(
+      data:
+          group ?? {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
+    ),
+  ),
+  groupMembersProvider.overrideWith(
+    () => _StubGroupMembersNotifier(data: members),
+  ),
+  contributionsProvider.overrideWith(_StubContributionsNotifier.new),
+];
 
 void main() {
   setUpAll(() => support.initSupabaseHarness(sessionEmail: 'a@b.com'));
 
   group('MyGroupsScreen (§5.5/§5.6/§5 avatar tiles — U-11 ledger)', () {
     Widget pumpMyGroups() => _wrap(
-          const MyGroupsScreen(),
-          overrides: [
-            myGroupsProvider.overrideWith(
-              () => _StubMyGroupsNotifier(
-                data: [
-                  _group(_groupId, 'Disco Crew', myRole: 'promotor'),
-                  _group(
-                    '44444444-4444-4444-4444-444444444444',
-                    'Vinyl Lovers',
-                    myRole: 'member',
-                  ),
-                ],
+      const MyGroupsScreen(),
+      overrides: [
+        myGroupsProvider.overrideWith(
+          () => _StubMyGroupsNotifier(
+            data: [
+              _group(_groupId, 'Disco Crew', myRole: 'promotor'),
+              _group(
+                '44444444-4444-4444-4444-444444444444',
+                'Vinyl Lovers',
+                myRole: 'member',
               ),
-            ),
-          ],
-        );
+            ],
+          ),
+        ),
+      ],
+    );
 
     testWidgets('tiles render ProfileAvatar, gold shard icons, VBadge role '
         'and RankBadge', (tester) async {
       await tester.pumpWidget(pumpMyGroups());
       await tester.pumpAndSettle();
 
-      expect(find.byType(ProfileAvatar), findsNWidgets(2),
-          reason: 'cover/initials render through the shared avatar widget');
+      expect(
+        find.byType(ProfileAvatar),
+        findsNWidgets(2),
+        reason: 'cover/initials render through the shared avatar widget',
+      );
       final shards = tester.widgetList<VShardIcon>(find.byType(VShardIcon));
       expect(shards.length, 2);
       for (final shard in shards) {
-        expect(shard.color, AppColors.currencyShards,
-            reason: '§5.6 — the diamond is gold (13.71:1)');
-        expect(shard.size, AppIconSizes.xs,
-            reason: '§5.6 — inline list-subtitle size xs 12');
+        expect(
+          shard.color,
+          AppColors.currencyShards,
+          reason: '§5.6 — the diamond is gold (13.71:1)',
+        );
+        expect(
+          shard.size,
+          AppIconSizes.xs,
+          reason: '§5.6 — inline list-subtitle size xs 12',
+        );
       }
-      expect(find.text('PROMOTOR'), findsOneWidget,
-          reason: 'the role renders as a §5.5 VBadge (uppercase labelSmall)');
-      expect(find.byType(RankBadge), findsNWidgets(2),
-          reason: 'the rank bracket badge survives in every tile');
+      expect(
+        find.text('PROMOTOR'),
+        findsOneWidget,
+        reason: 'the role renders as a §5.5 VBadge (uppercase labelSmall)',
+      );
+      expect(
+        find.byType(RankBadge),
+        findsNWidgets(2),
+        reason: 'the rank bracket badge survives in every tile',
+      );
     });
 
-    testWidgets('group names render bodyLarge white (§5 list voice)',
-        (tester) async {
+    testWidgets('group names render bodyLarge white (§5 list voice)', (
+      tester,
+    ) async {
       await tester.pumpWidget(pumpMyGroups());
       await tester.pumpAndSettle();
 
@@ -238,10 +274,16 @@ void main() {
         of: find.byType(ListView),
         matching: find.byType(Divider),
       );
-      expect(listDivider, findsOneWidget,
-          reason: '2 tiles → 1 hairline separator between them');
-      expect(_dividerColor(tester), AppColors.hairline,
-          reason: 'dividers resolve the U-04 dividerTheme (hairline)');
+      expect(
+        listDivider,
+        findsOneWidget,
+        reason: '2 tiles → 1 hairline separator between them',
+      );
+      expect(
+        _dividerColor(tester),
+        AppColors.hairline,
+        reason: 'dividers resolve the U-04 dividerTheme (hairline)',
+      );
     });
 
     testWidgets('Crear grupo/Ranking are §5.1 outlined VButtons and the '
@@ -249,51 +291,116 @@ void main() {
       await tester.pumpWidget(pumpMyGroups());
       await tester.pumpAndSettle();
 
-      expect(_buttonWithLabel(tester, 'Crear grupo').variant,
-          VButtonVariant.outlined);
-      expect(_buttonWithLabel(tester, 'Ranking').variant,
-          VButtonVariant.outlined);
+      expect(
+        _buttonWithLabel(tester, 'Crear grupo').variant,
+        VButtonVariant.outlined,
+      );
+      expect(
+        _buttonWithLabel(tester, 'Ranking').variant,
+        VButtonVariant.outlined,
+      );
       expect(find.widgetWithText(TextButton, 'Amigos'), findsOneWidget);
       expect(find.widgetWithText(TextButton, 'Solicitudes'), findsOneWidget);
+    });
+
+    testWidgets('a group row missing `my_role` renders without crashing '
+        '(U-24 null-guard)', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const MyGroupsScreen(),
+          overrides: [
+            myGroupsProvider.overrideWith(
+              () => _StubMyGroupsNotifier(
+                data: [
+                  {
+                    'id': _groupId,
+                    'name': 'No Role Club',
+                    'group_shards': 7,
+                    'rank_bracket': null,
+                  },
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'U-24: a row without `my_role` must not crash the tile '
+            '(previously a null-cast TypeError at the role VBadge)',
+      );
+      expect(
+        find.text('No Role Club'),
+        findsOneWidget,
+        reason: 'the row still renders its name and shards',
+      );
+      expect(
+        find.text('7'),
+        findsOneWidget,
+        reason: 'the shard count survives the fallback path',
+      );
+      expect(
+        find.byType(VBadge),
+        findsNothing,
+        reason: 'the member default renders no role badge',
+      );
     });
   });
 
   group('GroupDetailScreen hero (§3.2/§5.5/§5.6/§5.1 — U-11 ledger)', () {
-    testWidgets('hero name renders Playfair headlineLarge with glow-soft',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        const GroupDetailScreen(groupId: _groupId),
-        overrides: _detailOverrides(),
-      ));
+    testWidgets('hero name renders Playfair headlineLarge with glow-soft', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          const GroupDetailScreen(groupId: _groupId),
+          overrides: _detailOverrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       final name = tester.widget<Text>(find.text('Disco Crew'));
-      expect(name.style?.fontFamily, AppTypography.playfair,
-          reason: '§3.2 — group names on the detail hero are Playfair');
+      expect(
+        name.style?.fontFamily,
+        AppTypography.playfair,
+        reason: '§3.2 — group names on the detail hero are Playfair',
+      );
       expect(name.style?.fontStyle, FontStyle.italic);
       expect(name.style?.fontSize, 28);
-      expect(name.style?.shadows, _playfairGlow,
-          reason: 'the theme role bakes the glow-soft stack (U-02)');
+      expect(
+        name.style?.shadows,
+        _playfairGlow,
+        reason: 'the theme role bakes the glow-soft stack (U-02)',
+      );
     });
 
     testWidgets('size tier renders a VBadge, the rank a RankBadge and the '
         'shards a gold icon', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const GroupDetailScreen(groupId: _groupId),
-        overrides: _detailOverrides(
-          group: {
-            'id': _groupId,
-            'name': 'Disco Crew',
-            'group_shards': 100,
-            'size_tier': 'micro',
-            'rank_bracket': 'b0_20',
-          },
+      await tester.pumpWidget(
+        _wrap(
+          const GroupDetailScreen(groupId: _groupId),
+          overrides: _detailOverrides(
+            group: {
+              'id': _groupId,
+              'name': 'Disco Crew',
+              'group_shards': 100,
+              'size_tier': 'micro',
+              'rank_bracket': 'b0_20',
+            },
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
-      expect(find.text('MICRO'), findsOneWidget,
-          reason: 'the size badge is a §5.5 VBadge (uppercase labelSmall)');
+      expect(
+        find.text('MICRO'),
+        findsOneWidget,
+        reason: 'the size badge is a §5.5 VBadge (uppercase labelSmall)',
+      );
       expect(find.byType(VBadge), findsOneWidget);
       expect(find.byType(RankBadge), findsOneWidget);
       final shard = tester.widget<VShardIcon>(find.byType(VShardIcon));
@@ -303,41 +410,52 @@ void main() {
 
     testWidgets('Donar is the glowAccent filled primary; Crear evento and '
         'Invitar stay outlined', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const GroupDetailScreen(groupId: _groupId),
-        overrides: _detailOverrides(),
-      ));
+      await tester.pumpWidget(
+        _wrap(
+          const GroupDetailScreen(groupId: _groupId),
+          overrides: _detailOverrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       final donate = _buttonWithLabel(tester, 'Donar shards');
-      expect(donate.variant, VButtonVariant.glow,
-          reason: '§5.1 — the primary detail action is the glow accent');
+      expect(
+        donate.variant,
+        VButtonVariant.glow,
+        reason: '§5.1 — the primary detail action is the glow accent',
+      );
       expect(donate.filled, isTrue);
-      expect(_buttonWithLabel(tester, 'Crear evento').variant,
-          VButtonVariant.outlined);
-      expect(_buttonWithLabel(tester, 'Invitar').variant,
-          VButtonVariant.outlined);
+      expect(
+        _buttonWithLabel(tester, 'Crear evento').variant,
+        VButtonVariant.outlined,
+      );
+      expect(
+        _buttonWithLabel(tester, 'Invitar').variant,
+        VButtonVariant.outlined,
+      );
     });
 
     testWidgets('members tab renders ProfileAvatar + VBadge role + hairline '
         'rows', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const GroupDetailScreen(groupId: _groupId),
-        overrides: _detailOverrides(
-          members: [
-            {
-              'user_id': _userId1,
-              'role': 'promotor',
-              'users': {'username': 'ana'},
-            },
-            {
-              'user_id': _userId2,
-              'role': 'member',
-              'users': {'username': 'lucas'},
-            },
-          ],
+      await tester.pumpWidget(
+        _wrap(
+          const GroupDetailScreen(groupId: _groupId),
+          overrides: _detailOverrides(
+            members: [
+              {
+                'user_id': _userId1,
+                'role': 'promotor',
+                'users': {'username': 'ana'},
+              },
+              {
+                'user_id': _userId2,
+                'role': 'member',
+                'users': {'username': 'lucas'},
+              },
+            ],
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Miembros'));
@@ -352,24 +470,29 @@ void main() {
         of: find.byType(ListView),
         matching: find.byType(Divider),
       );
-      expect(rows, findsNWidgets(2),
-          reason: 'each member/contributor row closes with a hairline');
+      expect(
+        rows,
+        findsNWidgets(2),
+        reason: 'each member/contributor row closes with a hairline',
+      );
       expect(_dividerColor(tester), AppColors.hairline);
     });
 
     testWidgets('frozen banner uses the errorFill (glowPinkDeep) treatment '
         'with white text', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const GroupDetailScreen(groupId: _groupId),
-        overrides: _detailOverrides(
-          group: {
-            'id': _groupId,
-            'name': 'Disco Crew',
-            'group_shards': 100,
-            'frozen_at': '2026-01-01T00:00:00Z',
-          },
+      await tester.pumpWidget(
+        _wrap(
+          const GroupDetailScreen(groupId: _groupId),
+          overrides: _detailOverrides(
+            group: {
+              'id': _groupId,
+              'name': 'Disco Crew',
+              'group_shards': 100,
+              'frozen_at': '2026-01-01T00:00:00Z',
+            },
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       final banner = find.textContaining('Grupo congelado');
@@ -380,50 +503,96 @@ void main() {
       final container = tester.widget<Container>(
         find.ancestor(of: banner, matching: find.byType(Container)).first,
       );
-      expect(container.color, AppColors.errorFill,
-          reason: '§5.2 — never raw red on black; white-on-glowPinkDeep is '
-              '5.87:1 (AA)');
+      expect(
+        container.color,
+        AppColors.errorFill,
+        reason:
+            '§5.2 — never raw red on black; white-on-glowPinkDeep is '
+            '5.87:1 (AA)',
+      );
       final text = tester.widget<Text>(banner);
       expect(text.style?.color, AppColors.white);
+    });
+
+    testWidgets('first load shows the cover+lines skeleton, not a spinner '
+        '(U-24 §5.8)', (tester) async {
+      final gate = Completer<Map<String, dynamic>?>();
+      await tester.pumpWidget(
+        _wrap(
+          const GroupDetailScreen(groupId: _groupId),
+          overrides: [
+            groupDetailProvider.overrideWith(
+              () => _GatedGroupDetailNotifier(gate),
+            ),
+            groupMembersProvider.overrideWith(_StubGroupMembersNotifier.new),
+            contributionsProvider.overrideWith(_StubContributionsNotifier.new),
+          ],
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byType(VSkeletonDetail),
+        findsOneWidget,
+        reason:
+            'the heaviest groups screen (three stacked fetches) shows '
+            'the detail skeleton on the nothing-on-screen frame (U-22 '
+            'handoff → U-24)',
+      );
+      expect(find.byType(VLoadingView), findsNothing);
+
+      gate.complete({
+        'id': _groupId,
+        'name': 'Disco Crew',
+        'group_shards': 100,
+      });
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(VSkeletonDetail),
+        findsNothing,
+        reason: 'the skeleton is gone once the data lands',
+      );
+      expect(find.text('Disco Crew'), findsOneWidget);
     });
   });
 
   group('LeaderboardScreen (§5.5 podium + §3.2 — U-11 ledger)', () {
     List<Map<String, dynamic>> podium() => [
-          {
-            ..._group('11111111-1111-1111-1111-111111111111', 'Top Uno'),
-            'rank_position': 1,
-            'score': 500,
-            'member_count': 12,
-          },
-          {
-            ..._group('22222222-2222-2222-2222-222222222222', 'Top Dos'),
-            'rank_position': 2,
-            'score': 300,
-            'member_count': 8,
-          },
-          {
-            ..._group('33333333-3333-3333-3333-333333333333', 'Top Tres'),
-            'rank_position': 3,
-            'score': 150,
-            'member_count': 5,
-          },
-          {
-            ..._group('44444444-4444-4444-4444-444444444444', 'Cuarto'),
-            'rank_position': 4,
-            'score': 50,
-            'member_count': 3,
-          },
-        ];
+      {
+        ..._group('11111111-1111-1111-1111-111111111111', 'Top Uno'),
+        'rank_position': 1,
+        'score': 500,
+        'member_count': 12,
+      },
+      {
+        ..._group('22222222-2222-2222-2222-222222222222', 'Top Dos'),
+        'rank_position': 2,
+        'score': 300,
+        'member_count': 8,
+      },
+      {
+        ..._group('33333333-3333-3333-3333-333333333333', 'Top Tres'),
+        'rank_position': 3,
+        'score': 150,
+        'member_count': 5,
+      },
+      {
+        ..._group('44444444-4444-4444-4444-444444444444', 'Cuarto'),
+        'rank_position': 4,
+        'score': 50,
+        'member_count': 3,
+      },
+    ];
 
     Widget pumpLeaderboard() => _wrap(
-          const LeaderboardScreen(),
-          overrides: [
-            leaderboardProvider.overrideWith(
-              () => _StubLeaderboardNotifier(data: podium()),
-            ),
-          ],
-        );
+      const LeaderboardScreen(),
+      overrides: [
+        leaderboardProvider.overrideWith(
+          () => _StubLeaderboardNotifier(data: podium()),
+        ),
+      ],
+    );
 
     testWidgets('podium rows 1-3 use RankBadge rank gold/silver/bronze; the '
         'rest stay neutral', (tester) async {
@@ -442,8 +611,11 @@ void main() {
       expect(bronze.rank, 3);
       expect(_badgeBorderColor(tester, 'Top Tres'), AppColors.discoBronze);
 
-      expect(_rowBadge(tester, 'Cuarto').rank, isNull,
-          reason: 'non-top rows keep the §5.5 neutral white badge');
+      expect(
+        _rowBadge(tester, 'Cuarto').rank,
+        isNull,
+        reason: 'non-top rows keep the §5.5 neutral white badge',
+      );
     });
 
     testWidgets('top-3 names render Playfair headlineLarge with glow-soft; '
@@ -453,15 +625,21 @@ void main() {
 
       for (final name in ['Top Uno', 'Top Dos', 'Top Tres']) {
         final text = tester.widget<Text>(find.text(name));
-        expect(text.style?.fontFamily, AppTypography.playfair,
-            reason: '§3.2 — podium names are Playfair 28');
+        expect(
+          text.style?.fontFamily,
+          AppTypography.playfair,
+          reason: '§3.2 — podium names are Playfair 28',
+        );
         expect(text.style?.fontSize, 28);
         expect(text.style?.shadows, _playfairGlow);
       }
 
       final rest = tester.widget<Text>(find.text('Cuarto'));
-      expect(rest.style?.fontFamily, isNot(AppTypography.playfair),
-          reason: 'the fancy treatment is for the podium only');
+      expect(
+        rest.style?.fontFamily,
+        isNot(AppTypography.playfair),
+        reason: 'the fancy treatment is for the podium only',
+      );
     });
 
     testWidgets('tier chips are VChips (verify-only)', (tester) async {
@@ -482,22 +660,36 @@ void main() {
       await tester.pumpAndSettle();
 
       final picker = tester.widget<Container>(
-        find.ancestor(
-          of: find.byIcon(Icons.camera_alt),
-          matching: find.byType(Container),
-        ).first,
+        find
+            .ancestor(
+              of: find.byIcon(Icons.camera_alt),
+              matching: find.byType(Container),
+            )
+            .first,
       );
       final decoration = picker.decoration as BoxDecoration;
-      expect(decoration.color, AppColors.surfaceAlt,
-          reason: '§5.8 skeleton-base surface for the empty cover slot');
-      expect(decoration.border, Border.all(color: AppColors.border),
-          reason: 'the §2.1 interactive-outline token');
+      expect(
+        decoration.color,
+        AppColors.surfaceAlt,
+        reason: '§5.8 skeleton-base surface for the empty cover slot',
+      );
+      expect(
+        decoration.border,
+        Border.all(color: AppColors.border),
+        reason: 'the §2.1 interactive-outline token',
+      );
       final icon = tester.widget<Icon>(find.byIcon(Icons.camera_alt));
-      expect(icon.color, AppColors.muted,
-          reason: 'muted #666666 passes the 3:1 non-text rule as an icon');
+      expect(
+        icon.color,
+        AppColors.muted,
+        reason: 'muted #666666 passes the 3:1 non-text rule as an icon',
+      );
       final label = tester.widget<Text>(find.text('Agregar foto de portada'));
-      expect(label.style?.color, AppColors.mutedStrong,
-          reason: 'informational text must be AA (muted fails §2.4)');
+      expect(
+        label.style?.color,
+        AppColors.mutedStrong,
+        reason: 'informational text must be AA (muted fails §2.4)',
+      );
     });
 
     testWidgets('the create CTA uses glowAccent filled (§5.1 canonical '
@@ -514,47 +706,61 @@ void main() {
   group('DonateShardsScreen (§5.2/§5.1 — U-11 ledger)', () {
     testWidgets('amount VInput keeps the token label treatment and the '
         'donate CTA is glowAccent filled', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const DonateShardsScreen(groupId: _groupId, groupName: 'Test Group'),
-      ));
+      await tester.pumpWidget(
+        _wrap(
+          const DonateShardsScreen(groupId: _groupId, groupName: 'Test Group'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       final field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.decoration?.labelStyle?.color, AppColors.mutedStrong,
-          reason: 'the U-05 VInput label token (AA — the §5.2 shard-amount '
-              'seam)');
+      expect(
+        field.decoration?.labelStyle?.color,
+        AppColors.mutedStrong,
+        reason:
+            'the U-05 VInput label token (AA — the §5.2 shard-amount '
+            'seam)',
+      );
       final donate = _buttonWithLabel(tester, 'Donar');
-      expect(donate.variant, VButtonVariant.glow,
-          reason: '§5.1 — donating shards is the screen\'s primary action');
+      expect(
+        donate.variant,
+        VButtonVariant.glow,
+        reason: '§5.1 — donating shards is the screen\'s primary action',
+      );
       expect(donate.filled, isTrue);
     });
   });
 
   group('InviteScreen (§5.2/§5 avatar tiles + hairline — U-11 ledger)', () {
     Widget pumpInvite() => _wrap(
-          const InviteScreen(groupId: _groupId),
-          overrides: [
-            groupMembersProvider.overrideWith(_StubGroupMembersNotifier.new),
-            searchResultsProvider.overrideWith(
-              () => _StubSearchResultsNotifier(
-                data: [
-                  {'id': _userId1, 'username': 'ana', 'avatar_url': null},
-                  {'id': _userId2, 'username': 'lucas', 'avatar_url': null},
-                ],
-              ),
-            ),
-          ],
-        );
+      const InviteScreen(groupId: _groupId),
+      overrides: [
+        groupMembersProvider.overrideWith(_StubGroupMembersNotifier.new),
+        searchResultsProvider.overrideWith(
+          () => _StubSearchResultsNotifier(
+            data: [
+              {'id': _userId1, 'username': 'ana', 'avatar_url': null},
+              {'id': _userId2, 'username': 'lucas', 'avatar_url': null},
+            ],
+          ),
+        ),
+      ],
+    );
 
-    testWidgets('search field is theme-owned (no OutlineInputBorder)',
-        (tester) async {
+    testWidgets('search field is theme-owned (no OutlineInputBorder)', (
+      tester,
+    ) async {
       await tester.pumpWidget(pumpInvite());
       await tester.pumpAndSettle();
 
       final field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.decoration?.border, isNull,
-          reason: 'the raw OutlineInputBorder is gone — the U-04 '
-              'inputDecorationTheme underline owns the field');
+      expect(
+        field.decoration?.border,
+        isNull,
+        reason:
+            'the raw OutlineInputBorder is gone — the U-04 '
+            'inputDecorationTheme underline owns the field',
+      );
     });
 
     testWidgets('result rows render ProfileAvatar with hairline separators '
@@ -568,16 +774,50 @@ void main() {
 
       expect(find.byType(ProfileAvatar), findsNWidgets(2));
       expect(find.text('@lucas'), findsOneWidget);
-      expect(find.byType(Checkbox), findsNWidgets(2),
-          reason: 'the selection checkbox survives (U-04 sharp theme)');
-      expect(find.byType(Divider), findsOneWidget,
-          reason: '2 results → 1 hairline separator');
+      expect(
+        find.byType(Checkbox),
+        findsNWidgets(2),
+        reason: 'the selection checkbox survives (U-04 sharp theme)',
+      );
+      expect(
+        find.byType(Divider),
+        findsOneWidget,
+        reason: '2 results → 1 hairline separator',
+      );
       expect(_dividerColor(tester), AppColors.hairline);
+    });
+
+    testWidgets('search loading renders the §5.8 spinner, not a Material '
+        'linear bar (U-24)', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const InviteScreen(groupId: _groupId),
+          overrides: [
+            groupMembersProvider.overrideWith(_StubGroupMembersNotifier.new),
+            searchResultsProvider.overrideWith(
+              _PendingSearchResultsNotifier.new,
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'lu');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump();
+
+      expect(
+        find.byType(VLoadingView),
+        findsOneWidget,
+        reason:
+            'the search-loading surface is the §5.8 spinner — the raw '
+            'Material LinearProgressIndicator is gone (U-24)',
+      );
+      expect(find.byType(LinearProgressIndicator), findsNothing);
     });
   });
 
-  group('GroupMembersScreen (§5 avatar tiles + role badges — U-11 ledger)',
-      () {
+  group('GroupMembersScreen (§5 avatar tiles + role badges — U-11 ledger)', () {
     testWidgets('rows render ProfileAvatar + VBadge roles with hairline '
         'separators', (tester) async {
       final repo = _MockGroupsRepository();
@@ -602,17 +842,22 @@ void main() {
         ],
       );
 
-      await tester.pumpWidget(_wrap(
-        const GroupMembersScreen(groupId: _groupId),
-        overrides: [groupsRepositoryProvider.overrideWithValue(repo)],
-      ));
+      await tester.pumpWidget(
+        _wrap(
+          const GroupMembersScreen(groupId: _groupId),
+          overrides: [groupsRepositoryProvider.overrideWithValue(repo)],
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byType(ProfileAvatar), findsNWidgets(2));
       expect(find.text('PROMOTOR'), findsOneWidget);
       expect(find.text('MEMBER'), findsOneWidget);
-      expect(find.byType(Divider), findsOneWidget,
-          reason: '2 rows → 1 hairline separator');
+      expect(
+        find.byType(Divider),
+        findsOneWidget,
+        reason: '2 rows → 1 hairline separator',
+      );
       expect(_dividerColor(tester), AppColors.hairline);
     });
   });

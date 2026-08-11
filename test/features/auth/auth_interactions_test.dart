@@ -11,6 +11,8 @@ import 'package:samay/features/auth/screens/forgot_password_screen.dart';
 import 'package:samay/features/auth/screens/otp_verification_screen.dart';
 import 'package:samay/features/auth/screens/profile_setup_screen.dart';
 import 'package:samay/features/auth/screens/signup_contact_screen.dart';
+import 'package:samay/features/auth/screens/age_gate_screen.dart';
+import 'package:samay/features/auth/screens/privacy_terms_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
 /// Deterministic auth notifier for the auth-screen interaction tests (I-45,
@@ -117,13 +119,18 @@ Future<_AuthHarness> _pump(
         path: RoutePaths.forgotPassword,
         builder: (_, _) => const ForgotPasswordScreen(),
       ),
-      GoRoute(
-        path: RoutePaths.login,
-        builder: (_, _) => const LoginScreen(),
-      ),
+      GoRoute(path: RoutePaths.login, builder: (_, _) => const LoginScreen()),
       GoRoute(
         path: RoutePaths.mainFeed,
         builder: (_, _) => const Scaffold(body: Text('main-feed-marker')),
+      ),
+      GoRoute(
+        path: RoutePaths.privacyTerms,
+        builder: (_, _) => const Scaffold(body: Text('privacy-marker')),
+      ),
+      GoRoute(
+        path: RoutePaths.profileSetup,
+        builder: (_, _) => const Scaffold(body: Text('setup-marker')),
       ),
     ],
   );
@@ -150,21 +157,23 @@ Future<void> _unmount(WidgetTester tester) async {
 void main() {
   group('LoginScreen — interactions (TST-07/M-14)', () {
     testWidgets(
-        'enterText email+password then tap "Iniciar sesión" calls signIn '
-        'with the values and navigates to the feed', (tester) async {
-      final notifier = _RecordingAuthNotifier();
-      await _pump(tester, const LoginScreen(), notifier);
-      await tester.pumpAndSettle();
+      'enterText email+password then tap "Iniciar sesión" calls signIn '
+      'with the values and navigates to the feed',
+      (tester) async {
+        final notifier = _RecordingAuthNotifier();
+        await _pump(tester, const LoginScreen(), notifier);
+        await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField).at(0), 'a@b.com');
-      await tester.enterText(find.byType(TextField).at(1), 'secret1');
-      await tester.tap(find.widgetWithText(TextButton, 'Iniciar sesión'));
-      await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).at(0), 'a@b.com');
+        await tester.enterText(find.byType(TextField).at(1), 'secret1');
+        await tester.tap(find.widgetWithText(TextButton, 'Iniciar sesión'));
+        await tester.pumpAndSettle();
 
-      expect(notifier.signInCalls, [('a@b.com', 'secret1')]);
-      expect(find.text('main-feed-marker'), findsOneWidget);
-      expect(find.byType(LoginScreen), findsNothing);
-    });
+        expect(notifier.signInCalls, [('a@b.com', 'secret1')]);
+        expect(find.text('main-feed-marker'), findsOneWidget);
+        expect(find.byType(LoginScreen), findsNothing);
+      },
+    );
 
     testWidgets('empty fields do not fire signIn', (tester) async {
       final notifier = _RecordingAuthNotifier();
@@ -245,7 +254,8 @@ void main() {
 
       expect(
         find.text(
-            'La contraseña debe tener al menos 6 caracteres y contener un número.'),
+          'La contraseña debe tener al menos 6 caracteres y contener un número.',
+        ),
         findsOneWidget,
       );
       expect(notifier.checkEmailCalls, isEmpty);
@@ -272,8 +282,9 @@ void main() {
   });
 
   group('ProfileSetupScreen — interactions (TST-07/M-14)', () {
-    testWidgets('empty username: no createProfile call and no navigation',
-        (tester) async {
+    testWidgets('empty username: no createProfile call and no navigation', (
+      tester,
+    ) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(
         tester,
@@ -417,6 +428,133 @@ void main() {
       expect(
         find.text('Te enviamos un enlace para restablecer tu contraseña'),
         findsNothing,
+      );
+    });
+  });
+
+  group('AgeGateScreen — legal-funnel interactions (U-14 R5 keep)', () {
+    /// Opens the date picker and picks [year] from the year grid (the
+    /// year-toggle + es Material "ACEPTAR" confirm; picked via plain texts).
+    Future<void> pickDobYear(WidgetTester tester, String year) async {
+      await tester.tap(find.text('Seleccionar fecha'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining(RegExp(r'\d{4}')));
+      await tester.pumpAndSettle();
+      final yearFinder = find.descendant(
+        of: find.byType(DatePickerDialog),
+        matching: find.text(year),
+      );
+      await tester.ensureVisible(yearFinder);
+      await tester.pumpAndSettle();
+      await tester.tap(yearFinder);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('ACEPTAR'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('an underage birth date shows the §5.2 error and keeps '
+        'Continuar disabled', (tester) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const AgeGateScreen(email: 'a@b.com'), notifier);
+      await tester.pumpAndSettle();
+
+      TextButton continueButton() => tester.widget<TextButton>(
+        find.widgetWithText(TextButton, 'Continuar'),
+      );
+      expect(
+        continueButton().onPressed,
+        isNull,
+        reason: 'no birth date → Continuar stays disabled',
+      );
+
+      await pickDobYear(tester, '2014');
+      expect(
+        find.text('Debes tener 18 años para usar Samay'),
+        findsOneWidget,
+        reason: 'the underage message is the legal-funnel gate (glowPink)',
+      );
+      expect(continueButton().onPressed, isNull);
+    });
+
+    testWidgets('an adult birth date enables Continuar, which pushes the '
+        'privacy-terms screen with the extras', (tester) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const AgeGateScreen(email: 'a@b.com'), notifier);
+      await tester.pumpAndSettle();
+
+      await pickDobYear(tester, '2000');
+      expect(
+        find.textContaining('2000'),
+        findsOneWidget,
+        reason: 'the picker button renders the selected DOB (dd/mm/yyyy)',
+      );
+      final continueButton = tester.widget<TextButton>(
+        find.widgetWithText(TextButton, 'Continuar'),
+      );
+      expect(continueButton.onPressed, isNotNull);
+
+      await tester.tap(find.text('Continuar'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('privacy-marker'),
+        findsOneWidget,
+        reason: 'the age gate hands off to the legal funnel (U-14 R5)',
+      );
+    });
+  });
+
+  group('PrivacyTermsScreen — consent interactions (U-14 R5 keep)', () {
+    testWidgets('"Crear cuenta" stays disabled until BOTH consents are '
+        'ticked, then navigates to profile setup', (tester) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(
+        tester,
+        const PrivacyTermsScreen(email: 'a@b.com', dateOfBirth: '2000-01-01'),
+        notifier,
+      );
+      await tester.pumpAndSettle();
+
+      TextButton cta() => tester.widget<TextButton>(
+        find.widgetWithText(TextButton, 'Crear cuenta'),
+      );
+      expect(
+        cta().onPressed,
+        isNull,
+        reason: 'no consent → the account-creation CTA is disabled',
+      );
+
+      await tester.tap(find.text('Crear cuenta'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(
+        find.text('setup-marker'),
+        findsNothing,
+        reason: 'tapping the disabled CTA does nothing (U-23 F4 class)',
+      );
+
+      await tester.tap(find.text('Acepto la Política de Privacidad'));
+      await tester.pump();
+      expect(
+        cta().onPressed,
+        isNull,
+        reason: 'one of two consents is not enough',
+      );
+
+      await tester.tap(find.text('Acepto los Términos de Servicio'));
+      await tester.pump();
+      expect(
+        cta().onPressed,
+        isNotNull,
+        reason: 'both consents → the legal funnel CTA unlocks',
+      );
+
+      await tester.tap(find.text('Crear cuenta'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('setup-marker'),
+        findsOneWidget,
+        reason: 'the legal funnel hands off to profile setup (U-14 R5)',
       );
     });
   });

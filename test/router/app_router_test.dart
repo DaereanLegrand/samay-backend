@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:samay/app.dart';
 import 'package:samay/core/config/feature_flags.dart';
 import 'package:samay/core/models/event_photo.dart';
@@ -702,6 +703,83 @@ void main() {
         controller.add(true);
         await tester.pumpAndSettle();
         expect(find.text(offlineCopy), findsNothing);
+      });
+    });
+
+    group('NAV-08 — tab routes use NoTransitionPage (U-18)', () {
+      /// The go_router shell's own Navigator — the one whose pages are the
+      /// tab screens (the root Navigator holds the shell + pushed routes).
+      Navigator shellNavigator(WidgetTester tester) {
+        return tester
+            .widgetList<Navigator>(find.byType(Navigator))
+            .firstWhere(
+              (n) => n.pages.any((p) => p is NoTransitionPage),
+              orElse: () => fail(
+                'expected the shell Navigator to hold NoTransitionPage pages '
+                '(NAV-08)',
+              ),
+            );
+      }
+
+      testWidgets('every tab route builds a NoTransitionPage and never a '
+          'slide/zoom MaterialPage (NAV-08)', (tester) async {
+        final container = _newContainer();
+        for (final path in [
+          RoutePaths.mainFeed,
+          RoutePaths.mainGroups,
+          RoutePaths.mainEvents,
+          RoutePaths.mainNotifications,
+          RoutePaths.mainProfile,
+        ]) {
+          await _pumpRoute(tester, container, path);
+          final nav = shellNavigator(tester);
+          expect(
+            nav.pages.whereType<NoTransitionPage>(),
+            isNotEmpty,
+            reason: '$path must build a NoTransitionPage (NAV-08)',
+          );
+          expect(
+            nav.pages.whereType<MaterialPage>(),
+            isEmpty,
+            reason: '$path must not build a slide-in MaterialPage (NAV-08)',
+          );
+        }
+      });
+
+      testWidgets('a tab switch swaps the page with no slide/zoom wrapper — '
+          'the subtle motion is the 150ms VTabFade fade-in only', (
+        tester,
+      ) async {
+        final container = _newContainer();
+        await _pumpRoute(tester, container, RoutePaths.mainFeed);
+
+        await tester.tap(find.byIcon(Icons.group_outlined));
+        await tester.pump();
+
+        expect(find.byType(MyGroupsScreen), findsOneWidget,
+            reason: 'the incoming tab is already present after one frame');
+        expect(
+          find.descendant(
+            // Page-transition wrappers of the tab pages live BETWEEN the
+            // shell Navigator and the page's own Scaffold. Scaffold's FAB
+            // machinery also uses ScaleTransitions — but inside the page,
+            // never as ancestors of the screen widget; and the ROOT
+            // navigator's shell-page transition sits above the shell
+            // Navigator. The intersection is therefore exactly the tab
+            // page-transition wrappers — empty under NoTransitionPage.
+            of: find.byWidget(shellNavigator(tester)),
+            matching: find.ancestor(
+              of: find.byType(MyGroupsScreen),
+              matching: find.byWidgetPredicate(
+                (w) => w is SlideTransition || w is ScaleTransition,
+              ),
+            ),
+          ),
+          findsNothing,
+          reason: 'NoTransitionPage disposes the old tab instantly — no '
+              'slide/zoom wrapper around the incoming one (NAV-08)',
+        );
+        expect(find.byType(BottomNavigationBar), findsOneWidget);
       });
     });
   });

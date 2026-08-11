@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,8 @@ import 'package:samay/core/services/realtime_service.dart';
 import 'package:samay/features/notifications/screens/notification_center_screen.dart';
 import 'package:samay/features/notifications/providers/notifications_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/skeletons.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 /// Notification center tests (I-53, NOTI): provider list/refresh/markRead
@@ -43,10 +47,14 @@ Map<String, dynamic> _row(
 /// Fake service standing in for [notificationServiceProvider]: in-memory
 /// rows, a record of marked ids, and captured realtime insert callbacks.
 class _FakeNotificationService implements NotificationService {
-  _FakeNotificationService(this.rows, {this.error});
+  _FakeNotificationService(this.rows, {this.error, this.gate});
 
   final List<Map<String, dynamic>> rows;
   final Object? error;
+
+  /// When set, [getNotifications] awaits it before resolving — tests hold
+  /// the provider in the loading state deterministically.
+  final Future<void>? gate;
   final List<String> markedRead = [];
   final List<void Function(Map<String, dynamic>)> onInserts = [];
   _MockRealtimeChannel? _channel;
@@ -65,6 +73,8 @@ class _FakeNotificationService implements NotificationService {
 
   @override
   Future<List<Map<String, dynamic>>> getNotifications() async {
+    final g = gate;
+    if (g != null) await g;
     if (error != null) throw error!;
     return List.of(rows);
   }
@@ -89,9 +99,9 @@ class _FakeNotificationService implements NotificationService {
 }
 
 ProviderContainer _container(_FakeNotificationService service) {
-  final container = ProviderContainer(overrides: [
-    notificationServiceProvider.overrideWithValue(service),
-  ]);
+  final container = ProviderContainer(
+    overrides: [notificationServiceProvider.overrideWithValue(service)],
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -214,10 +224,9 @@ void main() {
     });
 
     test('surfaces AsyncError when the service fails', () async {
-      final fake = _FakeNotificationService(
-        [_row('n-1')],
-        error: Exception('boom'),
-      );
+      final fake = _FakeNotificationService([
+        _row('n-1'),
+      ], error: Exception('boom'));
       final container = _container(fake);
 
       await expectLater(
@@ -249,29 +258,44 @@ void main() {
     final now = DateTime(2026, 8, 9, 12, 0, 0);
 
     test('buckets sub-minute deltas as now', () {
-      final span = notificationTimeSpan(now.subtract(const Duration(seconds: 30)), now);
+      final span = notificationTimeSpan(
+        now.subtract(const Duration(seconds: 30)),
+        now,
+      );
       expect(span.age, NotificationAge.now);
     });
 
     test('buckets future timestamps as now (clock skew)', () {
-      final span = notificationTimeSpan(now.add(const Duration(minutes: 2)), now);
+      final span = notificationTimeSpan(
+        now.add(const Duration(minutes: 2)),
+        now,
+      );
       expect(span.age, NotificationAge.now);
     });
 
     test('buckets minutes under an hour', () {
-      final span = notificationTimeSpan(now.subtract(const Duration(minutes: 5)), now);
+      final span = notificationTimeSpan(
+        now.subtract(const Duration(minutes: 5)),
+        now,
+      );
       expect(span.age, NotificationAge.minutes);
       expect(span.value, 5);
     });
 
     test('buckets hours under a day', () {
-      final span = notificationTimeSpan(now.subtract(const Duration(hours: 3)), now);
+      final span = notificationTimeSpan(
+        now.subtract(const Duration(hours: 3)),
+        now,
+      );
       expect(span.age, NotificationAge.hours);
       expect(span.value, 3);
     });
 
     test('buckets days beyond', () {
-      final span = notificationTimeSpan(now.subtract(const Duration(days: 2)), now);
+      final span = notificationTimeSpan(
+        now.subtract(const Duration(days: 2)),
+        now,
+      );
       expect(span.age, NotificationAge.days);
       expect(span.value, 2);
     });
@@ -297,10 +321,7 @@ void main() {
     });
 
     test('maps qr_active to the QR route', () {
-      expect(
-        notificationDeepLink('qr_active', {'event_id': 'e1'}),
-        '/qr/e1',
-      );
+      expect(notificationDeepLink('qr_active', {'event_id': 'e1'}), '/qr/e1');
     });
 
     test('maps friend_request to the public profile route', () {
@@ -330,7 +351,10 @@ void main() {
     test('returns null without data or ids', () {
       expect(notificationDeepLink('event_invite', null), isNull);
       expect(notificationDeepLink('event_invite', const {}), isNull);
-      expect(notificationDeepLink('event_invite', const {'foo': 'bar'}), isNull);
+      expect(
+        notificationDeepLink('event_invite', const {'foo': 'bar'}),
+        isNull,
+      );
     });
   });
 
@@ -364,10 +388,46 @@ void main() {
   });
 
   group('NotificationCenterScreen', () {
-    testWidgets('renders items with icon, title, body and relative time',
-        (tester) async {
-      final fiveMinutesAgo =
-          DateTime.now().toUtc().subtract(const Duration(minutes: 5));
+    testWidgets('shows the avatar+lines skeleton while the provider is '
+        'pending (U-22 §5.8)', (tester) async {
+      final gate = Completer<void>();
+      final service = _FakeNotificationService([
+        _row('n-1', title: 'Invitación a evento'),
+      ], gate: gate.future);
+      final container = _container(service);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            locale: Locale('es'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: NotificationCenterScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byType(VSkeletonList),
+        findsOneWidget,
+        reason: 'first load shows the list skeleton, not a spinner',
+      );
+      expect(find.byType(VLoadingView), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VSkeletonList), findsNothing);
+      expect(find.text('Invitación a evento'), findsOneWidget);
+    });
+
+    testWidgets('renders items with icon, title, body and relative time', (
+      tester,
+    ) async {
+      final fiveMinutesAgo = DateTime.now().toUtc().subtract(
+        const Duration(minutes: 5),
+      );
       final service = _FakeNotificationService([
         _row(
           'n-1',
@@ -399,8 +459,10 @@ void main() {
       await _pumpScreen(tester, _FakeNotificationService([]));
 
       expect(find.text('Sin notificaciones'), findsOneWidget);
-      expect(find.text('Cuando recibas novedades, aparecerán aquí.'),
-          findsOneWidget);
+      expect(
+        find.text('Cuando recibas novedades, aparecerán aquí.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('shows the unread dot only on unread items', (tester) async {
@@ -414,8 +476,9 @@ void main() {
       expect(find.byKey(const ValueKey('unread-dot-n-2')), findsNothing);
     });
 
-    testWidgets('tapping a notification without a deep link marks it read',
-        (tester) async {
+    testWidgets('tapping a notification without a deep link marks it read', (
+      tester,
+    ) async {
       final service = _FakeNotificationService([_row('n-1', data: null)]);
       await _pumpScreen(tester, service);
 
@@ -426,36 +489,39 @@ void main() {
       expect(find.byKey(const ValueKey('unread-dot-n-1')), findsNothing);
     });
 
-    testWidgets('tapping a notification with a registered deep link navigates',
-        (tester) async {
-      final service = _FakeNotificationService([
-        _row('n-1', type: 'event_invite', data: {'event_id': 'e1'}),
-      ]);
-      final router = GoRouter(
-        initialLocation: RoutePaths.mainNotifications,
-        routes: [
-          GoRoute(
-            path: RoutePaths.mainNotifications,
-            builder: (_, _) => const NotificationCenterScreen(),
-          ),
-          GoRoute(
-            path: RoutePaths.eventDetail('e1'),
-            builder: (_, _) =>
-                const Scaffold(body: Center(child: Text('EVENT STUB'))),
-          ),
-        ],
-      );
-      await _pumpScreen(tester, service, router: router);
+    testWidgets(
+      'tapping a notification with a registered deep link navigates',
+      (tester) async {
+        final service = _FakeNotificationService([
+          _row('n-1', type: 'event_invite', data: {'event_id': 'e1'}),
+        ]);
+        final router = GoRouter(
+          initialLocation: RoutePaths.mainNotifications,
+          routes: [
+            GoRoute(
+              path: RoutePaths.mainNotifications,
+              builder: (_, _) => const NotificationCenterScreen(),
+            ),
+            GoRoute(
+              path: RoutePaths.eventDetail('e1'),
+              builder: (_, _) =>
+                  const Scaffold(body: Center(child: Text('EVENT STUB'))),
+            ),
+          ],
+        );
+        await _pumpScreen(tester, service, router: router);
 
-      await tester.tap(find.text('Invitación a evento'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Invitación a evento'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('EVENT STUB'), findsOneWidget);
-      expect(service.markedRead, ['n-1']);
-    });
+        expect(find.text('EVENT STUB'), findsOneWidget);
+        expect(service.markedRead, ['n-1']);
+      },
+    );
 
-    testWidgets('a realtime insert appends the new notification',
-        (tester) async {
+    testWidgets('a realtime insert appends the new notification', (
+      tester,
+    ) async {
       final service = _FakeNotificationService([_row('n-1', data: null)]);
       await _pumpScreen(tester, service);
       expect(find.text('Invitación a evento'), findsOneWidget);

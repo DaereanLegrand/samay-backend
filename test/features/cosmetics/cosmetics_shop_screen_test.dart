@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +11,8 @@ import 'package:samay/features/cosmetics/screens/cosmetics_shop_screen.dart';
 import 'package:samay/features/profile/providers/profile_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
+import 'package:samay/shared/widgets/skeletons.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 /// Widget-level tests for the cosmetics shop screen (I-62): catalog grid
@@ -62,6 +66,10 @@ class _FakeShardsService implements ShardsService {
   final List<(String, bool)> equips = [];
   Object? purchaseError;
 
+  /// When set, [listCosmetics] waits on it (skeleton-frame pinning, the
+  /// U-22 feed-test pattern).
+  Future<void>? gate;
+
   @override
   SupabaseClient get client => throw UnimplementedError();
 
@@ -90,6 +98,7 @@ class _FakeShardsService implements ShardsService {
   @override
   Future<List<Map<String, dynamic>>> listCosmetics() async {
     catalogFetches++;
+    if (gate != null) await gate;
     return List.of(catalog);
   }
 
@@ -169,6 +178,35 @@ Future<void> _pumpShop(WidgetTester tester, Widget widget) async {
 
 void main() {
   group('CosmeticsShopScreen catalog', () {
+    testWidgets(
+        'shows the card-grid skeleton while the catalog is pending '
+        '(U-22 handoff, §5.8)', (tester) async {
+      final gate = Completer<void>();
+      final service = _FakeShardsService(
+        catalog: [_catalogItem(name: 'Marco Neon')],
+      )..gate = gate.future;
+      // Bounded pump: the shimmer sweep never settles while the gate is
+      // pending, so pumpAndSettle would time out (the U-22 feed-test pattern).
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(_wrap(service: service));
+      await tester.pump();
+
+      expect(
+        find.byType(VSkeletonGrid),
+        findsOneWidget,
+        reason: 'the grid shop shows the §5.3 card-grid skeleton on first '
+            'load, not the bare spinner',
+      );
+      expect(find.byType(VLoadingView), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(VSkeletonGrid), findsNothing);
+      expect(find.text('Marco Neon'), findsOneWidget);
+    });
+
     testWidgets('renders items with name, cost, type label and tier badge', (
       tester,
     ) async {
@@ -209,6 +247,7 @@ void main() {
       await _pumpShop(tester, _wrap(service: service));
 
       expect(find.text('No hay cosméticos disponibles aún'), findsOneWidget);
+      expect(find.byType(VEmptyView), findsOneWidget);
     });
 
     testWidgets('renders an ErrorView with retry when the catalog fails', (

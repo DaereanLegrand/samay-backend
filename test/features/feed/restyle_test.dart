@@ -13,8 +13,8 @@ import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_badge.dart';
 import 'package:samay/shared/widgets/v_card.dart';
 import 'package:samay/shared/widgets/v_chip.dart';
+import 'package:samay/shared/widgets/v_breathing_glow.dart';
 import 'package:samay/shared/widgets/v_disco_divider.dart';
-import 'package:samay/shared/widgets/v_glow_text.dart';
 import 'package:samay/shared/widgets/v_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
@@ -27,9 +27,9 @@ import '../../support/fake_config_provider.dart';
 /// assertions for data + flow (all unchanged and green). This file pins the
 /// *deliberate visual changes* from the U-08 ledger only:
 ///
-/// 1. The 'Samay' brand header renders through [VGlowText] (Playfair Display
-///    italic `displaySmall` + the glow-strong stack — §3.2/§3.4, the doc's
-///    fancy moment).
+/// 1. The 'Samay' brand header renders through [VBreathingGlow] (Playfair
+///    Display italic `displaySmall` + the glow-strong stack — §3.2/§3.4,
+///    breathed by U-18's §6.2 disco-glow animation, α0.75→α1.0).
 /// 2. Section separators use [VDiscoDivider] (hairline + centered glowPink
 ///    segment, U-06): header→content always when events exist, plus
 ///    featured→list when both sections exist.
@@ -162,12 +162,12 @@ Container _featuredCard(WidgetTester tester) {
 }
 
 void main() {
-  group('Feed hero — VGlowText brand header (§3.2/§3.4)', () {
-    testWidgets("the 'Samay' header renders through VGlowText with the "
+  group('Feed hero — VBreathingGlow brand header (§3.2/§3.4/§6.2)', () {
+    testWidgets("the 'Samay' header renders through VBreathingGlow with the "
         'glow-strong displaySmall stack', (tester) async {
       await _pumpScreen(tester, _FakeEventService([_eventRow('e-1')]));
 
-      final glow = tester.widget<VGlowText>(find.byType(VGlowText));
+      final glow = tester.widget<VBreathingGlow>(find.byType(VBreathingGlow));
       expect(glow.text, 'Samay');
       expect(
         glow.soft,
@@ -179,13 +179,22 @@ void main() {
       expect(text.style?.fontFamily, AppTypography.playfair);
       expect(text.style?.fontSize, AppTypography.displaySmall.fontSize);
       expect(text.style?.fontStyle, FontStyle.italic);
-      expect(
-        text.style?.shadows,
-        AppTypography.fancyTitle(AppTypography.displaySmall).shadows,
-        reason:
-            'the hero glow must be byte-identical to the canonical '
-            'glow-strong stack (§3.4 parity, U-06)',
-      );
+      final canonical =
+          AppTypography.fancyTitle(AppTypography.displaySmall).shadows!;
+      final animated = text.style!.shadows!;
+      expect(animated, hasLength(canonical.length),
+          reason: 'the §3.4 layer count is preserved by the breath (§6.2)');
+      for (var i = 0; i < canonical.length; i++) {
+        expect(animated[i].blurRadius, canonical[i].blurRadius,
+            reason: 'blur radii stay em-relative (§3.4)');
+        expect(
+          animated[i].color.a,
+          greaterThanOrEqualTo(canonical[i].color.a * 0.75),
+          reason: 'the breath never drops below the α0.75 floor (§6.2)',
+        );
+        expect(animated[i].color.a, lessThanOrEqualTo(canonical[i].color.a),
+            reason: 'and never exceeds the canonical α1.0 stack (§6.2)');
+      }
     });
   });
 

@@ -113,21 +113,17 @@ List<Override> _loadedGroupDetailOverrides({
   Map<String, dynamic>? group,
   List<Map<String, dynamic>> members = const [],
 }) => [
-      groupDetailProvider.overrideWith(
-        () => _StubGroupDetailNotifier(
-          data: group ??
-              {
-                'id': _groupId,
-                'name': 'Disco Crew',
-                'group_shards': 100,
-              },
-        ),
-      ),
-      groupMembersProvider.overrideWith(
-        () => _StubGroupMembersNotifier(data: members),
-      ),
-      contributionsProvider.overrideWith(_StubContributionsNotifier.new),
-    ];
+  groupDetailProvider.overrideWith(
+    () => _StubGroupDetailNotifier(
+      data:
+          group ?? {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
+    ),
+  ),
+  groupMembersProvider.overrideWith(
+    () => _StubGroupMembersNotifier(data: members),
+  ),
+  contributionsProvider.overrideWith(_StubContributionsNotifier.new),
+];
 
 void main() {
   setUpAll(() => support.initSupabaseHarness(sessionEmail: 'a@b.com'));
@@ -137,10 +133,16 @@ void main() {
         'and the overflow menu is gone when not frozen', (tester) async {
       await _pumpGroupDetail(tester, _loadedGroupDetailOverrides());
 
-      expect(find.text('Abandonar grupo'), findsOneWidget,
-          reason: 'the leave trigger lives inline in the header (R16)');
-      expect(find.byType(PopupMenuButton<String>), findsNothing,
-          reason: 'no overflow menu when the group is not frozen (R16)');
+      expect(
+        find.text('Abandonar grupo'),
+        findsOneWidget,
+        reason: 'the leave trigger lives inline in the header (R16)',
+      );
+      expect(
+        find.byType(PopupMenuButton<String>),
+        findsNothing,
+        reason: 'no overflow menu when the group is not frozen (R16)',
+      );
     });
 
     testWidgets('leave flow: inline row → confirm dialog → leaveGroup call → '
@@ -153,8 +155,11 @@ void main() {
 
       await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
-      expect(find.byType(GroupDetailScreen), findsOneWidget,
-          reason: 'cancelling keeps the screen');
+      expect(
+        find.byType(GroupDetailScreen),
+        findsOneWidget,
+        reason: 'cancelling keeps the screen',
+      );
 
       await tester.tap(find.text('Abandonar grupo'));
       await tester.pumpAndSettle();
@@ -184,14 +189,21 @@ void main() {
         ),
       );
 
-      expect(find.byType(PopupMenuButton<String>), findsOneWidget,
-          reason: 'the frozen marker lives in the overflow menu (R16)');
+      expect(
+        find.byType(PopupMenuButton<String>),
+        findsOneWidget,
+        reason: 'the frozen marker lives in the overflow menu (R16)',
+      );
       await tester.tap(find.byType(PopupMenuButton<String>));
       await tester.pumpAndSettle();
       expect(find.text('Grupo congelado'), findsOneWidget);
-      expect(find.text('Abandonar grupo'), findsOneWidget,
-          reason: 'the only "Abandonar grupo" is the inline row — the menu '
-              'offers no leave item');
+      expect(
+        find.text('Abandonar grupo'),
+        findsOneWidget,
+        reason:
+            'the only "Abandonar grupo" is the inline row — the menu '
+            'offers no leave item',
+      );
     });
   });
 
@@ -207,10 +219,10 @@ void main() {
         );
 
     List<GroupMember> membersWithMe(String myRole) => [
-          memberModel(_myUserId, 'yo', myRole),
-          memberModel(_userId2, 'lucas', 'member'),
-          memberModel(_userId3, 'marta', 'co_promotor'),
-        ];
+      memberModel(_myUserId, 'yo', myRole),
+      memberModel(_userId2, 'lucas', 'member'),
+      memberModel(_userId3, 'marta', 'co_promotor'),
+    ];
 
     Widget membersScreen(
       WidgetTester tester, {
@@ -225,52 +237,71 @@ void main() {
     testWidgets('admin (promotor) rows open the sheet with role-fitting '
         'options', (tester) async {
       final groups = _MockGroupsRepository();
-      when(() => groups.getGroupMembers(_groupId))
-          .thenAnswer((_) async => membersWithMe('promotor'));
+      when(
+        () => groups.getGroupMembers(_groupId),
+      ).thenAnswer((_) async => membersWithMe('promotor'));
       await tester.pumpWidget(membersScreen(tester, groups: groups));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('lucas'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Hacer co-promotor'), findsOneWidget,
-          reason: 'member rows offer the promote option (R17)');
-      expect(find.text('Expulsar del grupo'), findsOneWidget,
-          reason: 'member rows offer the kick option (R17)');
-      expect(find.text('Hacer miembro'), findsNothing,
-          reason: 'the demote option fits co_promotor rows only');
+      expect(
+        find.text('Hacer co-promotor'),
+        findsOneWidget,
+        reason: 'member rows offer the promote option (R17)',
+      );
+      expect(
+        find.text('Expulsar del grupo'),
+        findsOneWidget,
+        reason: 'member rows offer the kick option (R17)',
+      );
+      expect(
+        find.text('Hacer miembro'),
+        findsNothing,
+        reason: 'the demote option fits co_promotor rows only',
+      );
 
       Navigator.of(tester.element(find.text('Hacer co-promotor'))).pop();
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('marta'));
       await tester.pumpAndSettle();
-      expect(find.text('Hacer miembro'), findsOneWidget,
-          reason: 'co_promotor rows offer the demote option (R17)');
+      expect(
+        find.text('Hacer miembro'),
+        findsOneWidget,
+        reason: 'co_promotor rows offer the demote option (R17)',
+      );
     });
 
     testWidgets('non-admin (member) rows never open the sheet', (tester) async {
       final groups = _MockGroupsRepository();
-      when(() => groups.getGroupMembers(_groupId))
-          .thenAnswer((_) async => membersWithMe('member'));
+      when(
+        () => groups.getGroupMembers(_groupId),
+      ).thenAnswer((_) async => membersWithMe('member'));
       await tester.pumpWidget(membersScreen(tester, groups: groups));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('lucas'), warnIfMissed: false);
       await tester.pumpAndSettle();
 
-      expect(find.text('Hacer co-promotor'), findsNothing,
-          reason: 'non-admins see no member actions (R17)');
+      expect(
+        find.text('Hacer co-promotor'),
+        findsNothing,
+        reason: 'non-admins see no member actions (R17)',
+      );
       expect(find.byType(BottomSheet), findsNothing);
     });
 
     testWidgets('kick requires confirmation, then calls kickMember and '
         'reloads the list', (tester) async {
       final groups = _MockGroupsRepository();
-      when(() => groups.getGroupMembers(_groupId))
-          .thenAnswer((_) async => membersWithMe('promotor'));
-      when(() => groups.kickMember(_groupId, _userId2))
-          .thenAnswer((_) async {});
+      when(
+        () => groups.getGroupMembers(_groupId),
+      ).thenAnswer((_) async => membersWithMe('promotor'));
+      when(
+        () => groups.kickMember(_groupId, _userId2),
+      ).thenAnswer((_) async {});
       await tester.pumpWidget(membersScreen(tester, groups: groups));
       await tester.pumpAndSettle();
 
@@ -279,14 +310,20 @@ void main() {
       await tester.tap(find.text('Expulsar del grupo'));
       await tester.pumpAndSettle();
 
-      expect(find.text('¿Expulsar a lucas?'), findsOneWidget,
-          reason: 'kick is confirmed via a dialog first (R17/F8)');
+      expect(
+        find.text('¿Expulsar a lucas?'),
+        findsOneWidget,
+        reason: 'kick is confirmed via a dialog first (R17/F8)',
+      );
 
       await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
       verifyNever(() => groups.kickMember(_groupId, _userId2));
-      expect(find.text('Hacer co-promotor'), findsOneWidget,
-          reason: 'cancelling the confirm keeps the sheet open');
+      expect(
+        find.text('Hacer co-promotor'),
+        findsOneWidget,
+        reason: 'cancelling the confirm keeps the sheet open',
+      );
 
       await tester.tap(find.text('Expulsar del grupo'));
       await tester.pumpAndSettle();
@@ -299,10 +336,12 @@ void main() {
 
     testWidgets('promote calls setMemberRole with co_promotor', (tester) async {
       final groups = _MockGroupsRepository();
-      when(() => groups.getGroupMembers(_groupId))
-          .thenAnswer((_) async => membersWithMe('promotor'));
-      when(() => groups.setMemberRole(_groupId, _userId2, 'co_promotor'))
-          .thenAnswer((_) async {});
+      when(
+        () => groups.getGroupMembers(_groupId),
+      ).thenAnswer((_) async => membersWithMe('promotor'));
+      when(
+        () => groups.setMemberRole(_groupId, _userId2, 'co_promotor'),
+      ).thenAnswer((_) async {});
       await tester.pumpWidget(membersScreen(tester, groups: groups));
       await tester.pumpAndSettle();
 
@@ -311,18 +350,60 @@ void main() {
       await tester.tap(find.text('Hacer co-promotor'));
       await tester.pumpAndSettle();
 
-      verify(() => groups.setMemberRole(_groupId, _userId2, 'co_promotor'))
-          .called(1);
+      verify(
+        () => groups.setMemberRole(_groupId, _userId2, 'co_promotor'),
+      ).called(1);
     });
 
-    testWidgets('group-detail members tab rows open the sheet for admins',
-        (tester) async {
+    testWidgets('a failed kick surfaces the transient error snackbar and '
+        'keeps the sheet open (F7, U-28 pin)', (tester) async {
+      final groups = _MockGroupsRepository();
+      when(
+        () => groups.getGroupMembers(_groupId),
+      ).thenAnswer((_) async => membersWithMe('promotor'));
+      when(
+        () => groups.kickMember(_groupId, _userId2),
+      ).thenThrow(Exception('kick failed'));
+      await tester.pumpWidget(membersScreen(tester, groups: groups));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('lucas'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Expulsar del grupo'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Expulsar'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Error del servidor'),
+        findsOneWidget,
+        reason: 'a kicked-RPC failure must surface the mapped F7 snackbar',
+      );
+      expect(
+        find.text('Hacer co-promotor'),
+        findsOneWidget,
+        reason: 'the failure keeps the sheet open for a retry',
+      );
+      verify(() => groups.getGroupMembers(_groupId)).called(1);
+    });
+
+    testWidgets('group-detail members tab rows open the sheet for admins', (
+      tester,
+    ) async {
       await _pumpGroupDetail(
         tester,
         _loadedGroupDetailOverrides(
           members: [
-            {'user_id': _myUserId, 'role': 'promotor', 'users': {'username': 'yo'}},
-            {'user_id': _userId2, 'role': 'member', 'users': {'username': 'lucas'}},
+            {
+              'user_id': _myUserId,
+              'role': 'promotor',
+              'users': {'username': 'yo'},
+            },
+            {
+              'user_id': _userId2,
+              'role': 'member',
+              'users': {'username': 'lucas'},
+            },
           ],
         ),
       );
@@ -333,8 +414,11 @@ void main() {
       await tester.tap(find.text('lucas'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Expulsar del grupo'), findsOneWidget,
-          reason: 'the detail members tab honors the sheet too (R17)');
+      expect(
+        find.text('Expulsar del grupo'),
+        findsOneWidget,
+        reason: 'the detail members tab honors the sheet too (R17)',
+      );
     });
   });
 }

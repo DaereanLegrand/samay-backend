@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,6 +17,8 @@ import 'package:samay/features/events/logic/event_formatters.dart';
 import 'package:samay/features/events/providers/events_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
+import 'package:samay/shared/widgets/skeletons.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 import 'package:samay/shared/widgets/v_network_image.dart';
 
 const _eventId = '11111111-1111-1111-1111-111111111111';
@@ -96,10 +100,12 @@ class _FakeAuthNotifier extends AuthNotifier {
 class _FakeEventDetailNotifier extends EventDetailNotifier {
   final Map<String, dynamic> data;
   final Object? error;
-  _FakeEventDetailNotifier({required this.data, this.error});
+  final Future<void>? gate;
+  _FakeEventDetailNotifier({required this.data, this.error, this.gate});
 
   @override
   Future<Map<String, dynamic>> build(String arg) async {
+    if (gate != null) await gate;
     if (error != null) throw error!;
     return data;
   }
@@ -361,6 +367,42 @@ void main() {
   });
 
   group('EventDetailScreen', () {
+    testWidgets(
+        'shows the cover+lines skeleton while the detail fetch is pending '
+        '(U-22 handoff, §5.8)', (tester) async {
+      final gate = Completer<void>();
+      await _pump(
+        tester,
+        const EventDetailScreen(eventId: _eventId),
+        [
+          eventDetailProvider.overrideWith(
+            () => _FakeEventDetailNotifier(data: _event(), gate: gate.future),
+          ),
+          eventPromotoresProvider.overrideWith(
+            () => _FakeEventPromotoresNotifier(data: _promotores()),
+          ),
+          myEventInviteProvider.overrideWith(
+            () => _FakeMyEventInviteNotifier(data: null),
+          ),
+        ],
+      );
+      await tester.pump();
+
+      expect(
+        find.byType(VSkeletonDetail),
+        findsOneWidget,
+        reason:
+            'the heaviest events screen shows the card skeleton on first '
+            'load, not the bare spinner',
+      );
+      expect(find.byType(VLoadingView), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(VSkeletonDetail), findsNothing);
+      expect(find.text('Rave en el garaje'), findsWidgets);
+    });
+
     testWidgets('renders header, badges, date range, pool and promotores',
         (tester) async {
       await _pump(

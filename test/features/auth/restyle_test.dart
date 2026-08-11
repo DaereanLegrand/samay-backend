@@ -18,6 +18,7 @@ import 'package:samay/features/auth/screens/profile_setup_screen.dart';
 import 'package:samay/features/auth/screens/signup_contact_screen.dart';
 import 'package:samay/features/auth/screens/welcome_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/v_breathing_glow.dart';
 import 'package:samay/shared/widgets/v_disco_divider.dart';
 
 /// Auth-restyle ledger tests (U-07, DISCO-DESIGN-SYSTEM §3.2/§3.3/§5.1/§5.2).
@@ -499,6 +500,60 @@ void main() {
         AppColors.error,
         reason: 'glowPink — §5.2 bans raw Colors.red on black',
       );
+    });
+  });
+
+  group('§6.2 breathing auth headers (U-23 — closing U-18\'s flagged gap)',
+      () {
+    void expectBreathingHeader(String label) {
+      final glow = find.byType(VBreathingGlow);
+      expect(glow, findsOneWidget,
+          reason: '§6.2 — exactly one breathing element per screen');
+      expect(
+        find.descendant(of: glow, matching: find.text(label)),
+        findsOneWidget,
+        reason: '$label is the screen\'s breathing auth header',
+      );
+    }
+
+    testWidgets('signup header is the breathing element', (tester) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const SignupContactScreen(), notifier);
+      await tester.pumpAndSettle();
+      expectBreathingHeader('Crea tu cuenta');
+    });
+
+    testWidgets('age_gate header is the breathing element', (tester) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(
+        tester,
+        const AgeGateScreen(email: 'test@test.com'),
+        notifier,
+      );
+      await tester.pumpAndSettle();
+      expectBreathingHeader('¿Cuál es tu fecha de nacimiento?');
+    });
+
+    testWidgets('privacy_terms header is the breathing element', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(
+        tester,
+        const PrivacyTermsScreen(email: 'a@b.com', dateOfBirth: '2000-01-15'),
+        notifier,
+      );
+      await tester.pumpAndSettle();
+      expectBreathingHeader('Acepta los términos para continuar');
+    });
+
+    testWidgets('forgot-password header breathes in the form state', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const ForgotPasswordScreen(), notifier);
+      await tester.pumpAndSettle();
+      expectBreathingHeader('¿Olvidaste tu contraseña?');
     });
   });
 }

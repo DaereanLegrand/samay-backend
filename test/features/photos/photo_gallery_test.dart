@@ -19,6 +19,7 @@ import 'package:samay/features/photos/screens/photo_gallery_screen.dart';
 import 'package:samay/features/photos/providers/photos_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 import 'package:samay/shared/widgets/v_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
@@ -616,6 +617,7 @@ void main() {
 
       expect(find.text('No hay fotos todavía'), findsOneWidget);
       expect(find.text('¡Sé el primero en subir una!'), findsOneWidget);
+      expect(find.byType(VEmptyView), findsOneWidget);
     });
 
     testWidgets('shows the error view and recovers via retry', (tester) async {

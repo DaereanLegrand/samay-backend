@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -10,6 +11,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:samay/core/providers/service_providers.dart';
+import 'package:samay/core/repositories/groups_repository.dart';
+import 'package:samay/core/repositories/repository_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/group_service.dart';
 import 'package:samay/core/services/media_service.dart';
@@ -25,6 +28,9 @@ import 'package:samay/features/groups/screens/leaderboard_screen.dart';
 import 'package:samay/features/groups/screens/my_groups_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
+import 'package:samay/shared/widgets/skeletons.dart';
+import 'package:samay/shared/widgets/state_views.dart';
+import 'package:samay/shared/widgets/v_chip.dart';
 
 import '../support/fake_supabase_http.dart' as support;
 
@@ -33,20 +39,26 @@ const _userId1 = '11111111-1111-1111-1111-111111111111';
 const _userId2 = '22222222-2222-2222-2222-222222222222';
 
 Map<String, dynamic> _group(String id, String name, {String? myRole}) => {
-      'id': id,
-      'name': name,
-      'group_shards': 100,
-      'rank_bracket': 'b0_20',
-      'my_role': myRole,
-    };
+  'id': id,
+  'name': name,
+  'group_shards': 100,
+  'rank_bracket': 'b0_20',
+  'my_role': myRole,
+};
 
 class _FakeMyGroupsNotifier extends MyGroupsNotifier {
   final List<Map<String, dynamic>> data;
   final Object? error;
-  _FakeMyGroupsNotifier({this.data = const [], this.error});
+
+  /// When set, [build] awaits it before resolving — tests hold the provider
+  /// in the loading state deterministically.
+  final Future<void>? gate;
+  _FakeMyGroupsNotifier({this.data = const [], this.error, this.gate});
 
   @override
   Future<List<Map<String, dynamic>>> build() async {
+    final g = gate;
+    if (g != null) await g;
     if (error != null) throw error!;
     return data;
   }
@@ -74,7 +86,12 @@ class _FakeGroupMembersNotifier extends GroupMembersNotifier {
 
 class _FakeContributionsNotifier extends GroupContributionsNotifier {
   final GroupContributionsData data;
-  _FakeContributionsNotifier({this.data = const GroupContributionsData(contributors: [], myContribution: 0)});
+  _FakeContributionsNotifier({
+    this.data = const GroupContributionsData(
+      contributors: [],
+      myContribution: 0,
+    ),
+  });
 
   @override
   Future<GroupContributionsData> build(String arg) async => data;
@@ -83,10 +100,16 @@ class _FakeContributionsNotifier extends GroupContributionsNotifier {
 class _FakeLeaderboardNotifier extends LeaderboardNotifier {
   final List<Map<String, dynamic>> data;
   final Object? error;
-  _FakeLeaderboardNotifier({this.data = const [], this.error});
+
+  /// When set, [build] awaits it before resolving — tests hold the provider
+  /// in the loading state deterministically.
+  final Future<void>? gate;
+  _FakeLeaderboardNotifier({this.data = const [], this.error, this.gate});
 
   @override
   Future<List<Map<String, dynamic>>> build(String arg) async {
+    final g = gate;
+    if (g != null) await g;
     if (error != null) throw error!;
     return data;
   }
@@ -115,6 +138,24 @@ class _RecordingSearchResultsNotifier extends SearchResultsNotifier {
 class _MockMediaService extends Mock implements MediaService {}
 
 class _MockGroupService extends Mock implements GroupService {}
+
+class _MockGroupsRepository extends Mock implements GroupsRepository {}
+
+/// Records every tier argument the leaderboard family is asked to build, so
+/// tests can assert that tapping a chip re-watches that tier (U-28). The
+/// family override instantiates a notifier per member — the shared [tiers]
+/// list is injected so every member records into the same log.
+class _RecordingLeaderboardNotifier extends LeaderboardNotifier {
+  _RecordingLeaderboardNotifier(this.tiers);
+
+  final List<String> tiers;
+
+  @override
+  Future<List<Map<String, dynamic>>> build(String arg) async {
+    tiers.add(arg);
+    return const [];
+  }
+}
 
 /// Solid-color PNG via Canvas → `toByteData` — a real, decodable image for the
 /// cover-picker preview (`Image.file` renders it in the test).
@@ -168,9 +209,7 @@ Future<ProviderContainer> _pumpWithRouter(
       GoRoute(
         path: '/',
         builder: (_, _) => const Scaffold(),
-        routes: [
-          GoRoute(path: 'create', builder: (_, _) => child),
-        ],
+        routes: [GoRoute(path: 'create', builder: (_, _) => child)],
       ),
     ],
   );
@@ -218,9 +257,8 @@ Future<_GroupDetailHarness> _pumpGroupDetail(
       ),
       GoRoute(
         path: '/group/:groupId/donate',
-        builder: (_, state) => Scaffold(
-          body: Text('donate-${state.pathParameters['groupId']}'),
-        ),
+        builder: (_, state) =>
+            Scaffold(body: Text('donate-${state.pathParameters['groupId']}')),
       ),
     ],
   );
@@ -243,28 +281,28 @@ Future<_GroupDetailHarness> _pumpGroupDetail(
 
 /// The full set of provider overrides that renders a loaded GroupDetailScreen.
 List<Override> _loadedGroupDetailOverrides() => [
-      groupDetailProvider.overrideWith(
-        () => _FakeGroupDetailNotifier(
-          data: {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
-        ),
-      ),
-      groupMembersProvider.overrideWith(
-        () => _FakeGroupMembersNotifier(
-          data: [
-            {
-              'user_id': _userId1,
-              'role': 'promotor',
-              'users': {'username': 'ana'},
-            },
-          ],
-        ),
-      ),
-      contributionsProvider.overrideWith(
-        () => _FakeContributionsNotifier(
-          data: const GroupContributionsData(contributors: [], myContribution: 0),
-        ),
-      ),
-    ];
+  groupDetailProvider.overrideWith(
+    () => _FakeGroupDetailNotifier(
+      data: {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
+    ),
+  ),
+  groupMembersProvider.overrideWith(
+    () => _FakeGroupMembersNotifier(
+      data: [
+        {
+          'user_id': _userId1,
+          'role': 'promotor',
+          'users': {'username': 'ana'},
+        },
+      ],
+    ),
+  ),
+  contributionsProvider.overrideWith(
+    () => _FakeContributionsNotifier(
+      data: const GroupContributionsData(contributors: [], myContribution: 0),
+    ),
+  ),
+];
 
 void main() {
   setUpAll(() async {
@@ -284,17 +322,18 @@ void main() {
       expect(find.text('Crear'), findsOneWidget);
     });
 
-    testWidgets(
-        'with a cover: uploads via MediaService.uploadGroupCover, then '
+    testWidgets('with a cover: uploads via MediaService.uploadGroupCover, then '
         'creates the group with the public URL (EF-03 swap)', (tester) async {
       final media = _MockMediaService();
       final group = _MockGroupService();
       const coverUrl = 'https://cdn.example/groups/group_covers/1.png';
-      when(() => media.uploadGroupCover(any()))
-          .thenAnswer((_) async => coverUrl);
+      when(
+        () => media.uploadGroupCover(any()),
+      ).thenAnswer((_) async => coverUrl);
       when(() => group.getUserGroupCount()).thenAnswer((_) async => 1);
-      when(() => group.createGroup(any()))
-          .thenAnswer((_) async => {'id': _groupId, 'name': 'Disco Crew'});
+      when(
+        () => group.createGroup(any()),
+      ).thenAnswer((_) async => {'id': _groupId, 'name': 'Disco Crew'});
 
       final dir = (await tester.runAsync(
         () => Directory.systemTemp.createTemp('cover_test_'),
@@ -333,8 +372,11 @@ void main() {
       verify(() => media.uploadGroupCover(any())).called(1);
       final captured = verify(() => group.createGroup(captureAny())).captured;
       final created = captured.single as Map;
-      expect(created['cover_url'], coverUrl,
-          reason: 'the group row must carry the public cover URL');
+      expect(
+        created['cover_url'],
+        coverUrl,
+        reason: 'the group row must carry the public cover URL',
+      );
       expect(created['name'], 'Disco Crew');
     });
 
@@ -343,17 +385,14 @@ void main() {
       final media = _MockMediaService();
       final group = _MockGroupService();
       when(() => group.getUserGroupCount()).thenAnswer((_) async => 1);
-      when(() => group.createGroup(any()))
-          .thenAnswer((_) async => {'id': _groupId, 'name': 'Disco Crew'});
+      when(
+        () => group.createGroup(any()),
+      ).thenAnswer((_) async => {'id': _groupId, 'name': 'Disco Crew'});
 
-      await _pumpWithRouter(
-        tester,
-        const CreateGroupScreen(),
-        [
-          mediaServiceProvider.overrideWithValue(media),
-          groupServiceProvider.overrideWithValue(group),
-        ],
-      );
+      await _pumpWithRouter(tester, const CreateGroupScreen(), [
+        mediaServiceProvider.overrideWithValue(media),
+        groupServiceProvider.overrideWithValue(group),
+      ]);
 
       await tester.enterText(find.byType(TextField).first, 'Disco Crew');
       await tester.tap(find.text('Crear'));
@@ -364,68 +403,60 @@ void main() {
       expect((captured.single as Map)['cover_url'], isNull);
     });
 
-    testWidgets('shows the group-limit dialog instead of creating at 5 groups',
-        (tester) async {
-      final media = _MockMediaService();
-      final group = _MockGroupService();
-      when(() => group.getUserGroupCount()).thenAnswer((_) async => 5);
+    testWidgets(
+      'shows the group-limit dialog instead of creating at 5 groups',
+      (tester) async {
+        final media = _MockMediaService();
+        final group = _MockGroupService();
+        when(() => group.getUserGroupCount()).thenAnswer((_) async => 5);
 
-      await _pumpWithRouter(
-        tester,
-        const CreateGroupScreen(),
-        [
+        await _pumpWithRouter(tester, const CreateGroupScreen(), [
           mediaServiceProvider.overrideWithValue(media),
           groupServiceProvider.overrideWithValue(group),
-        ],
-      );
+        ]);
 
-      await tester.enterText(find.byType(TextField).first, 'Disco Crew');
-      await tester.tap(find.text('Crear'));
-      await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).first, 'Disco Crew');
+        await tester.tap(find.text('Crear'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Límite alcanzado'), findsOneWidget);
-      expect(find.textContaining('límite de 5 grupos'), findsOneWidget);
-      verifyNever(() => media.uploadGroupCover(any()));
-      verifyNever(() => group.createGroup(any()));
-    });
+        expect(find.text('Límite alcanzado'), findsOneWidget);
+        expect(find.textContaining('límite de 5 grupos'), findsOneWidget);
+        verifyNever(() => media.uploadGroupCover(any()));
+        verifyNever(() => group.createGroup(any()));
+      },
+    );
 
-    testWidgets('empty name: no service call and no limit dialog (TST-07/M-14)',
-        (tester) async {
-      final media = _MockMediaService();
-      final group = _MockGroupService();
+    testWidgets(
+      'empty name: no service call and no limit dialog (TST-07/M-14)',
+      (tester) async {
+        final media = _MockMediaService();
+        final group = _MockGroupService();
 
-      await _pumpWithRouter(
-        tester,
-        const CreateGroupScreen(),
-        [
+        await _pumpWithRouter(tester, const CreateGroupScreen(), [
           mediaServiceProvider.overrideWithValue(media),
           groupServiceProvider.overrideWithValue(group),
-        ],
-      );
+        ]);
 
-      await tester.tap(find.text('Crear'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Crear'));
+        await tester.pumpAndSettle();
 
-      verifyNever(() => group.getUserGroupCount());
-      verifyNever(() => group.createGroup(any()));
-      verifyNever(() => media.uploadGroupCover(any()));
-      expect(find.text('Límite alcanzado'), findsNothing);
-      expect(find.byType(CreateGroupScreen), findsOneWidget);
-    });
+        verifyNever(() => group.getUserGroupCount());
+        verifyNever(() => group.createGroup(any()));
+        verifyNever(() => media.uploadGroupCover(any()));
+        expect(find.text('Límite alcanzado'), findsNothing);
+        expect(find.byType(CreateGroupScreen), findsOneWidget);
+      },
+    );
 
     testWidgets('whitespace-only name: no service call and no limit dialog '
         '(I-73 requiredValidator trim-empty)', (tester) async {
       final media = _MockMediaService();
       final group = _MockGroupService();
 
-      await _pumpWithRouter(
-        tester,
-        const CreateGroupScreen(),
-        [
-          mediaServiceProvider.overrideWithValue(media),
-          groupServiceProvider.overrideWithValue(group),
-        ],
-      );
+      await _pumpWithRouter(tester, const CreateGroupScreen(), [
+        mediaServiceProvider.overrideWithValue(media),
+        groupServiceProvider.overrideWithValue(group),
+      ]);
 
       await tester.enterText(find.byType(TextField).first, '   ');
       await tester.tap(find.text('Crear'));
@@ -440,34 +471,61 @@ void main() {
   });
 
   group('MyGroupsScreen', () {
-    testWidgets('shows empty state when the provider returns no groups',
-        (tester) async {
-      await _pump(
-        tester,
-        const MyGroupsScreen(),
-        [myGroupsProvider.overrideWith(_FakeMyGroupsNotifier.new)],
+    testWidgets('shows the avatar+lines skeleton while the provider is '
+        'pending (U-22 §5.8)', (tester) async {
+      final gate = Completer<void>();
+      await _pump(tester, const MyGroupsScreen(), [
+        myGroupsProvider.overrideWith(
+          () => _FakeMyGroupsNotifier(
+            data: [_group(_groupId, 'Disco Crew', myRole: 'promotor')],
+            gate: gate.future,
+          ),
+        ),
+      ]);
+
+      expect(
+        find.byType(VSkeletonList),
+        findsOneWidget,
+        reason: 'first load shows the list skeleton, not a spinner',
       );
+      expect(find.byType(VLoadingView), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VSkeletonList), findsNothing);
+      expect(find.text('Disco Crew'), findsOneWidget);
+    });
+
+    testWidgets('shows empty state when the provider returns no groups', (
+      tester,
+    ) async {
+      await _pump(tester, const MyGroupsScreen(), [
+        myGroupsProvider.overrideWith(_FakeMyGroupsNotifier.new),
+      ]);
       await tester.pumpAndSettle();
       expect(find.text('No perteneces a ningún grupo'), findsOneWidget);
-      expect(find.text('Crea un grupo o únete a uno existente'), findsOneWidget);
+      expect(
+        find.text('Crea un grupo o únete a uno existente'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('renders group rows from the provider', (tester) async {
-      await _pump(
-        tester,
-        const MyGroupsScreen(),
-        [
-          myGroupsProvider.overrideWith(
-            () => _FakeMyGroupsNotifier(
-              data: [
-                _group(_groupId, 'Disco Crew', myRole: 'promotor'),
-                _group('44444444-4444-4444-4444-444444444444', 'Vinyl Lovers',
-                    myRole: 'member'),
-              ],
-            ),
+      await _pump(tester, const MyGroupsScreen(), [
+        myGroupsProvider.overrideWith(
+          () => _FakeMyGroupsNotifier(
+            data: [
+              _group(_groupId, 'Disco Crew', myRole: 'promotor'),
+              _group(
+                '44444444-4444-4444-4444-444444444444',
+                'Vinyl Lovers',
+                myRole: 'member',
+              ),
+            ],
           ),
-        ],
-      );
+        ),
+      ]);
       await tester.pumpAndSettle();
       expect(find.text('Disco Crew'), findsOneWidget);
       expect(find.text('Vinyl Lovers'), findsOneWidget);
@@ -476,17 +534,14 @@ void main() {
       expect(find.text('PROMOTOR'), findsOneWidget);
     });
 
-    testWidgets('renders ErrorView with retry when the provider fails',
-        (tester) async {
-      await _pump(
-        tester,
-        const MyGroupsScreen(),
-        [
-          myGroupsProvider.overrideWith(
-            () => _FakeMyGroupsNotifier(error: Exception('grupos caídos')),
-          ),
-        ],
-      );
+    testWidgets('renders ErrorView with retry when the provider fails', (
+      tester,
+    ) async {
+      await _pump(tester, const MyGroupsScreen(), [
+        myGroupsProvider.overrideWith(
+          () => _FakeMyGroupsNotifier(error: Exception('grupos caídos')),
+        ),
+      ]);
       await tester.pumpAndSettle();
       expect(find.byType(ErrorView), findsOneWidget);
       expect(find.text('Reintentar'), findsOneWidget);
@@ -494,37 +549,46 @@ void main() {
   });
 
   group('GroupDetailScreen', () {
-    testWidgets('renders group header and tabs when data is loaded',
-        (tester) async {
-      await _pump(
-        tester,
-        const GroupDetailScreen(groupId: _groupId),
-        [
-          groupDetailProvider.overrideWith(
-            () => _FakeGroupDetailNotifier(
-              data: {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
-            ),
+    testWidgets('renders group header and tabs when data is loaded', (
+      tester,
+    ) async {
+      await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
+        groupDetailProvider.overrideWith(
+          () => _FakeGroupDetailNotifier(
+            data: {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
           ),
-          groupMembersProvider.overrideWith(
-            () => _FakeGroupMembersNotifier(
-              data: [
-                {'user_id': _userId1, 'role': 'promotor', 'users': {'username': 'ana'}},
-                {'user_id': _userId2, 'role': 'member', 'users': {'username': 'lucas'}},
+        ),
+        groupMembersProvider.overrideWith(
+          () => _FakeGroupMembersNotifier(
+            data: [
+              {
+                'user_id': _userId1,
+                'role': 'promotor',
+                'users': {'username': 'ana'},
+              },
+              {
+                'user_id': _userId2,
+                'role': 'member',
+                'users': {'username': 'lucas'},
+              },
+            ],
+          ),
+        ),
+        contributionsProvider.overrideWith(
+          () => _FakeContributionsNotifier(
+            data: const GroupContributionsData(
+              contributors: [
+                {
+                  'user_id': _userId1,
+                  'shards_contributed': 50,
+                  'users': {'username': 'ana'},
+                },
               ],
+              myContribution: 30,
             ),
           ),
-          contributionsProvider.overrideWith(
-            () => _FakeContributionsNotifier(
-              data: const GroupContributionsData(
-                contributors: [
-                  {'user_id': _userId1, 'shards_contributed': 50, 'users': {'username': 'ana'}},
-                ],
-                myContribution: 30,
-              ),
-            ),
-          ),
-        ],
-      );
+        ),
+      ]);
       await tester.pumpAndSettle();
       expect(find.text('Disco Crew'), findsOneWidget);
       expect(find.text('Chat'), findsOneWidget);
@@ -534,25 +598,26 @@ void main() {
       expect(find.textContaining('Mi contribuci\u00f3n: 30'), findsOneWidget);
     });
 
-    testWidgets('renders ErrorView when the group provider fails',
-        (tester) async {
-      await _pump(
-        tester,
-        const GroupDetailScreen(groupId: _groupId),
-        [
-          groupDetailProvider.overrideWith(
-            () => _FakeGroupDetailNotifier(error: Exception('grupo perdido')),
-          ),
-        ],
-      );
+    testWidgets('renders ErrorView when the group provider fails', (
+      tester,
+    ) async {
+      await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
+        groupDetailProvider.overrideWith(
+          () => _FakeGroupDetailNotifier(error: Exception('grupo perdido')),
+        ),
+      ]);
       await tester.pumpAndSettle();
       expect(find.byType(ErrorView), findsOneWidget);
       expect(find.text('Reintentar'), findsOneWidget);
     });
 
-    testWidgets('donate button navigates to the donate route (TST-07/M-14)',
-        (tester) async {
-      final harness = await _pumpGroupDetail(tester, _loadedGroupDetailOverrides());
+    testWidgets('donate button navigates to the donate route (TST-07/M-14)', (
+      tester,
+    ) async {
+      final harness = await _pumpGroupDetail(
+        tester,
+        _loadedGroupDetailOverrides(),
+      );
 
       await tester.tap(find.text('Donar shards'));
       await tester.pumpAndSettle();
@@ -565,37 +630,39 @@ void main() {
     });
 
     testWidgets(
-        'leave-group flow: inline row → confirm dialog → leaveGroup service '
-        'call → pops back (R16 repoint; TST-07/M-14)', (tester) async {
-      await _pumpGroupDetail(tester, _loadedGroupDetailOverrides());
+      'leave-group flow: inline row → confirm dialog → leaveGroup service '
+      'call → pops back (R16 repoint; TST-07/M-14)',
+      (tester) async {
+        await _pumpGroupDetail(tester, _loadedGroupDetailOverrides());
 
-      // R16: the leave trigger is the inline danger row — the overflow menu
-      // is gone for non-frozen groups.
-      expect(find.byType(PopupMenuButton<String>), findsNothing);
-      await tester.tap(find.text('Abandonar grupo'));
-      await tester.pumpAndSettle();
+        // R16: the leave trigger is the inline danger row — the overflow menu
+        // is gone for non-frozen groups.
+        expect(find.byType(PopupMenuButton<String>), findsNothing);
+        await tester.tap(find.text('Abandonar grupo'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('¿Estás seguro?'), findsOneWidget);
+        expect(find.text('¿Estás seguro?'), findsOneWidget);
 
-      // Cancelling keeps the screen.
-      await tester.tap(find.text('Cancelar'));
-      await tester.pumpAndSettle();
-      expect(find.byType(GroupDetailScreen), findsOneWidget);
+        // Cancelling keeps the screen.
+        await tester.tap(find.text('Cancelar'));
+        await tester.pumpAndSettle();
+        expect(find.byType(GroupDetailScreen), findsOneWidget);
 
-      // Confirming deletes the membership and pops to the parent route.
-      await tester.tap(find.text('Abandonar grupo'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Abandonar'));
-      await tester.pumpAndSettle();
+        // Confirming deletes the membership and pops to the parent route.
+        await tester.tap(find.text('Abandonar grupo'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Abandonar'));
+        await tester.pumpAndSettle();
 
-      expect(
-        support.harnessHttp.sent('DELETE', 'group_id=eq.$_groupId'),
-        isTrue,
-        reason: 'leaveGroup must delete the membership row',
-      );
-      expect(find.text('home-marker'), findsOneWidget);
-      expect(find.byType(GroupDetailScreen), findsNothing);
-    });
+        expect(
+          support.harnessHttp.sent('DELETE', 'group_id=eq.$_groupId'),
+          isTrue,
+          reason: 'leaveGroup must delete the membership row',
+        );
+        expect(find.text('home-marker'), findsOneWidget);
+        expect(find.byType(GroupDetailScreen), findsNothing);
+      },
+    );
   });
 
   group('DonateShardsScreen', () {
@@ -659,46 +726,122 @@ void main() {
       expect(find.text('Ingresa un monto válido'), findsOneWidget);
       expect(find.byType(DonateShardsScreen), findsOneWidget);
     });
+
+    testWidgets('a valid amount calls donateToGroup with the parsed value, '
+        'toasts the success snackbar and pops back (U-28 pin)', (tester) async {
+      final groups = _MockGroupsRepository();
+      when(() => groups.donateToGroup(_groupId, 120)).thenAnswer((_) async {});
+      final container = ProviderContainer(
+        overrides: [groupsRepositoryProvider.overrideWithValue(groups)],
+      );
+      addTearDown(container.dispose);
+      final router = GoRouter(
+        initialLocation: '/home',
+        routes: [
+          GoRoute(
+            path: '/home',
+            builder: (_, _) => const Scaffold(body: Text('home-marker')),
+          ),
+          GoRoute(
+            path: '/donate',
+            builder: (_, _) => const DonateShardsScreen(
+              groupId: _groupId,
+              groupName: 'Test Group',
+            ),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            locale: const Locale('es'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
+        ),
+      );
+      router.push('/donate');
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), '120');
+      await tester.tap(find.text('Donar'));
+      await tester.pumpAndSettle();
+
+      verify(() => groups.donateToGroup(_groupId, 120)).called(1);
+      expect(
+        find.text('Donación exitosa'),
+        findsOneWidget,
+        reason: 'F7: the donation success is a transient snackbar',
+      );
+      expect(
+        find.text('home-marker'),
+        findsOneWidget,
+        reason: 'a successful donation pops back to the group',
+      );
+    });
+
+    testWidgets('a failed donation toasts the mapped error and stays on the '
+        'screen (U-28 pin)', (tester) async {
+      final groups = _MockGroupsRepository();
+      when(
+        () => groups.donateToGroup(_groupId, 120),
+      ).thenThrow(Exception('donation failed'));
+      await _pump(
+        tester,
+        const DonateShardsScreen(groupId: _groupId, groupName: 'Test Group'),
+        [groupsRepositoryProvider.overrideWithValue(groups)],
+      );
+
+      await tester.enterText(find.byType(TextField), '120');
+      await tester.tap(find.text('Donar'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Error del servidor'), findsOneWidget);
+      expect(
+        find.byType(DonateShardsScreen),
+        findsOneWidget,
+        reason: 'a failed donation keeps the form for a retry',
+      );
+    });
   });
 
   group('InviteScreen', () {
     testWidgets('renders search bar and hint text', (tester) async {
-      await _pump(
-        tester,
-        const InviteScreen(groupId: _groupId),
-        [
-          groupMembersProvider.overrideWith(_FakeGroupMembersNotifier.new),
-          searchResultsProvider.overrideWith(_FakeSearchResultsNotifier.new),
-        ],
-      );
+      await _pump(tester, const InviteScreen(groupId: _groupId), [
+        groupMembersProvider.overrideWith(_FakeGroupMembersNotifier.new),
+        searchResultsProvider.overrideWith(_FakeSearchResultsNotifier.new),
+      ]);
       await tester.pumpAndSettle();
       expect(find.byType(TextField), findsOneWidget);
       expect(find.textContaining('Buscar usuarios'), findsOneWidget);
-      expect(find.textContaining('Escribe al menos 2 caracteres'), findsOneWidget);
+      expect(
+        find.textContaining('Escribe al menos 2 caracteres'),
+        findsOneWidget,
+      );
     });
 
-    testWidgets('excludes existing members from search results', (tester) async {
-      await _pump(
-        tester,
-        const InviteScreen(groupId: _groupId),
-        [
-          groupMembersProvider.overrideWith(
-            () => _FakeGroupMembersNotifier(
-              data: [
-                {'user_id': _userId1, 'role': 'member'},
-              ],
-            ),
+    testWidgets('excludes existing members from search results', (
+      tester,
+    ) async {
+      await _pump(tester, const InviteScreen(groupId: _groupId), [
+        groupMembersProvider.overrideWith(
+          () => _FakeGroupMembersNotifier(
+            data: [
+              {'user_id': _userId1, 'role': 'member'},
+            ],
           ),
-          searchResultsProvider.overrideWith(
-            () => _FakeSearchResultsNotifier(
-              data: [
-                {'id': _userId1, 'username': 'ana', 'avatar_url': null},
-                {'id': _userId2, 'username': 'lucas', 'avatar_url': null},
-              ],
-            ),
+        ),
+        searchResultsProvider.overrideWith(
+          () => _FakeSearchResultsNotifier(
+            data: [
+              {'id': _userId1, 'username': 'ana', 'avatar_url': null},
+              {'id': _userId2, 'username': 'lucas', 'avatar_url': null},
+            ],
           ),
-        ],
-      );
+        ),
+      ]);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'lu');
       await tester.pumpAndSettle();
@@ -706,17 +849,14 @@ void main() {
       expect(find.text('@ana'), findsNothing);
     });
 
-    testWidgets('debounces rapid keystrokes into a single query after 300ms',
-        (tester) async {
+    testWidgets('debounces rapid keystrokes into a single query after 300ms', (
+      tester,
+    ) async {
       final recording = _RecordingSearchResultsNotifier();
-      await _pump(
-        tester,
-        const InviteScreen(groupId: _groupId),
-        [
-          groupMembersProvider.overrideWith(_FakeGroupMembersNotifier.new),
-          searchResultsProvider.overrideWith(() => recording),
-        ],
-      );
+      await _pump(tester, const InviteScreen(groupId: _groupId), [
+        groupMembersProvider.overrideWith(_FakeGroupMembersNotifier.new),
+        searchResultsProvider.overrideWith(() => recording),
+      ]);
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField), 'l');
@@ -725,15 +865,16 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 
-      expect(recording.queries, ['lu'],
-          reason: 'intermediate keystrokes must not fire a query');
+      expect(recording.queries, [
+        'lu',
+      ], reason: 'intermediate keystrokes must not fire a query');
     });
   });
 
   group('GroupMembersScreen', () {
     testWidgets('renders loading state first', (tester) async {
       await _pump(tester, const GroupMembersScreen(groupId: _groupId), []);
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(VLoadingView), findsOneWidget);
       expect(find.text('No hay miembros'), findsNothing);
     });
 
@@ -741,6 +882,7 @@ void main() {
       await _pump(tester, const GroupMembersScreen(groupId: _groupId), []);
       await tester.pumpAndSettle();
       expect(find.text('No hay miembros'), findsOneWidget);
+      expect(find.byType(VEmptyView), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
     });
 
@@ -752,12 +894,45 @@ void main() {
   });
 
   group('LeaderboardScreen', () {
-    testWidgets('renders leaderboard title and size tier chips', (tester) async {
-      await _pump(
-        tester,
-        const LeaderboardScreen(),
-        [leaderboardProvider.overrideWith(_FakeLeaderboardNotifier.new)],
+    testWidgets('shows the avatar+lines skeleton while the provider is '
+        'pending (U-22 §5.8)', (tester) async {
+      final gate = Completer<void>();
+      await _pump(tester, const LeaderboardScreen(), [
+        leaderboardProvider.overrideWith(
+          () => _FakeLeaderboardNotifier(
+            data: [
+              {
+                ..._group('44444444-4444-4444-4444-444444444444', 'Disco Crew'),
+                'rank_position': 1,
+                'score': 500,
+                'member_count': 12,
+              },
+            ],
+            gate: gate.future,
+          ),
+        ),
+      ]);
+
+      expect(
+        find.byType(VSkeletonList),
+        findsOneWidget,
+        reason: 'first load shows the list skeleton, not a spinner',
       );
+      expect(find.byType(VLoadingView), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VSkeletonList), findsNothing);
+      expect(find.text('#1'), findsOneWidget);
+    });
+
+    testWidgets('renders leaderboard title and size tier chips', (
+      tester,
+    ) async {
+      await _pump(tester, const LeaderboardScreen(), [
+        leaderboardProvider.overrideWith(_FakeLeaderboardNotifier.new),
+      ]);
       expect(find.text('Ranking de grupos'), findsOneWidget);
       expect(find.text('micro'), findsOneWidget);
       expect(find.text('small'), findsOneWidget);
@@ -766,30 +941,29 @@ void main() {
     });
 
     testWidgets('renders rankings from the provider', (tester) async {
-      await _pump(
-        tester,
-        const LeaderboardScreen(),
-        [
-          leaderboardProvider.overrideWith(
-            () => _FakeLeaderboardNotifier(
-              data: [
-                {
-                  ..._group('44444444-4444-4444-4444-444444444444', 'Disco Crew'),
-                  'rank_position': 1,
-                  'score': 500,
-                  'member_count': 12,
-                },
-                {
-                  ..._group('55555555-5555-5555-5555-555555555555', 'Vinyl Lovers'),
-                  'rank_position': 2,
-                  'score': 300,
-                  'member_count': 8,
-                },
-              ],
-            ),
+      await _pump(tester, const LeaderboardScreen(), [
+        leaderboardProvider.overrideWith(
+          () => _FakeLeaderboardNotifier(
+            data: [
+              {
+                ..._group('44444444-4444-4444-4444-444444444444', 'Disco Crew'),
+                'rank_position': 1,
+                'score': 500,
+                'member_count': 12,
+              },
+              {
+                ..._group(
+                  '55555555-5555-5555-5555-555555555555',
+                  'Vinyl Lovers',
+                ),
+                'rank_position': 2,
+                'score': 300,
+                'member_count': 8,
+              },
+            ],
           ),
-        ],
-      );
+        ),
+      ]);
       await tester.pumpAndSettle();
       expect(find.text('#1'), findsOneWidget);
       expect(find.text('#2'), findsOneWidget);
@@ -800,28 +974,113 @@ void main() {
     });
 
     testWidgets('shows empty ranking state', (tester) async {
-      await _pump(
-        tester,
-        const LeaderboardScreen(),
-        [leaderboardProvider.overrideWith(_FakeLeaderboardNotifier.new)],
-      );
+      await _pump(tester, const LeaderboardScreen(), [
+        leaderboardProvider.overrideWith(_FakeLeaderboardNotifier.new),
+      ]);
       await tester.pumpAndSettle();
       expect(find.text('Sin datos de ranking'), findsOneWidget);
     });
 
     testWidgets('renders ErrorView when the provider fails', (tester) async {
-      await _pump(
-        tester,
-        const LeaderboardScreen(),
-        [
-          leaderboardProvider.overrideWith(
-            () => _FakeLeaderboardNotifier(error: Exception('ranking caído')),
-          ),
-        ],
-      );
+      await _pump(tester, const LeaderboardScreen(), [
+        leaderboardProvider.overrideWith(
+          () => _FakeLeaderboardNotifier(error: Exception('ranking caído')),
+        ),
+      ]);
       await tester.pumpAndSettle();
       expect(find.byType(ErrorView), findsOneWidget);
       expect(find.text('Reintentar'), findsOneWidget);
+    });
+
+    testWidgets('tapping a size-tier chip re-watches that tier of the family '
+        'provider (U-28 pin)', (tester) async {
+      final tiers = <String>[];
+      await _pump(tester, const LeaderboardScreen(), [
+        leaderboardProvider.overrideWith(
+          () => _RecordingLeaderboardNotifier(tiers),
+        ),
+      ]);
+      await tester.pumpAndSettle();
+      expect(tiers, [
+        'micro',
+      ], reason: 'the screen starts watching the micro tier');
+
+      final smallChip = tester.widget<VChip>(
+        find.widgetWithText(VChip, 'small'),
+      );
+      expect(smallChip.selected, isFalse);
+
+      await tester.tap(find.text('small'));
+      await tester.pumpAndSettle();
+
+      expect(tiers, [
+        'micro',
+        'small',
+      ], reason: 'tapping a chip re-watches the family member for that tier');
+      final selectedChip = tester.widget<VChip>(
+        find.widgetWithText(VChip, 'small'),
+      );
+      expect(
+        selectedChip.selected,
+        isTrue,
+        reason: 'the tapped chip renders selected',
+      );
+    });
+
+    testWidgets('tapping a ranking row navigates to the group detail route '
+        '(U-28 pin)', (tester) async {
+      final router = GoRouter(
+        initialLocation: '/leaderboard',
+        routes: [
+          GoRoute(
+            path: '/leaderboard',
+            builder: (_, _) => const LeaderboardScreen(),
+          ),
+          GoRoute(
+            path: RoutePaths.groupDetail(
+              '44444444-4444-4444-4444-444444444444',
+            ),
+            builder: (_, _) => const Scaffold(body: Text('GROUP DETAIL STUB')),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            leaderboardProvider.overrideWith(
+              () => _FakeLeaderboardNotifier(
+                data: [
+                  {
+                    ..._group(
+                      '44444444-4444-4444-4444-444444444444',
+                      'Disco Crew',
+                    ),
+                    'rank_position': 1,
+                    'score': 500,
+                    'member_count': 12,
+                  },
+                ],
+              ),
+            ),
+          ],
+          child: MaterialApp.router(
+            locale: const Locale('es'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Disco Crew'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('GROUP DETAIL STUB'),
+        findsOneWidget,
+        reason: 'leaderboard rows push the group detail route',
+      );
     });
   });
 }

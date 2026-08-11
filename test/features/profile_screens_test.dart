@@ -14,6 +14,7 @@ import 'package:samay/features/profile/screens/settings_screen.dart';
 import 'package:samay/features/profile/widgets/profile_avatar.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
+import 'package:samay/shared/widgets/skeletons.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 class _MemoryStorage extends LocalStorage {
@@ -160,20 +161,29 @@ GoRouter _flowRouter(String path, Widget screen) {
     routes: [
       GoRoute(path: path, builder: (_, _) => screen),
       if (path != RoutePaths.settings)
-        GoRoute(path: RoutePaths.settings, builder: (_, _) => const SettingsScreen()),
+        GoRoute(
+          path: RoutePaths.settings,
+          builder: (_, _) => const SettingsScreen(),
+        ),
       if (path != RoutePaths.profileEdit)
-        GoRoute(path: RoutePaths.profileEdit, builder: (_, _) => const EditProfileScreen()),
+        GoRoute(
+          path: RoutePaths.profileEdit,
+          builder: (_, _) => const EditProfileScreen(),
+        ),
       GoRoute(
         path: RoutePaths.login,
-        builder: (_, _) => const Scaffold(
-          body: Center(child: Text('LOGIN_PLACEHOLDER')),
-        ),
+        builder: (_, _) =>
+            const Scaffold(body: Center(child: Text('LOGIN_PLACEHOLDER'))),
       ),
     ],
   );
 }
 
-Widget _wrapRouter(Widget screen, {required String path, required List<Override> overrides}) {
+Widget _wrapRouter(
+  Widget screen, {
+  required String path,
+  required List<Override> overrides,
+}) {
   return ProviderScope(
     overrides: overrides,
     child: MaterialApp.router(
@@ -229,10 +239,13 @@ void main() {
         ]),
       );
 
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      // U-22 handoff (U-23): the first frame shows the profile skeleton
+      // (avatar + name/handle/body lines, §5.8) — not the bare spinner.
+      expect(find.byType(VSkeletonProfile), findsOneWidget);
 
       await tester.pumpAndSettle();
       expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(VSkeletonProfile), findsNothing);
       expect(find.text('dana'), findsOneWidget);
       expect(find.text('hola mundo'), findsOneWidget);
       expect(find.text('120 shards'), findsOneWidget);
@@ -420,22 +433,30 @@ void main() {
   });
 
   group('SettingsScreen sign-out confirm (R7 — U-15 ledger)', () {
-    testWidgets('cancel keeps the session and stays on settings', (tester) async {
+    testWidgets('cancel keeps the session and stays on settings', (
+      tester,
+    ) async {
       _useTallViewport(tester);
       final auth = _SignOutAuthNotifier();
-      await tester.pumpWidget(_wrapRouter(
-        const SettingsScreen(),
-        path: RoutePaths.settings,
-        overrides: [authStateProvider.overrideWith(() => auth)],
-      ));
+      await tester.pumpWidget(
+        _wrapRouter(
+          const SettingsScreen(),
+          path: RoutePaths.settings,
+          overrides: [authStateProvider.overrideWith(() => auth)],
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Cerrar sesión'));
       await tester.pumpAndSettle();
 
-      expect(find.text('¿Cerrar sesión?'), findsOneWidget,
-          reason: 'R7 — sign-out gains the F8 confirm dialog (matches the '
-              'delete-account dialog discipline)');
+      expect(
+        find.text('¿Cerrar sesión?'),
+        findsOneWidget,
+        reason:
+            'R7 — sign-out gains the F8 confirm dialog (matches the '
+            'delete-account dialog discipline)',
+      );
       expect(
         find.text('Tu sesión se cerrará en este dispositivo.'),
         findsOneWidget,
@@ -452,11 +473,13 @@ void main() {
     testWidgets('confirm signs out and returns to login', (tester) async {
       _useTallViewport(tester);
       final auth = _SignOutAuthNotifier();
-      await tester.pumpWidget(_wrapRouter(
-        const SettingsScreen(),
-        path: RoutePaths.settings,
-        overrides: [authStateProvider.overrideWith(() => auth)],
-      ));
+      await tester.pumpWidget(
+        _wrapRouter(
+          const SettingsScreen(),
+          path: RoutePaths.settings,
+          overrides: [authStateProvider.overrideWith(() => auth)],
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Cerrar sesión'));
@@ -464,63 +487,125 @@ void main() {
 
       // The row label and the dialog action share the string — scope the
       // tap to the dialog (same pattern as the delete-account confirm).
-      await tester.tap(find.descendant(
-        of: find.byType(AlertDialog),
-        matching: find.text('Cerrar sesión'),
-      ));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Cerrar sesión'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(auth.signOutCalls, 1);
-      expect(find.text('LOGIN_PLACEHOLDER'), findsOneWidget,
-          reason: 'the confirmed sign-out lands on the login route');
+      expect(
+        find.text('LOGIN_PLACEHOLDER'),
+        findsOneWidget,
+        reason: 'the confirmed sign-out lands on the login route',
+      );
+    });
+
+    testWidgets('tapping the disabled Notificaciones/Privacidad placeholder '
+        'rows does nothing (U-26 2.1.1/4.1.2 pin)', (tester) async {
+      _useTallViewport(tester);
+      await tester.pumpWidget(
+        _wrapRouter(
+          const SettingsScreen(),
+          path: RoutePaths.settings,
+          overrides: const [],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      for (final label in ['Notificaciones', 'Privacidad']) {
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(AlertDialog),
+          findsNothing,
+          reason:
+              'the "$label" placeholder is disabled — tapping opens '
+              'nothing',
+        );
+        expect(
+          find.text('Configuración'),
+          findsOneWidget,
+          reason: 'the screen stays put',
+        );
+      }
+    });
+  });
+
+  group('EditProfileScreen — disabled control no-ops (U-26 2.1.1/4.1.2)', () {
+    testWidgets('tapping "Cambiar contraseña" does nothing', (tester) async {
+      _useTallViewport(tester);
+      await tester.pumpWidget(_wrap(const EditProfileScreen()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Cambiar contraseña'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(
+        find.byType(EditProfileScreen),
+        findsOneWidget,
+        reason: 'a disabled no-op control must not navigate or toast',
+      );
     });
   });
 
   group('ProfileScreen header tap-to-edit (R8 — U-15 ledger)', () {
     List<Override> overrides() => [
-          myProfileProvider.overrideWith(
-            () => _StubProfileNotifier(
-              _StubProfileFetcher(
-                () async => const {
-                  'username': 'dana',
-                  'bio': 'hola mundo',
-                  'personal_shards': 120,
-                  'preshards': 3,
-                },
-              ),
-            ),
+      myProfileProvider.overrideWith(
+        () => _StubProfileNotifier(
+          _StubProfileFetcher(
+            () async => const {
+              'username': 'dana',
+              'bio': 'hola mundo',
+              'personal_shards': 120,
+              'preshards': 3,
+            },
           ),
-          myGroupsProvider.overrideWith(
-            () => _StubGroupsNotifier(_StubGroupsFetcher(() async => const [])),
-          ),
-          authStateProvider.overrideWith(() => _SignOutAuthNotifier()),
-        ];
+        ),
+      ),
+      myGroupsProvider.overrideWith(
+        () => _StubGroupsNotifier(_StubGroupsFetcher(() async => const [])),
+      ),
+      authStateProvider.overrideWith(() => _SignOutAuthNotifier()),
+    ];
 
     testWidgets('avatar tap opens the edit screen', (tester) async {
       _useTallViewport(tester);
-      await tester.pumpWidget(_wrapRouter(
-        const ProfileScreen(),
-        path: RoutePaths.mainProfile,
-        overrides: overrides(),
-      ));
+      await tester.pumpWidget(
+        _wrapRouter(
+          const ProfileScreen(),
+          path: RoutePaths.mainProfile,
+          overrides: overrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.byType(ProfileAvatar));
       await tester.pumpAndSettle();
 
-      expect(find.byType(EditProfileScreen), findsOneWidget,
-          reason: 'R8 — the avatar is the new tap-to-edit affordance '
-              '(previously only reachable via the edit screen)');
+      expect(
+        find.byType(EditProfileScreen),
+        findsOneWidget,
+        reason:
+            'R8 — the avatar is the new tap-to-edit affordance '
+            '(previously only reachable via the edit screen)',
+      );
       expect(find.text('Editar perfil'), findsWidgets);
     });
 
     testWidgets('username tap opens the edit screen', (tester) async {
       _useTallViewport(tester);
-      await tester.pumpWidget(_wrapRouter(
-        const ProfileScreen(),
-        path: RoutePaths.mainProfile,
-        overrides: overrides(),
-      ));
+      await tester.pumpWidget(
+        _wrapRouter(
+          const ProfileScreen(),
+          path: RoutePaths.mainProfile,
+          overrides: overrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('dana'));
