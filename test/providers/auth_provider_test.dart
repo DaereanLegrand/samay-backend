@@ -281,7 +281,7 @@ void main() {
       );
 
       controller.add(
-        supabase.AuthState(supabase.AuthChangeEvent.tokenRefreshed, null),
+        const supabase.AuthState(supabase.AuthChangeEvent.tokenRefreshed, null),
       );
       await _settle();
 

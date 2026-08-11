@@ -31,12 +31,17 @@ void main() {
     for (final name in [
       'theme',
       'config',
+      'deep_links',
       'router',
       'services',
       'providers',
+      'repositories',
       'models',
       'design_tokens',
+      'errors',
+      'extensions',
       'logging',
+      'telemetry',
       'utils',
     ]) {
       test('lib/core/$name exists', () {
@@ -44,6 +49,19 @@ void main() {
             reason: 'lib/core/$name should exist');
       });
     }
+
+    test('ARC-03: no constants/ placeholder dir is required (M-24 decision)',
+        () {
+      // The campaign's constants home is design_tokens/ + the
+      // AppFeatureFlags/AppFeatureFlag release knobs in
+      // lib/core/config/feature_flags.dart (M-24). A constants/ dir is
+      // intentionally NOT created — the dynamic no-empty-dir invariant
+      // below forbids empty placeholder dirs, and a non-empty one would
+      // duplicate the existing tokens/flags homes.
+      expect(Directory('$root/lib/core/constants').existsSync(), isFalse,
+          reason: 'lib/core/constants/ must NOT be created — constants home '
+              'is design_tokens/ + config/feature_flags.dart (ARC-03/M-24)');
+    });
   });
 
   group('feature modules', () {

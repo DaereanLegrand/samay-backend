@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:samay/core/feature_flags.dart';
+import 'package:samay/core/config/feature_flags.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_coming_soon.dart';
 
@@ -249,10 +249,10 @@ void main() {
     testWidgets('an explicit fallback replaces the default', (tester) async {
       await _pumpGate(
         tester,
-        FlagGate(
+        const FlagGate(
           flag: AppFeatureFlag.events,
-          fallback: const Text('CUSTOM FALLBACK'),
-          child: const Text('REAL EVENTS'),
+          fallback: Text('CUSTOM FALLBACK'),
+          child: Text('REAL EVENTS'),
         ),
       );
 
@@ -264,10 +264,10 @@ void main() {
         (tester) async {
       await _pumpGate(
         tester,
-        FlagGate(
+        const FlagGate(
           flag: AppFeatureFlag.events,
-          fallback: const Text('CUSTOM FALLBACK'),
-          child: const Text('REAL EVENTS'),
+          fallback: Text('CUSTOM FALLBACK'),
+          child: Text('REAL EVENTS'),
         ),
         overrides: [
           featureFlagsProvider

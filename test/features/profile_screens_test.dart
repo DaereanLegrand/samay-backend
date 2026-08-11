@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:samay/core/feature_flags.dart';
+import 'package:samay/core/config/feature_flags.dart';
 import 'package:samay/features/profile/screens/delete_account_screen.dart';
 import 'package:samay/features/profile/screens/edit_profile_screen.dart';
 import 'package:samay/features/profile/providers/profile_providers.dart';

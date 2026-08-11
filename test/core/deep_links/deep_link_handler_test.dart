@@ -203,7 +203,7 @@ void main() {
         (tester) async {
       final router = eventRouter();
       await pumpRouter(tester, router);
-      final ok = await DeepLinkHandler().handleDeepLink(
+      final ok = await const DeepLinkHandler().handleDeepLink(
         'samay://event/tok-1',
         router: router,
         resolveEventId: (_) async => 'event-1',
@@ -217,7 +217,7 @@ void main() {
         (tester) async {
       final router = eventRouter();
       await pumpRouter(tester, router);
-      final ok = await DeepLinkHandler().handleDeepLink(
+      final ok = await const DeepLinkHandler().handleDeepLink(
         'samay://event/unknown',
         router: router,
         resolveEventId: (_) async => null,
@@ -296,11 +296,11 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(
-            locale: const Locale('es'),
+          child: const MaterialApp(
+            locale: Locale('es'),
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
-            home: const DeepLinkListener(),
+            home: DeepLinkListener(),
           ),
         ),
       );

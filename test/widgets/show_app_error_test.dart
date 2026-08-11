@@ -5,11 +5,11 @@ import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/show_app_error.dart';
 
 MaterialApp _app() {
-  return MaterialApp(
-    locale: const Locale('es'),
+  return const MaterialApp(
+    locale: Locale('es'),
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
-    home: const Scaffold(),
+    home: Scaffold(),
   );
 }
 

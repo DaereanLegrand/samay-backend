@@ -36,7 +36,7 @@ PageLoader<_Entry> _loader(
 void main() {
   group('PagedState', () {
     test('holds the immutable fields with the constructor defaults', () {
-      final state = PagedState<int>(items: [1, 2], hasMore: true, pageSize: 50);
+      final state = const PagedState<int>(items: [1, 2], hasMore: true, pageSize: 50);
 
       expect(state.items, [1, 2]);
       expect(state.hasMore, isTrue);

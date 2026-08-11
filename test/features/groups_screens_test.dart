@@ -513,7 +513,7 @@ void main() {
           ),
           contributionsProvider.overrideWith(
             () => _FakeContributionsNotifier(
-              data: GroupContributionsData(
+              data: const GroupContributionsData(
                 contributors: [
                   {'user_id': _userId1, 'shards_contributed': 50, 'users': {'username': 'ana'}},
                 ],
@@ -664,7 +664,7 @@ void main() {
     testWidgets('renders search bar and hint text', (tester) async {
       await _pump(
         tester,
-        InviteScreen(groupId: _groupId),
+        const InviteScreen(groupId: _groupId),
         [
           groupMembersProvider.overrideWith(_FakeGroupMembersNotifier.new),
           searchResultsProvider.overrideWith(_FakeSearchResultsNotifier.new),
@@ -679,7 +679,7 @@ void main() {
     testWidgets('excludes existing members from search results', (tester) async {
       await _pump(
         tester,
-        InviteScreen(groupId: _groupId),
+        const InviteScreen(groupId: _groupId),
         [
           groupMembersProvider.overrideWith(
             () => _FakeGroupMembersNotifier(
@@ -710,7 +710,7 @@ void main() {
       final recording = _RecordingSearchResultsNotifier();
       await _pump(
         tester,
-        InviteScreen(groupId: _groupId),
+        const InviteScreen(groupId: _groupId),
         [
           groupMembersProvider.overrideWith(_FakeGroupMembersNotifier.new),
           searchResultsProvider.overrideWith(() => recording),

@@ -95,11 +95,11 @@ Future<ProviderContainer> _pump(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: MaterialApp(
-        locale: const Locale('es'),
+      child: const MaterialApp(
+        locale: Locale('es'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: const ChatScreen(chatId: _chatId),
+        home: ChatScreen(chatId: _chatId),
       ),
     ),
   );

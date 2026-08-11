@@ -561,11 +561,11 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(
-            locale: const Locale('es'),
+          child: const MaterialApp(
+            locale: Locale('es'),
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
-            home: const EventDetailScreen(eventId: _eventId),
+            home: EventDetailScreen(eventId: _eventId),
           ),
         ),
       );

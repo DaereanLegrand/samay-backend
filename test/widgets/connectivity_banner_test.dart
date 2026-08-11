@@ -21,7 +21,7 @@ Widget _wrap(Stream<bool> stream, {Locale? locale}) {
       locale: locale ?? const Locale('es'),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: Scaffold(body: const ConnectivityBanner()),
+      home: const Scaffold(body: ConnectivityBanner()),
     ),
   );
 }

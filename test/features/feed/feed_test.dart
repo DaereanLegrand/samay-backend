@@ -145,11 +145,11 @@ Future<ProviderContainer> _pumpScreen(
     UncontrolledProviderScope(
       container: container,
       child: router == null
-          ? MaterialApp(
-              locale: const Locale('es'),
+          ? const MaterialApp(
+              locale: Locale('es'),
               localizationsDelegates: AppLocalizations.localizationsDelegates,
               supportedLocales: AppLocalizations.supportedLocales,
-              home: const FeedScreen(),
+              home: FeedScreen(),
             )
           : MaterialApp.router(
               routerConfig: router,

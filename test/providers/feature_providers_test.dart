@@ -423,7 +423,7 @@ void main() {
         () async {
       final repo = _MockFriendsRepository();
       when(() => repo.getFriends()).thenAnswer((_) async => [
-            FriendshipSummary(friendshipId: 'f1', userId: _otherId),
+            const FriendshipSummary(friendshipId: 'f1', userId: _otherId),
           ]);
       when(() => repo.getUserProfile(_otherId))
           .thenAnswer((_) async => _profile(_otherId, 'ana'));

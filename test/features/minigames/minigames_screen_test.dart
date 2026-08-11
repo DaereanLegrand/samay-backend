@@ -82,11 +82,11 @@ Future<ProviderContainer> _pumpScreen(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: MaterialApp(
-        locale: const Locale('es'),
+      child: const MaterialApp(
+        locale: Locale('es'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: const MinigamesScreen(groupId: _groupId),
+        home: MinigamesScreen(groupId: _groupId),
       ),
     ),
   );

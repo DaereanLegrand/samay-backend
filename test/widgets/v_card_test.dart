@@ -6,7 +6,7 @@ void main() {
   group('VCard', () {
     testWidgets('renders child widget', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: VCard(child: Text('Card content')),
         ),
       );
@@ -15,8 +15,8 @@ void main() {
 
     testWidgets('has black fill', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: VCard(child: const SizedBox()),
+        const MaterialApp(
+          home: VCard(child: SizedBox()),
         ),
       );
       final card = tester.widget<Container>(find.byType(Container));
@@ -25,8 +25,8 @@ void main() {
 
     testWidgets('has gray border', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: VCard(child: const SizedBox()),
+        const MaterialApp(
+          home: VCard(child: SizedBox()),
         ),
       );
       final card = tester.widget<Container>(find.byType(Container));
@@ -36,8 +36,8 @@ void main() {
 
     testWidgets('has sharp corners (zero border radius)', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: VCard(child: const SizedBox()),
+        const MaterialApp(
+          home: VCard(child: SizedBox()),
         ),
       );
       final card = tester.widget<Container>(find.byType(Container));

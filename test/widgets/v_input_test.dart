@@ -9,18 +9,18 @@ Widget _buildApp(Widget child) {
 void main() {
   group('VInput', () {
     testWidgets('renders with label', (tester) async {
-      await tester.pumpWidget(_buildApp(VInput(label: 'Email')));
+      await tester.pumpWidget(_buildApp(const VInput(label: 'Email')));
       expect(find.text('Email'), findsOneWidget);
     });
 
     testWidgets('accepts text input', (tester) async {
-      await tester.pumpWidget(_buildApp(VInput(label: 'Name')));
+      await tester.pumpWidget(_buildApp(const VInput(label: 'Name')));
       await tester.enterText(find.byType(TextField), 'John');
       expect(find.text('John'), findsOneWidget);
     });
 
     testWidgets('has white underline decoration', (tester) async {
-      await tester.pumpWidget(_buildApp(VInput(label: 'Test')));
+      await tester.pumpWidget(_buildApp(const VInput(label: 'Test')));
       final textField = tester.widget<TextField>(find.byType(TextField));
       final underline = textField.decoration?.enabledBorder as UnderlineInputBorder?;
       expect(underline, isNotNull);

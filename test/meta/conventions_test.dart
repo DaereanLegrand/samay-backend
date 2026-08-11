@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -98,6 +99,17 @@ void main() {
           reason: 'feature files must live in screens/providers/widgets/'
               'logic/ subdirs, not the feature root (ARC-01/M-23): $flat');
     });
+
+    test('ARC-03: no .dart files directly in the lib/core root (M-24 '
+        'restructure)', () {
+      final flat = Directory('$root/lib/core').listSync().whereType<File>().where(
+          (f) => f.path.endsWith('.dart')).toList();
+      expect(flat, isEmpty,
+          reason: 'lib/core/ must contain only subdirectories (config, '
+              'design_tokens, errors, extensions, ...) — no stray files at '
+              'the core root (ARC-03/M-24): '
+              '${flat.map((f) => f.path.split(Platform.pathSeparator).last).join(', ')}');
+    });
   });
 
   group('approved port map', () {
@@ -188,7 +200,7 @@ void main() {
 
     // Non-live routes (or live routes whose flag is the kill-switch knob) and
     // the flag their builder MUST gate on. Kept in lockstep with
-    // lib/core/feature_flags.dart.
+    // lib/core/config/feature_flags.dart (M-24: moved from the core root).
     const gatedRoutes = <String, String>{
       'RoutePaths.mainFeed': 'AppFeatureFlag.feed',
       'RoutePaths.mainEvents': 'AppFeatureFlag.events',
@@ -257,6 +269,117 @@ void main() {
       }
       expect(problems, isEmpty,
           reason: 'feature-flag route gating violations: $problems');
+    });
+  });
+
+  group('opencode project config (M-25, ARC-08/TOOL-05/L-02)', () {
+    Map<String, dynamic> opencodeConfig() => jsonDecode(
+          File('$root/.opencode/opencode.json').readAsStringSync(),
+        ) as Map<String, dynamic>;
+
+    test('.opencode/ exists with a README and the agents dir', () {
+      expect(Directory('$root/.opencode').existsSync(), isTrue,
+          reason: 'ARC-08/TOOL-05/L-02: .opencode/ must exist (M-25)');
+      expect(File('$root/.opencode/README.md').existsSync(), isTrue,
+          reason: 'the .opencode README documents agents + lock protocol');
+      expect(Directory('$root/.opencode/agents').existsSync(), isTrue,
+          reason: 'project agents live in .opencode/agents/');
+    });
+
+    test('config JSON parses and carries the opencode schema header', () {
+      final cfg = opencodeConfig();
+      expect(cfg['\$schema'], 'https://opencode.ai/config.json',
+          reason: 'the config must validate against the opencode schema');
+    });
+
+    test('instructions reference AGENT-RULES.md + FILE-OWNERSHIP.md', () {
+      final instructions = (opencodeConfig()['instructions'] as List)
+          .cast<String>()
+          .join('\n');
+      expect(instructions, contains('AGENTS.md'),
+          reason: 'project context must inject AGENTS.md');
+      expect(instructions, contains('AGENT-RULES.md'),
+          reason: 'the file-semaphore protocol must be injected (M-25)');
+      expect(instructions, contains('FILE-OWNERSHIP.md'),
+          reason: 'the ownership map must be injected (M-25)');
+    });
+
+    test('permission block denies git write/remote operations', () {
+      final bash =
+          (opencodeConfig()['permission'] as Map)['bash'] as Map;
+      expect(bash['*'], 'allow',
+          reason: 'permissions stay on opencode defaults — only git '
+              'mutations are denied');
+      expect(bash['git commit*'], 'deny',
+          reason: 'agents must NEVER commit (AGENT-RULES §0.4) — the '
+              'orchestrator commits at checkpoints');
+      expect(bash['git push*'], 'deny',
+          reason: 'agents must NEVER push (AGENT-RULES §0.4)');
+      for (final op in const [
+        'git pull*',
+        'git am*',
+        'git cherry-pick*',
+        'git rebase*',
+        'git merge*',
+        'git reset*',
+        'git checkout*',
+        'git switch*',
+        'git clean*',
+        'git stash*',
+      ]) {
+        expect(bash[op], 'deny',
+            reason: '$op can destroy another agent\'s uncommitted work '
+                '(AGENT-RULES §0.5) — must stay denied');
+      }
+    });
+
+    test('the three campaign subagents ship as .opencode/agents/*.md', () {
+      for (final name in const ['reviewer', 'security-check', 'docs-verifier']) {
+        expect(File('$root/.opencode/agents/$name.md').existsSync(), isTrue,
+            reason: 'the $name subagent must exist (M-25)');
+      }
+    });
+  });
+
+  group('lint rules + pre-commit hooks (M-26, CQ-08/TOOL-04)', () {
+    test('analysis_options.yaml enables the three custom lints', () {
+      final content = File('$root/analysis_options.yaml').readAsStringSync();
+      for (final rule in const [
+        'prefer_single_quotes',
+        'prefer_const_constructors',
+        'unnecessary_late',
+      ]) {
+        expect(content, contains('$rule: true'),
+            reason: 'CQ-08 (M-26): $rule must stay enabled in '
+                'analysis_options.yaml — see the M-26 daily log');
+      }
+    });
+
+    test('tool/pre-commit.sh exists and is executable', () {
+      final script = File('$root/tool/pre-commit.sh');
+      expect(script.existsSync(), isTrue,
+          reason: 'TOOL-04 (M-26): tool/pre-commit.sh is the pre-commit gate');
+      expect(script.statSync().mode & 0x111, isNot(0),
+          reason: 'tool/pre-commit.sh must be executable (chmod +x)');
+    });
+
+    test('tool/hooks/pre-commit exists, is executable, and delegates', () {
+      final hook = File('$root/tool/hooks/pre-commit');
+      expect(hook.existsSync(), isTrue,
+          reason: 'TOOL-04 (M-26): tool/hooks/pre-commit is the git wrapper '
+              '(core.hooksPath target)');
+      expect(hook.statSync().mode & 0x111, isNot(0),
+          reason: 'tool/hooks/pre-commit must be executable (chmod +x)');
+      expect(hook.readAsStringSync(), contains('tool/pre-commit.sh'),
+          reason: 'the git hook must delegate to tool/pre-commit.sh so the '
+              'gate logic lives in ONE place');
+    });
+
+    test('Makefile exposes make install-hooks', () {
+      final content = File('$root/Makefile').readAsStringSync();
+      expect(content, contains('install-hooks'),
+          reason: 'TOOL-04 (M-26): make install-hooks wires '
+              'core.hooksPath=tool/hooks — document it in DEVELOPMENT-WORKFLOW');
     });
   });
 }

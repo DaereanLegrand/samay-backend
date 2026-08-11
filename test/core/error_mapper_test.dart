@@ -43,7 +43,7 @@ void main() {
     }
 
     test('invalid_credentials → ValidationError(credenciales)', () {
-      final error = AuthException(
+      final error = const AuthException(
         'Invalid login credentials',
         code: 'invalid_credentials',
       ).toAppError();
@@ -55,7 +55,7 @@ void main() {
 
     test('otp_expired → ValidationError(código)', () {
       final error =
-          AuthException('OTP has expired', code: 'otp_expired').toAppError();
+          const AuthException('OTP has expired', code: 'otp_expired').toAppError();
       expect(error, isA<ValidationError>());
       expect((error as ValidationError).field, 'código');
     });
@@ -74,7 +74,7 @@ void main() {
 
     test('known jwt code without keyword message → UnauthorizedError', () {
       expect(
-        AuthException('signature check failed', code: 'invalid_jwt')
+        const AuthException('signature check failed', code: 'invalid_jwt')
             .toAppError(),
         isA<UnauthorizedError>(),
       );
@@ -82,14 +82,14 @@ void main() {
 
     test('unmapped code → UnauthorizedError (auth fallback)', () {
       expect(
-        AuthException('user not found', code: 'user_not_found').toAppError(),
+        const AuthException('user not found', code: 'user_not_found').toAppError(),
         isA<UnauthorizedError>(),
       );
     });
 
     test('null code → UnauthorizedError, no crash (null-safe)', () {
       expect(
-        AuthException('something happened').toAppError(),
+        const AuthException('something happened').toAppError(),
         isA<UnauthorizedError>(),
       );
     });
@@ -98,14 +98,14 @@ void main() {
   group('PostgrestException code mappings', () {
     test('PGRST301 → UnauthorizedError', () {
       expect(
-        PostgrestException(message: 'JWT expired', code: 'PGRST301')
+        const PostgrestException(message: 'JWT expired', code: 'PGRST301')
             .toAppError(),
         isA<UnauthorizedError>(),
       );
     });
 
     test('23503 → ValidationError(data, Referencia inválida)', () {
-      final error = PostgrestException(
+      final error = const PostgrestException(
         message: 'insert or update on table violates foreign key constraint',
         code: '23503',
       ).toAppError();
@@ -116,7 +116,7 @@ void main() {
     });
 
     test('23505 → ValidationError(data, Ya existe)', () {
-      final error = PostgrestException(
+      final error = const PostgrestException(
         message: 'duplicate key value violates unique constraint',
         code: '23505',
       ).toAppError();
@@ -128,7 +128,7 @@ void main() {
 
     test('42501 → PermissionError', () {
       expect(
-        PostgrestException(message: 'permission denied', code: '42501')
+        const PostgrestException(message: 'permission denied', code: '42501')
             .toAppError(),
         isA<PermissionError>(),
       );
@@ -136,7 +136,7 @@ void main() {
 
     test('P0001 → ServerError carrying the server detail', () {
       final error =
-          PostgrestException(message: 'division by zero', code: 'P0001')
+          const PostgrestException(message: 'division by zero', code: 'P0001')
               .toAppError();
       expect(error, isA<ServerError>());
       expect((error as ServerError).detail, 'division by zero');
@@ -163,7 +163,7 @@ void main() {
     }
 
     test('unmapped code → ServerError with server detail', () {
-      final error = PostgrestException(
+      final error = const PostgrestException(
         message: 'invalid input syntax for type integer',
         code: '22P02',
       ).toAppError();
@@ -174,7 +174,7 @@ void main() {
 
     test('null code → ServerError with server detail (null-safe)', () {
       final error =
-          PostgrestException(message: 'Unknown db error').toAppError();
+          const PostgrestException(message: 'Unknown db error').toAppError();
       expect(error, isA<ServerError>());
       expect((error as ServerError).detail, 'Unknown db error');
     });
@@ -182,7 +182,7 @@ void main() {
 
   group('FormatException', () {
     test('→ ValidationError(data, Formato inválido)', () {
-      final error = FormatException('bad format').toAppError();
+      final error = const FormatException('bad format').toAppError();
       expect(error, isA<ValidationError>());
       expect((error as ValidationError).issue, 'Formato inválido');
     });

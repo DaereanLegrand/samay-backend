@@ -63,7 +63,7 @@ Future<Uint8List> _tinyPng() async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
   canvas.drawRect(
-    Rect.fromLTWH(0, 0, 80, 80),
+    const Rect.fromLTWH(0, 0, 80, 80),
     Paint()..color = const Color(0xFF4B8BBE),
   );
   final picture = recorder.endRecording();

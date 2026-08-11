@@ -216,7 +216,7 @@ void main() {
         [
           friendRequestsProvider.overrideWith(
             () => _FakeFriendRequestsNotifier(
-              data: FriendRequestsData(
+              data: const FriendRequestsData(
                 requests: [
                   {'type': 'received', 'friendship_id': 'f1', 'user_id': _userId1},
                   {'type': 'sent', 'friendship_id': 'f2', 'user_id': _userId2},

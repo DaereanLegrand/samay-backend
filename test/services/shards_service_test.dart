@@ -390,7 +390,7 @@ void main() {
         expect(result.single['id'], 'uc-1');
         expect(result.single['equipped'], isTrue);
         expect((result.single['cosmetics'] as Map)['type'], 'avatar_frame');
-        expect(rows.filters, contains(RecordedFilter('user_id', _userId)));
+        expect(rows.filters, contains(const RecordedFilter('user_id', _userId)));
       },
     );
 
@@ -412,7 +412,7 @@ void main() {
 
       verify(() => table.update({'equipped': false})).called(1);
       expect(updates.filters, contains(const RecordedFilter('id', 'uc-1')));
-      expect(updates.filters, contains(RecordedFilter('user_id', _userId)));
+      expect(updates.filters, contains(const RecordedFilter('user_id', _userId)));
     });
 
     test(
@@ -535,7 +535,7 @@ void main() {
         DateTime.utc(2026, 8, 1, 21, 30),
       );
       // Own rows only (`sl_read_own` filter mirror) and a bounded page.
-      expect(rows.filters, contains(RecordedFilter('user_id', _userId)));
+      expect(rows.filters, contains(const RecordedFilter('user_id', _userId)));
       expect(
         () => table.select(
           'id, delta, reason, reference_id, created_at',
@@ -573,7 +573,7 @@ void main() {
       expect(result.single.reason, 'purchased');
       expect(result.single.delta, 100);
       expect(result.single.referenceId, isNull);
-      expect(rows.filters, contains(RecordedFilter('user_id', _userId)));
+      expect(rows.filters, contains(const RecordedFilter('user_id', _userId)));
     });
 
     test('throws when there is no authenticated user', () async {

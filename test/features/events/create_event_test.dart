@@ -293,7 +293,7 @@ void main() {
     testWidgets('renders the full form skeleton', (tester) async {
       await _pumpScreen(
         tester,
-        CreateEventScreen(),
+        const CreateEventScreen(),
         '/create',
         _defaultOverrides(
             _MockEventService(), _MockMediaService(), _MockGroupService()),
@@ -319,7 +319,7 @@ void main() {
         'previous type (ECRT step 4)', (tester) async {
       await _pumpScreen(
         tester,
-        CreateEventScreen(),
+        const CreateEventScreen(),
         '/create',
         _defaultOverrides(
             _MockEventService(), _MockMediaService(), _MockGroupService()),
@@ -355,7 +355,7 @@ void main() {
         (tester) async {
       await _pumpScreen(
         tester,
-        CreateEventScreen(),
+        const CreateEventScreen(),
         '/create',
         _defaultOverrides(
             _MockEventService(), _MockMediaService(), _MockGroupService()),
@@ -384,7 +384,7 @@ void main() {
       );
       await _pumpScreen(
         tester,
-        CreateEventScreen(),
+        const CreateEventScreen(),
         '/create',
         [
           eventServiceProvider.overrideWithValue(_MockEventService()),
@@ -413,7 +413,7 @@ void main() {
         (tester) async {
       await _pumpScreen(
         tester,
-        CreateEventScreen(groupId: _groupId),
+        const CreateEventScreen(groupId: _groupId),
         '/group/$_groupId/create-event',
         _defaultOverrides(
             _MockEventService(), _MockMediaService(), _MockGroupService()),
@@ -430,7 +430,7 @@ void main() {
           .thenAnswer((_) async => {'id': _eventId, 'invite_token': 'tok-1'});
       final (_, router) = await _pumpScreen(
         tester,
-        CreateEventScreen(),
+        const CreateEventScreen(),
         '/create',
         _defaultOverrides(event, _MockMediaService(), _MockGroupService()),
       );
@@ -466,7 +466,7 @@ void main() {
           .thenAnswer((_) async => {'id': _eventId, 'invite_token': 'tok-1'});
       await _pumpScreen(
         tester,
-        CreateEventScreen(),
+        const CreateEventScreen(),
         '/create',
         _defaultOverrides(event, _MockMediaService(), _MockGroupService()),
       );
@@ -552,7 +552,7 @@ void main() {
       final event = _MockEventService();
       final (_, router) = await _pumpScreen(
         tester,
-        CreateEventScreen(),
+        const CreateEventScreen(),
         '/create',
         _defaultOverrides(event, _MockMediaService(), _MockGroupService()),
       );

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:samay/core/feature_flags.dart';
+import 'package:samay/core/config/feature_flags.dart';
 import 'package:samay/core/models/event_photo.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/config_provider.dart';

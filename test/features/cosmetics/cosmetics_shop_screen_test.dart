@@ -150,11 +150,11 @@ Widget _wrap({
         () => _StubProfileNotifier(_StubProfileFetcher(() async => profile)),
       ),
     ],
-    child: MaterialApp(
-      locale: const Locale('es'),
+    child: const MaterialApp(
+      locale: Locale('es'),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: const CosmeticsShopScreen(),
+      home: CosmeticsShopScreen(),
     ),
   );
 }

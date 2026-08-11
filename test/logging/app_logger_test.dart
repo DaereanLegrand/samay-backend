@@ -90,7 +90,7 @@ void main() {
 
     test('unrelated errors are not classified', () {
       expect(logger.knownBenignError(Exception('boom')), isNull);
-      expect(logger.knownBenignError(FormatException('bad')), isNull);
+      expect(logger.knownBenignError(const FormatException('bad')), isNull);
     });
   });
 

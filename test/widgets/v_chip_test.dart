@@ -9,19 +9,19 @@ Widget _buildApp(Widget child) {
 void main() {
   group('VChip', () {
     testWidgets('renders with label', (tester) async {
-      await tester.pumpWidget(_buildApp(VChip(label: 'VIP')));
+      await tester.pumpWidget(_buildApp(const VChip(label: 'VIP')));
       expect(find.text('VIP'), findsOneWidget);
     });
 
     testWidgets('unselected is not selected', (tester) async {
-      await tester.pumpWidget(_buildApp(VChip(label: 'Basic')));
+      await tester.pumpWidget(_buildApp(const VChip(label: 'Basic')));
       final chip = tester.widget<FilterChip>(find.byType(FilterChip));
       expect(chip.selected, isFalse);
     });
 
     testWidgets('selected is selected', (tester) async {
       await tester.pumpWidget(
-        _buildApp(VChip(label: 'Selected', selected: true)),
+        _buildApp(const VChip(label: 'Selected', selected: true)),
       );
       final chip = tester.widget<FilterChip>(find.byType(FilterChip));
       expect(chip.selected, isTrue);

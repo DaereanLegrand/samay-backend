@@ -6,7 +6,7 @@ void main() {
   group('VBadge', () {
     testWidgets('renders with label', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: VBadge(label: 'S'),
         ),
       );
@@ -15,7 +15,7 @@ void main() {
 
     testWidgets('renders with custom color', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: VBadge(label: 'A', color: Colors.white),
         ),
       );

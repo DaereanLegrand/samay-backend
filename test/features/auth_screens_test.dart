@@ -121,7 +121,7 @@ void main() {
   group('OtpVerificationScreen', () {
     testWidgets('renders code input and verify button', (tester) async {
       await tester.pumpWidget(_wrap(
-        OtpVerificationScreen(email: 'test@test.com', password: 'test123'),
+        const OtpVerificationScreen(email: 'test@test.com', password: 'test123'),
       ));
       // Settle the async auth provider: the very first frame is AsyncLoading
       // (button shows a spinner), which is not the state under test.
@@ -133,7 +133,7 @@ void main() {
   group('AgeGateScreen', () {
     testWidgets('renders date picker button and continue', (tester) async {
       await tester.pumpWidget(_wrap(
-        AgeGateScreen(email: 'test@test.com'),
+        const AgeGateScreen(email: 'test@test.com'),
       ));
       expect(find.text('Continuar'), findsOneWidget);
       expect(find.text('Seleccionar fecha'), findsOneWidget);
@@ -143,7 +143,7 @@ void main() {
   group('PrivacyTermsScreen', () {
     testWidgets('renders checkboxes and create account button', (tester) async {
       await tester.pumpWidget(_wrap(
-        PrivacyTermsScreen(email: 'test@test.com', dateOfBirth: '2000-01-15'),
+        const PrivacyTermsScreen(email: 'test@test.com', dateOfBirth: '2000-01-15'),
       ));
       expect(find.text('Crear cuenta'), findsOneWidget);
     });
@@ -152,7 +152,7 @@ void main() {
   group('ProfileSetupScreen', () {
     testWidgets('renders form fields and save button, no skip', (tester) async {
       await tester.pumpWidget(_wrap(
-        ProfileSetupScreen(email: 'test@test.com', dateOfBirth: '2000-01-15'),
+        const ProfileSetupScreen(email: 'test@test.com', dateOfBirth: '2000-01-15'),
       ));
       // Settle the async auth provider: the very first frame is AsyncLoading
       // (button shows a spinner), which is not the state under test.

@@ -158,11 +158,11 @@ void main() {
     Widget wrapSettings(ProviderContainer container) {
       return UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(
-          locale: const Locale('es'),
+        child: const MaterialApp(
+          locale: Locale('es'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: const SettingsScreen(),
+          home: SettingsScreen(),
         ),
       );
     }

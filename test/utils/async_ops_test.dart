@@ -97,7 +97,7 @@ void main() {
         () async {
           attempts++;
           if (attempts == 1) {
-            throw PostgrestException(message: 'connection failed', code: '28000');
+            throw const PostgrestException(message: 'connection failed', code: '28000');
           }
           return 1;
         },
@@ -114,7 +114,7 @@ void main() {
         withRetry<int>(
           () async {
             attempts++;
-            throw PostgrestException(message: 'already exists', code: '23505');
+            throw const PostgrestException(message: 'already exists', code: '23505');
           },
           maxRetries: 3,
           initialDelay: const Duration(milliseconds: 1),

@@ -85,7 +85,7 @@ class _FakeGroupMembers extends GroupMembersNotifier {
 class _FakeContributions extends GroupContributionsNotifier {
   @override
   Future<GroupContributionsData> build(String arg) async =>
-      GroupContributionsData(
+      const GroupContributionsData(
         contributors: [
           {
             'user_id': _userId1,
@@ -147,11 +147,11 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(
-            locale: const Locale('es'),
+          child: const MaterialApp(
+            locale: Locale('es'),
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
-            home: const GroupDetailScreen(groupId: _groupId),
+            home: GroupDetailScreen(groupId: _groupId),
           ),
         ),
       );

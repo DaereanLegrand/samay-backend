@@ -258,7 +258,7 @@ void main() {
     test('handlePlatformError reports the error and returns true', () async {
       final sink = _RecordingSink();
       final reporter = CrashReporter(dsn: _testDsn, sink: sink);
-      final error = FormatException('bad');
+      final error = const FormatException('bad');
       final stack = StackTrace.current;
 
       final handled =

@@ -28,6 +28,12 @@
 #   P6  ^[[:space:]]*APPLE_PASSWORD=   secrets as Make-variable assignments
 #         NO allowlist — the Makefile must never carry one (MKE-02)
 #
+# 2026-08-10 (M-26): EVIDENCE3 added — the M-13/M-17/M-20/M-21 daily logs
+# quote the P2/P3 pattern LITERALS in their pattern tables and evidence
+# commands (same class as the M-03/M-09/D-03/I-34 evidence logs already
+# allowlisted). First flagged by the new pre-commit gate (tool/pre-commit.sh,
+# TOOL-04) — the committed tree had this pre-existing failure since 8ae9e51.
+#
 # Usage: tools/check_secrets.sh   # exit 0 = clean, 1 = violations found
 # =============================================================================
 set -uo pipefail
@@ -61,6 +67,7 @@ ENV_LOCAL='supabase/\.env\.local|supabase-testing/\.env\.local'
 OPT007='test/opt-007-compose-static\.sh'
 EVIDENCE='docs/development/phase-00-foundation/2026-08-10_M03-kong-keys\.md|docs/development/phase-00-foundation/2026-08-10_M09-kong\.md'
 EVIDENCE2='docs/development/phase-00-foundation/2026-08-09_D03-tofix-audit\.md|docs/development/phase-02-flutter-foundation/2026-08-09_I34-env-dartdefine\.md'
+EVIDENCE3='docs/development/phase-00-foundation/2026-08-10_M13-makefile-env\.md|docs/development/phase-00-foundation/2026-08-10_M17-fastlane-ios\.md|docs/development/phase-00-foundation/2026-08-10_M20-ci\.md|docs/development/phase-00-foundation/2026-08-10_M21-ci-build\.md'
 
 printf '── secrets-check: tracked-file scan for committed secrets ──\n'
 scan 'P1 known dev anon key' \
@@ -68,10 +75,10 @@ scan 'P1 known dev anon key' \
   "$SELF|$TEST_DEFAULTS|$ENV_LOCAL|$EVIDENCE"
 scan 'P2 historical anon key' \
   'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH' \
-  "$SELF|$EVIDENCE2"
+  "$SELF|$EVIDENCE2|$EVIDENCE3"
 scan 'P3 service-role literals' \
   'sb_service_role' \
-  "$SELF|$TEST_DEFAULTS|$OPT007|<private-ops-repo>/SELFHOSTING\.md|docs/to-fix/TODO\.md|$EVIDENCE"
+  "$SELF|$TEST_DEFAULTS|$OPT007|<private-ops-repo>/SELFHOSTING\.md|docs/to-fix/TODO\.md|$EVIDENCE|$EVIDENCE3"
 scan 'P4 real service-role key shape' \
   'sb_secret_[A-Za-z0-9_-]{16,}' \
   "$SELF|$OPT007|$EVIDENCE"
