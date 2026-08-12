@@ -165,11 +165,11 @@ void main() {
         await tester.pumpAndSettle();
 
         await tester.enterText(find.byType(TextField).at(0), 'a@b.com');
-        await tester.enterText(find.byType(TextField).at(1), 'secret1');
+        await tester.enterText(find.byType(TextField).at(1), 'secret12');
         await tester.tap(find.widgetWithText(TextButton, 'Iniciar sesión'));
         await tester.pumpAndSettle();
 
-        expect(notifier.signInCalls, [('a@b.com', 'secret1')]);
+        expect(notifier.signInCalls, [('a@b.com', 'secret12')]);
         expect(find.text('main-feed-marker'), findsOneWidget);
         expect(find.byType(LoginScreen), findsNothing);
       },
@@ -209,11 +209,11 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).at(0), 'a@b.com');
-      await tester.enterText(find.byType(TextField).at(1), 'wrong1');
+      await tester.enterText(find.byType(TextField).at(1), 'wrong12');
       await tester.tap(find.widgetWithText(TextButton, 'Iniciar sesión'));
       await tester.pumpAndSettle();
 
-      expect(notifier.signInCalls, [('a@b.com', 'wrong1')]);
+      expect(notifier.signInCalls, [('a@b.com', 'wrong12')]);
       // Inline red text (auth.hasError) + the blocking dialog body.
       expect(find.text('Correo o contraseña inválidos'), findsWidgets);
       expect(find.byType(AlertDialog), findsOneWidget);
@@ -230,7 +230,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).at(0), 'a@b.com');
-      await tester.enterText(find.byType(TextField).at(1), 'secret1');
+      await tester.enterText(find.byType(TextField).at(1), 'secret12');
       await tester.enterText(find.byType(TextField).at(2), 'different1');
       await tester.tap(find.widgetWithText(TextButton, 'Crear cuenta'));
       await tester.pump();
@@ -254,7 +254,7 @@ void main() {
 
       expect(
         find.text(
-          'La contraseña debe tener al menos 6 caracteres y contener un número.',
+          'La contraseña debe tener al menos 8 caracteres y contener un número.',
         ),
         findsOneWidget,
       );
@@ -268,8 +268,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).at(0), 'a@b.com');
-      await tester.enterText(find.byType(TextField).at(1), 'secret1');
-      await tester.enterText(find.byType(TextField).at(2), 'secret1');
+      await tester.enterText(find.byType(TextField).at(1), 'secret12');
+      await tester.enterText(find.byType(TextField).at(2), 'secret12');
       await tester.tap(find.widgetWithText(TextButton, 'Crear cuenta'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));

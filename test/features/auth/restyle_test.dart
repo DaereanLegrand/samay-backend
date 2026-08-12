@@ -421,7 +421,7 @@ void main() {
       );
       expect(
         passwordField.decoration?.errorText,
-        'La contraseña debe tener al menos 6 caracteres y contener un número.',
+        'La contraseña debe tener al menos 8 caracteres y contener un número.',
       );
       expect(passwordField.decoration?.errorStyle?.color, AppColors.error);
     });
@@ -433,7 +433,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).at(0), 'a@b.com');
-      await tester.enterText(find.byType(TextField).at(1), 'secret1');
+      await tester.enterText(find.byType(TextField).at(1), 'secret12');
       await tester.enterText(find.byType(TextField).at(2), 'different1');
       await tester.tap(find.widgetWithText(TextButton, 'Crear cuenta'));
       await tester.pump();

@@ -65,7 +65,7 @@ const _dataAllowlist = <String>{
   'En la Búsqueda', // rank-bracket label (I-46 — BuildContext-free constant
   // in lib/shared/widgets/rank_bracket.dart, same rationale as error strings)
   'Creadores de la Vibra', // rank-bracket label (contains stopword 'creado')
-  'La contraseña debe tener al menos 6 caracteres y contener un número.',
+  'La contraseña debe tener al menos 8 caracteres y contener un número.',
   // password-policy message (I-46 — BuildContext-free constant in
   // lib/features/auth/password_policy.dart, same rationale as error strings)
 };
