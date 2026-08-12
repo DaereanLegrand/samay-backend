@@ -7,7 +7,18 @@ set -euo pipefail
 #   SEED_DEV=1 bash migrate.sh
 cd "$(dirname "$0")"
 
-source .env 2>/dev/null || true
+# Load only simple KEY=VAL lines from .env — never `source` it whole (values
+# may contain spaces/UTF-8 that are fine for docker compose but not for the
+# shell; sourcing used to fail with 'command not found' and abort the run).
+if [ -r .env ]; then
+  while IFS='=' read -r key value; do
+    case "$key" in
+      '' | '#'* | *' '* | *'-'*) continue ;;
+    esac
+    value="${value%\"}"; value="${value#\"}"
+    export "$key=$value" 2>/dev/null || true
+  done < .env
+fi
 
 DB_URL="${DB_URL:-postgres://postgres:postgres@localhost:54382/postgres}"
 SEED_DEV="${SEED_DEV:-0}"

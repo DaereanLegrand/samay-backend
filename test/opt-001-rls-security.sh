@@ -21,8 +21,8 @@ set -uo pipefail
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
-ANON_KEY="${ANON_KEY:-sb_publishable_q7NDNoV4TCGqCgheg4tcvC_odjEiEdN}"
-SERVICE_KEY="${SERVICE_KEY:-sb_service_role_key_change_in_production}"
+ANON_KEY="${ANON_KEY:-eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJyb2xlIjogImFub24iLCAiaXNzIjogInN1cGFiYXNlIiwgImlhdCI6IDE3ODY0ODU4OTMsICJleHAiOiAxODE4MDIxODkzfQ.YR0NRqrTGXY6JibsjhLEkC7EE1T83b887bCqaZd834Y}"
+SERVICE_KEY="${SERVICE_KEY:-eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJyb2xlIjogInNlcnZpY2Vfcm9sZSIsICJpc3MiOiAic3VwYWJhc2UiLCAiaWF0IjogMTc4NjQ4NTg5MywgImV4cCI6IDE4MTgwMjE4OTN9.MmYGQ6z0OW7MvKkoYaWLpDBN1AkNdElvpF_DqX7baWM}"
 
 PASS=0
 FAIL=0
@@ -349,6 +349,55 @@ if echo "$cross_resp" | grep -qE '(Not authorized|42501|permission denied|P0001)
 else
   nok "donate_shards_to_group RPC did NOT block cross-user donation: $(echo "$cross_resp" | head -c 80)"
 fi
+
+# =========================================================================
+# TEST I — server-managed column guards (migration 20260811000001)
+# The image's default privileges grant TABLE-level UPDATE to authenticated,
+# which defeats the G-03 column REVOKEs — the enforcement is the
+# assert_safe_*_update triggers (SECURITY INVOKER).
+# =========================================================================
+h1 "TEST I — server-managed column guards (20260811000001)"
+
+# I1: authenticated mass-assignment on users.personal_shards is rejected
+resp=$(curl -s -X PATCH "$SUPABASE_URL/rest/v1/users?id=eq.$UUID_A" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -d '{"personal_shards": 999999}')
+if echo "$resp" | grep -q "protected columns"; then
+  ok "users.personal_shards mass-assignment rejected by assert_safe_user_update trigger"
+else
+  nok "users.personal_shards mass-assignment NOT rejected! Response: $(echo "$resp" | head -c 120)"
+fi
+
+# I2: same-row legit update (user-owned column) still works
+resp=$(curl -s -X PATCH "$SUPABASE_URL/rest/v1/users?id=eq.$UUID_A" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -H "Prefer: return=minimal" -d '{"bio":"guard-probe"}')
+if [ -z "$resp" ]; then
+  ok "users.bio UPDATE still works for the owner (user-owned column)"
+else
+  nok "users.bio UPDATE failed: $(echo "$resp" | head -c 120)"
+fi
+
+# I3: authenticated cannot set groups.group_shards (rank fraud) on own group
+GID_I="$(uuidgen | tr 'A-Z' 'a-z')"
+MID_I="$(uuidgen | tr 'A-Z' 'a-z')"
+resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/groups" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -H "Prefer: return=minimal" \
+  -d "{\"id\":\"$GID_I\",\"name\":\"guard-probe\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}")
+# promotor membership (the groups_update_promotor policy requires it)
+svc_post "group_members" "{\"id\":\"$MID_I\",\"group_id\":\"$GID_I\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" >/dev/null
+resp=$(curl -s -X PATCH "$SUPABASE_URL/rest/v1/groups?id=eq.$GID_I" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -d '{"group_shards": 5000}')
+if echo "$resp" | grep -q "server-managed columns"; then
+  ok "groups.group_shards fraud rejected by assert_safe_group_update trigger"
+else
+  nok "groups.group_shards fraud NOT rejected! Response: $(echo "$resp" | head -c 120)"
+fi
+# cleanup
+curl -s -X DELETE "$SUPABASE_URL/rest/v1/groups?id=eq.$GID_I" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" >/dev/null 2>&1 || true
 
 # =========================================================================
 # Summary

@@ -37,8 +37,8 @@ set -uo pipefail
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
-ANON_KEY="${ANON_KEY:-sb_publishable_q7NDNoV4TCGqCgheg4tcvC_odjEiEdN}"
-SERVICE_KEY="${SERVICE_KEY:-sb_service_role_key_change_in_production}"
+ANON_KEY="${ANON_KEY:-eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJyb2xlIjogImFub24iLCAiaXNzIjogInN1cGFiYXNlIiwgImlhdCI6IDE3ODY0ODU4OTMsICJleHAiOiAxODE4MDIxODkzfQ.YR0NRqrTGXY6JibsjhLEkC7EE1T83b887bCqaZd834Y}"
+SERVICE_KEY="${SERVICE_KEY:-eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJyb2xlIjogInNlcnZpY2Vfcm9sZSIsICJpc3MiOiAic3VwYWJhc2UiLCAiaWF0IjogMTc4NjQ4NTg5MywgImV4cCI6IDE4MTgwMjE4OTN9.MmYGQ6z0OW7MvKkoYaWLpDBN1AkNdElvpF_DqX7baWM}"
 
 PASS=0
 FAIL=0
@@ -152,7 +152,7 @@ else
   nok "e2ee_identity_keys insert: $(echo "$resp" | head -c 80)"
 fi
 row=$(svc_get "e2ee_identity_keys?user_id=eq.$UUID_A&select=identity_key,identity_sig_key,signed_prekey_id,signed_prekey,signed_prekey_sig")
-if echo "$row" | grep -q "\"identity_key\":\"$IK\"" && echo "$row" | grep -q '"signed_prekey_id":1' \
+if echo "$row" | grep -q "\"identity_key\": *\"$IK\"" && echo "$row" | grep -q '"signed_prekey_id": *1' \
    && echo "$row" | grep -q "\"signed_prekey\":\"$SPK\""; then
   ok "Bundle row persisted (identity + signed prekey)"
 else
@@ -171,9 +171,9 @@ fi
 h1 "TEST B — auth peer fetches bundle"
 
 resp=$(auth_rpc "$TOKEN_B" "fetch_prekey_bundle" "{\"p_user_id\":\"$UUID_A\"}")
-if echo "$resp" | grep -q "\"identity_key\":\"$IK\"" \
-   && echo "$resp" | grep -q "\"identity_sig_key\":\"$IK_SIG\"" \
-   && echo "$resp" | grep -q '"signed_prekey_id":1' \
+if echo "$resp" | grep -q "\"identity_key\": *\"$IK\"" \
+   && echo "$resp" | grep -q "\"identity_sig_key\": *\"$IK_SIG\"" \
+   && echo "$resp" | grep -q '"signed_prekey_id": *1' \
    && echo "$resp" | grep -q '"one_time_prekey"'; then
   ok "Bundle returned: identity keys + signed prekey + one_time_prekey"
 else
@@ -193,7 +193,7 @@ else
 fi
 
 resp2=$(auth_rpc "$TOKEN_B" "fetch_prekey_bundle" "{\"p_user_id\":\"$UUID_A\"}")
-if echo "$resp2" | grep -q '"one_time_prekey":{'; then
+if echo "$resp2" | grep -q '"one_time_prekey": *{'; then
   ok "Second fetch returned the next (2nd) one-time prekey"
 else
   nok "Second fetch wrong: $(echo "$resp2" | head -c 120)"
@@ -217,7 +217,7 @@ fi
 h1 "TEST D — exhausted OPK pool"
 
 resp3=$(auth_rpc "$TOKEN_B" "fetch_prekey_bundle" "{\"p_user_id\":\"$UUID_A\"}")
-if echo "$resp3" | grep -q "\"identity_key\":\"$IK\"" && echo "$resp3" | grep -q '"one_time_prekey":null'; then
+if echo "$resp3" | grep -q "\"identity_key\": *\"$IK\"" && echo "$resp3" | grep -q '"one_time_prekey": *null'; then
   ok "Exhausted fetch: identity keys returned, one_time_prekey null (no OPK reuse)"
 else
   nok "Exhausted fetch wrong: $(echo "$resp3" | head -c 120)"
@@ -241,7 +241,7 @@ fi
 h1 "TEST F — e2ee_identity_keys own-row RLS"
 
 resp=$(auth_get "$TOKEN_A" "e2ee_identity_keys?user_id=eq.$UUID_A&select=identity_key")
-if echo "$resp" | grep -q "\"identity_key\":\"$IK\""; then
+if echo "$resp" | grep -q "\"identity_key\": *\"$IK\""; then
   ok "Owner A CAN read own bundle row (select_own)"
 else
   nok "Owner A CANNOT read own row: $(echo "$resp" | head -c 80)"

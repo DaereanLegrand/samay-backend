@@ -21,7 +21,7 @@ services:
       JWT_SECRET: "your-jwt-secret-change-in-production"
       JWT_EXP: 3600
     volumes:
-      - ./volumes/db/data:/var/lib/postgresql/data/pgdata
+      - db-data:/var/lib/postgresql/data/pgdata
       - ./volumes/db/postgresql.conf:/etc/postgresql/postgresql.conf:ro
       - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:ro
       - ./volumes/db/webhooks.sql:/docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql:ro
@@ -306,3 +306,4 @@ services:
 volumes:
   db-config:
   deno-cache:
+  db-data:

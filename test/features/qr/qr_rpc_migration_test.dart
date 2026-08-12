@@ -140,7 +140,7 @@ void main() {
       // Section 46 adds 42 → plan(304) (I-78 re-verified the regex against
       // every `^SELECT <fn>(` prefix in the file).
       return RegExp(
-        r'^SELECT (ok|is|has_|hasnt_|col_|trigger_is|volatility_is|policies_are|columns_are|results_eq)[a-z_]*\(',
+        r'^SELECT (ok|is|has_|hasnt_|col_|trigger_is|volatility_is|policies_are|columns_are|results_eq|function_privs_are|table_privs_are|column_privs_are|any_column_privs_are|any_sequence_privs_are|throws_ok)[a-z_]*\(',
         multiLine: true,
       ).allMatches(content).length;
     }

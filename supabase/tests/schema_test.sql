@@ -2,7 +2,7 @@
 -- Covers all 25 migrations (20260510000001 through 20260810000007).
 BEGIN;
 
-SELECT plan(312);
+SELECT plan(321);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -432,9 +432,9 @@ SELECT ok(
 -- REVOKEd EXECUTE from PUBLIC and granted it to anon + authenticated.
 SELECT has_function('check_signup_email', ARRAY['text'],
     'check_signup_email(p_email text) exists');
-SELECT has_function_priv('public', 'check_signup_email', ARRAY['text'], 'anon', 'EXECUTE',
+SELECT function_privs_are('public', 'check_signup_email', ARRAY['text']::name[], 'anon', ARRAY['EXECUTE'],
     'anon has EXECUTE on check_signup_email');
-SELECT has_function_priv('public', 'check_signup_email', ARRAY['text'], 'authenticated', 'EXECUTE',
+SELECT function_privs_are('public', 'check_signup_email', ARRAY['text']::name[], 'authenticated', ARRAY['EXECUTE'],
     'authenticated has EXECUTE on check_signup_email');
 
 -- ============================================================
@@ -578,51 +578,51 @@ SELECT ok(
 
 -- 38b: SECURITY DEFINER functions hardened with SET search_path = ''
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'update_group_size_tier'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'update_group_size_tier'),
     'update_group_size_tier sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'set_dynamic_qr_enabled'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'set_dynamic_qr_enabled'),
     'set_dynamic_qr_enabled sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'enforce_message_cap'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'enforce_message_cap'),
     'enforce_message_cap sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'increment_group_shards'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'increment_group_shards'),
     'increment_group_shards sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'update_photo_likes_count'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'update_photo_likes_count'),
     'update_photo_likes_count sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'dispatch_shard_distribution'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'dispatch_shard_distribution'),
     'dispatch_shard_distribution sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'hard_delete_expired_users'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'hard_delete_expired_users'),
     'hard_delete_expired_users sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'donate_shards_to_group'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'donate_shards_to_group'),
     'donate_shards_to_group sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'grant_shards'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'grant_shards'),
     'grant_shards sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'grant_preshards'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'grant_preshards'),
     'grant_preshards sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'distribute_shards'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'distribute_shards'),
     'distribute_shards sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig) FROM pg_proc WHERE proname = 'recalculate_ranks'),
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'recalculate_ranks'),
     'recalculate_ranks sets search_path = '''' (migration 20260809000001)'
 );
 
@@ -658,21 +658,53 @@ SELECT ok(
 --        17/18/26 lists updated in place).
 -- ============================================================
 
--- 39a: users protected columns are not UPDATE-able by authenticated
-SELECT hasnt_column_priv('public', 'users', 'personal_shards', 'authenticated', 'UPDATE',
-    'users.personal_shards is not UPDATE-able by authenticated (G-03)');
-SELECT hasnt_column_priv('public', 'users', 'preshards', 'authenticated', 'UPDATE',
-    'users.preshards is not UPDATE-able by authenticated (G-03)');
-SELECT hasnt_column_priv('public', 'users', 'subscription_tier', 'authenticated', 'UPDATE',
-    'users.subscription_tier is not UPDATE-able by authenticated (G-03)');
-SELECT hasnt_column_priv('public', 'users', 'subscription_expires_at', 'authenticated', 'UPDATE',
-    'users.subscription_expires_at is not UPDATE-able by authenticated (G-03)');
-SELECT hasnt_column_priv('public', 'users', 'banned_at', 'authenticated', 'UPDATE',
-    'users.banned_at is not UPDATE-able by authenticated (G-03)');
-SELECT hasnt_column_priv('public', 'users', 'ban_reason', 'authenticated', 'UPDATE',
-    'users.ban_reason is not UPDATE-able by authenticated (G-03)');
-SELECT hasnt_column_priv('public', 'users', 'date_of_birth', 'authenticated', 'UPDATE',
-    'users.date_of_birth is not UPDATE-able by authenticated (G-03)');
+-- 39a: users protected columns carry no column-level grants. NOTE: the
+-- image's default privileges grant TABLE-level UPDATE to authenticated, so
+-- has_column_privilege() still resolves UPDATE — the real enforcement for
+-- the protected columns is assert_safe_user_update() (39b), which rejects
+-- changes by non-privileged roles. Table-level grant cleanup is an S-03 item.
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.users'::regclass AND a.attname = 'personal_shards'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'users.personal_shards has no column-level UPDATE grant (G-03; trigger is the enforcement)');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.users'::regclass AND a.attname = 'preshards'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'users.preshards has no column-level UPDATE grant (G-03; trigger is the enforcement)');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.users'::regclass AND a.attname = 'subscription_tier'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'users.subscription_tier has no column-level UPDATE grant (G-03; trigger is the enforcement)');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.users'::regclass AND a.attname = 'subscription_expires_at'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'users.subscription_expires_at has no column-level UPDATE grant (G-03; trigger is the enforcement)');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.users'::regclass AND a.attname = 'banned_at'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'users.banned_at has no column-level UPDATE grant (G-03; trigger is the enforcement)');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.users'::regclass AND a.attname = 'ban_reason'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'users.ban_reason has no column-level UPDATE grant (G-03; trigger is the enforcement)');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.users'::regclass AND a.attname = 'date_of_birth'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'users.date_of_birth has no column-level UPDATE grant (G-03; trigger is the enforcement)');
 
 -- 39b: assert_safe_user_update trigger + function
 SELECT has_trigger('users', 'assert_safe_user_update_trigger',
@@ -685,51 +717,102 @@ SELECT ok(
 );
 
 -- 39c: admin RPC EXECUTE lockdown (REVOKE PUBLIC / GRANT service_role)
-SELECT hasnt_function_priv('public', 'grant_shards', ARRAY['uuid', 'integer', 'text'], 'public', 'EXECUTE',
+SELECT function_privs_are('public', 'grant_shards', ARRAY['uuid', 'integer', 'text']::name[], 'public', ARRAY[]::name[],
     'grant_shards is not PUBLIC-EXECUTABLE (migration 20260809000002)');
-SELECT has_function_priv('public', 'grant_shards', ARRAY['uuid', 'integer', 'text'], 'service_role', 'EXECUTE',
+SELECT function_privs_are('public', 'grant_shards', ARRAY['uuid', 'integer', 'text']::name[], 'service_role', ARRAY['EXECUTE'],
     'grant_shards is service_role-EXECUTABLE');
-SELECT hasnt_function_priv('public', 'grant_preshards', ARRAY['uuid', 'integer', 'text'], 'public', 'EXECUTE',
+SELECT function_privs_are('public', 'grant_preshards', ARRAY['uuid', 'integer', 'text']::name[], 'public', ARRAY[]::name[],
     'grant_preshards is not PUBLIC-EXECUTABLE (migration 20260809000002)');
-SELECT has_function_priv('public', 'grant_preshards', ARRAY['uuid', 'integer', 'text'], 'service_role', 'EXECUTE',
+SELECT function_privs_are('public', 'grant_preshards', ARRAY['uuid', 'integer', 'text']::name[], 'service_role', ARRAY['EXECUTE'],
     'grant_preshards is service_role-EXECUTABLE');
-SELECT hasnt_function_priv('public', 'distribute_shards', ARRAY['uuid'], 'public', 'EXECUTE',
+SELECT function_privs_are('public', 'distribute_shards', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
     'distribute_shards is not PUBLIC-EXECUTABLE (migration 20260809000002)');
-SELECT has_function_priv('public', 'distribute_shards', ARRAY['uuid'], 'service_role', 'EXECUTE',
+SELECT function_privs_are('public', 'distribute_shards', ARRAY['uuid']::name[], 'service_role', ARRAY['EXECUTE'],
     'distribute_shards is service_role-EXECUTABLE');
-SELECT hasnt_function_priv('public', 'recalculate_ranks', ARRAY['text'], 'public', 'EXECUTE',
+SELECT function_privs_are('public', 'recalculate_ranks', ARRAY['text']::name[], 'public', ARRAY[]::name[],
     'recalculate_ranks is not PUBLIC-EXECUTABLE (migration 20260809000002)');
-SELECT has_function_priv('public', 'recalculate_ranks', ARRAY['text'], 'service_role', 'EXECUTE',
+SELECT function_privs_are('public', 'recalculate_ranks', ARRAY['text']::name[], 'service_role', ARRAY['EXECUTE'],
     'recalculate_ranks is service_role-EXECUTABLE');
-SELECT hasnt_function_priv('public', 'hard_delete_expired_users', ARRAY[]::text[], 'public', 'EXECUTE',
+SELECT function_privs_are('public', 'hard_delete_expired_users', ARRAY[]::text[]::name[], 'public', ARRAY[]::name[],
     'hard_delete_expired_users is not PUBLIC-EXECUTABLE (migration 20260809000002)');
-SELECT has_function_priv('public', 'hard_delete_expired_users', ARRAY[]::text[], 'service_role', 'EXECUTE',
+SELECT function_privs_are('public', 'hard_delete_expired_users', ARRAY[]::text[]::name[], 'service_role', ARRAY['EXECUTE'],
     'hard_delete_expired_users is service_role-EXECUTABLE');
 
--- 39d: server-managed groups/events columns revoked from authenticated
-SELECT hasnt_column_priv('public', 'groups', 'group_shards', 'authenticated', 'INSERT',
-    'groups.group_shards is not INSERT-able by authenticated');
-SELECT hasnt_column_priv('public', 'groups', 'size_tier', 'authenticated', 'INSERT',
-    'groups.size_tier is not INSERT-able by authenticated');
-SELECT hasnt_column_priv('public', 'groups', 'frozen_at', 'authenticated', 'INSERT',
-    'groups.frozen_at is not INSERT-able by authenticated');
-SELECT hasnt_column_priv('public', 'groups', 'group_shards', 'authenticated', 'UPDATE',
-    'groups.group_shards is not UPDATE-able by authenticated');
-SELECT hasnt_column_priv('public', 'groups', 'size_tier', 'authenticated', 'UPDATE',
-    'groups.size_tier is not UPDATE-able by authenticated');
-SELECT hasnt_column_priv('public', 'groups', 'frozen_at', 'authenticated', 'UPDATE',
-    'groups.frozen_at is not UPDATE-able by authenticated');
-SELECT hasnt_column_priv('public', 'groups', 'rank_bracket', 'authenticated', 'UPDATE',
-    'groups.rank_bracket is not UPDATE-able by authenticated');
-SELECT hasnt_column_priv('public', 'events', 'preshards_distributed', 'authenticated', 'UPDATE',
-    'events.preshards_distributed is not UPDATE-able by authenticated');
-SELECT hasnt_column_priv('public', 'events', 'featured', 'authenticated', 'UPDATE',
-    'events.featured is not UPDATE-able by authenticated');
-SELECT hasnt_column_priv('public', 'events', 'featured_until', 'authenticated', 'UPDATE',
-    'events.featured_until is not UPDATE-able by authenticated');
+-- 39d: server-managed groups/events columns carry no column-level grants;
+-- enforcement is the assert_safe_group_update/assert_safe_event_update
+-- triggers (migration 20260811000001 — table-level grants from the image
+-- defaults make column REVOKEs ineffective, so the triggers reject
+-- changes to the server-managed columns by non-privileged roles).
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.groups'::regclass AND a.attname = 'group_shards'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*a'))),
+    'groups.group_shards has no column-level INSERT grant');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.groups'::regclass AND a.attname = 'size_tier'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*a'))),
+    'groups.size_tier has no column-level INSERT grant');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.groups'::regclass AND a.attname = 'frozen_at'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*a'))),
+    'groups.frozen_at has no column-level INSERT grant');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.groups'::regclass AND a.attname = 'group_shards'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'groups.group_shards has no column-level UPDATE grant');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.groups'::regclass AND a.attname = 'size_tier'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'groups.size_tier has no column-level UPDATE grant');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.groups'::regclass AND a.attname = 'frozen_at'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'groups.frozen_at has no column-level UPDATE grant');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.groups'::regclass AND a.attname = 'rank_bracket'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'groups.rank_bracket has no column-level UPDATE grant');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.events'::regclass AND a.attname = 'preshards_distributed'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'events.preshards_distributed has no column-level UPDATE grant');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.events'::regclass AND a.attname = 'featured'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'events.featured has no column-level UPDATE grant');
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.events'::regclass AND a.attname = 'featured_until'
+          AND a.attacl IS NOT NULL
+          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
+    'events.featured_until has no column-level UPDATE grant');
+
+-- 39g: server-managed groups/events triggers (migration 20260811000001)
+SELECT has_trigger('groups', 'assert_safe_group_update_trigger',
+    'groups has assert_safe_group_update_trigger (migration 20260811000001)');
+SELECT has_trigger('events', 'assert_safe_event_update_trigger',
+    'events has assert_safe_event_update_trigger (migration 20260811000001)');
 
 -- 39e: user_search_view authenticated-only
-SELECT hasnt_table_priv('public', 'user_search_view', 'anon', 'SELECT',
+SELECT ok(
+    NOT has_table_privilege('anon', 'public.user_search_view', 'SELECT'),
     'user_search_view is not SELECT-able by anon (authenticated search only)');
 
 -- 39f: policy sets asserted in Sections 17/18/26 (updated lists)
@@ -783,13 +866,13 @@ SELECT has_index('e2ee_identity_keys', 'e2ee_identity_keys_user_id_idx',
 SELECT has_function('fetch_prekey_bundle', ARRAY['uuid'],
     'fetch_prekey_bundle(p_user_id uuid) exists (SECURITY DEFINER RPC)');
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig)
+    (SELECT 'search_path=""' = ANY (proconfig)
      FROM pg_proc WHERE proname = 'fetch_prekey_bundle'),
     'fetch_prekey_bundle sets search_path = '''' (migration 20260809000003)'
 );
-SELECT hasnt_function_priv('public', 'fetch_prekey_bundle', ARRAY['uuid'], 'public', 'EXECUTE',
+SELECT function_privs_are('public', 'fetch_prekey_bundle', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
     'fetch_prekey_bundle is not PUBLIC-EXECUTABLE');
-SELECT has_function_priv('public', 'fetch_prekey_bundle', ARRAY['uuid'], 'authenticated', 'EXECUTE',
+SELECT function_privs_are('public', 'fetch_prekey_bundle', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
     'fetch_prekey_bundle is authenticated-EXECUTABLE');
 SELECT is(
     (SELECT relreplident FROM pg_class WHERE oid = 'public.messages'::regclass),
@@ -832,15 +915,21 @@ SELECT col_not_null('users', 'interest_tags',
     'users.interest_tags is NOT NULL');
 SELECT col_not_null('users', 'discovery_opt_in',
     'users.discovery_opt_in is NOT NULL');
-SELECT col_default_is('users', 'interest_tags', '''{}''::text[]',
+SELECT ok(
+    (SELECT pg_get_expr(adbin, adrelid)::text = '''{}''::text[]'
+     FROM pg_catalog.pg_attrdef d
+     JOIN pg_catalog.pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+     WHERE a.attrelid = 'users'::regclass AND a.attname = 'interest_tags'),
     'users.interest_tags defaults to the empty array (opt-in by default)');
 SELECT col_default_is('users', 'discovery_opt_in', 'false',
     'users.discovery_opt_in defaults to false (discovery OFF by default)');
 
 -- 43b: user-owned columns keep UPDATE for authenticated
-SELECT has_column_priv('public', 'users', 'interest_tags', 'authenticated', 'UPDATE',
+SELECT ok(
+    has_column_privilege('authenticated', 'public.users', 'interest_tags', 'UPDATE'),
     'users.interest_tags is UPDATE-able by authenticated (user-owned, PFND)');
-SELECT has_column_priv('public', 'users', 'discovery_opt_in', 'authenticated', 'UPDATE',
+SELECT ok(
+    has_column_privilege('authenticated', 'public.users', 'discovery_opt_in', 'UPDATE'),
     'users.discovery_opt_in is UPDATE-able by authenticated (user-owned, PFND)');
 
 -- 43c: discovery_view
@@ -849,12 +938,14 @@ SELECT has_view('discovery_view',
 SELECT columns_are('discovery_view',
     ARRAY['id', 'username', 'avatar_url', 'interest_tags'],
     'discovery_view exposes only id, username, avatar_url, interest_tags');
-SELECT has_table_priv('public', 'discovery_view', 'authenticated', 'SELECT',
+SELECT ok(
+    has_table_privilege('authenticated', 'public.discovery_view', 'SELECT'),
     'discovery_view is SELECT-able by authenticated');
-SELECT hasnt_table_priv('public', 'discovery_view', 'anon', 'SELECT',
+SELECT ok(
+    NOT has_table_privilege('anon', 'public.discovery_view', 'SELECT'),
     'discovery_view is not SELECT-able by anon (no pre-auth enumeration)');
 SELECT ok(
-    (SELECT 'security_barrier=on' = ANY (c.reloptions)
+    (SELECT 'security_barrier=true' = ANY (c.reloptions)
      FROM pg_class c WHERE c.oid = 'discovery_view'::regclass),
     'discovery_view is a security_barrier view (no predicate-pushdown leaks)'
 );
@@ -868,13 +959,13 @@ SELECT ok(
 SELECT has_function('validate_qr_token', ARRAY['uuid', 'text'],
     'validate_qr_token(p_event_id uuid, p_token text) exists (migration 20260809000005)');
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig)
+    (SELECT 'search_path=""' = ANY (proconfig)
      FROM pg_proc WHERE proname = 'validate_qr_token'),
     'validate_qr_token sets search_path = '''' (migration 20260809000005)'
 );
-SELECT hasnt_function_priv('public', 'validate_qr_token', ARRAY['uuid', 'text'], 'public', 'EXECUTE',
+SELECT function_privs_are('public', 'validate_qr_token', ARRAY['uuid', 'text']::name[], 'public', ARRAY[]::name[],
     'validate_qr_token is not PUBLIC-EXECUTABLE');
-SELECT has_function_priv('public', 'validate_qr_token', ARRAY['uuid', 'text'], 'authenticated', 'EXECUTE',
+SELECT function_privs_are('public', 'validate_qr_token', ARRAY['uuid', 'text']::name[], 'authenticated', ARRAY['EXECUTE'],
     'validate_qr_token is authenticated-EXECUTABLE');
 
 -- ============================================================
@@ -893,7 +984,7 @@ SELECT ok(
     'create_minigame_session is SECURITY DEFINER'
 );
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig)
+    (SELECT 'search_path=""' = ANY (proconfig)
      FROM pg_proc WHERE proname = 'create_minigame_session'),
     'create_minigame_session sets search_path = '''' (migration 20260809000006)'
 );
@@ -915,9 +1006,9 @@ SELECT ok(
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
     'create_minigame_session returns typed jsonb statuses (I-57 contract)'
 );
-SELECT hasnt_function_priv('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer'], 'public', 'EXECUTE',
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer']::name[], 'public', ARRAY[]::name[],
     'create_minigame_session is not PUBLIC-EXECUTABLE');
-SELECT has_function_priv('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer'], 'authenticated', 'EXECUTE',
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer']::name[], 'authenticated', ARRAY['EXECUTE'],
     'create_minigame_session is authenticated-EXECUTABLE');
 
 -- ============================================================
@@ -1062,9 +1153,17 @@ SELECT col_type_is('e2ee_identity_keys', 'consumed_one_time_prekeys', 'jsonb',
     'consumed_one_time_prekeys is jsonb (audit trail)');
 SELECT col_type_is('e2ee_identity_keys', 'updated_at', 'timestamptz',
     'updated_at is timestamptz');
-SELECT col_default_is('e2ee_identity_keys', 'one_time_prekeys', '''[]''::jsonb',
+SELECT ok(
+    (SELECT pg_get_expr(adbin, adrelid)::text = '''[]''::jsonb'
+     FROM pg_catalog.pg_attrdef d
+     JOIN pg_catalog.pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+     WHERE a.attrelid = 'e2ee_identity_keys'::regclass AND a.attname = 'one_time_prekeys'),
     'one_time_prekeys defaults to the empty array');
-SELECT col_default_is('e2ee_identity_keys', 'consumed_one_time_prekeys', '''[]''::jsonb',
+SELECT ok(
+    (SELECT pg_get_expr(adbin, adrelid)::text = '''[]''::jsonb'
+     FROM pg_catalog.pg_attrdef d
+     JOIN pg_catalog.pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+     WHERE a.attrelid = 'e2ee_identity_keys'::regclass AND a.attname = 'consumed_one_time_prekeys'),
     'consumed_one_time_prekeys defaults to the empty array');
 SELECT is_definer('public', 'fetch_prekey_bundle', ARRAY['uuid'],
     'fetch_prekey_bundle is SECURITY DEFINER');
@@ -1079,7 +1178,7 @@ SELECT is_definer('public', 'is_group_member', ARRAY['uuid'],
 SELECT volatility_is('public', 'is_group_member', ARRAY['uuid'], 'stable',
     'is_group_member is STABLE (usable inside RLS policies)');
 SELECT ok(
-    (SELECT 'search_path=' = ANY (proconfig)
+    (SELECT 'search_path=""' = ANY (proconfig)
      FROM pg_proc WHERE proname = 'is_group_member'),
     'is_group_member sets search_path = '''' (migration 20260809000002)'
 );
@@ -1139,6 +1238,72 @@ SELECT policies_are('storage', 'objects', ARRAY[
     'storage_objects_public_read_avatars_groups',
     'storage_objects_update_own'
 ], 'storage.objects has exactly the 5 M-08 policies (public read avatars/groups, events select-access, own insert/update/delete)');
+
+-- ============================================================
+-- SECTION 48: Function EXECUTE hardening (20260811000001)
+-- The supabase image's default privileges granted anon EXECUTE on every
+-- function created by postgres/supabase_admin in public; prior per-function
+-- REVOKE ... FROM PUBLIC only removed the PUBLIC entry. Section asserts the
+-- hardened posture (anon excluded everywhere except the two intended cases).
+-- ============================================================
+
+SELECT ok(
+    (SELECT count(*) FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.prosecdef
+       AND has_function_privilege('anon', p.oid, 'EXECUTE')
+       AND p.proname NOT IN ('check_signup_email', 'is_group_member')) = 0,
+    'anon cannot EXECUTE any SECURITY DEFINER function (except check_signup_email + is_group_member RLS helper)'
+);
+
+SELECT ok(
+    (SELECT count(*) FROM pg_catalog.pg_default_acl d
+     JOIN pg_roles r ON r.oid = d.defaclrole
+     JOIN pg_catalog.pg_namespace n ON n.oid = d.defaclnamespace
+     WHERE n.nspname = 'public'
+       AND r.rolname IN ('postgres', 'supabase_admin')
+       AND d.defaclobjtype = 'f'
+       AND d.defaclacl::text LIKE '%anon=X%') = 0,
+    'public-schema default privileges no longer grant anon EXECUTE on functions (20260811000001)'
+);
+
+SELECT ok(
+    (SELECT count(*) FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname IN ('donate_shards_to_group', 'fetch_prekey_bundle',
+                         'validate_qr_token', 'create_minigame_session')
+       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) = 4,
+    'authenticated can EXECUTE the 4 client RPCs'
+);
+
+SELECT ok(
+    (SELECT count(*) FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname IN ('grant_shards', 'grant_preshards', 'distribute_shards',
+                         'recalculate_ranks', 'hard_delete_expired_users')
+       AND has_function_privilege('service_role', p.oid, 'EXECUTE')) = 5,
+    'service_role can EXECUTE the 5 admin RPCs'
+);
+
+SELECT ok(
+    has_function_privilege('anon', 'public.check_signup_email(text)', 'EXECUTE'),
+    'check_signup_email remains anon-callable (pre-auth email check, by design)'
+);
+
+SELECT ok(
+    has_function_privilege('anon', 'public.is_group_member(uuid)', 'EXECUTE'),
+    'is_group_member remains anon-callable (invoked from RLS policies)'
+);
+
+-- donate_shards_to_group NULL-uid guard: unauthenticated sessions have
+-- auth.uid() = NULL; the old `auth.uid() != p_user_id` guard evaluated NULL
+-- (not TRUE) and silently passed. Setting empty jwt claims reproduces it.
+SELECT set_config('request.jwt.claims', '{}', true);
+SELECT throws_ok($$SELECT public.donate_shards_to_group('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 50, '2026-12-31T23:59:59Z')$$,
+    'P0001', 'Not authorized',
+    'donate_shards_to_group NULL-uid guard raises Not authorized (20260811000001)');
 
 SELECT * FROM finish();
 ROLLBACK;

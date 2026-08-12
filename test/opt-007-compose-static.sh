@@ -568,6 +568,11 @@ PARITY_ALLOW=$(cat <<'EOF'
 Files supabase/.env and supabase-testing/.env differ
 Files supabase/.env.local and supabase-testing/.env.local differ
 Only in supabase-testing: docker-compose.mailpit.yml
+# postgresql.conf is a RUNTIME artifact (generated at container boot into the
+# bind; gitignored) — it exists in whichever stack has booted, so its presence
+# may legitimately differ between runs. Both stacks carry it once booted.
+Only in supabase/volumes/db: postgresql.conf
+Only in supabase-testing/volumes/db: postgresql.conf
 Files supabase/docker-compose.s3.yml and supabase-testing/docker-compose.s3.yml differ
 Files supabase/docker-compose.yml and supabase-testing/docker-compose.yml differ
 Files supabase/migrate.sh and supabase-testing/migrate.sh differ
