@@ -137,6 +137,8 @@ if make -n clear-storage TARGET=waydroid >/dev/null 2>&1; then pass "make -n cle
 if make -n test-integration TARGET=waydroid >/dev/null 2>&1; then pass "make -n test-integration TARGET=waydroid (device branch resolves dry)"; else fail "make -n test-integration TARGET=waydroid"; fi
 if make -n tunnel-waydroid >/dev/null 2>&1; then pass "make -n tunnel-waydroid (waydroid tunnel target resolves dry)"; else fail "make -n tunnel-waydroid"; fi
 if make -n uninstall TARGET=all >/dev/null 2>&1; then pass "make -n uninstall TARGET=all (all-devices branch resolves dry)"; else fail "make -n uninstall TARGET=all"; fi
+if make -n build TARGET=all >/dev/null 2>&1; then pass "make -n build TARGET=all (all-platforms branch resolves dry)"; else fail "make -n build TARGET=all"; fi
+if make -n install TARGET=all >/dev/null 2>&1; then pass "make -n install TARGET=all (all-devices branch resolves dry)"; else fail "make -n install TARGET=all"; fi
 if make -n uninstall TARGET=simulator >/dev/null 2>&1; then pass "make -n uninstall TARGET=simulator (simctl branch resolves dry)"; else fail "make -n uninstall TARGET=simulator"; fi
 
 # ── 2. Fastlane stub contract (lane names fixed for M-17/M-18) ───────────────
