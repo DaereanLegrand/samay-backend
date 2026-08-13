@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
+import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/design_tokens/app_icon_sizes.dart';
 import 'package:samay/core/design_tokens/app_typography.dart';
 import 'package:samay/core/models/group_member.dart';
@@ -22,28 +23,32 @@ import 'package:samay/features/groups/screens/leaderboard_screen.dart';
 import 'package:samay/features/groups/screens/my_groups_screen.dart';
 import 'package:samay/features/profile/widgets/profile_avatar.dart';
 import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/glass/v_gradient_border.dart';
+import 'package:samay/shared/widgets/glass/v_glass.dart';
 import 'package:samay/shared/widgets/rank_badge.dart';
 import 'package:samay/shared/widgets/skeletons.dart';
 import 'package:samay/shared/widgets/state_views.dart';
+import 'package:samay/shared/widgets/v_aurora.dart';
 import 'package:samay/shared/widgets/v_badge.dart';
 import 'package:samay/shared/widgets/v_button.dart';
 import 'package:samay/shared/widgets/v_chip.dart';
+import 'package:samay/shared/widgets/v_display_text.dart';
 import 'package:samay/shared/widgets/v_shard_icon.dart';
 
 import '../../support/fake_supabase_http.dart' as support;
 
-/// Groups-screens disco restyle ledger tests (U-11, Phase 4.4).
+/// Groups-screens LUXE restyle ledger tests (XL-10, phase-04-luxe).
 ///
-/// Pins the visual changes from DISCO-DESIGN-SYSTEM §5 applied screen-by-
-/// screen (the ledger in `docs/development/phase-04-ui/2026-08-11_U11-
-/// groups-restyle.md`): the §5.5 RankBadge podium (gold/silver/bronze for
-/// the top-3 leaderboard rows), the §3.2 Playfair `headlineLarge` group-hero
-/// name, the §5.1 glowAccent CTAs (create group, donate, detail donate),
-/// the §5.6 gold shard icons, the hairline rows (my-groups list, members
-/// tab, invite results, members screen) and the §5.2/§5.9 token treatments
-/// (cover picker, search field, frozen banner). Flow/text is byte-identical
-/// — the existing groups_screens_test assertions stay untouched except the
-/// single `PROMOTOR · ` → `VBadge` row-text update (deliberate, ledger).
+/// Pins the LUXE v2 violet-family restyle applied screen-by-screen (the
+/// ledger in `docs/development/phase-04-luxe/2026-08-12_XL-10-groups.md`):
+/// the violet `VAurora` backdrop, glass tiles (VGlassCard) everywhere rows
+/// render, the group-name detail hero + leaderboard podium in violet
+/// `VDisplayText` (Playfair MAYUS), the glowAccent CTAs carrying the violet
+/// gradient, the violet ring on the invite search field, and the glass
+/// member-actions sheet. The §5.5 podium gold/silver/bronze RankBadge
+/// semantics and all hairline separators stay. Flow/text is byte-identical —
+/// the existing groups_screens_test assertions stay untouched except the
+/// uppercase hero names (deliberate, ledger).
 
 const _groupId = '33333333-3333-3333-3333-333333333333';
 const _userId1 = '11111111-1111-1111-1111-111111111111';
@@ -152,9 +157,31 @@ Color? _dividerColor(WidgetTester tester) {
   return theme.dividerTheme.color;
 }
 
-/// The glow-soft stack the theme bakes into `headlineLarge` (U-02).
-List<Shadow> get _playfairGlow =>
-    AppTypography.fancyTitle(AppTypography.headlineLarge, soft: true).shadows!;
+/// The [VDisplayText] whose glyphs spell [text] (VDisplayText uppercases —
+/// the MAYUS rule — so the finder targets the raw copy).
+VDisplayText _display(WidgetTester tester, String text) {
+  return tester.widget<VDisplayText>(
+    find.ancestor(
+      of: find.text(text.toUpperCase()),
+      matching: find.byType(VDisplayText),
+    ),
+  );
+}
+
+/// The [Text] widget VDisplayText renders for [text] — the Playfair glyphs
+/// the ShaderMask fills (color is white so the shader owns the fill).
+Text _displayGlyphs(WidgetTester tester, String text) =>
+    tester.widget<Text>(find.text(text.toUpperCase()));
+
+/// The [VGlassCard] nearest to [text] (the tile/card surface that owns the
+/// row — the LUXE glass treatment).
+VGlassCard _glassOf(WidgetTester tester, String text) {
+  final card = find.ancestor(
+    of: find.text(text),
+    matching: find.byType(VGlassCard),
+  );
+  return tester.widget<VGlassCard>(card.first);
+}
 
 /// The [RankBadge] inside the leaderboard row whose title is [name].
 RankBadge _rowBadge(WidgetTester tester, String name) {
@@ -216,11 +243,23 @@ void main() {
       ],
     );
 
-    testWidgets('tiles render ProfileAvatar, gold shard icons, VBadge role '
-        'and RankBadge', (tester) async {
+    testWidgets('tiles render ProfileAvatar, gold shard icons and the VBadge '
+        'role on hairline rows (XL-17: no per-row glass, no rank badge)', (
+      tester,
+    ) async {
       await tester.pumpWidget(pumpMyGroups());
       await tester.pumpAndSettle();
 
+      expect(
+        find.byType(VAurora),
+        findsOneWidget,
+        reason: 'the LUXE violet ambient aurora backs the screen',
+      );
+      expect(
+        tester.widget<VAurora>(find.byType(VAurora)).gradients,
+        const [AppGradients.violet],
+        reason: 'the groups family is violet (NO PINK MAINS)',
+      );
       expect(
         find.byType(ProfileAvatar),
         findsNWidgets(2),
@@ -247,8 +286,17 @@ void main() {
       );
       expect(
         find.byType(RankBadge),
-        findsNWidgets(2),
-        reason: 'the rank bracket badge survives in every tile',
+        findsNothing,
+        reason:
+            'XL-17 (09_groups declutter) — the rank badge belongs to the '
+            'leaderboard, not every group tile',
+      );
+      expect(
+        find.byType(VGlassCard),
+        findsNothing,
+        reason:
+            'XL-17 — one hairline per row: the tile glass card + glow are '
+            'gone, the violet stays on the hero/primary CTA',
       );
     });
 
@@ -286,18 +334,34 @@ void main() {
       );
     });
 
-    testWidgets('Crear grupo/Ranking are §5.1 outlined VButtons and the '
+    testWidgets('Crear grupo is the glowAccent filled primary (the screen\'s '
+        'one violet accent); Ranking is a neutral outlined VButton; the '
         'Amigos/Solicitudes entries are TextButtons', (tester) async {
       await tester.pumpWidget(pumpMyGroups());
       await tester.pumpAndSettle();
 
+      final create = _buttonWithLabel(tester, 'Crear grupo');
+      expect(create.variant, VButtonVariant.glow);
       expect(
-        _buttonWithLabel(tester, 'Crear grupo').variant,
-        VButtonVariant.outlined,
+        create.filled,
+        isTrue,
+        reason:
+            'XL-17 (09_groups: violet at 1 accent per screen) — the primary '
+            'CTA owns the violet fill/glow',
       );
       expect(
-        _buttonWithLabel(tester, 'Ranking').variant,
-        VButtonVariant.outlined,
+        create.gradient,
+        AppGradients.violet,
+        reason: 'the primary CTA carries the violet family gradient',
+      );
+      final ranking = _buttonWithLabel(tester, 'Ranking');
+      expect(ranking.variant, VButtonVariant.outlined);
+      expect(
+        ranking.gradient,
+        isNull,
+        reason:
+            'XL-17 — the secondary entry drops to neutral white outline; '
+            'two violet buttons side by side read as color spray',
       );
       expect(find.widgetWithText(TextButton, 'Amigos'), findsOneWidget);
       expect(find.widgetWithText(TextButton, 'Solicitudes'), findsOneWidget);
@@ -351,10 +415,9 @@ void main() {
     });
   });
 
-  group('GroupDetailScreen hero (§3.2/§5.5/§5.6/§5.1 — U-11 ledger)', () {
-    testWidgets('hero name renders Playfair headlineLarge with glow-soft', (
-      tester,
-    ) async {
+  group('GroupDetailScreen hero (LUXE violet display voice — XL-10)', () {
+    testWidgets('hero name renders a violet VDisplayText (Playfair MAYUS 28) '
+        'inside a glass card', (tester) async {
       await tester.pumpWidget(
         _wrap(
           const GroupDetailScreen(groupId: _groupId),
@@ -363,18 +426,35 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final name = tester.widget<Text>(find.text('Disco Crew'));
       expect(
-        name.style?.fontFamily,
+        find.text('DISCO CREW'),
+        findsOneWidget,
+        reason:
+            'LUXE MAYUS rule — the hero name renders uppercase through '
+            'VDisplayText (the AppBar no longer duplicates the title)',
+      );
+      final display = _display(tester, 'Disco Crew');
+      expect(display.size, 28);
+      expect(
+        display.gradient,
+        AppGradients.violet,
+        reason: 'the display voice carries the violet family fill + halo',
+      );
+      final glyphs = _displayGlyphs(tester, 'Disco Crew');
+      expect(
+        glyphs.style?.fontFamily,
         AppTypography.playfair,
         reason: '§3.2 — group names on the detail hero are Playfair',
       );
-      expect(name.style?.fontStyle, FontStyle.italic);
-      expect(name.style?.fontSize, 28);
+      expect(glyphs.style?.fontStyle, FontStyle.italic);
+      expect(glyphs.style?.fontSize, 28);
       expect(
-        name.style?.shadows,
-        _playfairGlow,
-        reason: 'the theme role bakes the glow-soft stack (U-02)',
+        _glassOf(tester, 'DISCO CREW').gradient?.colors,
+        AppGradients.watered(AppGradients.violet.colors, mix: 0.4),
+        reason:
+            'XL-17 (09_groups) — the hero ring rides the watered violet run '
+            'at a whisper glow; the vivid shader survives only in the '
+            'VDisplayText voice',
       );
     });
 
@@ -425,6 +505,11 @@ void main() {
         reason: '§5.1 — the primary detail action is the glow accent',
       );
       expect(donate.filled, isTrue);
+      expect(
+        donate.gradient,
+        AppGradients.violet,
+        reason: 'LUXE — the donate CTA carries the violet family gradient',
+      );
       expect(
         _buttonWithLabel(tester, 'Crear evento').variant,
         VButtonVariant.outlined,
@@ -553,11 +638,11 @@ void main() {
         findsNothing,
         reason: 'the skeleton is gone once the data lands',
       );
-      expect(find.text('Disco Crew'), findsOneWidget);
+      expect(find.text('DISCO CREW'), findsOneWidget);
     });
   });
 
-  group('LeaderboardScreen (§5.5 podium + §3.2 — U-11 ledger)', () {
+  group('LeaderboardScreen (LUXE violet podium — XL-10)', () {
     List<Map<String, dynamic>> podium() => [
       {
         ..._group('11111111-1111-1111-1111-111111111111', 'Top Uno'),
@@ -599,17 +684,17 @@ void main() {
       await tester.pumpWidget(pumpLeaderboard());
       await tester.pumpAndSettle();
 
-      final gold = _rowBadge(tester, 'Top Uno');
+      final gold = _rowBadge(tester, 'TOP UNO');
       expect(gold.rank, 1);
-      expect(_badgeBorderColor(tester, 'Top Uno'), AppColors.discoGold);
+      expect(_badgeBorderColor(tester, 'TOP UNO'), AppColors.discoGold);
 
-      final silver = _rowBadge(tester, 'Top Dos');
+      final silver = _rowBadge(tester, 'TOP DOS');
       expect(silver.rank, 2);
-      expect(_badgeBorderColor(tester, 'Top Dos'), AppColors.discoSilver);
+      expect(_badgeBorderColor(tester, 'TOP DOS'), AppColors.discoSilver);
 
-      final bronze = _rowBadge(tester, 'Top Tres');
+      final bronze = _rowBadge(tester, 'TOP TRES');
       expect(bronze.rank, 3);
-      expect(_badgeBorderColor(tester, 'Top Tres'), AppColors.discoBronze);
+      expect(_badgeBorderColor(tester, 'TOP TRES'), AppColors.discoBronze);
 
       expect(
         _rowBadge(tester, 'Cuarto').rank,
@@ -618,20 +703,33 @@ void main() {
       );
     });
 
-    testWidgets('top-3 names render Playfair headlineLarge with glow-soft; '
-        'the rest stay Inter', (tester) async {
+    testWidgets('top-3 names render violet VDisplayText (Playfair MAYUS 28) '
+        'in glass cards; the rest stay Inter', (tester) async {
       await tester.pumpWidget(pumpLeaderboard());
       await tester.pumpAndSettle();
 
       for (final name in ['Top Uno', 'Top Dos', 'Top Tres']) {
-        final text = tester.widget<Text>(find.text(name));
+        final display = _display(tester, name);
+        expect(display.size, 28);
         expect(
-          text.style?.fontFamily,
+          display.gradient,
+          AppGradients.violet,
+          reason: 'LUXE — podium names carry the violet display voice',
+        );
+        final glyphs = _displayGlyphs(tester, name);
+        expect(
+          glyphs.style?.fontFamily,
           AppTypography.playfair,
           reason: '§3.2 — podium names are Playfair 28',
         );
-        expect(text.style?.fontSize, 28);
-        expect(text.style?.shadows, _playfairGlow);
+        expect(glyphs.style?.fontSize, 28);
+        expect(
+          _glassOf(tester, name.toUpperCase()).gradient?.colors,
+          AppGradients.watered(AppGradients.violet.colors, mix: 0.4),
+          reason:
+              'XL-17 — the podium card ring rides the watered violet run; '
+              'the vivid VDisplayText shader above keeps the accent',
+        );
       }
 
       final rest = tester.widget<Text>(find.text('Cuarto'));
@@ -642,7 +740,10 @@ void main() {
       );
     });
 
-    testWidgets('tier chips are VChips (verify-only)', (tester) async {
+    testWidgets('tier chips are neutral white VChips (XL-17: the violet '
+        'accent is spent on the podium hero, not the filter row)', (
+      tester,
+    ) async {
       await tester.pumpWidget(pumpLeaderboard());
       await tester.pumpAndSettle();
 
@@ -650,15 +751,34 @@ void main() {
       for (final tier in ['micro', 'small', 'medium', 'large']) {
         expect(find.text(tier), findsOneWidget);
       }
+      for (final chip in tester.widgetList<VChip>(find.byType(VChip))) {
+        expect(
+          chip.accent,
+          isFalse,
+          reason:
+              'XL-17 (09_groups: "reduce the violet everywhere") — the '
+              'filter row drops to the §5.4 neutral white chip treatment',
+        );
+        expect(chip.gradient, isNull);
+      }
     });
   });
 
-  group('CreateGroupScreen (§5.2/§5.1 — U-11 ledger)', () {
+  group('CreateGroupScreen (LUXE violet glass form — XL-10)', () {
     testWidgets('cover picker renders surfaceAlt + border + camera '
-        'affordance', (tester) async {
+        'affordance inside the violet glass form card', (tester) async {
       await tester.pumpWidget(_wrap(const CreateGroupScreen()));
       await tester.pumpAndSettle();
 
+      expect(find.byType(VAurora), findsOneWidget);
+      expect(tester.widget<VAurora>(find.byType(VAurora)).gradients, const [
+        AppGradients.violet,
+      ]);
+      expect(
+        tester.widget<VGlassCard>(find.byType(VGlassCard)).gradient,
+        AppGradients.violet,
+        reason: 'LUXE — the whole form sits in a violet glass card',
+      );
       final picker = tester.widget<Container>(
         find
             .ancestor(
@@ -692,20 +812,27 @@ void main() {
       );
     });
 
-    testWidgets('the create CTA uses glowAccent filled (§5.1 canonical '
-        'primary)', (tester) async {
+    testWidgets('the create CTA uses glowAccent filled with the violet '
+        'gradient (§5.1 canonical primary)', (tester) async {
       await tester.pumpWidget(_wrap(const CreateGroupScreen()));
       await tester.pumpAndSettle();
 
       final create = _buttonWithLabel(tester, 'Crear');
       expect(create.variant, VButtonVariant.glow);
       expect(create.filled, isTrue);
+      expect(
+        create.gradient,
+        AppGradients.violet,
+        reason: 'LUXE — the create CTA carries the violet family gradient',
+      );
     });
   });
 
-  group('DonateShardsScreen (§5.2/§5.1 — U-11 ledger)', () {
+  group('DonateShardsScreen (LUXE violet glass form — XL-10)', () {
     testWidgets('amount VInput keeps the token label treatment and the '
-        'donate CTA is glowAccent filled', (tester) async {
+        'donate CTA is glowAccent filled with the violet gradient', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           const DonateShardsScreen(groupId: _groupId, groupName: 'Test Group'),
@@ -713,6 +840,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(find.byType(VAurora), findsOneWidget);
+      expect(
+        tester.widget<VGlassCard>(find.byType(VGlassCard)).gradient,
+        AppGradients.violet,
+        reason: 'LUXE — the donation form sits in a violet glass card',
+      );
       final field = tester.widget<TextField>(find.byType(TextField));
       expect(
         field.decoration?.labelStyle?.color,
@@ -728,10 +861,15 @@ void main() {
         reason: '§5.1 — donating shards is the screen\'s primary action',
       );
       expect(donate.filled, isTrue);
+      expect(
+        donate.gradient,
+        AppGradients.violet,
+        reason: 'LUXE — the donate CTA carries the violet family gradient',
+      );
     });
   });
 
-  group('InviteScreen (§5.2/§5 avatar tiles + hairline — U-11 ledger)', () {
+  group('InviteScreen (LUXE violet glass search — XL-10)', () {
     Widget pumpInvite() => _wrap(
       const InviteScreen(groupId: _groupId),
       overrides: [
@@ -747,19 +885,32 @@ void main() {
       ],
     );
 
-    testWidgets('search field is theme-owned (no OutlineInputBorder)', (
-      tester,
-    ) async {
+    testWidgets('search field sits in a violet gradient glass ring with no '
+        'decoration border', (tester) async {
       await tester.pumpWidget(pumpInvite());
       await tester.pumpAndSettle();
 
+      final ring = tester.widget<VGradientBorder>(
+        find.ancestor(
+          of: find.byType(TextField),
+          matching: find.byType(VGradientBorder),
+        ),
+      );
+      expect(
+        ring.gradient.colors,
+        AppGradients.violet.colors,
+        reason:
+            'LUXE — the search slot is a violet gradient ring (liquid, '
+            'radius 16), no underline and no OutlineInputBorder',
+      );
+      expect(ring.radius, const BorderRadius.all(Radius.circular(16)));
       final field = tester.widget<TextField>(find.byType(TextField));
       expect(
         field.decoration?.border,
-        isNull,
+        InputBorder.none,
         reason:
-            'the raw OutlineInputBorder is gone — the U-04 '
-            'inputDecorationTheme underline owns the field',
+            'the glass ring owns the border — the decoration renders '
+            'borderless',
       );
     });
 
@@ -779,6 +930,16 @@ void main() {
         findsNWidgets(2),
         reason: 'the selection checkbox survives (U-04 sharp theme)',
       );
+      expect(
+        find.byType(VGlassCard),
+        findsNWidgets(2),
+        reason: 'LUXE — every result row sits in a violet glass card',
+      );
+      for (final card in tester.widgetList<VGlassCard>(
+        find.byType(VGlassCard),
+      )) {
+        expect(card.gradient, AppGradients.violet);
+      }
       expect(
         find.byType(Divider),
         findsOneWidget,
@@ -817,9 +978,9 @@ void main() {
     });
   });
 
-  group('GroupMembersScreen (§5 avatar tiles + role badges — U-11 ledger)', () {
+  group('GroupMembersScreen (LUXE violet glass rows — XL-10)', () {
     testWidgets('rows render ProfileAvatar + VBadge roles with hairline '
-        'separators', (tester) async {
+        'separators inside violet glass cards', (tester) async {
       final repo = _MockGroupsRepository();
       when(() => repo.getGroupMembers(_groupId)).thenAnswer(
         (_) async => [
@@ -850,9 +1011,17 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(find.byType(VAurora), findsOneWidget);
       expect(find.byType(ProfileAvatar), findsNWidgets(2));
       expect(find.text('PROMOTOR'), findsOneWidget);
       expect(find.text('MEMBER'), findsOneWidget);
+      expect(
+        find.byType(VGlassCard),
+        findsNothing,
+        reason:
+            'XL-17 (09_groups declutter) — member rows are plain hairline '
+            'rows; the violet glass stays on the detail hero only',
+      );
       expect(
         find.byType(Divider),
         findsOneWidget,

@@ -1,4 +1,3 @@
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/errors/app_error.dart';
 import 'package:mocktail/mocktail.dart';
@@ -42,27 +41,39 @@ void main() {
 
   group('AuthService GoTrue passthroughs', () {
     test('signIn delegates to signInWithPassword', () async {
-      when(() => auth.signInWithPassword(email: any(named: 'email'), password: any(named: 'password')))
-          .thenAnswer((_) async => AuthResponse(user: _currentUser()));
+      when(
+        () => auth.signInWithPassword(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+        ),
+      ).thenAnswer((_) async => AuthResponse(user: _currentUser()));
 
       await service().signIn('a@b.com', 'secret1');
 
-      verify(() => auth.signInWithPassword(email: 'a@b.com', password: 'secret1'))
-          .called(1);
+      verify(
+        () => auth.signInWithPassword(email: 'a@b.com', password: 'secret1'),
+      ).called(1);
     });
 
     test('signUp delegates to gotrue signUp', () async {
-      when(() => auth.signUp(email: any(named: 'email'), password: any(named: 'password')))
-          .thenAnswer((_) async => AuthResponse(user: _currentUser()));
+      when(
+        () => auth.signUp(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+        ),
+      ).thenAnswer((_) async => AuthResponse(user: _currentUser()));
 
       await service().signUp('a@b.com', 'secret1');
 
-      verify(() => auth.signUp(email: 'a@b.com', password: 'secret1')).called(1);
+      verify(
+        () => auth.signUp(email: 'a@b.com', password: 'secret1'),
+      ).called(1);
     });
 
     test('sendOtp delegates to signInWithOtp', () async {
-      when(() => auth.signInWithOtp(email: any(named: 'email')))
-          .thenAnswer((_) async => AuthResponse());
+      when(
+        () => auth.signInWithOtp(email: any(named: 'email')),
+      ).thenAnswer((_) async => AuthResponse());
 
       await service().sendOtp('a@b.com');
 
@@ -70,19 +81,23 @@ void main() {
     });
 
     test('verifyOtp delegates with the email OTP type', () async {
-      when(() => auth.verifyOTP(
-            email: any(named: 'email'),
-            token: any(named: 'token'),
-            type: any(named: 'type'),
-          )).thenAnswer((_) async => AuthResponse(user: _currentUser()));
+      when(
+        () => auth.verifyOTP(
+          email: any(named: 'email'),
+          token: any(named: 'token'),
+          type: any(named: 'type'),
+        ),
+      ).thenAnswer((_) async => AuthResponse(user: _currentUser()));
 
       await service().verifyOtp('a@b.com', '123456');
 
-      verify(() => auth.verifyOTP(
-            email: 'a@b.com',
-            token: '123456',
-            type: OtpType.email,
-          )).called(1);
+      verify(
+        () => auth.verifyOTP(
+          email: 'a@b.com',
+          token: '123456',
+          type: OtpType.email,
+        ),
+      ).called(1);
     });
 
     test('signOut delegates to gotrue', () async {
@@ -94,35 +109,45 @@ void main() {
     });
 
     test('updateUser forwards the patch as UserAttributes', () async {
-      when(() => auth.updateUser(any())).thenAnswer(
-        (_) async => UserResponse.fromJson({'id': _userId}),
-      );
+      when(
+        () => auth.updateUser(any()),
+      ).thenAnswer((_) async => UserResponse.fromJson({'id': _userId}));
 
       await service().updateUser({
         'password': 'nueva1',
         'data': {'theme': 'dark'},
       });
 
-      final attributes =
-          verify(() => auth.updateUser(captureAny())).captured.single;
+      final attributes = verify(
+        () => auth.updateUser(captureAny()),
+      ).captured.single;
       expect(attributes, isA<UserAttributes>());
       expect((attributes as UserAttributes).password, 'nueva1');
       expect(attributes.data, {'theme': 'dark'});
     });
 
-    test('propagates an invalid-credentials AuthException from signIn',
-        () async {
-      when(() => auth.signInWithPassword(
-              email: any(named: 'email'), password: any(named: 'password')))
-          .thenThrow(const AuthException(
-        'Invalid login credentials',
-        code: 'invalid_credentials',
-      ));
+    test(
+      'propagates an invalid-credentials AuthException from signIn',
+      () async {
+        when(
+          () => auth.signInWithPassword(
+            email: any(named: 'email'),
+            password: any(named: 'password'),
+          ),
+        ).thenThrow(
+          const AuthException(
+            'Invalid login credentials',
+            code: 'invalid_credentials',
+          ),
+        );
 
-      final err = await captureError(() => service().signIn('a@b.com', 'wrong'));
-      expect(err, isA<AuthException>());
-      expectMapped(err, ValidationError);
-    });
+        final err = await captureError(
+          () => service().signIn('a@b.com', 'wrong'),
+        );
+        expect(err, isA<AuthException>());
+        expectMapped(err, ValidationError);
+      },
+    );
   });
 
   group('AuthService.softDeleteUser', () {
@@ -135,9 +160,8 @@ void main() {
 
       await service().softDeleteUser();
 
-      final payload = verify(() => users.update(captureAny()))
-          .captured
-          .single as Map;
+      final payload =
+          verify(() => users.update(captureAny())).captured.single as Map;
       expect(payload['deleted_at'], isNotEmpty);
       expect(payload['username'], 'deleted_user_$_userId');
       expect(payload['avatar_url'], isNull);
@@ -153,51 +177,65 @@ void main() {
   });
 
   group('AuthService.createUserProfile', () {
-    test('inserts the users row with the config grant + ledger + tracker',
-        () async {
-      when(() => auth.currentUser).thenReturn(_currentUser());
-      when(() => config.getSignupShardGrant()).thenAnswer((_) async => 256);
-      final users = MockQueryBuilder();
-      final ledger = MockQueryBuilder();
-      final tracker = MockQueryBuilder();
-      when(() => client.from('users')).thenAnswer((_) => users);
-      when(() => client.from('shard_ledger')).thenAnswer((_) => ledger);
-      when(() => client.from('signup_tracker')).thenAnswer((_) => tracker);
-      when(() => users.insert(any()))
-          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
-      when(() => ledger.insert(any()))
-          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
-      when(() => tracker.upsert(any(), onConflict: any(named: 'onConflict')))
-          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+    test(
+      'inserts the users row with the config grant + ledger + tracker',
+      () async {
+        when(() => auth.currentUser).thenReturn(_currentUser());
+        when(() => config.getSignupShardGrant()).thenAnswer((_) async => 256);
+        final users = MockQueryBuilder();
+        final ledger = MockQueryBuilder();
+        when(() => client.from('users')).thenAnswer((_) => users);
+        when(() => client.from('shard_ledger')).thenAnswer((_) => ledger);
+        when(
+          () => users.insert(any()),
+        ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+        when(
+          () => ledger.insert(any()),
+        ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+        when(
+          () =>
+              client.rpc('upsert_signup_tracker', params: any(named: 'params')),
+        ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
 
-      await service().createUserProfile(
-        username: '  Dana  ',
-        avatarUrl: 'https://cdn.example/a.png',
-        dateOfBirth: '2000-01-01',
-      );
+        await service().createUserProfile(
+          username: '  Dana  ',
+          avatarUrl: 'https://cdn.example/a.png',
+          dateOfBirth: '2000-01-01',
+        );
 
-      final userPayload =
-          verify(() => users.insert(captureAny())).captured.single as Map;
-      expect(userPayload['id'], _userId);
-      expect(userPayload['username'], 'Dana',
-          reason: 'username goes through InputSanitizer.sanitizeUsername');
-      expect(userPayload['avatar_url'], 'https://cdn.example/a.png');
-      expect(userPayload['date_of_birth'], '2000-01-01');
-      expect(userPayload['personal_shards'], 256);
-      expect(userPayload['preshards'], 0);
-      expect(userPayload['subscription_tier'], 'free');
-      expect(userPayload['banned_at'], isNull);
-      expect(userPayload['deleted_at'], isNull);
+        final userPayload =
+            verify(() => users.insert(captureAny())).captured.single as Map;
+        expect(userPayload['id'], _userId);
+        expect(
+          userPayload['username'],
+          'Dana',
+          reason: 'username goes through InputSanitizer.sanitizeUsername',
+        );
+        expect(userPayload['avatar_url'], 'https://cdn.example/a.png');
+        expect(userPayload['date_of_birth'], '2000-01-01');
+        expect(userPayload['personal_shards'], 256);
+        expect(userPayload['preshards'], 0);
+        expect(userPayload['subscription_tier'], 'free');
+        expect(userPayload['banned_at'], isNull);
+        expect(userPayload['deleted_at'], isNull);
 
-      final ledgerPayload =
-          verify(() => ledger.insert(captureAny())).captured.single as Map;
-      expect(ledgerPayload['user_id'], _userId);
-      expect(ledgerPayload['delta'], 256);
-      expect(ledgerPayload['reason'], 'admin_grant');
+        final ledgerPayload =
+            verify(() => ledger.insert(captureAny())).captured.single as Map;
+        expect(ledgerPayload['user_id'], _userId);
+        expect(ledgerPayload['delta'], 256);
+        expect(ledgerPayload['reason'], 'admin_grant');
 
-      verify(() => tracker.upsert(any(), onConflict: any(named: 'onConflict')))
-          .called(1);
-    });
+        verify(
+          () => client.rpc(
+            'upsert_signup_tracker',
+            params: {
+              'p_email': _currentUser().email,
+              'p_profile_created': true,
+            },
+          ),
+        ).called(1);
+      },
+    );
 
     test('propagates a duplicate-username PostgrestException', () async {
       when(() => auth.currentUser).thenReturn(_currentUser());
@@ -206,7 +244,8 @@ void main() {
       when(() => client.from('users')).thenAnswer((_) => users);
       when(() => users.insert(any())).thenThrow(
         const PostgrestException(
-          message: 'duplicate key value violates unique constraint "users_username_key"',
+          message:
+              'duplicate key value violates unique constraint "users_username_key"',
           code: '23505',
         ),
       );
@@ -220,49 +259,59 @@ void main() {
   });
 
   group('AuthService.userHasProfile', () {
-    test('returns false on any check failure (fail-closed helper)', () async {
+    test('propagates check failures (no fail-closed fallback)', () async {
       final users = MockQueryBuilder();
       when(() => client.from('users')).thenAnswer((_) => users);
       when(() => users.select('id')).thenThrow(
-        const PostgrestException(
-          message: 'connection refused',
-          code: '28000',
-        ),
+        const PostgrestException(message: 'connection refused', code: '28000'),
       );
 
-      expect(await service().userHasProfile(_userId), isFalse);
+      expect(
+        () => service().userHasProfile(_userId),
+        throwsA(isA<PostgrestException>()),
+      );
     });
   });
 
-  group('AuthService.signup RPC passthroughs (migrated from the facade suite)',
-      () {
-    test('checkSignupEmail returns the RPC result', () async {
-      when(() => client.rpc('check_signup_email',
-              params: any(named: 'params')))
-          .thenAnswer((_) => ResolvingBuilder<String>('signup'));
+  group(
+    'AuthService.signup RPC passthroughs (migrated from the facade suite)',
+    () {
+      test('checkSignupEmail returns the RPC result', () async {
+        when(
+          () => client.rpc('check_signup_email', params: any(named: 'params')),
+        ).thenAnswer((_) => ResolvingBuilder<String>('signup'));
 
-      expect(await service().checkSignupEmail('nuevo@test.com'), 'signup');
-      verify(() => client.rpc('check_signup_email',
-              params: {'p_email': 'nuevo@test.com'}))
-          .called(1);
-    });
+        expect(await service().checkSignupEmail('nuevo@test.com'), 'signup');
+        verify(
+          () => client.rpc(
+            'check_signup_email',
+            params: {'p_email': 'nuevo@test.com'},
+          ),
+        ).called(1);
+      });
 
-    test('upsertSignupTracker upserts the tracker row', () async {
-      final tracker = MockQueryBuilder();
-      when(() => client.from('signup_tracker')).thenAnswer((_) => tracker);
-      when(() => tracker.upsert(any(), onConflict: any(named: 'onConflict')))
-          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+      test(
+        'upsertSignupTracker writes via the pre-auth SECURITY DEFINER RPC',
+        () async {
+          when(
+            () => client.rpc(
+              'upsert_signup_tracker',
+              params: any(named: 'params'),
+            ),
+          ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
 
-      await service().upsertSignupTracker('a@test.com', true);
+          await service().upsertSignupTracker('a@test.com', true);
 
-      final payload = verify(() => tracker.upsert(captureAny(),
-              onConflict: any(named: 'onConflict')))
-          .captured
-          .single as Map;
-      expect(payload['email'], 'a@test.com');
-      expect(payload['profile_created'], isTrue);
-    });
-  });
+          verify(
+            () => client.rpc(
+              'upsert_signup_tracker',
+              params: {'p_email': 'a@test.com', 'p_profile_created': true},
+            ),
+          ).called(1);
+        },
+      );
+    },
+  );
 
   group('AuthService session helpers (migrated from the facade suite)', () {
     test('getCurrentUser returns null when there is no session', () {

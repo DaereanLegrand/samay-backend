@@ -126,7 +126,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '25');
       await tester.tap(find.text('Crear partida'));
-      await tester.pumpAndSettle();
+      // Bounded pumps, not pumpAndSettle: the screen's VAurora drift keeps
+      // frames scheduled for ~10s of fake time, which would run the snackbar
+      // through its full 4s lifecycle and dismiss it (LUXE restyle, XL-13).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       final notifier = container
           .read(minigameSessionsProvider(_groupId).notifier)
@@ -207,7 +211,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '9999');
       await tester.tap(find.text('Crear partida'));
-      await tester.pumpAndSettle();
+      // Bounded pumps — the VAurora drift would dismiss the 4s snackbar
+      // under pumpAndSettle (LUXE restyle, XL-13).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(
         find.text('No tienes suficientes shards para esta apuesta.'),
@@ -228,7 +235,10 @@ void main() {
       await tester.tap(find.text('Preguntas'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Crear partida'));
-      await tester.pumpAndSettle();
+      // Bounded pumps — the VAurora drift would dismiss the 4s snackbar
+      // under pumpAndSettle (LUXE restyle, XL-13).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(find.text('No eres miembro de este grupo.'), findsOneWidget);
     });
@@ -291,7 +301,10 @@ void main() {
       await _pumpScreen(tester, sessions: [_session()]);
 
       await tester.tap(find.text('Apuesta: 50 shards'));
-      await tester.pumpAndSettle();
+      // Bounded pumps — the VAurora drift would dismiss the 4s snackbar
+      // under pumpAndSettle (LUXE restyle, XL-13).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(
         find.text('La partida se jugará aquí pronto.'),

@@ -172,6 +172,14 @@ void main() {
       // 'ana' renders twice: top-contributor row + member row.
       expect(find.text('ana'), findsNWidgets(2));
       expect(find.text('50 shards'), findsOneWidget);
+      // LUXE: rows sit in VGlassCards — the last lazy member row sits below
+      // the 800px test fold; drag the members ListView to build it (the
+      // hero + TabBarView make multiple Scrollables — drag the list itself).
+      await tester.dragUntilVisible(
+        find.text('lucas'),
+        find.byType(ListView),
+        const Offset(0, -60),
+      );
       expect(find.text('lucas'), findsOneWidget);
       // U-11 restyle: roles render as §5.5 VBadges (uppercase labelSmall)
       // instead of raw subtitle text.

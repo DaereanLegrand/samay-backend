@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
+import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/design_tokens/app_typography.dart';
 import 'package:samay/shared/widgets/v_glow_text.dart';
 
@@ -9,6 +10,10 @@ Widget _wrap(Widget child) {
     home: Scaffold(body: Center(child: child)),
   );
 }
+
+/// The LUXE default halo — the violet family's vivid end
+/// ([AppColors.discoViolet]; never pink).
+const _violetHalo = AppColors.discoViolet;
 
 void main() {
   group('VGlowText', () {
@@ -22,7 +27,7 @@ void main() {
     });
 
     testWidgets('strong default applies the canonical 3-layer glow stack '
-        '(§3.4)', (tester) async {
+        'in the LUXE violet halo (§3.4)', (tester) async {
       await tester.pumpWidget(
         _wrap(
           const VGlowText(text: 'SAMAY', style: AppTypography.displaySmall),
@@ -33,15 +38,17 @@ void main() {
       expect(text.style?.fontSize, 32);
       final shadows = text.style!.shadows!;
       expect(shadows, hasLength(3));
-      expect(shadows[0].color, AppColors.glowPink.withValues(alpha: 0.9));
+      expect(shadows[0].color, _violetHalo.withValues(alpha: 0.9));
       expect(shadows[0].blurRadius, closeTo(32 * 0.35, 0.001));
-      expect(shadows[1].color, AppColors.glowPink.withValues(alpha: 0.5));
+      expect(shadows[1].color, _violetHalo.withValues(alpha: 0.5));
       expect(shadows[1].blurRadius, closeTo(32 * 0.7, 0.001));
-      expect(shadows[2].color, AppColors.glowPink.withValues(alpha: 0.25));
+      expect(shadows[2].color, _violetHalo.withValues(alpha: 0.25));
       expect(shadows[2].blurRadius, closeTo(32 * 1.0, 0.001));
     });
 
-    testWidgets('soft applies the 2-layer glow stack (§3.4)', (tester) async {
+    testWidgets('soft applies the 2-layer glow stack in violet (§3.4)', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           const VGlowText(
@@ -54,17 +61,21 @@ void main() {
       final text = tester.widget<Text>(find.text('Pr\u00f3ximamente'));
       final shadows = text.style!.shadows!;
       expect(shadows, hasLength(2));
-      expect(shadows[0].color, AppColors.glowPink.withValues(alpha: 0.6));
+      expect(shadows[0].color, _violetHalo.withValues(alpha: 0.6));
       expect(shadows[0].blurRadius, closeTo(32 * 0.3, 0.001));
-      expect(shadows[1].color, AppColors.glowPink.withValues(alpha: 0.25));
+      expect(shadows[1].color, _violetHalo.withValues(alpha: 0.25));
       expect(shadows[1].blurRadius, closeTo(32 * 0.6, 0.001));
     });
 
-    testWidgets('strong output is identical to AppTypography.fancyTitle '
+    testWidgets('gradient: rose is byte-identical to AppTypography.fancyTitle '
         '(parity)', (tester) async {
       await tester.pumpWidget(
         _wrap(
-          const VGlowText(text: 'SAMAY', style: AppTypography.displaySmall),
+          const VGlowText(
+            text: 'SAMAY',
+            style: AppTypography.displaySmall,
+            gradient: AppGradients.rose,
+          ),
         ),
       );
       final text = tester.widget<Text>(find.text('SAMAY'));
@@ -72,14 +83,15 @@ void main() {
       expect(text.style?.shadows, expected.shadows);
     });
 
-    testWidgets('soft output is identical to AppTypography.fancyTitle '
-        '(parity)', (tester) async {
+    testWidgets('gradient: rose soft is byte-identical to '
+        'AppTypography.fancyTitle soft (parity)', (tester) async {
       await tester.pumpWidget(
         _wrap(
           const VGlowText(
             text: 'Próximamente',
             style: AppTypography.headlineLarge,
             soft: true,
+            gradient: AppGradients.rose,
           ),
         ),
       );
@@ -89,6 +101,33 @@ void main() {
         soft: true,
       );
       expect(text.style?.shadows, expected.shadows);
+    });
+
+    testWidgets('gradient param drives the halo family (cyan)', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const VGlowText(
+            text: 'CYAN',
+            style: AppTypography.displaySmall,
+            gradient: AppGradients.cyan,
+          ),
+        ),
+      );
+      final text = tester.widget<Text>(find.text('CYAN'));
+      final shadows = text.style!.shadows!;
+      expect(shadows, hasLength(3));
+      expect(
+        shadows[0].color,
+        AppGradients.cyan.colors.last.withValues(alpha: 0.9),
+      );
+      expect(
+        shadows[1].color,
+        AppGradients.cyan.colors.last.withValues(alpha: 0.5),
+      );
+      expect(
+        shadows[2].color,
+        AppGradients.cyan.colors.last.withValues(alpha: 0.25),
+      );
     });
 
     testWidgets('color param tints the halo', (tester) async {
@@ -128,6 +167,8 @@ void main() {
     testWidgets('is const-constructible', (tester) async {
       const glow = VGlowText(text: 'SAMAY', style: AppTypography.displaySmall);
       expect(glow, isA<VGlowText>());
+      expect(glow.gradient, isNull);
+      expect(glow.color, isNull);
     });
   });
 }

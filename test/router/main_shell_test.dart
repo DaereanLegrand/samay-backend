@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:samay/core/design_tokens/app_colors.dart';
+import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/router/main_shell.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/theme/samay_durations.dart';
@@ -285,6 +287,15 @@ void main() {
         _localized(const MainShell(currentIndex: 0, child: SizedBox())),
       );
 
+      // LUXE v2 (XL-06): the selected icon now rides inside the static violet
+      // glow wrapper (`_tabGlowIcon`'s DecoratedBox) — unwrap it to reach the
+      // IconData the pin cares about.
+      IconData? resolve(Widget? w) {
+        if (w is Icon) return w.icon;
+        if (w is DecoratedBox) return resolve(w.child);
+        return null;
+      }
+
       final items = tester
           .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
           .items;
@@ -296,7 +307,7 @@ void main() {
           reason: 'tab ${mainShellTabs[i].label} must wire activeIcon',
         );
         expect(
-          activeIcon is Icon ? activeIcon.icon : null,
+          resolve(activeIcon),
           mainShellTabs[i].selectedIcon,
           reason:
               'tab ${mainShellTabs[i].label} activeIcon must be its '
@@ -665,6 +676,90 @@ void main() {
           );
         },
       );
+    });
+
+    group('LUXE — glass shell restyle (XL-06)', () {
+      testWidgets('the nav bar rides on a liquid-glass strip (blur + white '
+          'sheen + top hairline)', (tester) async {
+        await tester.pumpWidget(
+          _localized(const MainShell(currentIndex: 0, child: SizedBox())),
+        );
+
+        // The glass strip sits BEHIND the Material bar (same Stack).
+        final stack = find.ancestor(
+          of: find.byType(BottomNavigationBar),
+          matching: find.byType(Stack),
+        );
+        expect(
+          find.descendant(of: stack, matching: find.byType(BackdropFilter)),
+          findsOneWidget,
+          reason: 'the shell bar must blur what scrolls beneath it (XL-06)',
+        );
+        expect(
+          find.descendant(
+            of: stack,
+            matching: find.byWidgetPredicate(
+              (w) =>
+                  w is DecoratedBox &&
+                  w.decoration is BoxDecoration &&
+                  (w.decoration as BoxDecoration).gradient != null,
+            ),
+          ),
+          findsWidgets,
+          reason: 'the strip paints the white glass sheen (XL-06)',
+        );
+      });
+
+      testWidgets('only the selected tab icon carries the violet glow', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          _localized(const MainShell(currentIndex: 1, child: SizedBox())),
+        );
+
+        List<BoxShadow> shadowsOf(IconData icon) {
+          final boxes = tester
+              .widgetList<DecoratedBox>(find.ancestor(
+                of: find.byIcon(icon),
+                matching: find.byType(DecoratedBox),
+              ))
+              .where(
+                (b) =>
+                    b.decoration is BoxDecoration &&
+                    (b.decoration as BoxDecoration).boxShadow != null,
+              )
+              .toList();
+          return boxes.isEmpty
+              ? const []
+              : (boxes.first.decoration as BoxDecoration).boxShadow!;
+        }
+
+        final selected = shadowsOf(mainShellTabs[1].selectedIcon);
+        expect(
+          selected,
+          isNotEmpty,
+          reason: 'the selected tab icon must carry the violet halo (XL-06)',
+        );
+        expect(
+          selected.first.color,
+          AppGradients.violet.colors[1].withValues(alpha: 0.30),
+          reason: 'the halo is glowShadows(violet) at the fixed α0.30 (XL-06)',
+        );
+        for (final shadow in selected) {
+          expect(
+            shadow.color,
+            isNot(AppColors.glowPink),
+            reason: 'NO PINK MAINS — the shell glow must be violet (XL-06)',
+          );
+        }
+        for (final icon in mainShellTabs.map((t) => t.icon)) {
+          expect(
+            shadowsOf(icon),
+            isEmpty,
+            reason: 'unselected tab icons must NOT glow (XL-06)',
+          );
+        }
+      });
     });
   });
 }

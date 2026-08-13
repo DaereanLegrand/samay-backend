@@ -347,7 +347,7 @@ void main() {
 
       expect(notifier.resetPasswordCalls, isEmpty);
       expect(find.byType(ForgotPasswordScreen), findsOneWidget);
-      expect(find.text('Revisa tu correo'), findsNothing);
+      expect(find.text('REVISA TU CORREO'), findsNothing);
     });
 
     testWidgets('invalid email shape does not fire resetPasswordForEmail', (
@@ -376,11 +376,15 @@ void main() {
 
       await tester.enterText(find.byType(TextField), 'a@b.com');
       await tester.tap(find.widgetWithText(TextButton, 'Enviar enlace'));
-      await tester.pumpAndSettle();
+      // LUXE v2: the aurora + display pulses keep pumpAndSettle pumping past
+      // the snackbar's 4s auto-dismiss — pump the async send and the snackbar
+      // entrance deterministically instead.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
       expect(notifier.resetPasswordCalls, ['a@b.com']);
       // F14 in-place success: the form morphs into the confirmation, no route.
-      expect(find.text('Revisa tu correo'), findsOneWidget);
+      expect(find.text('REVISA TU CORREO'), findsOneWidget);
       expect(
         find.text('Te enviamos un enlace para restablecer tu contraseña'),
         findsOneWidget,
@@ -399,7 +403,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'a@b.com');
       await tester.tap(find.widgetWithText(TextButton, 'Enviar enlace'));
       await tester.pumpAndSettle();
-      expect(find.text('Revisa tu correo'), findsOneWidget);
+      expect(find.text('REVISA TU CORREO'), findsOneWidget);
 
       await tester.tap(
         find.widgetWithText(TextButton, 'Volver a iniciar sesión'),
@@ -423,7 +427,7 @@ void main() {
 
       expect(notifier.resetPasswordCalls, ['a@b.com']);
       expect(find.text('No se pudo enviar el enlace'), findsOneWidget);
-      expect(find.text('Revisa tu correo'), findsNothing);
+      expect(find.text('REVISA TU CORREO'), findsNothing);
       expect(find.byType(TextField), findsOneWidget);
       expect(
         find.text('Te enviamos un enlace para restablecer tu contraseña'),

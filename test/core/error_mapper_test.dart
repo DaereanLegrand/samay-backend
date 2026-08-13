@@ -28,6 +28,28 @@ void main() {
     });
   });
 
+  group('Stable error codes', () {
+    test('every AppError subtype reports its exact stable code', () {
+      final codes = <String, AppError>{
+        'NETWORK_ERROR': NetworkError(),
+        'AUTH_UNAUTHORIZED': UnauthorizedError(),
+        'SERVER_ERROR': ServerError(),
+        'VALIDATION_ERROR': ValidationError('campo', 'problema'),
+        'PERMISSION_DENIED': PermissionError(),
+        'RATE_LIMITED': RateLimitError(),
+        'NOT_FOUND': NotFoundError(),
+        'NOT_CONFIGURED': NotConfiguredError(),
+      };
+      for (final entry in codes.entries) {
+        expect(
+          entry.value.code,
+          entry.key,
+          reason: '${entry.value.runtimeType} must report ${entry.key}',
+        );
+      }
+    });
+  });
+
   group('AuthException code mappings', () {
     for (final code in [
       'over_request_rate_limit',
@@ -54,8 +76,10 @@ void main() {
     });
 
     test('otp_expired → ValidationError(código)', () {
-      final error =
-          const AuthException('OTP has expired', code: 'otp_expired').toAppError();
+      final error = const AuthException(
+        'OTP has expired',
+        code: 'otp_expired',
+      ).toAppError();
       expect(error, isA<ValidationError>());
       expect((error as ValidationError).field, 'código');
     });
@@ -67,22 +91,30 @@ void main() {
         'Session from this device has been terminated',
         'Your JWT token has expired and your refresh token could not be refreshed',
       ]) {
-        expect(AuthException(msg).toAppError(), isA<UnauthorizedError>(),
-            reason: msg);
+        expect(
+          AuthException(msg).toAppError(),
+          isA<UnauthorizedError>(),
+          reason: msg,
+        );
       }
     });
 
     test('known jwt code without keyword message → UnauthorizedError', () {
       expect(
-        const AuthException('signature check failed', code: 'invalid_jwt')
-            .toAppError(),
+        const AuthException(
+          'signature check failed',
+          code: 'invalid_jwt',
+        ).toAppError(),
         isA<UnauthorizedError>(),
       );
     });
 
     test('unmapped code → UnauthorizedError (auth fallback)', () {
       expect(
-        const AuthException('user not found', code: 'user_not_found').toAppError(),
+        const AuthException(
+          'user not found',
+          code: 'user_not_found',
+        ).toAppError(),
         isA<UnauthorizedError>(),
       );
     });
@@ -98,8 +130,10 @@ void main() {
   group('PostgrestException code mappings', () {
     test('PGRST301 → UnauthorizedError', () {
       expect(
-        const PostgrestException(message: 'JWT expired', code: 'PGRST301')
-            .toAppError(),
+        const PostgrestException(
+          message: 'JWT expired',
+          code: 'PGRST301',
+        ).toAppError(),
         isA<UnauthorizedError>(),
       );
     });
@@ -128,16 +162,19 @@ void main() {
 
     test('42501 → PermissionError', () {
       expect(
-        const PostgrestException(message: 'permission denied', code: '42501')
-            .toAppError(),
+        const PostgrestException(
+          message: 'permission denied',
+          code: '42501',
+        ).toAppError(),
         isA<PermissionError>(),
       );
     });
 
     test('P0001 → ServerError carrying the server detail', () {
-      final error =
-          const PostgrestException(message: 'division by zero', code: 'P0001')
-              .toAppError();
+      final error = const PostgrestException(
+        message: 'division by zero',
+        code: 'P0001',
+      ).toAppError();
       expect(error, isA<ServerError>());
       expect((error as ServerError).detail, 'division by zero');
     });
@@ -145,8 +182,10 @@ void main() {
     for (final code in ['28000', '28502', '28P01']) {
       test('$code (28* connection class) → NetworkError', () {
         expect(
-          PostgrestException(message: 'connection failed', code: code)
-              .toAppError(),
+          PostgrestException(
+            message: 'connection failed',
+            code: code,
+          ).toAppError(),
           isA<NetworkError>(),
         );
       });
@@ -154,9 +193,10 @@ void main() {
 
     for (final code in ['42601', '42P01', '42P17']) {
       test('$code (42* syntax/undefined class) → ServerError with detail', () {
-        final error =
-            PostgrestException(message: 'syntax error', code: code)
-                .toAppError();
+        final error = PostgrestException(
+          message: 'syntax error',
+          code: code,
+        ).toAppError();
         expect(error, isA<ServerError>());
         expect((error as ServerError).detail, 'syntax error');
       });
@@ -168,13 +208,16 @@ void main() {
         code: '22P02',
       ).toAppError();
       expect(error, isA<ServerError>());
-      expect((error as ServerError).detail,
-          'invalid input syntax for type integer');
+      expect(
+        (error as ServerError).detail,
+        'invalid input syntax for type integer',
+      );
     });
 
     test('null code → ServerError with server detail (null-safe)', () {
-      final error =
-          const PostgrestException(message: 'Unknown db error').toAppError();
+      final error = const PostgrestException(
+        message: 'Unknown db error',
+      ).toAppError();
       expect(error, isA<ServerError>());
       expect((error as ServerError).detail, 'Unknown db error');
     });
@@ -217,8 +260,9 @@ void main() {
     });
 
     test('TimeoutException internals never leak into the message', () {
-      final error = TimeoutException('Operation timed out after 10s')
-          .toAppError();
+      final error = TimeoutException(
+        'Operation timed out after 10s',
+      ).toAppError();
       expect(error.message, 'Error de conexión. Verifica tu internet.');
       expect(error.message.contains('timed out'), isFalse);
       expect(error.message.contains('TimeoutException'), isFalse);
@@ -226,27 +270,31 @@ void main() {
 
     test('TimeoutException with a duration still maps to NetworkError', () {
       expect(
-        TimeoutException('Operation timed out after 10s',
-                const Duration(seconds: 10))
-            .toAppError(),
+        TimeoutException(
+          'Operation timed out after 10s',
+          const Duration(seconds: 10),
+        ).toAppError(),
         isA<NetworkError>(),
       );
     });
   });
 
   group('Unknown errors → user-safe fallback', () {
-    test('raw Exception → generic ServerError, raw internals NOT in message',
-        () {
-      final raw =
-          Exception('syntax error at lib/core/services/supabase_service.dart:88');
-      final error = raw.toAppError();
-      expect(error, isA<ServerError>());
-      expect(error.message, _genericServerMessage);
-      expect(error.message.contains('syntax error'), isFalse);
-      expect(error.message.contains('Exception'), isFalse);
-      expect(error.message.contains('supabase_service'), isFalse);
-      expect(error.message.contains('lib/core'), isFalse);
-    });
+    test(
+      'raw Exception → generic ServerError, raw internals NOT in message',
+      () {
+        final raw = Exception(
+          'syntax error at lib/core/services/supabase_service.dart:88',
+        );
+        final error = raw.toAppError();
+        expect(error, isA<ServerError>());
+        expect(error.message, _genericServerMessage);
+        expect(error.message.contains('syntax error'), isFalse);
+        expect(error.message.contains('Exception'), isFalse);
+        expect(error.message.contains('supabase_service'), isFalse);
+        expect(error.message.contains('lib/core'), isFalse);
+      },
+    );
 
     test('StateError → generic ServerError with original preserved', () {
       final raw = StateError('Bad state: boom');
@@ -256,13 +304,17 @@ void main() {
       expect(server.detail, '');
       expect(error.message, _genericServerMessage);
       expect(identical(server.original, raw), isTrue);
-      expect(server.original.toString(), contains('boom'),
-          reason: 'original carries the raw error for logging');
+      expect(
+        server.original.toString(),
+        contains('boom'),
+        reason: 'original carries the raw error for logging',
+      );
     });
 
     test('no type names or stack fragments leak for unknown errors', () {
-      final error = Exception('SecretStackLine@/private/var/folders/x')
-          .toAppError();
+      final error = Exception(
+        'SecretStackLine@/private/var/folders/x',
+      ).toAppError();
       expect(error.message, _genericServerMessage);
       expect(error.message.contains('SecretStackLine'), isFalse);
       expect(error.message.contains('Exception'), isFalse);

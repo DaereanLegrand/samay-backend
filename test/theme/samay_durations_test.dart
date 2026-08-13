@@ -24,6 +24,15 @@ void main() {
       expect(SamayDurations.motionCycleRest, const Duration(milliseconds: 300));
     });
 
+    test('LUXE v2 motion tokens match the ORCHESTRATION-LUXE spec (XL-04)',
+        () {
+      expect(SamayDurations.glowPulse, const Duration(milliseconds: 3800));
+      expect(SamayDurations.auroraDrift, const Duration(milliseconds: 10000));
+      expect(SamayDurations.thinkingDot, const Duration(milliseconds: 900));
+      expect(SamayDurations.glassHover, const Duration(milliseconds: 150));
+      expect(SamayDurations.displaySweep, const Duration(milliseconds: 900));
+    });
+
     test('defaultCurve is easeOutCubic (§6.1)', () {
       expect(SamayDurations.defaultCurve, Curves.easeOutCubic);
     });
@@ -33,10 +42,18 @@ void main() {
       const glowBreath = SamayDurations.glowBreath;
       const shimmer = SamayDurations.shimmer;
       const liveDotPulse = SamayDurations.liveDotPulse;
+      const glowPulse = SamayDurations.glowPulse;
+      const auroraDrift = SamayDurations.auroraDrift;
+      const thinkingDot = SamayDurations.thinkingDot;
+      const displaySweep = SamayDurations.displaySweep;
       expect(fast, const Duration(milliseconds: 150));
       expect(glowBreath, const Duration(milliseconds: 3000));
       expect(shimmer, const Duration(milliseconds: 1200));
       expect(liveDotPulse, const Duration(milliseconds: 1500));
+      expect(glowPulse, const Duration(milliseconds: 3800));
+      expect(auroraDrift, const Duration(milliseconds: 10000));
+      expect(thinkingDot, const Duration(milliseconds: 900));
+      expect(displaySweep, const Duration(milliseconds: 900));
     });
 
     test('the U-18 engine settle is short but non-zero (the pumpAndSettle '

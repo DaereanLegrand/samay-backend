@@ -12,8 +12,8 @@ Widget _wrap(Widget child) {
 
 void main() {
   group('VDiscoDivider', () {
-    testWidgets('renders a full-width hairline split by a centered glowPink '
-        'accent (§2.1/§4.2 spirit)', (tester) async {
+    testWidgets('renders a full-width hairline split by a centered violet '
+        'accent (§2.1/§4.2 spirit — LUXE no-pink-mains)', (tester) async {
       await tester.pumpWidget(_wrap(const VDiscoDivider()));
 
       final hairlineBoxes = tester
@@ -26,7 +26,7 @@ void main() {
       expect(hairlineBoxes, hasLength(2));
 
       final accentFinder = find.byWidgetPredicate(
-        (w) => w is Container && w.color == AppColors.glowPink,
+        (w) => w is Container && w.color == AppColors.statusVip,
       );
       expect(accentFinder, findsOneWidget);
       expect(tester.getSize(accentFinder), const Size(AppSpacing.xxxl, 1));

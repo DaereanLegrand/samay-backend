@@ -363,7 +363,9 @@ void main() {
       ]);
       await _pumpScreen(tester, service);
 
-      expect(find.text('Samay'), findsOneWidget);
+      // LUXE v2 (XL-07): the brand hero renders through VDisplayText, which
+      // enforces the MAYUS rule (ORCHESTRATION directive #6).
+      expect(find.text('SAMAY'), findsOneWidget);
       expect(find.text('Destacados'), findsOneWidget);
       // §3.3/§5.5: VBadge labels render uppercase (U-05 restyle).
       expect(find.text('DESTACADO'), findsOneWidget);

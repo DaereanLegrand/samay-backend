@@ -16,7 +16,10 @@ class _FakeAuthService extends Mock implements AuthService {}
 
 class _FakeBanService extends Mock implements BanService {}
 
-const _user = {'id': '11111111-1111-1111-1111-111111111111', 'email': 'a@b.com'};
+const _user = {
+  'id': '11111111-1111-1111-1111-111111111111',
+  'email': 'a@b.com',
+};
 
 /// A fully-stubbed [AuthService] fake: auth stream never emits and the
 /// profile probe fails closed (`AuthService.userHasProfile` returns false),
@@ -32,8 +35,9 @@ AuthService _stubbedService() {
 /// (the I-35 ban scenarios live in `test/features/auth/banned_test.dart`).
 BanService _stubbedBanService() {
   final service = _FakeBanService();
-  when(() => service.checkBanStatus(force: any(named: 'force')))
-      .thenAnswer((_) async => BanStatus.notBanned);
+  when(
+    () => service.checkBanStatus(force: any(named: 'force')),
+  ).thenAnswer((_) async => BanStatus.notBanned);
   return service;
 }
 
@@ -57,11 +61,11 @@ AuthService _streamedService(
 /// A gotrue [supabase.Session] carrying [user] — minimal but structurally
 /// valid for the notifier's `session!.user.toJson()` path.
 supabase.Session _session(Map<String, dynamic> user) => supabase.Session(
-      accessToken: 'test-access-token',
-      tokenType: 'bearer',
-      refreshToken: 'test-refresh-token',
-      user: supabase.User.fromJson(user)!,
-    );
+  accessToken: 'test-access-token',
+  tokenType: 'bearer',
+  refreshToken: 'test-refresh-token',
+  user: supabase.User.fromJson(user)!,
+);
 
 /// Lets the notifier's async stream handler (`_onAuthStateChange`) complete.
 Future<void> _settle() =>
@@ -135,7 +139,9 @@ void main() {
       final container = _newContainer(service);
       await container.read(authStateProvider.future);
 
-      await container.read(authStateProvider.notifier).signIn('a@b.com', 'secret1');
+      await container
+          .read(authStateProvider.notifier)
+          .signIn('a@b.com', 'secret1');
 
       final state = container.read(authStateProvider);
       expect(state, isA<AsyncData<AuthState>>());
@@ -144,78 +150,88 @@ void main() {
       expect(state.valueOrNull?.user?['id'], _user['id']);
     });
 
-    test('signIn failure surfaces an AsyncError with a user-facing message',
-        () async {
-      final service = _stubbedService();
-      when(() => service.signIn(any(), any())).thenThrow(
-        const AuthException(
-          'Invalid login credentials',
-          code: 'invalid_credentials',
-        ),
-      );
-      final container = _newContainer(service);
-      await container.read(authStateProvider.future);
-
-      await container.read(authStateProvider.notifier).signIn('a@b.com', 'wrong1');
-
-      final state = container.read(authStateProvider);
-      expect(state, isA<AsyncError<AuthState>>());
-      expect(state.hasError, isTrue);
-      expect(state.errorMessage, 'Correo o contraseña inválidos');
-      expect(state.valueOrNull?.authenticated, isFalse);
-    });
-
-    test('signIn reports the auth_sign_in telemetry event on success', () async {
-      final service = _stubbedService();
-      when(() => service.signIn(any(), any())).thenAnswer((_) async {});
-      when(() => service.getCurrentUser()).thenReturn(_user);
-      final sink = _RecordingTelemetrySink();
-      final container = _newContainer(
-        service,
-        extraOverrides: [
-          telemetryServiceProvider.overrideWithValue(
-            TelemetryService(
-              apiKey: 'phc_test_key',
-              host: 'https://posthog.samay.example.com',
-              sink: sink,
-            ),
+    test(
+      'signIn failure surfaces an AsyncError with a user-facing message',
+      () async {
+        final service = _stubbedService();
+        when(() => service.signIn(any(), any())).thenThrow(
+          const AuthException(
+            'Invalid login credentials',
+            code: 'invalid_credentials',
           ),
-        ],
-      );
-      await container.read(authStateProvider.future);
+        );
+        final container = _newContainer(service);
+        await container.read(authStateProvider.future);
 
-      await container.read(authStateProvider.notifier).signIn('a@b.com', 'secret1');
+        await container
+            .read(authStateProvider.notifier)
+            .signIn('a@b.com', 'wrong1');
 
-      expect(sink.events, ['auth_sign_in']);
-    });
+        final state = container.read(authStateProvider);
+        expect(state, isA<AsyncError<AuthState>>());
+        expect(state.hasError, isTrue);
+        expect(state.errorMessage, 'Correo o contraseña inválidos');
+        expect(state.valueOrNull?.authenticated, isFalse);
+      },
+    );
 
-    test('signIn failure does not report the auth_sign_in telemetry event',
-        () async {
-      final service = _stubbedService();
-      when(() => service.signIn(any(), any())).thenThrow(
-        const AuthException(
-          'Invalid login credentials',
-          code: 'invalid_credentials',
-        ),
-      );
-      final sink = _RecordingTelemetrySink();
-      final container = _newContainer(
-        service,
-        extraOverrides: [
-          telemetryServiceProvider.overrideWithValue(
-            TelemetryService(
-              apiKey: 'phc_test_key',
-              sink: sink,
+    test(
+      'signIn reports the auth_sign_in telemetry event on success',
+      () async {
+        final service = _stubbedService();
+        when(() => service.signIn(any(), any())).thenAnswer((_) async {});
+        when(() => service.getCurrentUser()).thenReturn(_user);
+        final sink = _RecordingTelemetrySink();
+        final container = _newContainer(
+          service,
+          extraOverrides: [
+            telemetryServiceProvider.overrideWithValue(
+              TelemetryService(
+                apiKey: 'phc_test_key',
+                host: 'https://posthog.samay.example.com',
+                sink: sink,
+              ),
             ),
+          ],
+        );
+        await container.read(authStateProvider.future);
+
+        await container
+            .read(authStateProvider.notifier)
+            .signIn('a@b.com', 'secret1');
+
+        expect(sink.events, ['auth_sign_in']);
+      },
+    );
+
+    test(
+      'signIn failure does not report the auth_sign_in telemetry event',
+      () async {
+        final service = _stubbedService();
+        when(() => service.signIn(any(), any())).thenThrow(
+          const AuthException(
+            'Invalid login credentials',
+            code: 'invalid_credentials',
           ),
-        ],
-      );
-      await container.read(authStateProvider.future);
+        );
+        final sink = _RecordingTelemetrySink();
+        final container = _newContainer(
+          service,
+          extraOverrides: [
+            telemetryServiceProvider.overrideWithValue(
+              TelemetryService(apiKey: 'phc_test_key', sink: sink),
+            ),
+          ],
+        );
+        await container.read(authStateProvider.future);
 
-      await container.read(authStateProvider.notifier).signIn('a@b.com', 'wrong1');
+        await container
+            .read(authStateProvider.notifier)
+            .signIn('a@b.com', 'wrong1');
 
-      expect(sink.events, isEmpty);
-    });
+        expect(sink.events, isEmpty);
+      },
+    );
 
     test('refresh() invalidates and re-runs build()', () async {
       final service = _stubbedService();
@@ -226,7 +242,10 @@ void main() {
       });
       final container = _newContainer(service);
       await container.read(authStateProvider.future);
-      expect(container.read(authStateProvider).valueOrNull?.authenticated, isFalse);
+      expect(
+        container.read(authStateProvider).valueOrNull?.authenticated,
+        isFalse,
+      );
 
       final seen = <AsyncValue<AuthState>>[];
       final sub = container.listen<AsyncValue<AuthState>>(
@@ -249,65 +268,77 @@ void main() {
   });
 
   group('AuthProvider — token refresh (SEC-04 / H-22)', () {
-    test('TOKEN_REFRESHED with a valid session keeps the user authenticated',
-        () async {
-      final controller = StreamController<supabase.AuthState>();
-      addTearDown(controller.close);
-      final service = _streamedService(controller);
-      final container = _newContainer(service);
-      await container.read(authStateProvider.future);
+    test(
+      'TOKEN_REFRESHED with a valid session keeps the user authenticated',
+      () async {
+        final controller = StreamController<supabase.AuthState>();
+        addTearDown(controller.close);
+        final service = _streamedService(controller);
+        final container = _newContainer(service);
+        await container.read(authStateProvider.future);
 
-      controller.add(
-        supabase.AuthState(supabase.AuthChangeEvent.tokenRefreshed, _session(_user)),
-      );
-      await _settle();
+        controller.add(
+          supabase.AuthState(
+            supabase.AuthChangeEvent.tokenRefreshed,
+            _session(_user),
+          ),
+        );
+        await _settle();
 
-      final state = container.read(authStateProvider);
-      expect(state.hasError, isFalse);
-      expect(state.valueOrNull?.authenticated, isTrue);
-      expect(state.valueOrNull?.user?['id'], _user['id']);
-    });
+        final state = container.read(authStateProvider);
+        expect(state.hasError, isFalse);
+        expect(state.valueOrNull?.authenticated, isTrue);
+        expect(state.valueOrNull?.user?['id'], _user['id']);
+      },
+    );
 
-    test('TOKEN_REFRESHED without a session transitions to unauthenticated',
-        () async {
-      final controller = StreamController<supabase.AuthState>();
-      addTearDown(controller.close);
-      final service = _streamedService(controller, userSequence: [_user]);
-      final container = _newContainer(service);
-      await container.read(authStateProvider.future);
-      expect(
-        container.read(authStateProvider).valueOrNull?.authenticated,
-        isTrue,
-      );
+    test(
+      'TOKEN_REFRESHED without a session transitions to unauthenticated',
+      () async {
+        final controller = StreamController<supabase.AuthState>();
+        addTearDown(controller.close);
+        final service = _streamedService(controller, userSequence: [_user]);
+        final container = _newContainer(service);
+        await container.read(authStateProvider.future);
+        expect(
+          container.read(authStateProvider).valueOrNull?.authenticated,
+          isTrue,
+        );
 
-      controller.add(
-        const supabase.AuthState(supabase.AuthChangeEvent.tokenRefreshed, null),
-      );
-      await _settle();
+        controller.add(
+          const supabase.AuthState(
+            supabase.AuthChangeEvent.tokenRefreshed,
+            null,
+          ),
+        );
+        await _settle();
 
-      final state = container.read(authStateProvider);
-      expect(state.hasValue, isTrue);
-      expect(state.valueOrNull?.authenticated, isFalse);
-      expect(state.valueOrNull?.user, isNull);
-    });
+        final state = container.read(authStateProvider);
+        expect(state.hasValue, isTrue);
+        expect(state.valueOrNull?.authenticated, isFalse);
+        expect(state.valueOrNull?.user, isNull);
+      },
+    );
 
-    test('refreshSession() success updates the state with the new user',
-        () async {
-      final controller = StreamController<supabase.AuthState>();
-      addTearDown(controller.close);
-      final service = _streamedService(controller);
-      when(() => service.refreshSession()).thenAnswer((_) async => _user);
-      final container = _newContainer(service);
-      await container.read(authStateProvider.future);
+    test(
+      'refreshSession() success updates the state with the new user',
+      () async {
+        final controller = StreamController<supabase.AuthState>();
+        addTearDown(controller.close);
+        final service = _streamedService(controller);
+        when(() => service.refreshSession()).thenAnswer((_) async => _user);
+        final container = _newContainer(service);
+        await container.read(authStateProvider.future);
 
-      await container.read(authStateProvider.notifier).refreshSession();
+        await container.read(authStateProvider.notifier).refreshSession();
 
-      final state = container.read(authStateProvider);
-      expect(state.hasValue, isTrue);
-      expect(state.valueOrNull?.authenticated, isTrue);
-      expect(state.valueOrNull?.user?['id'], _user['id']);
-      verify(() => service.refreshSession()).called(1);
-    });
+        final state = container.read(authStateProvider);
+        expect(state.hasValue, isTrue);
+        expect(state.valueOrNull?.authenticated, isTrue);
+        expect(state.valueOrNull?.user?['id'], _user['id']);
+        verify(() => service.refreshSession()).called(1);
+      },
+    );
 
     test('refreshSession() failure transitions to unauthenticated', () async {
       final controller = StreamController<supabase.AuthState>();
@@ -347,49 +378,93 @@ void main() {
       expect(state.valueOrNull?.user?['id'], _user['id']);
     });
 
-    test('signUp failure surfaces an AsyncError with the mapped message',
-        () async {
-      final service = _stubbedService();
-      when(() => service.signUp(any(), any())).thenThrow(
-        const AuthException(
-          'A user with this email address has already been registered',
-          code: 'user_already_exists',
-        ),
-      );
-      final container = _newContainer(service);
-      await container.read(authStateProvider.future);
+    test(
+      'signUp failure surfaces an AsyncError with the mapped message',
+      () async {
+        final service = _stubbedService();
+        when(() => service.signUp(any(), any())).thenThrow(
+          const AuthException(
+            'A user with this email address has already been registered',
+            code: 'user_already_exists',
+          ),
+        );
+        final container = _newContainer(service);
+        await container.read(authStateProvider.future);
 
-      await container
-          .read(authStateProvider.notifier)
-          .signUp('nuevo@b.com', 'secret1');
+        await container
+            .read(authStateProvider.notifier)
+            .signUp('nuevo@b.com', 'secret1');
 
-      final state = container.read(authStateProvider);
-      expect(state, isA<AsyncError<AuthState>>());
-      expect(state.error, isA<UnauthorizedError>());
-      expect(state.valueOrNull?.authenticated, isFalse);
-    });
+        final state = container.read(authStateProvider);
+        expect(state, isA<AsyncError<AuthState>>());
+        expect(state.error, isA<UnauthorizedError>());
+        expect(state.valueOrNull?.authenticated, isFalse);
+      },
+    );
 
-    test('sendOtp rate-limit failure maps to RateLimitError', () async {
-      final service = _stubbedService();
-      when(() => service.sendOtp(any())).thenThrow(
-        const AuthException('rate limited', code: 'over_email_send_rate_limit'),
-      );
-      final container = _newContainer(service);
-      await container.read(authStateProvider.future);
+    test(
+      'sendOtp rate-limit failure maps to RateLimitError and rethrows',
+      () async {
+        final service = _stubbedService();
+        when(() => service.sendOtp(any())).thenThrow(
+          const AuthException(
+            'rate limited',
+            code: 'over_email_send_rate_limit',
+          ),
+        );
+        final container = _newContainer(service);
+        await container.read(authStateProvider.future);
 
-      await container.read(authStateProvider.notifier).sendOtp('a@b.com');
+        // The notifier rethrows the RAW exception (screens map it themselves
+        // via Object.toAppError — see SignupContactScreen._signup) so the
+        // funnel never navigates past a failed sendOtp.
+        await expectLater(
+          container.read(authStateProvider.notifier).sendOtp('a@b.com'),
+          throwsA(isA<AuthException>()),
+        );
 
-      final state = container.read(authStateProvider);
-      expect(state, isA<AsyncError<AuthState>>());
-      expect(state.error, isA<RateLimitError>());
-      expect(state.errorMessage, 'Demasiadas solicitudes. Espera un momento.');
-    });
+        final state = container.read(authStateProvider);
+        expect(state, isA<AsyncError<AuthState>>());
+        expect(state.error, isA<RateLimitError>());
+        expect(
+          state.errorMessage,
+          'Demasiadas solicitudes. Espera un momento.',
+        );
+      },
+    );
+
+    test(
+      'sendOtp rethrows when the pre-OTP signup_tracker write fails',
+      () async {
+        final service = _stubbedService();
+        when(() => service.sendOtp(any())).thenAnswer((_) async {});
+        when(() => service.upsertSignupTracker(any(), any())).thenThrow(
+          const PostgrestException(
+            message: 'permission denied for table signup_tracker',
+            code: '42501',
+          ),
+        );
+        final container = _newContainer(service);
+        await container.read(authStateProvider.future);
+
+        await expectLater(
+          container.read(authStateProvider.notifier).sendOtp('a@b.com'),
+          throwsA(isA<PostgrestException>()),
+        );
+
+        // The funnel must NOT navigate: the OTP screen never renders the stale
+        // "No tienes permiso para realizar esta acción." under the code input.
+        final state = container.read(authStateProvider);
+        expect(state.error, isA<PermissionError>());
+      },
+    );
 
     test('sendOtp succeeds without changing the auth state', () async {
       final service = _stubbedService();
       when(() => service.sendOtp(any())).thenAnswer((_) async {});
-      when(() => service.upsertSignupTracker(any(), any()))
-          .thenAnswer((_) async {});
+      when(
+        () => service.upsertSignupTracker(any(), any()),
+      ).thenAnswer((_) async {});
       final container = _newContainer(service);
       await container.read(authStateProvider.future);
 
@@ -403,9 +478,9 @@ void main() {
 
     test('verifyOtp failure maps the error and signs out', () async {
       final service = _stubbedService();
-      when(() => service.verifyOtp(any(), any())).thenThrow(
-        const AuthException('OTP has expired', code: 'otp_expired'),
-      );
+      when(
+        () => service.verifyOtp(any(), any()),
+      ).thenThrow(const AuthException('OTP has expired', code: 'otp_expired'));
       when(() => service.signOut()).thenAnswer((_) async {});
       final container = _newContainer(service);
       await container.read(authStateProvider.future);
@@ -422,10 +497,12 @@ void main() {
 
     test('createProfile failure surfaces an AsyncError', () async {
       final service = _stubbedService();
-      when(() => service.createUserProfile(
-            username: any(named: 'username'),
-            dateOfBirth: any(named: 'dateOfBirth'),
-          )).thenThrow(
+      when(
+        () => service.createUserProfile(
+          username: any(named: 'username'),
+          dateOfBirth: any(named: 'dateOfBirth'),
+        ),
+      ).thenThrow(
         const PostgrestException(
           message: 'permission denied for table users',
           code: '42501',
@@ -434,30 +511,33 @@ void main() {
       final container = _newContainer(service);
       await container.read(authStateProvider.future);
 
-      await container
-          .read(authStateProvider.notifier)
-          .createProfile('dana');
+      await container.read(authStateProvider.notifier).createProfile('dana');
 
       final state = container.read(authStateProvider);
       expect(state, isA<AsyncError<AuthState>>());
       expect(state.error, isA<PermissionError>());
-      expect(state.errorMessage, 'No tienes permiso para realizar esta acción.');
+      expect(
+        state.errorMessage,
+        'No tienes permiso para realizar esta acción.',
+      );
     });
 
     test('createProfile success flips hasProfile', () async {
       final service = _stubbedService();
-      when(() => service.createUserProfile(
-            username: any(named: 'username'),
-            dateOfBirth: any(named: 'dateOfBirth'),
-          )).thenAnswer((_) async {});
+      when(
+        () => service.createUserProfile(
+          username: any(named: 'username'),
+          dateOfBirth: any(named: 'dateOfBirth'),
+        ),
+      ).thenAnswer((_) async {});
       when(() => service.getCurrentUser()).thenReturn(_user);
       final container = _newContainer(service);
       await container.read(authStateProvider.future);
 
-      await container.read(authStateProvider.notifier).signIn('a@b.com', 'secret1');
       await container
           .read(authStateProvider.notifier)
-          .createProfile('dana');
+          .signIn('a@b.com', 'secret1');
+      await container.read(authStateProvider.notifier).createProfile('dana');
 
       final state = container.read(authStateProvider);
       expect(state.hasError, isFalse);
@@ -472,9 +552,13 @@ void main() {
       when(() => service.signOut()).thenAnswer((_) async {});
       final container = _newContainer(service);
       await container.read(authStateProvider.future);
-      await container.read(authStateProvider.notifier).signIn('a@b.com', 'secret1');
-      expect(container.read(authStateProvider).valueOrNull?.authenticated,
-          isTrue);
+      await container
+          .read(authStateProvider.notifier)
+          .signIn('a@b.com', 'secret1');
+      expect(
+        container.read(authStateProvider).valueOrNull?.authenticated,
+        isTrue,
+      );
 
       await container.read(authStateProvider.notifier).signOut();
 
@@ -496,29 +580,37 @@ void main() {
 
       verify(() => service.softDeleteUser()).called(1);
       verify(() => service.signOut()).called(1);
-      expect(container.read(authStateProvider).valueOrNull?.authenticated,
-          isFalse);
+      expect(
+        container.read(authStateProvider).valueOrNull?.authenticated,
+        isFalse,
+      );
     });
 
     test('checkEmail passes through the service verdict', () async {
       final service = _stubbedService();
-      when(() => service.checkSignupEmail(any()))
-          .thenAnswer((_) async => 'exists');
+      when(
+        () => service.checkSignupEmail(any()),
+      ).thenAnswer((_) async => 'exists');
       final container = _newContainer(service);
 
-      expect(await container.read(authStateProvider.notifier).checkEmail('a@b.com'), 'exists');
+      expect(
+        await container.read(authStateProvider.notifier).checkEmail('a@b.com'),
+        'exists',
+      );
     });
 
-    test('checkEmail fails closed to signup when the probe throws', () async {
+    test('checkEmail propagates the error when the probe throws '
+        '(no fallback to signup)', () async {
       final service = _stubbedService();
-      when(() => service.checkSignupEmail(any()))
-          .thenThrow(const PostgrestException(
-        message: 'connection refused',
-        code: '28000',
-      ));
+      when(() => service.checkSignupEmail(any())).thenThrow(
+        const PostgrestException(message: 'connection refused', code: '28000'),
+      );
       final container = _newContainer(service);
 
-      expect(await container.read(authStateProvider.notifier).checkEmail('a@b.com'), 'signup');
+      expect(
+        () => container.read(authStateProvider.notifier).checkEmail('a@b.com'),
+        throwsA(isA<PostgrestException>()),
+      );
     });
   });
 }

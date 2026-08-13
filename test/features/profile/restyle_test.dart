@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
+import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/design_tokens/app_icon_sizes.dart';
 import 'package:samay/core/design_tokens/app_typography.dart';
 import 'package:samay/core/models/user_profile.dart';
@@ -17,23 +18,28 @@ import 'package:samay/features/profile/screens/public_profile_screen.dart';
 import 'package:samay/features/profile/screens/settings_screen.dart';
 import 'package:samay/features/profile/widgets/profile_avatar.dart';
 import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/glass/v_glass.dart';
 import 'package:samay/shared/widgets/skeletons.dart';
 import 'package:samay/shared/widgets/state_views.dart';
 import 'package:samay/shared/widgets/v_button.dart';
-import 'package:samay/shared/widgets/v_card.dart';
+import 'package:samay/shared/widgets/v_display_text.dart';
 import 'package:samay/shared/widgets/v_shard_icon.dart';
 import '../../support/fake_supabase_http.dart' as support;
 
-/// Profile-screens disco restyle ledger tests (U-09, Phase 4.4).
+/// Profile-screens LUXE v2 restyle ledger tests (XL-08, ORCHESTRATION-LUXE
+/// "Gradient family → screen map": profile/settings/edit/delete/public all
+/// own the **gold** family — NO PINK MAINS).
 ///
-/// Pins the visual changes from DISCO-DESIGN-SYSTEM §5 applied screen-by-
-/// screen (the ledger in `docs/development/phase-04-ui/2026-08-11_U09-
-/// profile-restyle.md`): avatar surfaceAlt + border ring, Playfair username,
-/// VCard balance card with the gold shard icon, mutedStrong bio, hairline
-/// group separators, glowPink danger rows, token-clean theme SegmentedButton,
-/// glowAccent public-profile primary action, glowPink-outlined delete CTA.
-/// Flow/text is byte-identical — the existing profile_screens_test /
-/// avatar_flow_test / delete_account_flow_test assertions stay untouched.
+/// Pins the LUXE changes screen-by-screen: faint gold `VAurora` ambient
+/// (α0.06), the username hero as gold `VDisplayText` (uppercase Playfair +
+/// gradient + pulse), the balance card as `VGlassCard` with the gold ring +
+/// glow + gold lg shard icon, settings groups as sharp `VGlassCard`s with
+/// `AppTypography.sectionLabel` headers and hairline rows, the gold
+/// glowAccent public-profile primary + delete CTA, and the error semantic
+/// (AppColors.error — the documented LUXE exception) for every danger row
+/// and confirm dialog. Flow/text is byte-identical — the existing
+/// profile_screens_test / avatar_flow_test / delete_account_flow_test
+/// behavior assertions stay green (hero texts now assert uppercase).
 
 const _userId = '11111111-1111-1111-1111-111111111111';
 
@@ -73,12 +79,12 @@ class _StubGroupsNotifier extends ProfileGroupsNotifier {
 
 /// Profile row mirroring the real `users` table shape.
 Map<String, dynamic> _profile({String? bio = 'hola mundo'}) => {
-      'username': 'dana',
-      if (bio != null) 'bio': bio, // ignore: use_null_aware_elements
+  'username': 'dana',
+  if (bio != null) 'bio': bio, // ignore: use_null_aware_elements
 
-      'personal_shards': 120,
-      'preshards': 3,
-    };
+  'personal_shards': 120,
+  'preshards': 3,
+};
 
 Widget _wrap(Widget child, {List<Override> overrides = const []}) {
   return ProviderScope(
@@ -93,12 +99,9 @@ Widget _wrap(Widget child, {List<Override> overrides = const []}) {
   );
 }
 
-List<Override> _profileOverrides({
-  List<Map<String, dynamic>>? groups,
-}) {
+List<Override> _profileOverrides({List<Map<String, dynamic>>? groups}) {
   final profileFetcher = _StubProfileFetcher(() async => _profile());
-  final groupsFetcher =
-      _StubGroupsFetcher(() async => groups ?? const []);
+  final groupsFetcher = _StubGroupsFetcher(() async => groups ?? const []);
   return [
     myProfileProvider.overrideWith(() => _StubProfileNotifier(profileFetcher)),
     myGroupsProvider.overrideWith(() => _StubGroupsNotifier(groupsFetcher)),
@@ -115,29 +118,25 @@ Container _avatarRing(WidgetTester tester) {
   );
 }
 
-/// The glow-soft stack the theme bakes into `headlineLarge` (U-02).
-List<Shadow> get _playfairGlow => AppTypography.fancyTitle(
-      AppTypography.headlineLarge,
-      soft: true,
-    ).shadows!;
-
 void main() {
   setUpAll(() => support.initSupabaseHarness(sessionEmail: 'user@samay.test'));
 
   group('ProfileScreen header (§3.2/§5.3/§5.6 — U-09 ledger)', () {
     testWidgets('avatar renders surfaceAlt fill + border ring + white '
         'initials', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const ProfileScreen(),
-        overrides: _profileOverrides(),
-      ));
+      await tester.pumpWidget(
+        _wrap(const ProfileScreen(), overrides: _profileOverrides()),
+      );
       await tester.pumpAndSettle();
 
       final ring = _avatarRing(tester);
       final decoration = ring.decoration as BoxDecoration;
       expect(decoration.shape, BoxShape.circle);
-      expect(decoration.color, AppColors.surfaceAlt,
-          reason: 'initials sit on surfaceAlt (§5 avatar treatment)');
+      expect(
+        decoration.color,
+        AppColors.surfaceAlt,
+        reason: 'initials sit on surfaceAlt (§5 avatar treatment)',
+      );
       expect(
         decoration.border,
         Border.all(color: AppColors.border, width: 1),
@@ -154,68 +153,108 @@ void main() {
       expect(initials.style?.fontSize, 24);
     });
 
-    testWidgets('username renders in Playfair headlineLarge with the glow',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        const ProfileScreen(),
-        overrides: _profileOverrides(),
-      ));
+    testWidgets('username hero renders as gold VDisplayText (uppercase, '
+        'gradient, pulse)', (tester) async {
+      await tester.pumpWidget(
+        _wrap(const ProfileScreen(), overrides: _profileOverrides()),
+      );
       await tester.pumpAndSettle();
 
-      final username = tester.widget<Text>(find.text('dana'));
-      expect(username.style?.fontFamily, AppTypography.playfair);
-      expect(username.style?.fontStyle, FontStyle.italic);
-      expect(username.style?.fontSize, 28);
-      expect(username.style?.shadows, _playfairGlow);
+      final display = tester.widget<VDisplayText>(find.byType(VDisplayText));
+      expect(
+        display.text,
+        'dana',
+        reason:
+            'callers pass natural case — the MAYUS rule lives in '
+            'VDisplayText',
+      );
+      expect(
+        display.gradient,
+        AppGradients.gold,
+        reason: 'LUXE — the profile family is gold (ORCHESTRATION map)',
+      );
+      expect(
+        display.size,
+        28,
+        reason: 'the hero keeps the §3.2 headlineLarge metrics',
+      );
+
+      final glyphs = tester.widget<Text>(find.text('DANA'));
+      expect(glyphs.style?.fontFamily, AppTypography.playfair);
+      expect(glyphs.style?.fontStyle, FontStyle.italic);
     });
 
-    testWidgets('balance card is a VCard with the gold lg shard icon and '
-        'token text', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const ProfileScreen(),
-        overrides: _profileOverrides(),
-      ));
+    testWidgets('balance card is a gold VGlassCard with the gold lg shard '
+        'icon and token text', (tester) async {
+      await tester.pumpWidget(
+        _wrap(const ProfileScreen(), overrides: _profileOverrides()),
+      );
       await tester.pumpAndSettle();
 
-      expect(find.byType(VCard), findsOneWidget);
+      expect(find.byType(VGlassCard), findsOneWidget);
+      final glass = tester.widget<VGlassCard>(find.byType(VGlassCard));
+      expect(
+        glass.gradient?.colors,
+        AppGradients.watered(AppGradients.gold.colors, mix: 0.4),
+        reason:
+            'XL-17 (12_profile: cluttered, saturated) — the balance ring '
+            'rides the watered gold run; the vivid end survives only in the '
+            'hero shader and the diamond',
+      );
       final shard = tester.widget<VShardIcon>(find.byType(VShardIcon));
-      expect(shard.color, AppColors.currencyShards,
-          reason: '§5.6 — the diamond is gold (13.71:1)');
-      expect(shard.size, AppIconSizes.lg,
-          reason: '§5.6 — balance cards use the lg 24 size');
+      expect(
+        shard.color,
+        AppColors.currencyShards,
+        reason: '§5.6 — the diamond is gold (13.71:1)',
+      );
+      expect(
+        shard.size,
+        AppIconSizes.lg,
+        reason: '§5.6 — balance cards use the lg 24 size',
+      );
       expect(find.text('120 shards'), findsOneWidget);
       expect(find.text('3 preshards'), findsOneWidget);
       expect(
-        find.descendant(of: find.byType(VCard), matching: find.byIcon(Icons.chevron_right)),
+        find.descendant(
+          of: find.byType(VGlassCard),
+          matching: find.byIcon(Icons.chevron_right),
+        ),
         findsOneWidget,
-        reason: 'the ledger link affordance survives the card swap',
+        reason: 'the ledger link affordance survives the glass swap',
       );
     });
 
     testWidgets('bio renders mutedStrong (§2.4 AA)', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const ProfileScreen(),
-        overrides: _profileOverrides(),
-      ));
+      await tester.pumpWidget(
+        _wrap(const ProfileScreen(), overrides: _profileOverrides()),
+      );
       await tester.pumpAndSettle();
 
       final bio = tester.widget<Text>(find.text('hola mundo'));
       expect(bio.style?.color, AppColors.mutedStrong);
     });
 
-    testWidgets('group tiles are separated by hairline dividers',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        const ProfileScreen(),
-        overrides: _profileOverrides(groups: const [
-          {'id': 'g1', 'name': 'Fiesta Club', 'group_shards': 42},
-          {'id': 'g2', 'name': 'Casa Bar', 'group_shards': 7},
-        ]),
-      ));
+    testWidgets('group tiles are separated by hairline dividers', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          const ProfileScreen(),
+          overrides: _profileOverrides(
+            groups: const [
+              {'id': 'g1', 'name': 'Fiesta Club', 'group_shards': 42},
+              {'id': 'g2', 'name': 'Casa Bar', 'group_shards': 7},
+            ],
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      expect(find.byType(Divider), findsOneWidget,
-          reason: '2 group tiles → 1 hairline separator between them');
+      expect(
+        find.byType(Divider),
+        findsOneWidget,
+        reason: '2 group tiles → 1 hairline separator between them',
+      );
       final firstDivider = find.byType(Divider).first;
       // The Divider carries no explicit color — the U-04 dividerTheme paints
       // it; resolve the theme the widget consumes at its position.
@@ -231,32 +270,29 @@ void main() {
   });
 
   group('EditProfileScreen (§5.2/§5.8 — U-09 ledger)', () {
-    testWidgets('avatar placeholder uses the shared token avatar',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        const EditProfileScreen(),
-        overrides: _profileOverrides(),
-      ));
+    testWidgets('avatar placeholder uses the shared token avatar', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(const EditProfileScreen(), overrides: _profileOverrides()),
+      );
       await tester.pumpAndSettle();
 
       final ring = _avatarRing(tester);
       final decoration = ring.decoration as BoxDecoration;
       expect(decoration.shape, BoxShape.circle);
       expect(decoration.color, AppColors.surfaceAlt);
-      expect(
-        decoration.border,
-        Border.all(color: AppColors.border, width: 1),
-      );
+      expect(decoration.border, Border.all(color: AppColors.border, width: 1));
       // The camera-change affordance survives (white circle + black icon).
       expect(find.byIcon(Icons.camera_alt), findsOneWidget);
     });
 
-    testWidgets('bio field keeps the token VInput (mutedStrong label)',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        const EditProfileScreen(),
-        overrides: _profileOverrides(),
-      ));
+    testWidgets('bio field keeps the token VInput (mutedStrong label)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(const EditProfileScreen(), overrides: _profileOverrides()),
+      );
       await tester.pumpAndSettle();
 
       final field = tester.widget<TextField>(find.byType(TextField));
@@ -265,8 +301,10 @@ void main() {
   });
 
   group('SettingsScreen (§2.4/§5.4/danger — U-09 ledger)', () {
-    testWidgets('destructive delete row renders glowPink icon + label',
-        (tester) async {
+    testWidgets('destructive delete row renders the error semantic icon + '
+        'label (danger keeps AppColors.error — LUXE exception)', (
+      tester,
+    ) async {
       await tester.pumpWidget(_wrap(const SettingsScreen()));
       await tester.pumpAndSettle();
       // The settings list is taller than the 600px test viewport and builds
@@ -274,10 +312,14 @@ void main() {
       await tester.scrollUntilVisible(find.text('Eliminar mi cuenta'), 100);
 
       final label = tester.widget<Text>(find.text('Eliminar mi cuenta'));
-      expect(label.style?.color, AppColors.error,
-          reason: 'danger *text* = the error semantic (glowPink 6.00:1 AA; '
-              'glowPinkDeep is AA-large-only and banned for normal-size '
-              'text by §2.5 rule 6)');
+      expect(
+        label.style?.color,
+        AppColors.error,
+        reason:
+            'danger *text* = the error semantic (glowPink 6.00:1 AA; '
+            'glowPinkDeep is AA-large-only and banned for normal-size '
+            'text by §2.5 rule 6)',
+      );
       final icon = tester.widget<Icon>(find.byIcon(Icons.delete_forever));
       expect(icon.color, AppColors.error);
     });
@@ -293,7 +335,8 @@ void main() {
       expect(
         segmented.style,
         isNull,
-        reason: 'U-27 — the §5.4 treatment is theme-owned: the screen no '
+        reason:
+            'U-27 — the §5.4 treatment is theme-owned: the screen no '
             'longer styles the picker inline (segmentedButtonTheme)',
       );
       final style = Theme.of(
@@ -305,18 +348,12 @@ void main() {
         style.backgroundColor!.resolve({WidgetState.selected}),
         AppColors.white,
       );
-      expect(
-        style.backgroundColor!.resolve(const {}),
-        Colors.transparent,
-      );
+      expect(style.backgroundColor!.resolve(const {}), Colors.transparent);
       expect(
         style.foregroundColor!.resolve({WidgetState.selected}),
         AppColors.discoBlack,
       );
-      expect(
-        style.foregroundColor!.resolve(const {}),
-        AppColors.white,
-      );
+      expect(style.foregroundColor!.resolve(const {}), AppColors.white);
       expect(
         style.side!.resolve(const {}),
         const BorderSide(color: AppColors.white),
@@ -345,42 +382,59 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
     }
 
-    testWidgets('section headers render uppercase labelSmall mutedStrong '
-        '(F18 ADAPTED: the Juega grouping voice, Samay sharpness)', (tester) async {
+    testWidgets('section headers render uppercase AppTypography.sectionLabel '
+        '(F18 ADAPTED: the Juega grouping voice, LUXE overline)', (
+      tester,
+    ) async {
       pumpTall(tester);
       await tester.pumpWidget(_wrap(const SettingsScreen()));
       await tester.pumpAndSettle();
 
       final appearance = tester.widget<Text>(find.text('APARIENCIA'));
-      expect(appearance.style?.color, AppColors.mutedStrong,
-          reason: '§2.4 — section headers are AA mutedStrong, never muted');
+      expect(
+        appearance.style?.color,
+        AppColors.mutedStrong,
+        reason: '§2.4 — section headers are AA mutedStrong, never muted',
+      );
       expect(appearance.style?.fontFamily, AppTypography.inter);
-      expect(appearance.style?.fontSize, 10,
-          reason: '§3.3 — the labelSmall overline role');
+      expect(
+        appearance.style?.fontSize,
+        12,
+        reason: '§3.3 — the sectionLabel role (Inter w600, 2.0 tracking)',
+      );
+      expect(appearance.style?.fontWeight, FontWeight.w600);
+      expect(appearance.style?.letterSpacing, 2.0);
 
       final account = tester.widget<Text>(find.text('CUENTA'));
       expect(account.style?.color, AppColors.mutedStrong);
+      expect(account.style?.fontSize, 12);
     });
 
-    testWidgets('rows group into two VCard sections; the danger pair closes '
-        'the account card; the version footer stays outside', (tester) async {
+    testWidgets('rows group into two VGlassCard sections; the danger pair '
+        'closes the account card; the version footer stays outside', (
+      tester,
+    ) async {
       pumpTall(tester);
       await tester.pumpWidget(_wrap(const SettingsScreen()));
       await tester.pumpAndSettle();
 
-      expect(find.byType(VCard), findsNWidgets(2),
-          reason: 'R6 — appearance + account groups (N2: sharp VCard '
-              'hairlines, no Juega glass)');
+      expect(
+        find.byType(VGlassCard),
+        findsNWidgets(2),
+        reason:
+            'R6 — appearance + account groups, now liquid glass '
+            '(LUXE v2)',
+      );
       expect(
         find.descendant(
-          of: find.byType(VCard).first,
+          of: find.byType(VGlassCard).first,
           matching: find.byType(SegmentedButton<ThemeMode>),
         ),
         findsOneWidget,
         reason: 'the theme picker lives in the appearance card',
       );
 
-      final accountCard = find.byType(VCard).last;
+      final accountCard = find.byType(VGlassCard).last;
       expect(
         find.descendant(
           of: accountCard,
@@ -391,12 +445,13 @@ void main() {
       expect(
         find.descendant(of: accountCard, matching: find.text('Cerrar sesión')),
         findsOneWidget,
-        reason: 'R7 — the danger pair (delete + sign out) closes the account '
+        reason:
+            'R7 — the danger pair (delete + sign out) closes the account '
             'section',
       );
       expect(
         find.descendant(
-          of: find.byType(VCard),
+          of: find.byType(VGlassCard),
           matching: find.text('Samay v1.0.0'),
         ),
         findsNothing,
@@ -415,7 +470,8 @@ void main() {
       expect(
         find.byType(SegmentedButton<ThemeMode>),
         findsOneWidget,
-        reason: 'R10 — the SegmentedButton (≥ Juega\'s cycling row) survives '
+        reason:
+            'R10 — the SegmentedButton (≥ Juega\'s cycling row) survives '
             'the grouping',
       );
       expect(find.text('Samay v1.0.0'), findsOneWidget);
@@ -430,18 +486,25 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
     }
 
-    testWidgets('empty groups render the VEmptyView icon + title + hint',
-        (tester) async {
+    testWidgets('empty groups render the VEmptyView icon + title + hint', (
+      tester,
+    ) async {
       pumpTall(tester);
-      await tester.pumpWidget(_wrap(
-        const ProfileScreen(),
-        overrides: _profileOverrides(groups: const []),
-      ));
+      await tester.pumpWidget(
+        _wrap(
+          const ProfileScreen(),
+          overrides: _profileOverrides(groups: const []),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      expect(find.byType(VEmptyView), findsOneWidget,
-          reason: 'R9 — the 60px bare Text becomes the F2 voice '
-              '(icon + title + hint)');
+      expect(
+        find.byType(VEmptyView),
+        findsOneWidget,
+        reason:
+            'R9 — the 60px bare Text becomes the F2 voice '
+            '(icon + title + hint)',
+      );
       expect(
         find.descendant(
           of: find.byType(VEmptyView),
@@ -458,71 +521,90 @@ void main() {
 
     testWidgets('with groups, no VEmptyView renders', (tester) async {
       pumpTall(tester);
-      await tester.pumpWidget(_wrap(
-        const ProfileScreen(),
-        overrides: _profileOverrides(groups: const [
-          {'id': 'g1', 'name': 'Fiesta Club', 'group_shards': 42},
-        ]),
-      ));
+      await tester.pumpWidget(
+        _wrap(
+          const ProfileScreen(),
+          overrides: _profileOverrides(
+            groups: const [
+              {'id': 'g1', 'name': 'Fiesta Club', 'group_shards': 42},
+            ],
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byType(VEmptyView), findsNothing);
     });
   });
 
-/// Pumps the public profile screen (optionally with a stubbed profile +
-/// friendship state); shared by the PublicProfileScreen group and the
-/// skeleton first-load pins.
-Widget pumpPublic({bool withProfile = false}) {
-  final overrides = <Override>[];
-  if (withProfile) {
-    final friends = _FakeFriendsRepository();
-    when(() => friends.getUserProfile(_userId)).thenAnswer(
-      (_) async => const UserProfile(
-        id: _userId,
-        username: 'dana',
-        bio: 'hola mundo',
-      ),
+  /// Pumps the public profile screen (optionally with a stubbed profile +
+  /// friendship state); shared by the PublicProfileScreen group and the
+  /// skeleton first-load pins.
+  Widget pumpPublic({bool withProfile = false}) {
+    final overrides = <Override>[];
+    if (withProfile) {
+      final friends = _FakeFriendsRepository();
+      when(() => friends.getUserProfile(_userId)).thenAnswer(
+        (_) async =>
+            const UserProfile(id: _userId, username: 'dana', bio: 'hola mundo'),
+      );
+      when(
+        () => friends.getFriendshipDetail(_userId),
+      ).thenAnswer((_) async => null);
+      when(
+        () => friends.getBlockStatus(_userId),
+      ).thenAnswer((_) async => false);
+      overrides.add(friendsRepositoryProvider.overrideWithValue(friends));
+    }
+    return _wrap(
+      const PublicProfileScreen(userId: _userId),
+      overrides: overrides,
     );
-    when(() => friends.getFriendshipDetail(_userId))
-        .thenAnswer((_) async => null);
-    when(() => friends.getBlockStatus(_userId))
-        .thenAnswer((_) async => false);
-    overrides.add(friendsRepositoryProvider.overrideWithValue(friends));
   }
-  return _wrap(
-    const PublicProfileScreen(userId: _userId),
-    overrides: overrides,
-  );
-}
 
   group('PublicProfileScreen (§5.1/§3.2/§5.9 — U-09 ledger)', () {
-    testWidgets('primary "Agregar amigo" action uses glowAccent filled',
-        (tester) async {
+    testWidgets('primary "Agregar amigo" action uses glowAccent filled in '
+        'the gold family', (tester) async {
       await tester.pumpWidget(pumpPublic());
       await tester.pump(const Duration(seconds: 1));
       expect(find.text('Agregar amigo'), findsOneWidget);
       final button = tester.widget<VButton>(find.byType(VButton));
-      expect(button.variant, VButtonVariant.glow,
-          reason: '§5.1 — the primary public-profile action is the glow '
-              'accent (U-07 precedent: filled pink CTA = the brand moment)');
+      expect(
+        button.variant,
+        VButtonVariant.glow,
+        reason:
+            '§5.1 — the primary public-profile action is the glow '
+            'accent (U-07 precedent: filled accent CTA = the brand moment)',
+      );
       expect(button.filled, isTrue);
+      expect(
+        button.gradient,
+        AppGradients.gold,
+        reason:
+            'LUXE — the public profile owns the gold family; violet '
+            'is only the widget default (NO PINK MAINS)',
+      );
     });
 
-    testWidgets('header mirrors the profile avatar + Playfair username + '
-        'mutedStrong handle/bio', (tester) async {
+    testWidgets('header mirrors the profile avatar + gold VDisplayText '
+        'username + mutedStrong handle/bio', (tester) async {
       await tester.pumpWidget(pumpPublic(withProfile: true));
       await tester.pumpAndSettle();
 
       final ring = _avatarRing(tester);
       expect((ring.decoration as BoxDecoration).color, AppColors.surfaceAlt);
 
-      final username = tester.widget<Text>(find.text('dana'));
-      expect(username.style?.fontFamily, AppTypography.playfair);
-      expect(username.style?.fontSize, 28);
+      final display = tester.widget<VDisplayText>(find.byType(VDisplayText));
+      expect(display.text, 'dana');
+      expect(
+        display.gradient,
+        AppGradients.gold,
+        reason: 'LUXE — the public hero mirrors the own-profile gold hero',
+      );
+      expect(display.size, 28);
 
-      // '@dana' renders twice — AppBar title + body handle — scope to the
-      // ListView body so the AppBar title cannot satisfy the assertion.
+      // '@dana' is the handle in the ListView body — the AppBar no longer
+      // duplicates the hero (LUXE directive #8: one hero per screen).
       final handle = tester.widget<Text>(
         find.descendant(
           of: find.byType(ListView),
@@ -535,8 +617,9 @@ Widget pumpPublic({bool withProfile = false}) {
       expect(bio.style?.color, AppColors.mutedStrong);
     });
 
-    testWidgets('shared-groups placeholder renders mutedStrong (§5.9)',
-        (tester) async {
+    testWidgets('shared-groups placeholder renders mutedStrong (§5.9)', (
+      tester,
+    ) async {
       await tester.pumpWidget(pumpPublic());
       await tester.pump(const Duration(seconds: 1));
 
@@ -548,29 +631,35 @@ Widget pumpPublic({bool withProfile = false}) {
   group('Skeleton first-load states (U-22 handoff — U-23)', () {
     testWidgets('profile shows VSkeletonProfile on the first frame, then the '
         'header', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const ProfileScreen(),
-        overrides: _profileOverrides(),
-      ));
-      expect(find.byType(VSkeletonProfile), findsOneWidget,
-          reason: 'U-22 handoff — the profile hero loads with the §5.8 '
-              'skeleton (avatar + name/handle lines), not the bare '
-              'VLoadingView spinner');
+      await tester.pumpWidget(
+        _wrap(const ProfileScreen(), overrides: _profileOverrides()),
+      );
+      expect(
+        find.byType(VSkeletonProfile),
+        findsOneWidget,
+        reason:
+            'U-22 handoff — the profile hero loads with the §5.8 '
+            'skeleton (avatar + name/handle lines), not the bare '
+            'VLoadingView spinner',
+      );
 
       await tester.pumpAndSettle();
       expect(find.byType(VSkeletonProfile), findsNothing);
-      expect(find.text('dana'), findsOneWidget);
+      expect(find.text('DANA'), findsOneWidget);
     });
 
     testWidgets('edit_profile shows VSkeletonProfile on the first frame, '
         'then the form', (tester) async {
-      await tester.pumpWidget(_wrap(
-        const EditProfileScreen(),
-        overrides: _profileOverrides(),
-      ));
-      expect(find.byType(VSkeletonProfile), findsOneWidget,
-          reason: 'U-22 handoff — the edit screen mirrors the profile hero '
-              'skeleton while the bio loads');
+      await tester.pumpWidget(
+        _wrap(const EditProfileScreen(), overrides: _profileOverrides()),
+      );
+      expect(
+        find.byType(VSkeletonProfile),
+        findsOneWidget,
+        reason:
+            'U-22 handoff — the edit screen mirrors the profile hero '
+            'skeleton while the bio loads',
+      );
 
       await tester.pumpAndSettle();
       expect(find.byType(VSkeletonProfile), findsNothing);
@@ -580,9 +669,13 @@ Widget pumpPublic({bool withProfile = false}) {
     testWidgets('public_profile shows VSkeletonProfile on the first frame, '
         'then the actions', (tester) async {
       await tester.pumpWidget(pumpPublic(withProfile: true));
-      expect(find.byType(VSkeletonProfile), findsOneWidget,
-          reason: 'U-22 handoff — the public profile hero skeleton stands in '
-              'while the profile/friendship loads resolve');
+      expect(
+        find.byType(VSkeletonProfile),
+        findsOneWidget,
+        reason:
+            'U-22 handoff — the public profile hero skeleton stands in '
+            'while the profile/friendship loads resolve',
+      );
 
       await tester.pumpAndSettle();
       expect(find.byType(VSkeletonProfile), findsNothing);
@@ -590,20 +683,34 @@ Widget pumpPublic({bool withProfile = false}) {
     });
   });
 
-  group('DeleteAccountScreen (§5.1/§5.2 — U-09 ledger)', () {
-    testWidgets('danger CTA renders glowAccent outlined (pink border, not '
-        'filled)', (tester) async {
+  group('DeleteAccountScreen (§5.1/§5.2 — U-09 ledger, LUXE gold)', () {
+    testWidgets('danger CTA renders glowAccent outlined in the gold family '
+        '(gold ring, not filled)', (tester) async {
       await tester.pumpWidget(_wrap(const DeleteAccountScreen()));
       await tester.pumpAndSettle();
 
       final button = tester.widget<VButton>(find.byType(VButton));
       expect(button.variant, VButtonVariant.glow);
-      expect(button.filled, isFalse,
-          reason: '§5.1 glowAccent outline — the delete CTA is a danger '
-              'accent, not a brand moment; disabled drops to muted');
+      expect(
+        button.filled,
+        isFalse,
+        reason:
+            '§5.1 glowAccent outline — the delete CTA is a danger '
+            'accent, not a brand moment; disabled drops to muted',
+      );
+      expect(
+        button.gradient,
+        AppGradients.gold,
+        reason:
+            'LUXE — the delete screen owns the gold family; the '
+            'outline ring wears it, the confirm dialog keeps the error '
+            'semantic',
+      );
     });
 
-    testWidgets('confirm dialog danger action renders glowPink', (tester) async {
+    testWidgets('confirm dialog danger action renders the error semantic', (
+      tester,
+    ) async {
       await tester.pumpWidget(_wrap(const DeleteAccountScreen()));
       await tester.pumpAndSettle();
 
@@ -617,9 +724,14 @@ Widget pumpPublic({bool withProfile = false}) {
 
       expect(find.text('¿Eliminar cuenta?'), findsOneWidget);
       final confirm = tester.widget<Text>(find.text('Eliminar'));
-      expect(confirm.style?.color, AppColors.error,
-          reason: 'never raw red on black (§5.2) — the danger confirm uses '
-              'the error semantic');
+      expect(
+        confirm.style?.color,
+        AppColors.error,
+        reason:
+            'never raw red on black (§5.2) — the danger confirm uses '
+            'the error semantic, which the LUXE directive keeps for danger '
+            '(pink as semantic error, never as a main)',
+      );
     });
   });
 }

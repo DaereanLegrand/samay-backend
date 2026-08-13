@@ -320,7 +320,11 @@ void main() {
       expect(find.text('¿Comprar Marco Neon por 50 shards?'), findsOneWidget);
 
       await tester.tap(find.text('Comprar'));
-      await tester.pumpAndSettle();
+      // Bounded pumps, not pumpAndSettle: the screen's VAurora drift keeps
+      // frames scheduled for ~10s of fake time, which would run the snackbar
+      // through its full 4s lifecycle and dismiss it (LUXE restyle, XL-13).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(service.purchased, [_cosmeticId]);
       expect(find.text('¡Cosmético adquirido!'), findsOneWidget);
@@ -353,7 +357,10 @@ void main() {
       await tester.tap(find.text('Comprar — 50'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Comprar'));
-      await tester.pumpAndSettle();
+      // Bounded pumps — see the success test above (VAurora drift vs the 4s
+      // snackbar lifecycle under pumpAndSettle).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(find.text('No tienes suficientes shards'), findsOneWidget);
       expect(find.text('ADQUIRIDO'), findsNothing);

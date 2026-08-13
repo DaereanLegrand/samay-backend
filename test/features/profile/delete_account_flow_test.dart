@@ -93,7 +93,11 @@ void main() {
       await tester.enterText(find.byType(TextField), 'other@samay.test');
       await tester.pump();
       await tester.tap(find.widgetWithText(TextButton, 'Eliminar cuenta'));
-      await tester.pumpAndSettle();
+      // LUXE v2 (XL-08): the gold VAurora's 10s ambient drift keeps frames
+      // scheduled — `pumpAndSettle` would advance the clock past the
+      // snackbar's 4s auto-dismiss. Bounded pump: entrance done, snackbar up.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(find.text('El correo no coincide con tu cuenta'), findsOneWidget);
       expect(find.text('¿Eliminar cuenta?'), findsNothing);

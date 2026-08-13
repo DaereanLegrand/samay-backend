@@ -61,9 +61,10 @@
 #     DEVELOPMENT_TEAM = XXXXXXXXXX (the §3.3 TEAM_ID placeholder), empty
 #     PROVISIONING_PROFILE_SPECIFIER, bundle id com.qallariy.samay (matches
 #     fastlane/Appfile) — Match provisions certs/profiles at release time,
-#   - Podfile.lock resolves purchases_flutter 10.8.0 → PurchasesHybridCommon
-#     18.29.0 → RevenueCat 5.83.0 (the I-71 conflict fix; stale lock pinned
-#     PurchasesHybridCommon 14.3.0 and broke pod install),
+#   - Podfile.lock / SPM Package.resolved resolve purchases_flutter 10.8.0
+#     → PurchasesHybridCommon 18.29.0 → RevenueCat 5.83.0 (the I-71 conflict
+#     fix; stale lock pinned PurchasesHybridCommon 14.3.0 and broke pod
+#     install — iOS AND macOS now resolve this chain via Flutter SPM),
 #   - no real team ids / certs / provisioning shapes are tracked by git.
 # M-29 (2026-08-10) added §8: the non-product platform contract —
 #   - web/ is placeholder polish only (the app targets iOS+Android per MVP
@@ -125,6 +126,10 @@ done
 if make -n ios-beta >/dev/null 2>&1; then pass "make -n ios-beta (stub resolves dry)"; else fail "make -n ios-beta"; fi
 if make -n deploy-api >/dev/null 2>&1; then pass "make -n deploy-api (stub resolves dry)"; else fail "make -n deploy-api"; fi
 if make -n bundle-install >/dev/null 2>&1; then pass "make -n bundle-install (stub resolves dry)"; else fail "make -n bundle-install"; fi
+if make -n dev TARGET=ios-adhoc >/dev/null 2>&1; then pass "make -n dev TARGET=ios-adhoc (enrolled ad-hoc device branch resolves dry)"; else fail "make -n dev TARGET=ios-adhoc"; fi
+if make -n dev TARGET=ios-adhoc TESTING=true >/dev/null 2>&1; then pass "make -n dev TARGET=ios-adhoc TESTING=true (TESTING defines + register prereq resolve dry)"; else fail "make -n dev TARGET=ios-adhoc TESTING=true"; fi
+if make -n build TARGET=ios-adhoc >/dev/null 2>&1; then pass "make -n build TARGET=ios-adhoc (fastlane adhoc_local branch resolves dry)"; else fail "make -n build TARGET=ios-adhoc"; fi
+if make -n install TARGET=ios-adhoc >/dev/null 2>&1; then pass "make -n install TARGET=ios-adhoc (devicectl device-install branch resolves dry)"; else fail "make -n install TARGET=ios-adhoc"; fi
 
 # ── 2. Fastlane stub contract (lane names fixed for M-17/M-18) ───────────────
 echo ""
@@ -439,8 +444,9 @@ fi
 # ── 7. iOS platform contract (M-28) ─────────────────────────────────────────
 # Privacy descriptions, min-iOS 16 parity (pbxproj + Podfile), I-28
 # permission_handler macros, placeholder-only signing (never a real team id),
-# and the purchases_flutter→PurchasesHybridCommon→RevenueCat pod resolution
-# (the I-71 conflict fix — the stale lock's 14.3.0 pin must never return).
+# and the purchases_flutter→PurchasesHybridCommon→RevenueCat resolution
+# (the I-71 conflict fix — the stale lock's 14.3.0 pin must never return;
+# iOS is SPM-managed, macOS pod-managed).
 echo ""
 echo "━━━ 7. iOS platform contract (M-28) ━━━"
 INFOPLIST="$REPO/ios/Runner/Info.plist"
@@ -484,16 +490,27 @@ if [ -f "$PBX" ]; then
   grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.qallariy.samay;' "$PBX" && pass "pbxproj bundle id com.qallariy.samay (Appfile-verified)" || fail "pbxproj bundle id mismatch"
 fi
 
-# Podfile.lock must resolve the I-71 conflict chain (stale lock pinned
-# PurchasesHybridCommon 14.3.0 → pod install broke with "run pod update
-# PurchasesHybridCommon").
+# The I-71 conflict chain (PurchasesHybridCommon 14.3.0 → pod install broke
+# with "run pod update PurchasesHybridCommon") is now resolved at TWO levels:
+# the iOS Podfile.lock must NOT drag the RevenueCat chain back into pods
+# (Flutter SPM consumes purchases_flutter 10.8.0 → PurchasesHybridCommon
+# 18.29.0 → RevenueCat 5.83.0 via Package.resolved — see the SPM check
+# below), and the macos Podfile.lock still pins the pod chain directly.
 PLOCK="$REPO/ios/Podfile.lock"
 if [ -f "$PLOCK" ]; then
-  grep -q 'PurchasesHybridCommon (18.29.0)' "$PLOCK" && pass "Podfile.lock PurchasesHybridCommon 18.29.0 (I-71 conflict resolved)" || fail "Podfile.lock does not pin PurchasesHybridCommon 18.29.0"
-  grep -q 'purchases_flutter (10.8.0)' "$PLOCK" && pass "Podfile.lock purchases_flutter 10.8.0 (I-61 constraint)" || fail "Podfile.lock purchases_flutter is not 10.8.0"
-  grep -q 'RevenueCat (5.83.0)' "$PLOCK" && pass "Podfile.lock RevenueCat 5.83.0" || fail "Podfile.lock RevenueCat is not 5.83.0"
+  grep -q 'purchases_flutter (10.8.0)' "$PLOCK" && fail "ios Podfile.lock must NOT list purchases_flutter (SPM-managed since Flutter 3.44 SPM migration)" || pass "ios Podfile.lock keeps the RevenueCat chain SPM-managed"
+  grep -q 'PurchasesHybridCommon (18.29.0)' "$PLOCK" && fail "ios Podfile.lock must NOT list PurchasesHybridCommon (SPM-managed)" || pass "ios Podfile.lock keeps PurchasesHybridCommon SPM-managed"
+  grep -q 'RevenueCat (5.83.0)' "$PLOCK" && fail "ios Podfile.lock must NOT list RevenueCat (SPM-managed)" || pass "ios Podfile.lock keeps RevenueCat SPM-managed"
 else
   fail "ios/Podfile.lock missing"
+fi
+# SPM resolution pins the same I-71 chain versions (Flutter 3.44 SwiftPM).
+PACKAGE_RESOLVED="$REPO/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+if [ -f "$PACKAGE_RESOLVED" ]; then
+  grep -q '"version" : "18.29.0"' "$PACKAGE_RESOLVED" && pass "SPM Package.resolved PurchasesHybridCommon 18.29.0 (I-71 conflict resolved)" || fail "SPM Package.resolved does not pin PurchasesHybridCommon 18.29.0"
+  grep -q '"version" : "5.83.0"' "$PACKAGE_RESOLVED" && pass "SPM Package.resolved RevenueCat 5.83.0" || fail "SPM Package.resolved does not pin RevenueCat 5.83.0"
+else
+  fail "ios Package.resolved missing (SPM integration absent)"
 fi
 
 # No real team ids / certs / provisioning-material shapes tracked by git
@@ -596,10 +613,20 @@ fi
 MPL_LCK="$REPO/macos/Podfile.lock"
 if [ -f "$MPL_LCK" ] && git -C "$REPO" ls-files --error-unmatch -- "macos/Podfile.lock" >/dev/null 2>&1; then
   pass "macos/Podfile.lock committed"
-  grep -q 'PurchasesHybridCommon (18.29.0)' "$MPL_LCK" && pass "macos Podfile.lock PurchasesHybridCommon 18.29.0 (I-71 chain)" || fail "macos Podfile.lock does not pin PurchasesHybridCommon 18.29.0"
-  grep -q 'purchases_flutter (10.8.0)' "$MPL_LCK" && pass "macos Podfile.lock purchases_flutter 10.8.0" || fail "macos Podfile.lock purchases_flutter is not 10.8.0"
+  grep -q 'purchases_flutter (10.8.0)' "$MPL_LCK" && fail "macos Podfile.lock must NOT list purchases_flutter (SPM-managed since Flutter 3.44)" || pass "macos Podfile.lock keeps the RevenueCat chain SPM-managed"
+  grep -q 'PurchasesHybridCommon (18.29.0)' "$MPL_LCK" && fail "macos Podfile.lock must NOT list PurchasesHybridCommon (SPM-managed)" || pass "macos Podfile.lock keeps PurchasesHybridCommon SPM-managed"
 else
   fail "macos/Podfile.lock missing or untracked"
+fi
+# macOS SPM resolution pins the same I-71 chain versions (Flutter 3.44
+# SwiftPM). Presence-based (like the iOS Package.resolved check) — the
+# file lands in git with the migration to SPM.
+MPACKAGE_RESOLVED="$REPO/macos/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+if [ -f "$MPACKAGE_RESOLVED" ]; then
+  grep -q '"version" : "18.29.0"' "$MPACKAGE_RESOLVED" && pass "macos SPM Package.resolved PurchasesHybridCommon 18.29.0 (I-71 conflict resolved)" || fail "macos SPM Package.resolved does not pin PurchasesHybridCommon 18.29.0"
+  grep -q '"version" : "5.83.0"' "$MPACKAGE_RESOLVED" && pass "macos SPM Package.resolved RevenueCat 5.83.0" || fail "macos SPM Package.resolved does not pin RevenueCat 5.83.0"
+else
+  fail "macos Package.resolved missing (SPM integration absent)"
 fi
 
 # 8d. No build outputs may EVER be tracked in any platform dir (git ls-files

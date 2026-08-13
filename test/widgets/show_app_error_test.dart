@@ -87,6 +87,34 @@ void main() {
       expect(find.byType(AlertDialog), findsNothing);
       await future;
     });
+
+    testWidgets('blocking dialog shows the mapped error code', (tester) async {
+      await tester.pumpWidget(_app());
+      final future = showAppError(
+        tester.element(find.byType(Scaffold)),
+        UnauthorizedError(),
+        blocking: true,
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('AUTH_UNAUTHORIZED'), findsOneWidget);
+      expect(find.text('Código de error: AUTH_UNAUTHORIZED'), findsOneWidget);
+      expect(find.text(UnauthorizedError().message), findsOneWidget);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await future;
+    });
+
+    testWidgets('SnackBar shows the mapped error code', (tester) async {
+      await tester.pumpWidget(_app());
+      await showAppError(
+        tester.element(find.byType(Scaffold)),
+        UnauthorizedError(),
+      );
+      await tester.pump();
+      expect(find.textContaining('AUTH_UNAUTHORIZED'), findsOneWidget);
+      expect(find.text('Código de error: AUTH_UNAUTHORIZED'), findsOneWidget);
+      expect(find.text(UnauthorizedError().message), findsOneWidget);
+    });
   });
 
   group('showErrorSnackBar', () {

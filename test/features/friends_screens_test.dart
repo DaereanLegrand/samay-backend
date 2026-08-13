@@ -428,7 +428,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('@ana'), findsOneWidget);
       expect(find.text('@lucas'), findsOneWidget);
-      expect(find.text('Solicitado'), findsOneWidget);
+      expect(
+        find.text('SOLICITADO'),
+        findsOneWidget,
+        reason: 'XL-09: the pending readout is now the mint VBadge '
+            '(labelSmall voice uppercases)',
+      );
       expect(find.text('Agregar'), findsOneWidget);
     });
 

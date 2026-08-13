@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/logging/app_logger.dart';
@@ -51,9 +52,11 @@ void main() {
       final log = readLog();
       expect(
         log,
-        matches(RegExp(
-          r'\[Samay\]\[INFO\] \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z timed entry',
-        )),
+        matches(
+          RegExp(
+            r'\[Samay\]\[INFO\] \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z timed entry',
+          ),
+        ),
       );
     });
 
@@ -76,14 +79,18 @@ void main() {
 
     test('Future-already-completed downgrades to info', () {
       expect(
-        logger.knownBenignError(StateError('Bad state: Future already completed')),
+        logger.knownBenignError(
+          StateError('Bad state: Future already completed'),
+        ),
         LogLevel.info,
       );
     });
 
     test('MissingPluginException downgrades to warn', () {
       expect(
-        logger.knownBenignError(MissingPluginException('No implementation found')),
+        logger.knownBenignError(
+          MissingPluginException('No implementation found'),
+        ),
         LogLevel.warn,
       );
     });
@@ -133,6 +140,50 @@ void main() {
 
     test('recoverCrashMarker returns null with no pending crash', () async {
       expect(await logger.recoverCrashMarker(), isNull);
+    });
+  });
+
+  group('enabled: false (testing/debug-only gate)', () {
+    test('log writes no samay.log file', () {
+      final disabled = AppLogger(storageDir: tempDir, enabled: false);
+      disabled.log(LogLevel.error, 'should not appear');
+
+      final logFile = File('${tempDir.path}/${AppLogger.logFileName}');
+      expect(logFile.existsSync(), isFalse);
+    });
+
+    test('every level is a no-op when disabled', () {
+      final disabled = AppLogger(storageDir: tempDir, enabled: false);
+      for (final level in LogLevel.values) {
+        disabled.log(level, 'silent $level');
+      }
+
+      final logFile = File('${tempDir.path}/${AppLogger.logFileName}');
+      expect(logFile.existsSync(), isFalse);
+    });
+
+    test('no debugPrint output when disabled', () {
+      final disabled = AppLogger(enabled: false);
+      final messages = <String>[];
+      final original = debugPrint;
+      debugPrint = (message, {int? wrapWidth}) {
+        messages.add(message ?? '');
+      };
+      try {
+        disabled.emergency('silent emergency');
+      } finally {
+        debugPrint = original;
+      }
+      expect(messages, isEmpty);
+    });
+
+    test('markCrash writes no crash marker', () async {
+      final disabled = AppLogger(storageDir: tempDir, enabled: false);
+      await disabled.markCrash('fatal blow');
+
+      final marker = File('${tempDir.path}/${AppLogger.markerFileName}');
+      expect(marker.existsSync(), isFalse);
+      expect(await disabled.readCrashMarker(), isNull);
     });
   });
 

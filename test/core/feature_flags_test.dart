@@ -192,7 +192,8 @@ void main() {
       );
 
       expect(find.byType(VComingSoonScreen), findsOneWidget);
-      expect(find.text('Pr\u00f3ximamente'), findsOneWidget);
+      // LUXE display voice: the MAYUS rule uppercases the headline.
+      expect(find.text('PR\u00d3XIMAMENTE'), findsOneWidget);
       expect(find.text('REAL EVENTS'), findsNothing);
     });
 

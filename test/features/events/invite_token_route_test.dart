@@ -21,28 +21,28 @@ const _eventId = '11111111-1111-1111-1111-111111111111';
 const _token = 'invite-tok-1';
 
 Map<String, dynamic> _event() => {
-      'id': _eventId,
-      'name': 'Rave en el garaje',
-      'description': 'La mejor fiesta del barrio',
-      'type': 'juerga',
-      'status': 'upcoming',
-      'created_by_user_id': _eventId,
-      'group_id': null,
-      'location_name': 'Av. Los Aromos 123',
-      'starts_at': DateTime(2026, 5, 15, 21).toIso8601String(),
-      'ends_at': DateTime(2026, 5, 16, 2).toIso8601String(),
-      'join_mode': 'open',
-      'preshards_pool': 500,
-      'preshards_distributed': false,
-      'preshards_cap_per_user': null,
-      'preshards_remainder_action': 'return',
-      'dynamic_qr_enabled': true,
-      'invite_token': _token,
-      'cover_url': null,
-      'featured': false,
-      'created_at': DateTime(2026, 5, 10).toIso8601String(),
-      'updated_at': DateTime(2026, 5, 10).toIso8601String(),
-    };
+  'id': _eventId,
+  'name': 'Rave en el garaje',
+  'description': 'La mejor fiesta del barrio',
+  'type': 'juerga',
+  'status': 'upcoming',
+  'created_by_user_id': _eventId,
+  'group_id': null,
+  'location_name': 'Av. Los Aromos 123',
+  'starts_at': DateTime(2026, 5, 15, 21).toIso8601String(),
+  'ends_at': DateTime(2026, 5, 16, 2).toIso8601String(),
+  'join_mode': 'open',
+  'preshards_pool': 500,
+  'preshards_distributed': false,
+  'preshards_cap_per_user': null,
+  'preshards_remainder_action': 'return',
+  'dynamic_qr_enabled': true,
+  'invite_token': _token,
+  'cover_url': null,
+  'featured': false,
+  'created_at': DateTime(2026, 5, 10).toIso8601String(),
+  'updated_at': DateTime(2026, 5, 10).toIso8601String(),
+};
 
 class _MockEventService extends Mock implements EventService {}
 
@@ -101,10 +101,12 @@ Future<void> _pumpRoute(
   EventService service, {
   bool settle = true,
 }) async {
-  final container = ProviderContainer(overrides: [
-    authStateProvider.overrideWith(() => _FakeAuthNotifier()),
-    eventServiceProvider.overrideWithValue(service),
-  ]);
+  final container = ProviderContainer(
+    overrides: [
+      authStateProvider.overrideWith(() => _FakeAuthNotifier()),
+      eventServiceProvider.overrideWithValue(service),
+    ],
+  );
   addTearDown(container.dispose);
   final router = container.read(routerProvider);
   router.go(path);
@@ -140,54 +142,69 @@ void main() {
   });
 
   group('/event/:eventId invite-token resolution (I-66)', () {
-    testWidgets(
-        'a UUID param renders the detail screen directly without token '
+    testWidgets('a UUID param renders the detail screen directly without token '
         'resolution', (tester) async {
       final service = _MockEventService();
       when(() => service.getEvent(_eventId)).thenAnswer((_) async => _event());
-      when(() => service.getEventPromotores(_eventId))
-          .thenAnswer((_) async => <Map<String, dynamic>>[]);
-      when(() => service.getMyEventInvite(_eventId))
-          .thenAnswer((_) async => null);
+      when(
+        () => service.getEventPromotores(_eventId),
+      ).thenAnswer((_) async => <Map<String, dynamic>>[]);
+      when(
+        () => service.getMyEventInvite(_eventId),
+      ).thenAnswer((_) async => null);
 
       await _pumpRoute(tester, RoutePaths.eventDetail(_eventId), service);
 
       expect(find.byType(EventDetailScreen), findsOneWidget);
-      expect(find.text('Rave en el garaje'), findsWidgets);
+      expect(find.text('RAVE EN EL GARAJE'), findsOneWidget);
       verifyNever(() => service.getEventByInviteToken(any()));
     });
 
     testWidgets(
-        'a non-UUID invite token resolves through the service to the detail '
-        'screen', (tester) async {
+      'a non-UUID invite token resolves through the service to the detail '
+      'screen',
+      (tester) async {
+        final service = _MockEventService();
+        when(
+          () => service.getEventByInviteToken(_token),
+        ).thenAnswer((_) async => Event.fromJson(_event()));
+        when(
+          () => service.getEvent(_eventId),
+        ).thenAnswer((_) async => _event());
+        when(
+          () => service.getEventPromotores(_eventId),
+        ).thenAnswer((_) async => <Map<String, dynamic>>[]);
+        when(
+          () => service.getMyEventInvite(_eventId),
+        ).thenAnswer((_) async => null);
+
+        await _pumpRoute(tester, RoutePaths.eventInviteToken(_token), service);
+
+        expect(find.byType(EventDetailScreen), findsOneWidget);
+        expect(find.text('RAVE EN EL GARAJE'), findsOneWidget);
+        verify(() => service.getEventByInviteToken(_token)).called(1);
+        // The detail is fetched by the RESOLVED id, not the raw token.
+        verify(() => service.getEvent(_eventId)).called(1);
+      },
+    );
+
+    testWidgets('an unknown invite token renders the not-found state', (
+      tester,
+    ) async {
       final service = _MockEventService();
-      when(() => service.getEventByInviteToken(_token))
-          .thenAnswer((_) async => Event.fromJson(_event()));
-      when(() => service.getEvent(_eventId)).thenAnswer((_) async => _event());
-      when(() => service.getEventPromotores(_eventId))
-          .thenAnswer((_) async => <Map<String, dynamic>>[]);
-      when(() => service.getMyEventInvite(_eventId))
-          .thenAnswer((_) async => null);
-
-      await _pumpRoute(tester, RoutePaths.eventInviteToken(_token), service);
-
-      expect(find.byType(EventDetailScreen), findsOneWidget);
-      expect(find.text('Rave en el garaje'), findsWidgets);
-      verify(() => service.getEventByInviteToken(_token)).called(1);
-      // The detail is fetched by the RESOLVED id, not the raw token.
-      verify(() => service.getEvent(_eventId)).called(1);
-    });
-
-    testWidgets('an unknown invite token renders the not-found state',
-        (tester) async {
-      final service = _MockEventService();
-      when(() => service.getEventByInviteToken('unknown-token'))
-          .thenAnswer((_) async => null);
+      when(
+        () => service.getEventByInviteToken('unknown-token'),
+      ).thenAnswer((_) async => null);
 
       await _pumpRoute(
-          tester, RoutePaths.eventInviteToken('unknown-token'), service);
+        tester,
+        RoutePaths.eventInviteToken('unknown-token'),
+        service,
+      );
 
-      expect(find.byType(RouteErrorScreen), findsOneWidget);
+      // LUXE restyle: the not-found fallback is the VEmptyView state (peach
+      // aurora accent), not the generic RouteErrorScreen.
+      expect(find.byType(VEmptyView), findsOneWidget);
       expect(
         find.text('La invitaci\u00f3n solicitada no es v\u00e1lida.'),
         findsOneWidget,
@@ -195,25 +212,33 @@ void main() {
       expect(find.byType(EventDetailScreen), findsNothing);
     });
 
-    testWidgets('a failing token resolution renders the error view with retry',
-        (tester) async {
-      final service = _MockEventService();
-      when(() => service.getEventByInviteToken('boom-token'))
-          .thenThrow(Exception('network down'));
+    testWidgets(
+      'a failing token resolution renders the error view with retry',
+      (tester) async {
+        final service = _MockEventService();
+        when(
+          () => service.getEventByInviteToken('boom-token'),
+        ).thenThrow(Exception('network down'));
 
-      await _pumpRoute(
-          tester, RoutePaths.eventInviteToken('boom-token'), service);
+        await _pumpRoute(
+          tester,
+          RoutePaths.eventInviteToken('boom-token'),
+          service,
+        );
 
-      expect(find.byType(ErrorView), findsOneWidget);
-      expect(find.byType(EventDetailScreen), findsNothing);
-    });
+        expect(find.byType(ErrorView), findsOneWidget);
+        expect(find.byType(EventDetailScreen), findsNothing);
+      },
+    );
 
-    testWidgets('shows a loading state while the token resolves',
-        (tester) async {
+    testWidgets('shows a loading state while the token resolves', (
+      tester,
+    ) async {
       final service = _MockEventService();
       final completer = Completer<Event>();
-      when(() => service.getEventByInviteToken('slow-token'))
-          .thenAnswer((_) => completer.future);
+      when(
+        () => service.getEventByInviteToken('slow-token'),
+      ).thenAnswer((_) => completer.future);
 
       await _pumpRoute(
         tester,
@@ -230,8 +255,9 @@ void main() {
       expect(find.byType(EventDetailScreen), findsOneWidget);
     });
 
-    testWidgets('an empty param renders the not-found state without crashing',
-        (tester) async {
+    testWidgets('an empty param renders the not-found state without crashing', (
+      tester,
+    ) async {
       final service = _MockEventService();
 
       await _pumpRoute(tester, '/event/', service);

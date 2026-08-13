@@ -448,12 +448,14 @@ void main() {
 
     // Kept raw values (documented in the U-03 audit table): no design token
     // equals them, so replacing would change visuals. 14 = v_button vertical
-    // padding (doc §5.1 pins 14px); 10 = compact one-off banner paddings.
+    // padding (doc §5.1 pins 14px — the LUXE sweep hoisted it into the
+    // `VButton._padding` const, line 34); 10 = compact one-off banner
+    // paddings.
     // NOTE: the guard regex is line-based, so multi-line EdgeInsets (the
     // formatted form) are invisible to it — these entries document the
     // keepers for the single-line form.
     const edgeInsetsAllowlist = <String>{
-      'lib/shared/widgets/v_button.dart:165',
+      'lib/shared/widgets/v_button.dart:34',
       'lib/shared/widgets/error_banner.dart:35',
       'lib/shared/widgets/error_banner.dart:62',
     };
@@ -514,30 +516,35 @@ void main() {
     // future screen-state regression fails this guard. The regex matches the
     // constructor form only (a bare word in a doc comment doesn't trip it).
     const rawSpinnerAllowlist = <String>{
-      // photo gallery: 18px upload-button spinner in the AppBar action.
+      // photo gallery: 18px upload-button spinner in the AppBar action
+      // photo gallery: 18px upload-button spinner in the AppBar action
+      // (line 148 since the XL-13 mint restyle).
       'lib/features/photos/screens/photo_gallery_screen.dart:148',
-      // requests: R11 per-row busy spinner (16px, in a row action).
-      'lib/features/friends/screens/requests_screen.dart:313',
+      // requests: R11 per-row busy spinner (16px, in a row action; line
+      // 374 since the XL-09 mint restyle).
+      'lib/features/friends/screens/requests_screen.dart:374',
       // edit profile: 16px avatar-upload spinner inside the avatar circle
-      // (line 208 since the U-26 disabled-password-button comment block +
-      // `dart format` shifted the spinner by 6 lines).
-      'lib/features/profile/screens/edit_profile_screen.dart:208',
+      // (line 218 since the XL-08 gold restyle).
+      'lib/features/profile/screens/edit_profile_screen.dart:218',
       // qr scanner: 16px scan-processing chip (inline in the scan overlay;
-      // line 379 since the U-25 camera-error panel moved the overlay down).
-      'lib/features/qr/screens/qr_scanner_screen.dart:379',
-      // chat: 20px pagination loader row (list stays visible).
-      'lib/features/chat/screens/chat_screen.dart:154',
-      // invite: 20px AppBar-action spinner while sending (line 108 since the
-      // U-24 `dart format` pass expanded the SizedBox onto five lines).
-      'lib/features/groups/screens/invite_screen.dart:108',
+      // line 384 since the XL-13 LUXE restyle (scan line + overlay edits).
+      'lib/features/qr/screens/qr_scanner_screen.dart:384',
+      // chat: 20px pagination loader row (list stays visible; line 186
+      // since the XL-18 chat polish (bubble cap + token spacing)).
+      'lib/features/chat/screens/chat_screen.dart:186',
+      // invite: 20px AppBar-action spinner while sending (line 113 since
+      // the XL-10 LUXE restyle of the invite search ring).
+      'lib/features/groups/screens/invite_screen.dart:113',
+      // photo gallery: 20px upload-overlay spinner (line 155 since the
+      // XL-13 mint restyle).
+      'lib/features/photos/screens/photo_gallery_screen.dart:155',
     };
 
     test('no raw CircularProgressIndicator in lib/features — state widgets '
         'only (M-28/UI-04/U-21)', () {
-      final featureFiles = filesUnder('lib/features')
-          .where((f) => f.path.endsWith('.dart'))
-          .map((f) => f.path)
-          .toList();
+      final featureFiles = filesUnder(
+        'lib/features',
+      ).where((f) => f.path.endsWith('.dart')).map((f) => f.path).toList();
       final raw = RegExp(r'CircularProgressIndicator\s*\(');
       final offenders = offendersIn(
         featureFiles,
@@ -694,8 +701,11 @@ void main() {
       final section = sectionStart == -1
           ? null
           : lines
-              .sublist(sectionStart, sectionEnd == -1 ? lines.length : sectionEnd)
-              .join('\n');
+                .sublist(
+                  sectionStart,
+                  sectionEnd == -1 ? lines.length : sectionEnd,
+                )
+                .join('\n');
       expect(
         section,
         isNotNull,
@@ -737,27 +747,22 @@ void main() {
         reason: 'the source icon must be a PNG (magic signature)',
       );
       int be32(int at) =>
-          (bytes[at] << 24) | (bytes[at + 1] << 16) |
-          (bytes[at + 2] << 8) | bytes[at + 3];
+          (bytes[at] << 24) |
+          (bytes[at + 1] << 16) |
+          (bytes[at + 2] << 8) |
+          bytes[at + 3];
       // IHDR: length(4) 'IHDR'(4) width(4) height(4) — width at offset 16.
-      expect(
-        be32(16),
-        1024,
-        reason: 'IHDR width must be 1024',
-      );
-      expect(
-        be32(20),
-        1024,
-        reason: 'IHDR height must be 1024',
-      );
+      expect(be32(16), 1024, reason: 'IHDR width must be 1024');
+      expect(be32(20), 1024, reason: 'IHDR height must be 1024');
     });
 
     test('android launcher icon sets are generated (legacy mipmaps + '
         'adaptive anydpi)', () {
       for (final dpi in const ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
         expect(
-          File('$root/android/app/src/main/res/mipmap-$dpi/ic_launcher.png')
-              .existsSync(),
+          File(
+            '$root/android/app/src/main/res/mipmap-$dpi/ic_launcher.png',
+          ).existsSync(),
           isTrue,
           reason:
               'TOOL-06: legacy launcher icon missing for mipmap-$dpi — '
@@ -776,9 +781,10 @@ void main() {
       // density-scaled drawable-*dpi/ dirs (referenced by the XML above),
       // with the black background declared as a color resource.
       expect(
-        File('$root/android/app/src/main/res/drawable-mdpi/'
-                'ic_launcher_foreground.png')
-            .existsSync(),
+        File(
+          '$root/android/app/src/main/res/drawable-mdpi/'
+          'ic_launcher_foreground.png',
+        ).existsSync(),
         isTrue,
         reason: 'TOOL-06: the adaptive foreground drawable is missing',
       );
@@ -796,8 +802,9 @@ void main() {
     });
 
     test('iOS AppIcon set is generated (16+ PNGs + Contents.json)', () {
-      final appiconset =
-          Directory('$root/ios/Runner/Assets.xcassets/AppIcon.appiconset');
+      final appiconset = Directory(
+        '$root/ios/Runner/Assets.xcassets/AppIcon.appiconset',
+      );
       expect(
         appiconset.existsSync(),
         isTrue,
@@ -822,20 +829,23 @@ void main() {
       );
     });
 
-    test('android:label is the user-facing brand name Samay (M-29 drift #2)',
-        () {
-      final manifest =
-          File('$root/android/app/src/main/AndroidManifest.xml').readAsStringSync();
-      final label = RegExp(r'android:label="([^"]+)"')
-          .firstMatch(manifest)
-          ?.group(1);
-      expect(
-        label,
-        'Samay',
-        reason:
-            'M-29 issue #2: android:label must match iOS/web ("Samay") — '
-            'the internal pubspec name "samay" is not the home-screen label',
-      );
-    });
+    test(
+      'android:label is the user-facing brand name Samay (M-29 drift #2)',
+      () {
+        final manifest = File(
+          '$root/android/app/src/main/AndroidManifest.xml',
+        ).readAsStringSync();
+        final label = RegExp(
+          r'android:label="([^"]+)"',
+        ).firstMatch(manifest)?.group(1);
+        expect(
+          label,
+          'Samay',
+          reason:
+              'M-29 issue #2: android:label must match iOS/web ("Samay") — '
+              'the internal pubspec name "samay" is not the home-screen label',
+        );
+      },
+    );
   });
 }

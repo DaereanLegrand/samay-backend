@@ -590,7 +590,13 @@ void main() {
         ),
       ]);
       await tester.pumpAndSettle();
-      expect(find.text('Disco Crew'), findsOneWidget);
+      expect(
+        find.text('DISCO CREW'),
+        findsOneWidget,
+        reason:
+            'LUXE MAYUS — the detail hero name renders uppercase through '
+            'VDisplayText',
+      );
       expect(find.text('Chat'), findsOneWidget);
       expect(find.text('Miembros'), findsOneWidget);
       expect(find.text('Eventos'), findsOneWidget);
@@ -705,7 +711,11 @@ void main() {
 
       await tester.enterText(find.byType(TextField), '0');
       await tester.tap(find.text('Donar'));
-      await tester.pumpAndSettle();
+      // LUXE: bounded pumps instead of pumpAndSettle — the VAurora drift
+      // would otherwise advance the fake clock past the snackbar's 4s
+      // auto-dismiss before the assertion runs.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(find.text('Ingresa un monto válido'), findsOneWidget);
       expect(find.byType(DonateShardsScreen), findsOneWidget);
@@ -721,7 +731,10 @@ void main() {
 
       await tester.enterText(find.byType(TextField), 'abc');
       await tester.tap(find.text('Donar'));
-      await tester.pumpAndSettle();
+      // LUXE: bounded pumps (see the sibling test's note — the aurora
+      // drift would dismiss the snackbar before the assertion).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(find.text('Ingresa un monto válido'), findsOneWidget);
       expect(find.byType(DonateShardsScreen), findsOneWidget);
@@ -796,7 +809,10 @@ void main() {
 
       await tester.enterText(find.byType(TextField), '120');
       await tester.tap(find.text('Donar'));
-      await tester.pumpAndSettle();
+      // LUXE: bounded pumps (see the sibling test's note — the aurora
+      // drift would dismiss the snackbar before the assertion).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(find.textContaining('Error del servidor'), findsOneWidget);
       expect(
@@ -967,8 +983,16 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('#1'), findsOneWidget);
       expect(find.text('#2'), findsOneWidget);
-      expect(find.text('Disco Crew'), findsOneWidget);
-      expect(find.text('Vinyl Lovers'), findsOneWidget);
+      expect(
+        find.text('DISCO CREW'),
+        findsOneWidget,
+        reason: 'LUXE MAYUS — podium names render uppercase (VDisplayText)',
+      );
+      expect(
+        find.text('VINYL LOVERS'),
+        findsOneWidget,
+        reason: 'LUXE MAYUS — podium names render uppercase (VDisplayText)',
+      );
       expect(find.textContaining('12 miembros'), findsOneWidget);
       expect(find.textContaining('500 shards'), findsOneWidget);
     });
@@ -1073,7 +1097,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Disco Crew'));
+      await tester.tap(find.text('DISCO CREW'));
       await tester.pumpAndSettle();
 
       expect(

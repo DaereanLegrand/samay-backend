@@ -16,7 +16,10 @@ class _FakeAuthService extends Mock implements AuthService {}
 
 class _FakeBanService extends Mock implements BanService {}
 
-const _user = {'id': '11111111-1111-1111-1111-111111111111', 'email': 'a@b.com'};
+const _user = {
+  'id': '11111111-1111-1111-1111-111111111111',
+  'email': 'a@b.com',
+};
 
 /// AuthService stub: no auth events, profile probe succeeds, `getCurrentUser`
 /// resolves through [userSequence] (null → _user style replayable sequences).
@@ -35,8 +38,9 @@ AuthService _stubbedAuthService({
 
 BanService _stubbedBanService([BanStatus status = BanStatus.notBanned]) {
   final service = _FakeBanService();
-  when(() => service.checkBanStatus(force: any(named: 'force')))
-      .thenAnswer((_) async => status);
+  when(
+    () => service.checkBanStatus(force: any(named: 'force')),
+  ).thenAnswer((_) async => status);
   return service;
 }
 
@@ -76,52 +80,65 @@ Widget _wrapWithL10n(Widget child) {
 
 void main() {
   group('AuthNotifier — ban enforcement', () {
-    test('session restore with a banned profile lands on the banned state',
-        () async {
-      final authService = _stubbedAuthService(userSequence: [_user]);
-      final banService =
-          _stubbedBanService(const BanStatus.banned('Motivo de prueba'));
-      final container =
-          _newContainer(authService: authService, banService: banService);
+    test(
+      'session restore with a banned profile lands on the banned state',
+      () async {
+        final authService = _stubbedAuthService(userSequence: [_user]);
+        final banService = _stubbedBanService(
+          const BanStatus.banned('Motivo de prueba'),
+        );
+        final container = _newContainer(
+          authService: authService,
+          banService: banService,
+        );
 
-      await container.read(authStateProvider.future);
+        await container.read(authStateProvider.future);
 
-      final state = container.read(authStateProvider);
-      expect(state.valueOrNull?.banned, isTrue);
-      expect(state.valueOrNull?.authenticated, isFalse);
-      expect(state.valueOrNull?.banReason, 'Motivo de prueba');
-      verify(() => authService.signOut()).called(1);
-    });
+        final state = container.read(authStateProvider);
+        expect(state.valueOrNull?.banned, isTrue);
+        expect(state.valueOrNull?.authenticated, isFalse);
+        expect(state.valueOrNull?.banReason, 'Motivo de prueba');
+        verify(() => authService.signOut()).called(1);
+      },
+    );
 
-    test('signIn with a banned profile signs out and sets the banned state',
-        () async {
-      final authService = _stubbedAuthService(userSequence: [null, _user]);
-      final banService =
-          _stubbedBanService(const BanStatus.banned('Motivo de prueba'));
-      final container =
-          _newContainer(authService: authService, banService: banService);
-      await container.read(authStateProvider.future);
+    test(
+      'signIn with a banned profile signs out and sets the banned state',
+      () async {
+        final authService = _stubbedAuthService(userSequence: [null, _user]);
+        final banService = _stubbedBanService(
+          const BanStatus.banned('Motivo de prueba'),
+        );
+        final container = _newContainer(
+          authService: authService,
+          banService: banService,
+        );
+        await container.read(authStateProvider.future);
 
-      await container
-          .read(authStateProvider.notifier)
-          .signIn('a@b.com', 'secret1');
+        await container
+            .read(authStateProvider.notifier)
+            .signIn('a@b.com', 'secret1');
 
-      final state = container.read(authStateProvider);
-      expect(state.hasValue, isTrue);
-      expect(state.hasError, isFalse);
-      expect(state.valueOrNull?.banned, isTrue);
-      expect(state.valueOrNull?.authenticated, isFalse);
-      expect(state.valueOrNull?.banReason, 'Motivo de prueba');
-      verify(() => authService.signOut()).called(1);
-    });
+        final state = container.read(authStateProvider);
+        expect(state.hasValue, isTrue);
+        expect(state.hasError, isFalse);
+        expect(state.valueOrNull?.banned, isTrue);
+        expect(state.valueOrNull?.authenticated, isFalse);
+        expect(state.valueOrNull?.banReason, 'Motivo de prueba');
+        verify(() => authService.signOut()).called(1);
+      },
+    );
 
     test('verifyOtp with a banned profile lands on the banned state', () async {
       final authService = _stubbedAuthService(userSequence: [null, _user]);
-      final banService =
-          _stubbedBanService(const BanStatus.banned('Motivo de prueba'));
+      final banService = _stubbedBanService(
+        const BanStatus.banned('Motivo de prueba'),
+      );
       when(() => authService.verifyOtp(any(), any())).thenAnswer((_) async {});
-      final container =
-          _newContainer(authService: authService, banService: banService);
+      final container = _newContainer(
+        authService: authService,
+        banService: banService,
+      );
       await container.read(authStateProvider.future);
 
       await container
@@ -137,8 +154,10 @@ void main() {
     test('signIn with a healthy profile authenticates normally', () async {
       final authService = _stubbedAuthService(userSequence: [null, _user]);
       final banService = _stubbedBanService();
-      final container =
-          _newContainer(authService: authService, banService: banService);
+      final container = _newContainer(
+        authService: authService,
+        banService: banService,
+      );
       await container.read(authStateProvider.future);
 
       await container
@@ -152,30 +171,36 @@ void main() {
       verifyNever(() => authService.signOut());
     });
 
-    test('a failing ban check does not block authentication (fail-open)',
-        () async {
-      final authService = _stubbedAuthService(userSequence: [null, _user]);
-      final banService = _FakeBanService();
-      when(() => banService.checkBanStatus(force: any(named: 'force')))
-          .thenThrow(Exception('check unavailable'));
-      final container =
-          _newContainer(authService: authService, banService: banService);
-      await container.read(authStateProvider.future);
+    test(
+      'a failing ban check does not block authentication (fail-open)',
+      () async {
+        final authService = _stubbedAuthService(userSequence: [null, _user]);
+        final banService = _FakeBanService();
+        when(
+          () => banService.checkBanStatus(force: any(named: 'force')),
+        ).thenThrow(Exception('check unavailable'));
+        final container = _newContainer(
+          authService: authService,
+          banService: banService,
+        );
+        await container.read(authStateProvider.future);
 
-      await container
-          .read(authStateProvider.notifier)
-          .signIn('a@b.com', 'secret1');
+        await container
+            .read(authStateProvider.notifier)
+            .signIn('a@b.com', 'secret1');
 
-      final state = container.read(authStateProvider);
-      expect(state.valueOrNull?.authenticated, isTrue);
-      expect(state.valueOrNull?.banned, isFalse);
-      verifyNever(() => authService.signOut());
-    });
+        final state = container.read(authStateProvider);
+        expect(state.valueOrNull?.authenticated, isTrue);
+        expect(state.valueOrNull?.banned, isFalse);
+        verifyNever(() => authService.signOut());
+      },
+    );
   });
 
   group('BannedScreen', () {
-    testWidgets('renders the suspension title, body and logout action',
-        (tester) async {
+    testWidgets('renders the suspension title, body and logout action', (
+      tester,
+    ) async {
       final container = ProviderContainer(
         overrides: [
           authStateProvider.overrideWith(
@@ -192,7 +217,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Cuenta suspendida'), findsOneWidget);
+      expect(find.text('CUENTA SUSPENDIDA'), findsOneWidget);
       expect(find.text('Tu cuenta ha sido suspendida.'), findsOneWidget);
       expect(find.text('Cerrar sesión'), findsOneWidget);
     });
@@ -247,9 +272,7 @@ void main() {
   group('AuthGuard — banned redirect', () {
     ProviderContainer routerContainer() {
       final container = ProviderContainer(
-        overrides: [
-          authStateProvider.overrideWith(_BannedAuthNotifier.new),
-        ],
+        overrides: [authStateProvider.overrideWith(_BannedAuthNotifier.new)],
       );
       addTearDown(container.dispose);
       return container;
@@ -276,8 +299,9 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('a banned user is redirected from an authenticated route',
-        (tester) async {
+    testWidgets('a banned user is redirected from an authenticated route', (
+      tester,
+    ) async {
       final container = routerContainer();
       await pumpRoute(tester, container, RoutePaths.mainFeed);
 
@@ -285,16 +309,18 @@ void main() {
       expect(find.byType(FeedScreen), findsNothing);
     });
 
-    testWidgets('a banned user is redirected from a public route too',
-        (tester) async {
+    testWidgets('a banned user is redirected from a public route too', (
+      tester,
+    ) async {
       final container = routerContainer();
       await pumpRoute(tester, container, RoutePaths.welcome);
 
       expect(find.byType(BannedScreen), findsOneWidget);
     });
 
-    testWidgets('the ban route itself renders without a redirect loop',
-        (tester) async {
+    testWidgets('the ban route itself renders without a redirect loop', (
+      tester,
+    ) async {
       final container = routerContainer();
       await pumpRoute(tester, container, RoutePaths.banned);
 

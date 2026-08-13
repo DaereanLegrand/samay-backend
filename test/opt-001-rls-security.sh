@@ -400,6 +400,41 @@ curl -s -X DELETE "$SUPABASE_URL/rest/v1/groups?id=eq.$GID_I" \
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" >/dev/null 2>&1 || true
 
 # =========================================================================
+# TEST I — signup_tracker pre-auth write path (migration 20260812000001)
+# =========================================================================
+# The client writes signup_tracker from sendOtp BEFORE the OTP is verified
+# (anonymous session). The email-scoped RLS policies never match an anon
+# JWT (no email claim) → direct upserts 42501 into the OTP funnel's
+# "No tienes permiso..." error. The SECURITY DEFINER RPC is the pre-auth
+# write path; its profile_created=true branch is JWT-email-gated so anon
+# cannot squat 'exists' rows.
+h1 "TEST I — signup_tracker pre-auth write path (upsert_signup_tracker)"
+
+# I1: anon direct INSERT on signup_tracker is STILL denied (email-scoped RLS)
+resp=$(anon_post "signup_tracker" '{"email":"opt-probe-1@test.local","profile_created":false}')
+if echo "$resp" | grep -qE '(42501|permission denied|violates rls|unauthorized|PGRST204)'; then
+  ok "anon direct INSERT signup_tracker — denied (email-scoped RLS)"
+else
+  nok "anon direct INSERT signup_tracker — allowed! $(echo "$resp" | head -c 60)"
+fi
+
+# I2: anon CAN write the pre-verify tracker row via the SECURITY DEFINER RPC
+resp=$(anon_rpc "upsert_signup_tracker" '{"p_email":"opt-probe-1@test.local","p_profile_created":false}')
+if [ -z "$resp" ]; then
+  ok "anon RPC upsert_signup_tracker(profile_created=false) — allowed (pre-OTP write)"
+else
+  nok "anon RPC upsert_signup_tracker(profile_created=false) — denied! $(echo "$resp" | head -c 60)"
+fi
+
+# I3: anon CANNOT squat profile_created=true ('exists') — JWT-email guard
+resp=$(anon_rpc "upsert_signup_tracker" '{"p_email":"opt-probe-1@test.local","p_profile_created":true}')
+if echo "$resp" | grep -qE '(P0001|Not authorized)'; then
+  ok "anon RPC upsert_signup_tracker(profile_created=true) — denied (JWT-email guard)"
+else
+  nok "anon RPC upsert_signup_tracker(profile_created=true) — squatting allowed! $(echo "$resp" | head -c 60)"
+fi
+
+# =========================================================================
 # Summary
 # =========================================================================
 h1 "RESULTS"

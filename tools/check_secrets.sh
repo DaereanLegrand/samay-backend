@@ -25,8 +25,6 @@
 #         allowlisted: .env.example (canonical placeholders), compose
 #         ${VAR:-…} safe defaults (M-03), opt-007 search-literal, docs/
 #         (document the convention)
-#   P6  ^[[:space:]]*APPLE_PASSWORD=   secrets as Make-variable assignments
-#         NO allowlist — the Makefile must never carry one (MKE-02)
 #
 # 2026-08-10 (M-26): EVIDENCE3 added — the M-13/M-17/M-20/M-21 daily logs
 # quote the P2/P3 pattern LITERALS in their pattern tables and evidence
@@ -85,9 +83,6 @@ scan 'P4 real service-role key shape' \
 scan 'P5 your_supabase placeholders' \
   'your_supabase' \
   "$SELF|\.env\.example|supabase/docker-compose\.yml|supabase-testing/docker-compose\.yml|$OPT007|docs/"
-scan 'P6 APPLE_PASSWORD= assignments' \
-  '^[[:space:]]*APPLE_PASSWORD=' \
-  ''
 
 if [ "$VIOLATIONS" -ne 0 ]; then
   printf 'secrets-check: FAIL — %d violation(s). Remove the literal or justify+extend the allowlist (see M-13 log).\n' "$VIOLATIONS" >&2

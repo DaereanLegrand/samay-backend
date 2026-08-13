@@ -246,7 +246,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(find.byType(VSkeletonProfile), findsNothing);
-      expect(find.text('dana'), findsOneWidget);
+      // LUXE v2 (XL-08): the hero username renders uppercase through
+      // VDisplayText (the MAYUS rule) — 'DANA', not 'dana'.
+      expect(find.text('DANA'), findsOneWidget);
       expect(find.text('hola mundo'), findsOneWidget);
       expect(find.text('120 shards'), findsOneWidget);
       expect(find.text('3 preshards'), findsOneWidget);
@@ -608,7 +610,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('dana'));
+      // LUXE v2 (XL-08): the hero renders uppercase (VDisplayText MAYUS
+      // rule) — tap the 'DANA' glyphs.
+      await tester.tap(find.text('DANA'));
       await tester.pumpAndSettle();
 
       expect(find.byType(EditProfileScreen), findsOneWidget);
@@ -622,7 +626,9 @@ void main() {
         _wrap(const PublicProfileScreen(userId: 'test-id')),
       );
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('Usuario'), findsOneWidget);
+      // LUXE v2 (XL-08): the fallback hero renders uppercase through
+      // VDisplayText; no AppBar title duplicates it.
+      expect(find.text('USUARIO'), findsOneWidget);
       expect(find.text('Agregar amigo'), findsOneWidget);
     });
   });

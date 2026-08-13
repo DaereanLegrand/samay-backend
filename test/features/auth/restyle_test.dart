@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
+import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/design_tokens/app_typography.dart';
 import 'package:samay/core/errors/app_error.dart';
 import 'package:samay/core/providers/auth_provider.dart';
@@ -18,20 +19,28 @@ import 'package:samay/features/auth/screens/profile_setup_screen.dart';
 import 'package:samay/features/auth/screens/signup_contact_screen.dart';
 import 'package:samay/features/auth/screens/welcome_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/v_breathing_glow.dart';
+import 'package:samay/shared/widgets/v_aurora.dart';
+import 'package:samay/shared/widgets/v_button.dart';
 import 'package:samay/shared/widgets/v_disco_divider.dart';
+import 'package:samay/shared/widgets/v_display_text.dart';
 
-/// Auth-restyle ledger tests (U-07, DISCO-DESIGN-SYSTEM §3.2/§3.3/§5.1/§5.2).
+/// Auth-restyle ledger tests (U-07, DISCO-DESIGN-SYSTEM §3.2/§3.3/§5.1/§5.2,
+/// LUXE v2 ORCHESTRATION-LUXE.md "Gradient family → screen map").
 ///
-/// Each test pins a *deliberate visual change* from the U-07 ledger — the
-/// auth screens are restyled, not redesigned, so the text/l10n assertions of
-/// `auth_screens_test.dart` / `auth_interactions_test.dart` stay the contract
-/// for behavior and flow; this file only asserts the §5 visual contract:
+/// Each test pins a *deliberate visual change* from the U-07 ledger + the
+/// LUXE v2 overhaul — the auth screens are restyled, not redesigned, so the
+/// text/l10n assertions of `auth_screens_test.dart` /
+/// `auth_interactions_test.dart` stay the contract for behavior and flow;
+/// this file only asserts the §5 visual contract:
 ///
 /// 1. Welcome primary CTA is the filled `VButton.glowAccent` (§5.1 brand
-///    moment) with the `VDiscoDivider` between the CTAs (U-06 widget).
-/// 2. Auth big headers use Playfair Display italic `displayMedium` (§3.2/§3.3)
-///    — signup, age_gate, otp, privacy_terms.
+///    moment) carrying the **violet** welcome family gradient (NO pink mains
+///    — 2026-08-12 directive); the secondary "Iniciar sesión" entry is a
+///    plain muted text link (the login-screen secondary pattern) — the
+///    VDiscoDivider is gone (XL-19: redundant ornament on a brand screen).
+/// 2. Auth big headers render through the LUXE `VDisplayText` hero — Playfair
+///    italic bold, ALWAYS UPPERCASE, family gradient fill + slow pulsing glow
+///    — one hero per screen (§3.2/§3.3, directive #6/#8).
 /// 3. The OTP field uses the `AppTypography.otpInputText` token (§3.3).
 /// 4. Error texts render in `AppColors.error` (glowPink — never raw red on
 ///    black, §5.2), wired through `VInput.errorText` where it improves the
@@ -141,109 +150,181 @@ Future<void> _unmount(WidgetTester tester) async {
   await tester.pumpWidget(const SizedBox());
 }
 
-/// Asserts [text] renders in the §3.2 auth-header role: Playfair Display
-/// italic 700 at 40 with the glow-strong stack behind it.
-void _expectPlayfairHeader(Text text, String label) {
+/// Asserts [label] renders through the LUXE v2 auth-header role: the screen's
+/// one [VDisplayText] hero — Playfair Display italic bold, ALWAYS UPPERCASE,
+/// with the [family] gradient fill and the pulsing halo (§3.2/§3.3, LUXE
+/// directive #6/#8).
+void _expectDisplayHeader(
+  WidgetTester tester,
+  String label,
+  AppGradient family,
+) {
+  final display = tester.widget<VDisplayText>(find.byType(VDisplayText));
   expect(
-    text.style?.fontFamily,
+    display.text,
+    label,
+    reason: '$label must be the VDisplayText hero (one per screen)',
+  );
+  expect(
+    display.gradient,
+    family,
+    reason: '$label must carry the screen\'s $family gradient family',
+  );
+  final glyph = tester.widget<Text>(find.text(label.toUpperCase()));
+  expect(
+    glyph.style?.fontFamily,
     AppTypography.playfair,
     reason: '$label must be Playfair Display (§3.2)',
   );
   expect(
-    text.style?.fontSize,
+    glyph.style?.fontSize,
     AppTypography.displayMedium.fontSize,
     reason: '$label must be displayMedium 40px (§3.3)',
   );
   expect(
-    text.style?.fontStyle,
+    glyph.style?.fontStyle,
     FontStyle.italic,
     reason: '$label must be Playfair italic (§3.1/§3.2)',
   );
+}
+
+/// Asserts the LUXE brand-moment CTA: the filled `glowAccent` carrying the
+/// screen's [family] gradient (NO pink mains — 2026-08-12 directive) with
+/// black text (6.00:1 against the pastel-first fill).
+void _expectFilledGlowAccent(
+  WidgetTester tester,
+  String label,
+  AppGradient family,
+) {
+  final button = tester.widget<VButton>(find.widgetWithText(VButton, label));
   expect(
-    text.style?.shadows,
-    isNotEmpty,
-    reason: '$label must carry the glow stack (§3.4)',
+    button.variant,
+    VButtonVariant.glow,
+    reason: '$label is the glowAccent variant (§5.1)',
+  );
+  expect(
+    button.filled,
+    isTrue,
+    reason: '$label is the filled brand-moment CTA (§5.1)',
+  );
+  expect(
+    button.gradient,
+    family,
+    reason: '$label must carry the screen\'s $family gradient — never pink',
+  );
+  final style = tester
+      .widget<TextButton>(find.widgetWithText(TextButton, label))
+      .style;
+  expect(
+    style?.foregroundColor?.resolve({}),
+    AppColors.discoBlack,
+    reason: '$label fill carries black text — 6.00:1 (§2.5 rule 2)',
   );
 }
 
 void main() {
-  group('WelcomeScreen — §5.1 brand-moment CTA (U-07)', () {
-    testWidgets('primary CTA is the filled glowAccent (pink fill + black '
-        'text)', (tester) async {
+  group('WelcomeScreen — §5.1 brand-moment CTA (U-07, LUXE v2)', () {
+    testWidgets('primary CTA is the filled glowAccent with the violet '
+        'welcome family (no pink)', (tester) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(tester, const WelcomeScreen(), notifier);
       await tester.pumpAndSettle();
 
-      final style = tester
-          .widget<TextButton>(find.widgetWithText(TextButton, 'Crear cuenta'))
-          .style;
-      expect(
-        style?.backgroundColor?.resolve({}),
-        AppColors.glowPink,
-        reason: 'primary CTA must be the pink glowAccent fill (§5.1)',
-      );
-      expect(
-        style?.foregroundColor?.resolve({}),
-        AppColors.discoBlack,
-        reason: 'pink fill carries black text — 6.00:1 (§2.5 rule 2)',
+      _expectFilledGlowAccent(
+        tester,
+        'Crear cuenta',
+        AppGradients.familyOf('welcome'),
       );
     });
 
-    testWidgets('secondary CTA stays the outlined white variant', (
+    testWidgets('secondary CTA is a plain muted text link (login-screen '
+        'pattern)', (tester) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const WelcomeScreen(), notifier);
+      await tester.pumpAndSettle();
+
+      final button = tester.widget<TextButton>(
+        find.widgetWithText(TextButton, 'Iniciar sesión'),
+      );
+      expect(
+        button.style?.backgroundColor?.resolve({}),
+        isNull,
+        reason: 'no background — a plain text link, not a bordered button',
+      );
+      expect(
+        button.style?.side?.resolve({}),
+        null,
+        reason: 'XL-19: no border — the secondary entry demotes to a '
+            'muted text link',
+      );
+      final link = tester.widget<Text>(find.text('Iniciar sesión'));
+      expect(
+        link.style?.color,
+        AppColors.mutedStrong,
+        reason: 'mutedStrong #999999 — the primary CTA must dominate',
+      );
+    });
+
+    testWidgets('the VDiscoDivider is gone — one primary CTA only (XL-19)', (
       tester,
     ) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(tester, const WelcomeScreen(), notifier);
       await tester.pumpAndSettle();
 
-      final style = tester
-          .widget<TextButton>(find.widgetWithText(TextButton, 'Iniciar sesión'))
-          .style;
-      expect(style?.backgroundColor?.resolve({}), Colors.transparent);
+      expect(find.byType(VDiscoDivider), findsNothing);
+      // The wordmark + tagline + ONE primary CTA block: the sign-in entry
+      // is the text link (already covered above).
       expect(
-        style?.side?.resolve({}),
-        const BorderSide(color: AppColors.white),
+        tester.widgetList<VButton>(find.byType(VButton)).length,
+        1,
+        reason: 'exactly one VButton on the brand screen',
       );
     });
 
-    testWidgets('shows the VDiscoDivider between the CTAs (U-06)', (
-      tester,
-    ) async {
+    testWidgets('wordmark is the VDisplayText hero (Playfair displayLarge, '
+        'violet family, breathing glow)', (tester) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(tester, const WelcomeScreen(), notifier);
       await tester.pumpAndSettle();
 
-      expect(find.byType(VDiscoDivider), findsOneWidget);
-    });
-
-    testWidgets('wordmark stays Playfair displayLarge with the glow (§3.2)', (
-      tester,
-    ) async {
-      final notifier = _RecordingAuthNotifier();
-      await _pump(tester, const WelcomeScreen(), notifier);
-      await tester.pumpAndSettle();
-
+      final display = tester.widget<VDisplayText>(find.byType(VDisplayText));
+      expect(display.text, 'VIVE');
+      expect(display.gradient, AppGradients.violet);
       final text = tester.widget<Text>(find.text('VIVE'));
       expect(text.style?.fontFamily, AppTypography.playfair);
       expect(text.style?.fontSize, AppTypography.displayLarge.fontSize);
       expect(text.style?.fontStyle, FontStyle.italic);
-      expect(text.style?.shadows, isNotEmpty);
+    });
+
+    testWidgets('one aurora ambient per screen (violet + cyan brand wash)', (
+      tester,
+    ) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const WelcomeScreen(), notifier);
+      await tester.pumpAndSettle();
+
+      final aurora = tester.widget<VAurora>(find.byType(VAurora));
+      expect(aurora.gradients, [AppGradients.violet, AppGradients.cyan]);
     });
   });
 
-  group('Auth big headers — Playfair displayMedium (§3.2/§3.3)', () {
-    testWidgets('signup header renders Playfair with the glow', (tester) async {
+  group('Auth big headers — VDisplayText heroes (§3.2/§3.3, LUXE v2)', () {
+    testWidgets('signup header renders the violet hero with the glow', (
+      tester,
+    ) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(tester, const SignupContactScreen(), notifier);
       await tester.pumpAndSettle();
 
-      _expectPlayfairHeader(
-        tester.widget<Text>(find.text('Crea tu cuenta')),
-        'signup header',
+      _expectDisplayHeader(
+        tester,
+        'Crea tu cuenta',
+        AppGradients.familyOf('signup'),
       );
     });
 
-    testWidgets('age_gate header renders Playfair with the glow', (
+    testWidgets('age_gate header renders the violet hero with the glow', (
       tester,
     ) async {
       final notifier = _RecordingAuthNotifier();
@@ -254,13 +335,16 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      _expectPlayfairHeader(
-        tester.widget<Text>(find.text('¿Cuál es tu fecha de nacimiento?')),
-        'age_gate header',
+      _expectDisplayHeader(
+        tester,
+        '¿Cuál es tu fecha de nacimiento?',
+        AppGradients.familyOf('age_gate'),
       );
     });
 
-    testWidgets('otp header renders Playfair with the glow', (tester) async {
+    testWidgets('otp header renders the gold hero with the glow', (
+      tester,
+    ) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(
         tester,
@@ -269,14 +353,15 @@ void main() {
       );
       await tester.pump();
 
-      _expectPlayfairHeader(
-        tester.widget<Text>(find.text('Ingresa el código de verificación')),
-        'otp header',
+      _expectDisplayHeader(
+        tester,
+        'Ingresa el código de verificación',
+        AppGradients.familyOf('otp'),
       );
       await _unmount(tester);
     });
 
-    testWidgets('privacy_terms header renders Playfair with the glow', (
+    testWidgets('privacy_terms header renders the mint hero with the glow', (
       tester,
     ) async {
       final notifier = _RecordingAuthNotifier();
@@ -287,45 +372,38 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      _expectPlayfairHeader(
-        tester.widget<Text>(find.text('Acepta los términos para continuar')),
-        'privacy_terms header',
+      _expectDisplayHeader(
+        tester,
+        'Acepta los términos para continuar',
+        AppGradients.familyOf('privacy_terms'),
       );
     });
 
-    testWidgets('forgot-password header renders Playfair with the glow', (
-      tester,
-    ) async {
+    testWidgets('forgot-password header renders the peach hero with the '
+        'glow', (tester) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(tester, const ForgotPasswordScreen(), notifier);
       await tester.pumpAndSettle();
 
-      _expectPlayfairHeader(
-        tester.widget<Text>(find.text('¿Olvidaste tu contraseña?')),
-        'forgot-password header',
+      _expectDisplayHeader(
+        tester,
+        '¿Olvidaste tu contraseña?',
+        AppGradients.familyOf('forgot_password'),
       );
     });
   });
 
-  group('ForgotPasswordScreen — §5.1 brand-moment CTA (U-14 R3)', () {
-    testWidgets('primary CTA is the filled glowAccent (pink fill + black '
-        'text)', (tester) async {
+  group('ForgotPasswordScreen — §5.1 brand-moment CTA (U-14 R3, LUXE v2)', () {
+    testWidgets('primary CTA is the filled glowAccent with the peach family '
+        '(no pink)', (tester) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(tester, const ForgotPasswordScreen(), notifier);
       await tester.pumpAndSettle();
 
-      final style = tester
-          .widget<TextButton>(find.widgetWithText(TextButton, 'Enviar enlace'))
-          .style;
-      expect(
-        style?.backgroundColor?.resolve({}),
-        AppColors.glowPink,
-        reason: 'primary CTA must be the pink glowAccent fill (§5.1)',
-      );
-      expect(
-        style?.foregroundColor?.resolve({}),
-        AppColors.discoBlack,
-        reason: 'pink fill carries black text — 6.00:1 (§2.5 rule 2)',
+      _expectFilledGlowAccent(
+        tester,
+        'Enviar enlace',
+        AppGradients.familyOf('forgot_password'),
       );
     });
 
@@ -503,27 +581,32 @@ void main() {
     });
   });
 
-  group('§6.2 breathing auth headers (U-23 — closing U-18\'s flagged gap)',
-      () {
-    void expectBreathingHeader(String label) {
-      final glow = find.byType(VBreathingGlow);
-      expect(glow, findsOneWidget,
-          reason: '§6.2 — exactly one breathing element per screen');
+  group('§6.2 display auth headers (LUXE v2 — VDisplayText, one hero per '
+      'screen)', () {
+    void expectDisplayHeader(String label) {
+      final display = find.byType(VDisplayText);
       expect(
-        find.descendant(of: glow, matching: find.text(label)),
+        display,
         findsOneWidget,
-        reason: '$label is the screen\'s breathing auth header',
+        reason:
+            '§6.2 + LUXE directive #8 — exactly one display hero per '
+            'screen',
+      );
+      expect(
+        find.descendant(of: display, matching: find.text(label.toUpperCase())),
+        findsOneWidget,
+        reason: '$label is the screen\'s display hero',
       );
     }
 
-    testWidgets('signup header is the breathing element', (tester) async {
+    testWidgets('signup header is the display hero', (tester) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(tester, const SignupContactScreen(), notifier);
       await tester.pumpAndSettle();
-      expectBreathingHeader('Crea tu cuenta');
+      expectDisplayHeader('Crea tu cuenta');
     });
 
-    testWidgets('age_gate header is the breathing element', (tester) async {
+    testWidgets('age_gate header is the display hero', (tester) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(
         tester,
@@ -531,12 +614,10 @@ void main() {
         notifier,
       );
       await tester.pumpAndSettle();
-      expectBreathingHeader('¿Cuál es tu fecha de nacimiento?');
+      expectDisplayHeader('¿Cuál es tu fecha de nacimiento?');
     });
 
-    testWidgets('privacy_terms header is the breathing element', (
-      tester,
-    ) async {
+    testWidgets('privacy_terms header is the display hero', (tester) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(
         tester,
@@ -544,16 +625,15 @@ void main() {
         notifier,
       );
       await tester.pumpAndSettle();
-      expectBreathingHeader('Acepta los términos para continuar');
+      expectDisplayHeader('Acepta los términos para continuar');
     });
 
-    testWidgets('forgot-password header breathes in the form state', (
-      tester,
-    ) async {
+    testWidgets('forgot-password header is the display hero in the form '
+        'state', (tester) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(tester, const ForgotPasswordScreen(), notifier);
       await tester.pumpAndSettle();
-      expectBreathingHeader('¿Olvidaste tu contraseña?');
+      expectDisplayHeader('¿Olvidaste tu contraseña?');
     });
   });
 }

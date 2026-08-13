@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
@@ -153,10 +154,12 @@ void main() {
       expect(appBarTheme.foregroundColor, Colors.white);
     });
 
-    test('BottomNav has black background, white selected, gray unselected', () {
+    test('BottomNav is translucent glass, white selected, gray unselected', () {
       final theme = SamayTheme.dark;
       final navTheme = theme.bottomNavigationBarTheme;
-      expect(navTheme.backgroundColor, Colors.black);
+      // LUXE v2 (XL-06): the bar rides on a glass strip — its own fill is a
+      // translucent dark tint (surface α0.85) over the white glass sheen.
+      expect(navTheme.backgroundColor, AppColors.surface.withValues(alpha: 0.85));
       expect(navTheme.selectedItemColor, Colors.white);
       expect(navTheme.unselectedItemColor, AppColors.muted);
       expect(navTheme.type, BottomNavigationBarType.fixed);
@@ -181,23 +184,40 @@ void main() {
         expect(shape.borderRadius, AppRadius.sharp);
       });
 
-      test('input: white underline 1px/2px, §5.2 label mutedStrong, hint '
-          'muted, error glowPink', () {
+      test('input: radius-16 liquid-glass field, no underline, label always '
+          'above (LUXE #7), §5.2 colors', () {
         final theme = SamayTheme.dark;
+        final input = theme.inputDecorationTheme;
+        expect(input.filled, isTrue);
         expect(
-          theme.inputDecorationTheme.labelStyle?.color,
-          AppColors.mutedStrong,
+          input.fillColor,
+          AppColors.surfaceAlt.withValues(alpha: 0.5),
         );
-        expect(theme.inputDecorationTheme.hintStyle?.color, AppColors.muted);
-        final enabled =
-            theme.inputDecorationTheme.enabledBorder! as UnderlineInputBorder;
-        expect(enabled.borderSide.color, AppColors.white);
+        expect(input.floatingLabelBehavior, FloatingLabelBehavior.always);
+        expect(input.labelStyle?.color, AppColors.mutedStrong);
+        expect(input.hintStyle?.color, AppColors.muted);
+        final enabled = input.enabledBorder! as OutlineInputBorder;
+        expect(enabled.borderRadius, BorderRadius.circular(16));
+        expect(enabled.borderSide.color, AppColors.white.withValues(alpha: 0.25));
         expect(enabled.borderSide.width, 1);
-        final focused =
-            theme.inputDecorationTheme.focusedBorder! as UnderlineInputBorder;
-        expect(focused.borderSide.color, AppColors.white);
-        expect(focused.borderSide.width, 2);
-        expect(theme.inputDecorationTheme.errorStyle?.color, AppColors.error);
+        final focused = input.focusedBorder! as OutlineInputBorder;
+        expect(focused.borderSide.color, AppColors.white.withValues(alpha: 0.8));
+        expect(focused.borderSide.width, 1.5);
+        final error = input.errorBorder! as OutlineInputBorder;
+        expect(error.borderSide.color, AppColors.glowPink.withValues(alpha: 0.8));
+        expect(input.errorStyle?.color, AppColors.error);
+      });
+
+      test('pageTransitionsTheme: Cupertino swipe-back on every platform '
+          '(LUXE #9)', () {
+        final builders = SamayTheme.dark.pageTransitionsTheme.builders;
+        for (final platform in TargetPlatform.values) {
+          expect(
+            builders[platform],
+            isA<CupertinoPageTransitionsBuilder>(),
+            reason: '$platform must swipe back like iOS (LUXE #9)',
+          );
+        }
       });
 
       test('card: surface fill, hairline border, sharp (§5.3)', () {

@@ -316,25 +316,32 @@ void main() {
   });
 
   group('OtpVerificationScreen — attempts-remaining counter (U-14 R2)', () {
-    testWidgets('counter appears after a wrong code and counts down', (
+    testWidgets('counter appears only near the limit and counts down', (
       tester,
     ) async {
       final notifier = _RecordingAuthNotifier()..failVerification = true;
       await _pumpScreen(tester, notifier);
       await tester.pump();
 
-      expect(find.text('Te quedan 4 intentos'), findsNothing);
+      // XL-18 (Gemma 04_otp "pedestrian form" — remove helper duplication):
+      // early failures read through the error text alone; the counter only
+      // surfaces once the budget is nearly spent (remaining ≤ 2).
+      for (var i = 0; i < 2; i++) {
+        await tester.enterText(find.byType(TextField), '000000');
+        await tester.pump();
+      }
+      expect(find.textContaining('intento'), findsNothing);
 
       await tester.enterText(find.byType(TextField), '000000');
       await tester.pump();
 
-      expect(find.text('Te quedan 4 intentos'), findsOneWidget);
+      expect(find.text('Te quedan 2 intentos'), findsOneWidget);
 
       await tester.enterText(find.byType(TextField), '111111');
       await tester.pump();
 
-      expect(find.text('Te quedan 3 intentos'), findsOneWidget);
-      expect(find.text('Te quedan 4 intentos'), findsNothing);
+      expect(find.text('Te queda 1 intento'), findsOneWidget);
+      expect(find.text('Te quedan 2 intentos'), findsNothing);
       await _unmount(tester);
     });
 

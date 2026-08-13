@@ -242,7 +242,8 @@ void main() {
 
       expect(find.byType(VComingSoonScreen), findsOneWidget);
       expect(find.byType(CosmeticsShopScreen), findsNothing);
-      expect(find.text('Pr\u00f3ximamente'), findsOneWidget);
+      // LUXE display voice: the MAYUS rule uppercases the headline.
+      expect(find.text('PR\u00d3XIMAMENTE'), findsOneWidget);
       expect(find.text('Cosméticos'), findsOneWidget);
     });
   });
@@ -261,6 +262,8 @@ void main() {
       // U-15 R9's VEmptyView (empty groups) grew the profile list — the
       // cosmetics row sits below the 800px logical fold; scroll to it first.
       await tester.scrollUntilVisible(find.text('Cosméticos'), 100);
+      await tester.ensureVisible(find.text('Cosméticos'));
+      await tester.pumpAndSettle();
       expect(find.text('Cosméticos'), findsOneWidget);
 
       await tester.tap(find.text('Cosméticos'));

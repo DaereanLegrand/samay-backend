@@ -302,7 +302,11 @@ void main() {
       );
 
       await tester.tap(find.byTooltip('Bloquear'));
-      await tester.pumpAndSettle();
+      // Bounded pumps, not pumpAndSettle: the screen's VAurora drift keeps
+      // frames scheduled for ~10s of fake time, which would run the snackbar
+      // through its full 4s lifecycle and dismiss it (LUXE restyle, XL-13).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       verify(() => friends.blockUser(_otherId)).called(1);
       expect(find.text('Usuario bloqueado'), findsOneWidget);
@@ -329,7 +333,10 @@ void main() {
       );
 
       await tester.tap(find.byTooltip('Bloquear'));
-      await tester.pumpAndSettle();
+      // Bounded pumps — see the block-success test above (VAurora drift vs
+      // the 4s snackbar lifecycle under pumpAndSettle).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(find.text('Error de conexión. Verifica tu internet.'),
           findsOneWidget);

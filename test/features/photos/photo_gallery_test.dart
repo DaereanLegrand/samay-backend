@@ -686,7 +686,11 @@ void main() {
       );
 
       await tester.tap(find.byKey(const ValueKey('photos-upload-button')));
-      await tester.pumpAndSettle();
+      // Bounded pumps, not pumpAndSettle: the screen's VAurora drift keeps
+      // frames scheduled for ~10s of fake time, which would run the snackbar
+      // through its full 4s lifecycle and dismiss it (LUXE restyle, XL-13).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(media.uploadedEventId, _eventId);
       expect(media.uploaded, hasLength(1));
@@ -710,7 +714,10 @@ void main() {
       );
 
       await tester.tap(find.byKey(const ValueKey('photos-upload-button')));
-      await tester.pumpAndSettle();
+      // Bounded pumps — see the upload-success test above (VAurora drift vs
+      // the 4s snackbar lifecycle under pumpAndSettle).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(media.uploaded, isEmpty);
       expect(find.byType(SnackBar), findsOneWidget,

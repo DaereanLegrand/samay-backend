@@ -263,7 +263,10 @@ void main() {
       await _pumpGroupScreen(tester, service);
 
       await tester.tap(find.text('Agregar foto de portada'));
-      await tester.pumpAndSettle();
+      // LUXE: bounded pumps — the screen's VAurora drift advances the fake
+      // clock past the snackbar's auto-dismiss under pumpAndSettle.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
       expect(requested, ph.Permission.photos,
           reason: 'the gallery picker must request photo-library access first');

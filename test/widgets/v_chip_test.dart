@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
+import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/shared/widgets/v_chip.dart';
 
 Widget _buildApp(Widget child) {
@@ -49,24 +50,36 @@ void main() {
       expect(chip.labelStyle?.color, AppColors.discoBlack);
     });
 
-    testWidgets('accent chip has pink border and pink label (§5.4)', (
-      tester,
-    ) async {
+    testWidgets('accent chip has violet-family border and label (§5.4, '
+        'LUXE no-pink-mains)', (tester) async {
       await tester.pumpWidget(_buildApp(const VChip.accent(label: 'VIP')));
       final chip = tester.widget<FilterChip>(find.byType(FilterChip));
-      expect(chip.side, const BorderSide(color: AppColors.glowPink));
-      expect(chip.labelStyle?.color, AppColors.glowPink);
+      expect(chip.side, const BorderSide(color: AppColors.discoViolet));
+      expect(chip.labelStyle?.color, AppColors.discoViolet);
     });
 
-    testWidgets('selected accent chip has pink fill + black label', (
+    testWidgets('selected accent chip has violet-family fill + black label', (
       tester,
     ) async {
       await tester.pumpWidget(
         _buildApp(const VChip.accent(label: 'VIP', selected: true)),
       );
       final chip = tester.widget<FilterChip>(find.byType(FilterChip));
-      expect(chip.selectedColor, AppColors.glowPink);
+      expect(chip.selectedColor, AppColors.discoViolet);
       expect(chip.labelStyle?.color, AppColors.discoBlack);
+    });
+
+    testWidgets('accent gradient param drives the family (cyan)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildApp(
+          const VChip.accent(label: 'VIP', gradient: AppGradients.cyan),
+        ),
+      );
+      final chip = tester.widget<FilterChip>(find.byType(FilterChip));
+      expect(chip.side, const BorderSide(color: AppColors.discoCyan));
+      expect(chip.labelStyle?.color, AppColors.discoCyan);
     });
 
     testWidgets('sharp corners (§4.2)', (tester) async {

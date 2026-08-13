@@ -198,7 +198,12 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.camera_alt));
-      await tester.pumpAndSettle();
+      // LUXE v2 (XL-08): the gold VAurora's 10s ambient drift keeps frames
+      // scheduled — `pumpAndSettle` would advance the clock past the
+      // snackbar's 4s auto-dismiss. Bounded pumps: the async upload chain
+      // (all microtasks, no timers) completes, then the entrance plays.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       verify(() => h.media.uploadUserAvatar(_userId, any())).called(1);
       verify(() => h.userService.updateAvatarUrl(_userId, _avatarUrl))
@@ -221,7 +226,10 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.camera_alt));
-      await tester.pumpAndSettle();
+      // Bounded pump (not pumpAndSettle — the aurora drift would outlive the
+      // snackbar's 4s auto-dismiss; see the full-flow test note).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       final l10n = await AppLocalizations.delegate.load(const Locale('es'));
       expect(find.text(l10n.permissionsPhotoRationale), findsOneWidget);
@@ -260,7 +268,10 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.camera_alt));
-      await tester.pumpAndSettle();
+      // Bounded pump (not pumpAndSettle — the aurora drift would outlive the
+      // snackbar's 4s auto-dismiss; see the full-flow test note).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       // I-08 maps raw exceptions to the generic server error — no internals.
       expect(

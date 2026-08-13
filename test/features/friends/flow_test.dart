@@ -1025,7 +1025,11 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Agregar'));
-      await tester.pumpAndSettle();
+      // LUXE note: bounded pumps, NOT pumpAndSettle — the screen's VAurora
+      // drift advances the fake clock past the snackbar's 4s auto-dismiss
+      // under pumpAndSettle (XL-10 MISTAKE XL-10-B).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
       expect(find.byType(AlertDialog), findsNothing);
       expect(find.text('Solicitud enviada'), findsOneWidget);

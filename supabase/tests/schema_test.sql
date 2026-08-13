@@ -2,7 +2,7 @@
 -- Covers all 25 migrations (20260510000001 through 20260810000007).
 BEGIN;
 
-SELECT plan(321);
+SELECT plan(328);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -436,6 +436,39 @@ SELECT function_privs_are('public', 'check_signup_email', ARRAY['text']::name[],
     'anon has EXECUTE on check_signup_email');
 SELECT function_privs_are('public', 'check_signup_email', ARRAY['text']::name[], 'authenticated', ARRAY['EXECUTE'],
     'authenticated has EXECUTE on check_signup_email');
+
+-- ============================================================
+-- SECTION 37b: RPC — upsert_signup_tracker (migration 20260812000001)
+-- ============================================================
+-- SECURITY DEFINER pre-auth signup_tracker WRITE used by sendOtp()
+-- (lib/core/services/auth_service.dart): the email-scoped RLS policies
+-- (email = auth.jwt()->>'email') can never match an ANONYMOUS JWT (no
+-- email claim), so the client's pre-OTP upsert 42501'd into the OTP
+-- funnel's "No tienes permiso..." error. Same posture as check_signup_email:
+-- search_path = '' + EXECUTE granted to anon + authenticated only. The
+-- p_profile_created = true branch is gated on the JWT email matching
+-- p_email (anon must not be able to squat 'exists' rows).
+SELECT has_function('upsert_signup_tracker', ARRAY['text', 'boolean'],
+    'upsert_signup_tracker(p_email text, p_profile_created boolean) exists');
+SELECT is((SELECT prosecdef FROM pg_proc WHERE proname = 'upsert_signup_tracker'),
+    true, 'upsert_signup_tracker is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY(proconfig) FROM pg_proc WHERE proname = 'upsert_signup_tracker'),
+    'upsert_signup_tracker sets search_path = '''' (migration 20260812000001)'
+);
+SELECT function_privs_are('public', 'upsert_signup_tracker', ARRAY['text', 'boolean']::name[], 'anon', ARRAY['EXECUTE'],
+    'anon has EXECUTE on upsert_signup_tracker');
+SELECT function_privs_are('public', 'upsert_signup_tracker', ARRAY['text', 'boolean']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'authenticated has EXECUTE on upsert_signup_tracker');
+-- Behavioral: anon-style claims (no email claim) can write the pre-verify
+-- row (profile_created = false) but cannot squat profile_created = true.
+SELECT set_config('request.jwt.claims',
+    '{"sub":"00000000-0000-0000-0000-000000000000","role":"anon"}', false);
+SELECT lives_ok($$SELECT public.upsert_signup_tracker('tracker-probe@test.local', false)$$,
+    'anon-style claims: pre-verify write (profile_created = false) works');
+SELECT throws_ok($$SELECT public.upsert_signup_tracker('tracker-probe@test.local', true)$$,
+    'P0001', 'Not authorized',
+    'anon-style claims: profile_created = true raises (JWT-email guard, 20260812000001)');
 
 -- ============================================================
 -- SECTION 38: Hardening migration 20260809000001 (agent I-31)
@@ -1252,8 +1285,8 @@ SELECT ok(
      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public' AND p.prosecdef
        AND has_function_privilege('anon', p.oid, 'EXECUTE')
-       AND p.proname NOT IN ('check_signup_email', 'is_group_member')) = 0,
-    'anon cannot EXECUTE any SECURITY DEFINER function (except check_signup_email + is_group_member RLS helper)'
+       AND p.proname NOT IN ('check_signup_email', 'is_group_member', 'upsert_signup_tracker')) = 0,
+    'anon cannot EXECUTE any SECURITY DEFINER function (except check_signup_email + is_group_member + upsert_signup_tracker)'
 );
 
 SELECT ok(

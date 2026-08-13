@@ -372,7 +372,11 @@ void main() {
       await tester.tap(find.text('Expulsar del grupo'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Expulsar'));
-      await tester.pumpAndSettle();
+      // LUXE: bounded pumps instead of pumpAndSettle — the members screen's
+      // VAurora drift would advance the fake clock past the snackbar's 4s
+      // auto-dismiss before the assertion runs.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(
         find.textContaining('Error del servidor'),

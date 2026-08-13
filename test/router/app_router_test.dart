@@ -68,28 +68,28 @@ const _chatId = '33333333-3333-3333-3333-333333333333';
 const _token = '44444444-4444-4444-4444-444444444444';
 
 Map<String, dynamic> _event() => {
-      'id': _eventId,
-      'name': 'Rave en el garaje',
-      'description': 'La mejor fiesta del barrio',
-      'type': 'juerga',
-      'status': 'upcoming',
-      'created_by_user_id': _eventId,
-      'group_id': null,
-      'location_name': 'Av. Los Aromos 123',
-      'starts_at': DateTime(2026, 5, 15, 21).toIso8601String(),
-      'ends_at': DateTime(2026, 5, 16, 2).toIso8601String(),
-      'join_mode': 'open',
-      'preshards_pool': 500,
-      'preshards_distributed': false,
-      'preshards_cap_per_user': null,
-      'preshards_remainder_action': 'return',
-      'dynamic_qr_enabled': true,
-      'invite_token': 'invite-token',
-      'cover_url': null,
-      'featured': false,
-      'created_at': DateTime(2026, 5, 10).toIso8601String(),
-      'updated_at': DateTime(2026, 5, 10).toIso8601String(),
-    };
+  'id': _eventId,
+  'name': 'Rave en el garaje',
+  'description': 'La mejor fiesta del barrio',
+  'type': 'juerga',
+  'status': 'upcoming',
+  'created_by_user_id': _eventId,
+  'group_id': null,
+  'location_name': 'Av. Los Aromos 123',
+  'starts_at': DateTime(2026, 5, 15, 21).toIso8601String(),
+  'ends_at': DateTime(2026, 5, 16, 2).toIso8601String(),
+  'join_mode': 'open',
+  'preshards_pool': 500,
+  'preshards_distributed': false,
+  'preshards_cap_per_user': null,
+  'preshards_remainder_action': 'return',
+  'dynamic_qr_enabled': true,
+  'invite_token': 'invite-token',
+  'cover_url': null,
+  'featured': false,
+  'created_at': DateTime(2026, 5, 10).toIso8601String(),
+  'updated_at': DateTime(2026, 5, 10).toIso8601String(),
+};
 
 class _FakeEventDetailNotifier extends EventDetailNotifier {
   @override
@@ -99,16 +99,16 @@ class _FakeEventDetailNotifier extends EventDetailNotifier {
 class _FakeEventPromotoresNotifier extends EventPromotoresNotifier {
   @override
   Future<List<Map<String, dynamic>>> build(String arg) async => [
-        {
-          'id': 'promo-1',
-          'event_id': _eventId,
-          'user_id': _eventId,
-          'role': 'promotor',
-          'preshards_contributed': 500,
-          'added_at': DateTime(2026, 5, 10).toIso8601String(),
-          'users': {'username': 'ana'},
-        },
-      ];
+    {
+      'id': 'promo-1',
+      'event_id': _eventId,
+      'user_id': _eventId,
+      'role': 'promotor',
+      'preshards_contributed': 500,
+      'added_at': DateTime(2026, 5, 10).toIso8601String(),
+      'users': {'username': 'ana'},
+    },
+  ];
 }
 
 class _FakeMyEventInviteNotifier extends MyEventInviteNotifier {
@@ -163,9 +163,16 @@ class _FakeAuthNotifier extends AuthNotifier {
   /// router's `refreshListenable` would bounce the app to login mid-test.
   bool _pinAuthenticated = true;
 
+  /// Profile-less variant (no-fallback policy 2026-08-13): an authenticated
+  /// user without a profile row must NOT be redirected anywhere — the guard
+  /// never navigates on `hasProfile`.
+  final bool hasProfile;
+
+  _FakeAuthNotifier({this.hasProfile = true});
+
   @override
   Future<AuthState> build() async =>
-      const AuthState(authenticated: true, hasProfile: true);
+      AuthState(authenticated: true, hasProfile: hasProfile);
 
   /// Opts out of the pin so tests can simulate a sign-out and exercise the
   /// auth redirect.
@@ -227,26 +234,31 @@ class _FakeShardLedgerNotifier extends ShardLedgerNotifier {
 ProviderContainer _newContainer({
   AppFeatureFlags flags = const AppFeatureFlags(),
   bool qrProviders = false,
+  bool hasProfile = true,
   List<Override> extras = const [],
 }) {
-  final container = ProviderContainer(overrides: [
-    authStateProvider.overrideWith(() => _FakeAuthNotifier()),
-    featureFlagsProvider.overrideWithValue(flags),
-    eventDetailProvider.overrideWith(_FakeEventDetailNotifier.new),
-    eventPromotoresProvider.overrideWith(_FakeEventPromotoresNotifier.new),
-    myEventInviteProvider.overrideWith(_FakeMyEventInviteNotifier.new),
-    discoveryOptInProvider.overrideWith(_FakeDiscoveryOptInNotifier.new),
-    partyMatchesProvider.overrideWith(_FakePartyMatchesNotifier.new),
-    minigameSessionsProvider.overrideWith(_FakeMinigameSessionsNotifier.new),
-    eventPhotosProvider.overrideWith(_FakeEventPhotosNotifier.new),
-    shardLedgerProvider.overrideWith(_FakeShardLedgerNotifier.new),
-    appConfigProvider.overrideWith(() => FakeAppConfigNotifier(const {})),
-    if (qrProviders) ...[
-      myQrTokenProvider.overrideWith(_FakeQrTokenNotifier.new),
-      qrDisplayWindowProvider.overrideWith((ref) async => 15),
+  final container = ProviderContainer(
+    overrides: [
+      authStateProvider.overrideWith(
+        () => _FakeAuthNotifier(hasProfile: hasProfile),
+      ),
+      featureFlagsProvider.overrideWithValue(flags),
+      eventDetailProvider.overrideWith(_FakeEventDetailNotifier.new),
+      eventPromotoresProvider.overrideWith(_FakeEventPromotoresNotifier.new),
+      myEventInviteProvider.overrideWith(_FakeMyEventInviteNotifier.new),
+      discoveryOptInProvider.overrideWith(_FakeDiscoveryOptInNotifier.new),
+      partyMatchesProvider.overrideWith(_FakePartyMatchesNotifier.new),
+      minigameSessionsProvider.overrideWith(_FakeMinigameSessionsNotifier.new),
+      eventPhotosProvider.overrideWith(_FakeEventPhotosNotifier.new),
+      shardLedgerProvider.overrideWith(_FakeShardLedgerNotifier.new),
+      appConfigProvider.overrideWith(() => FakeAppConfigNotifier(const {})),
+      if (qrProviders) ...[
+        myQrTokenProvider.overrideWith(_FakeQrTokenNotifier.new),
+        qrDisplayWindowProvider.overrideWith((ref) async => 15),
+      ],
+      ...extras,
     ],
-    ...extras,
-  ]);
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -322,61 +334,83 @@ void main() {
           final container = _newContainer();
           await _pumpRoute(tester, container, path);
           expect(find.byType(VComingSoonScreen), findsOneWidget);
-          expect(find.text('Pr\u00f3ximamente'), findsOneWidget);
+          // LUXE display voice: the MAYUS rule uppercases the headline.
+          expect(find.text('PR\u00d3XIMAMENTE'), findsOneWidget);
           expect(find.text(title), findsOneWidget);
-          expect(find.byIcon(icon), findsOneWidget,
-              reason: 'coming-soon icon for $path');
+          expect(
+            find.byIcon(icon),
+            findsOneWidget,
+            reason: 'coming-soon icon for $path',
+          );
         });
       }
 
-      testWidgets('${RoutePaths.mainEvents} renders coming soon with bottom nav',
-          (tester) async {
-        final container = _newContainer();
-        await _pumpRoute(tester, container, RoutePaths.mainEvents);
-        expect(find.byType(VComingSoonScreen), findsOneWidget);
-        expect(find.byType(BottomNavigationBar), findsOneWidget);
-        expect(
-          find.text('Los eventos de tus grupos aparecer\u00e1n aqu\u00ed pronto.'),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(
-            of: find.byType(VComingSoonScreen),
-            matching: find.byIcon(Icons.event),
-          ),
-          findsOneWidget,
-          reason: 'the events tab icon — scoped away from the nav tab glyph',
-        );
-      });
-
-      testWidgets('${RoutePaths.mainNotifications} renders the notification center with bottom nav',
-          (tester) async {
-        final container = _newContainer();
-        await _pumpRoute(tester, container, RoutePaths.mainNotifications);
-        expect(find.byType(NotificationCenterScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
-        expect(find.byType(BottomNavigationBar), findsOneWidget);
-      });
-
-      testWidgets('${RoutePaths.groupMembers(_groupId)} renders GroupMembersScreen',
-          (tester) async {
-        final container = _newContainer();
-        await _pumpRoute(tester, container, RoutePaths.groupMembers(_groupId));
-        expect(find.byType(GroupMembersScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
-      });
+      testWidgets(
+        '${RoutePaths.mainEvents} renders coming soon with bottom nav',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(tester, container, RoutePaths.mainEvents);
+          expect(find.byType(VComingSoonScreen), findsOneWidget);
+          expect(find.byType(BottomNavigationBar), findsOneWidget);
+          expect(
+            find.text(
+              'Los eventos de tus grupos aparecer\u00e1n aqu\u00ed pronto.',
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: find.byType(VComingSoonScreen),
+              matching: find.byIcon(Icons.event),
+            ),
+            findsOneWidget,
+            reason: 'the events tab icon — scoped away from the nav tab glyph',
+          );
+        },
+      );
 
       testWidgets(
-          '${RoutePaths.eventInviteToken(_token)} resolves to the event detail route '
-          '(shadowed by /event/:eventId — documented NAV ordering issue, Phase 05)',
-          (tester) async {
-        final container = _newContainer();
-        await _pumpRoute(tester, container, RoutePaths.eventInviteToken(_token));
-        expect(find.byType(EventDetailScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
-      });
-      testWidgets('${RoutePaths.chat(_chatId)} renders ChatScreen',
-          (tester) async {
+        '${RoutePaths.mainNotifications} renders the notification center with bottom nav',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(tester, container, RoutePaths.mainNotifications);
+          expect(find.byType(NotificationCenterScreen), findsOneWidget);
+          expect(find.byType(VComingSoonScreen), findsNothing);
+          expect(find.byType(BottomNavigationBar), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        '${RoutePaths.groupMembers(_groupId)} renders GroupMembersScreen',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(
+            tester,
+            container,
+            RoutePaths.groupMembers(_groupId),
+          );
+          expect(find.byType(GroupMembersScreen), findsOneWidget);
+          expect(find.byType(VComingSoonScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        '${RoutePaths.eventInviteToken(_token)} resolves to the event detail route '
+        '(shadowed by /event/:eventId — documented NAV ordering issue, Phase 05)',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(
+            tester,
+            container,
+            RoutePaths.eventInviteToken(_token),
+          );
+          expect(find.byType(EventDetailScreen), findsOneWidget);
+          expect(find.byType(VComingSoonScreen), findsNothing);
+        },
+      );
+      testWidgets('${RoutePaths.chat(_chatId)} renders ChatScreen', (
+        tester,
+      ) async {
         final container = _newContainer();
         await _pumpRoute(tester, container, RoutePaths.chat(_chatId));
         expect(find.byType(ChatScreen), findsOneWidget);
@@ -384,17 +418,19 @@ void main() {
       });
 
       testWidgets(
-          '${RoutePaths.chat(_chatId)} with the chat flag dark restores the '
-          'coming-soon kill-switch fallback (I-38/I-69)', (tester) async {
-        final container = _newContainer(
-          flags: const AppFeatureFlags(chat: false),
-        );
-        await _pumpRoute(tester, container, RoutePaths.chat(_chatId));
-        expect(find.byType(VComingSoonScreen), findsOneWidget);
-        expect(find.byType(ChatScreen), findsNothing);
-        expect(find.text('Chat'), findsOneWidget);
-        expect(find.byIcon(Icons.chat), findsOneWidget);
-      });
+        '${RoutePaths.chat(_chatId)} with the chat flag dark restores the '
+        'coming-soon kill-switch fallback (I-38/I-69)',
+        (tester) async {
+          final container = _newContainer(
+            flags: const AppFeatureFlags(chat: false),
+          );
+          await _pumpRoute(tester, container, RoutePaths.chat(_chatId));
+          expect(find.byType(VComingSoonScreen), findsOneWidget);
+          expect(find.byType(ChatScreen), findsNothing);
+          expect(find.text('Chat'), findsOneWidget);
+          expect(find.byIcon(Icons.chat), findsOneWidget);
+        },
+      );
     });
 
     group('RoutePaths coherence', () {
@@ -444,27 +480,36 @@ void main() {
       }
 
       testWidgets(
-          '${RoutePaths.createGroupEvent(_groupId)} renders CreateEventScreen '
-          'when the events flag is on (dark-first gating, I-54)', (tester) async {
-        final container = _newContainer(flags: const AppFeatureFlags(events: true));
-        await _pumpRoute(tester, container, RoutePaths.createGroupEvent(_groupId));
-        expect(find.byType(CreateEventScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
-      });
+        '${RoutePaths.createGroupEvent(_groupId)} renders CreateEventScreen '
+        'when the events flag is on (dark-first gating, I-54)',
+        (tester) async {
+          final container = _newContainer(
+            flags: const AppFeatureFlags(events: true),
+          );
+          await _pumpRoute(
+            tester,
+            container,
+            RoutePaths.createGroupEvent(_groupId),
+          );
+          expect(find.byType(CreateEventScreen), findsOneWidget);
+          expect(find.byType(VComingSoonScreen), findsNothing);
+        },
+      );
 
       testWidgets(
-          '${RoutePaths.partyFinder} renders PartyFinderScreen when the '
-          'partyFinder flag is on (dark-first gating, I-60)', (tester) async {
-        final container = _newContainer(
-          flags: const AppFeatureFlags(partyFinder: true),
-        );
-        await _pumpRoute(tester, container, RoutePaths.partyFinder);
-        expect(find.byType(PartyFinderScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
-      });
+        '${RoutePaths.partyFinder} renders PartyFinderScreen when the '
+        'partyFinder flag is on (dark-first gating, I-60)',
+        (tester) async {
+          final container = _newContainer(
+            flags: const AppFeatureFlags(partyFinder: true),
+          );
+          await _pumpRoute(tester, container, RoutePaths.partyFinder);
+          expect(find.byType(PartyFinderScreen), findsOneWidget);
+          expect(find.byType(VComingSoonScreen), findsNothing);
+        },
+      );
 
-      testWidgets(
-          '${RoutePaths.subscriptions} renders PaywallScreen when the '
+      testWidgets('${RoutePaths.subscriptions} renders PaywallScreen when the '
           'subscriptions flag is on (dark-first gating, I-61)', (tester) async {
         final container = _newContainer(
           flags: const AppFeatureFlags(subscriptions: true),
@@ -475,58 +520,67 @@ void main() {
       });
 
       testWidgets(
-          '${RoutePaths.qr(_eventId)} renders AttendanceQrScreen when the qr '
-          'flag is on (dark-first gating, I-57)', (tester) async {
-        final container = _newContainer(
-          flags: const AppFeatureFlags(qr: true),
-          qrProviders: true,
-        );
-        await _pumpRoute(tester, container, RoutePaths.qr(_eventId));
-        expect(find.byType(AttendanceQrScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
-      });
+        '${RoutePaths.qr(_eventId)} renders AttendanceQrScreen when the qr '
+        'flag is on (dark-first gating, I-57)',
+        (tester) async {
+          final container = _newContainer(
+            flags: const AppFeatureFlags(qr: true),
+            qrProviders: true,
+          );
+          await _pumpRoute(tester, container, RoutePaths.qr(_eventId));
+          expect(find.byType(AttendanceQrScreen), findsOneWidget);
+          expect(find.byType(VComingSoonScreen), findsNothing);
+        },
+      );
 
       testWidgets(
-          '${RoutePaths.eventPhotos(_eventId)} renders PhotoGalleryScreen '
-          'when the photoUpload flag is on (dark-first gating, I-59)',
-          (tester) async {
-        final container = _newContainer(
-          flags: const AppFeatureFlags(photoUpload: true),
-        );
-        await _pumpRoute(tester, container, RoutePaths.eventPhotos(_eventId));
-        expect(find.byType(PhotoGalleryScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
-      });
+        '${RoutePaths.eventPhotos(_eventId)} renders PhotoGalleryScreen '
+        'when the photoUpload flag is on (dark-first gating, I-59)',
+        (tester) async {
+          final container = _newContainer(
+            flags: const AppFeatureFlags(photoUpload: true),
+          );
+          await _pumpRoute(tester, container, RoutePaths.eventPhotos(_eventId));
+          expect(find.byType(PhotoGalleryScreen), findsOneWidget);
+          expect(find.byType(VComingSoonScreen), findsNothing);
+        },
+      );
 
       testWidgets(
-          '${RoutePaths.minigames(_groupId)} renders MinigamesScreen when the '
-          'minigames flag is on (dark-first gating, I-63)', (tester) async {
-        final container = _newContainer(
-          flags: const AppFeatureFlags(minigames: true),
-        );
-        await _pumpRoute(tester, container, RoutePaths.minigames(_groupId));
-        expect(find.byType(MinigamesScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
-      });
+        '${RoutePaths.minigames(_groupId)} renders MinigamesScreen when the '
+        'minigames flag is on (dark-first gating, I-63)',
+        (tester) async {
+          final container = _newContainer(
+            flags: const AppFeatureFlags(minigames: true),
+          );
+          await _pumpRoute(tester, container, RoutePaths.minigames(_groupId));
+          expect(find.byType(MinigamesScreen), findsOneWidget);
+          expect(find.byType(VComingSoonScreen), findsNothing);
+        },
+      );
 
       testWidgets(
-          '${RoutePaths.scanner(_eventId)} renders QrScannerScreen when the '
-          'qr flag is on (dark-first gating, I-57)', (tester) async {
-        final container = _newContainer(
-          flags: const AppFeatureFlags(qr: true),
-          qrProviders: true,
-        );
-        await _pumpRoute(
-          tester,
-          container,
-          RoutePaths.scanner(_eventId),
-          settle: false,
-        );
-        expect(find.byType(QrScannerScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
-      });
+        '${RoutePaths.scanner(_eventId)} renders QrScannerScreen when the '
+        'qr flag is on (dark-first gating, I-57)',
+        (tester) async {
+          final container = _newContainer(
+            flags: const AppFeatureFlags(qr: true),
+            qrProviders: true,
+          );
+          await _pumpRoute(
+            tester,
+            container,
+            RoutePaths.scanner(_eventId),
+            settle: false,
+          );
+          expect(find.byType(QrScannerScreen), findsOneWidget);
+          expect(find.byType(VComingSoonScreen), findsNothing);
+        },
+      );
 
-      testWidgets('${RoutePaths.welcome} redirects to the feed', (tester) async {
+      testWidgets('${RoutePaths.welcome} redirects to the feed', (
+        tester,
+      ) async {
         final container = _newContainer();
         await _pumpRoute(tester, container, RoutePaths.welcome);
         expect(find.byType(FeedScreen), findsOneWidget);
@@ -536,6 +590,21 @@ void main() {
         final container = _newContainer();
         await _pumpRoute(tester, container, RoutePaths.login);
         expect(find.byType(FeedScreen), findsOneWidget);
+      });
+
+      testWidgets('authenticated WITHOUT profile is NOT redirected to signup '
+          '(no-fallback policy)', (tester) async {
+        final container = _newContainer(hasProfile: false);
+        await _pumpRoute(tester, container, RoutePaths.mainFeed);
+        expect(find.byType(FeedScreen), findsOneWidget);
+        expect(find.byType(SignupContactScreen), findsNothing);
+      });
+
+      testWidgets('${RoutePaths.signup} stays reachable for a profile-less '
+          'user (explicit request, no redirect)', (tester) async {
+        final container = _newContainer(hasProfile: false);
+        await _pumpRoute(tester, container, RoutePaths.signup);
+        expect(find.byType(SignupContactScreen), findsOneWidget);
       });
 
       testWidgets('${RoutePaths.verify} resolves with extra', (tester) async {
@@ -549,30 +618,41 @@ void main() {
         expect(find.byType(OtpVerificationScreen), findsOneWidget);
       });
 
-      testWidgets('${RoutePaths.privacyTerms} resolves with extra', (tester) async {
+      testWidgets('${RoutePaths.privacyTerms} resolves with extra', (
+        tester,
+      ) async {
         final container = _newContainer();
         await _pumpRoute(
           tester,
           container,
           RoutePaths.privacyTerms,
-          extra: const PrivacyTermsExtra(email: 'a@b.com', dateOfBirth: '2000-01-01'),
+          extra: const PrivacyTermsExtra(
+            email: 'a@b.com',
+            dateOfBirth: '2000-01-01',
+          ),
         );
         expect(find.byType(PrivacyTermsScreen), findsOneWidget);
       });
 
-      testWidgets('${RoutePaths.profileSetup} resolves with extra', (tester) async {
+      testWidgets('${RoutePaths.profileSetup} resolves with extra', (
+        tester,
+      ) async {
         final container = _newContainer();
         await _pumpRoute(
           tester,
           container,
           RoutePaths.profileSetup,
-          extra: const ProfileSetupExtra(email: 'a@b.com', dateOfBirth: '2000-01-01'),
+          extra: const ProfileSetupExtra(
+            email: 'a@b.com',
+            dateOfBirth: '2000-01-01',
+          ),
         );
         expect(find.byType(ProfileSetupScreen), findsOneWidget);
       });
 
-      testWidgets('${RoutePaths.groupDetail(_groupId)} resolves to a screen',
-          (tester) async {
+      testWidgets('${RoutePaths.groupDetail(_groupId)} resolves to a screen', (
+        tester,
+      ) async {
         final container = _newContainer();
         final router = container.read(routerProvider);
         router.go(RoutePaths.groupDetail(_groupId));
@@ -593,72 +673,88 @@ void main() {
     });
 
     group('route hardening (H-03/H-04/M-08/M-09)', () {
-      testWidgets('${RoutePaths.groupDetail('')} renders RouteErrorScreen, no crash',
-          (tester) async {
-        final container = _newContainer();
-        await _pumpRoute(tester, container, RoutePaths.groupDetail(''));
-        expect(find.byType(RouteErrorScreen), findsOneWidget);
-      });
+      testWidgets(
+        '${RoutePaths.groupDetail('')} renders RouteErrorScreen, no crash',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(tester, container, RoutePaths.groupDetail(''));
+          expect(find.byType(RouteErrorScreen), findsOneWidget);
+        },
+      );
 
-      testWidgets('${RoutePaths.userProfile('')} renders RouteErrorScreen, no crash',
-          (tester) async {
-        final container = _newContainer();
-        await _pumpRoute(tester, container, RoutePaths.userProfile(''));
-        expect(find.byType(RouteErrorScreen), findsOneWidget);
-      });
+      testWidgets(
+        '${RoutePaths.userProfile('')} renders RouteErrorScreen, no crash',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(tester, container, RoutePaths.userProfile(''));
+          expect(find.byType(RouteErrorScreen), findsOneWidget);
+        },
+      );
 
-      testWidgets('${RoutePaths.verify} without extra renders RouteErrorScreen, no crash',
-          (tester) async {
-        final container = _newContainer();
-        await _pumpRoute(tester, container, RoutePaths.verify);
-        expect(find.byType(RouteErrorScreen), findsOneWidget);
-        expect(find.byType(OtpVerificationScreen), findsNothing);
-      });
+      testWidgets(
+        '${RoutePaths.verify} without extra renders RouteErrorScreen, no crash',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(tester, container, RoutePaths.verify);
+          expect(find.byType(RouteErrorScreen), findsOneWidget);
+          expect(find.byType(OtpVerificationScreen), findsNothing);
+        },
+      );
 
-      testWidgets('${RoutePaths.privacyTerms} without extra renders RouteErrorScreen, no crash',
-          (tester) async {
-        final container = _newContainer();
-        await _pumpRoute(tester, container, RoutePaths.privacyTerms);
-        expect(find.byType(RouteErrorScreen), findsOneWidget);
-        expect(find.byType(PrivacyTermsScreen), findsNothing);
-      });
+      testWidgets(
+        '${RoutePaths.privacyTerms} without extra renders RouteErrorScreen, no crash',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(tester, container, RoutePaths.privacyTerms);
+          expect(find.byType(RouteErrorScreen), findsOneWidget);
+          expect(find.byType(PrivacyTermsScreen), findsNothing);
+        },
+      );
 
-      testWidgets('${RoutePaths.profileSetup} without extra renders RouteErrorScreen, no crash',
-          (tester) async {
-        final container = _newContainer();
-        await _pumpRoute(tester, container, RoutePaths.profileSetup);
-        expect(find.byType(RouteErrorScreen), findsOneWidget);
-        expect(find.byType(ProfileSetupScreen), findsNothing);
-      });
+      testWidgets(
+        '${RoutePaths.profileSetup} without extra renders RouteErrorScreen, no crash',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(tester, container, RoutePaths.profileSetup);
+          expect(find.byType(RouteErrorScreen), findsOneWidget);
+          expect(find.byType(ProfileSetupScreen), findsNothing);
+        },
+      );
 
-      testWidgets('${RoutePaths.ageGate} with a wrong-typed extra does not crash',
-          (tester) async {
-        final container = _newContainer();
-        await _pumpRoute(tester, container, RoutePaths.ageGate, extra: 42);
-        expect(find.byType(AgeGateScreen), findsOneWidget);
-      });
+      testWidgets(
+        '${RoutePaths.ageGate} with a wrong-typed extra does not crash',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(tester, container, RoutePaths.ageGate, extra: 42);
+          expect(find.byType(AgeGateScreen), findsOneWidget);
+        },
+      );
 
-      testWidgets('unknown route renders the error screen via errorBuilder',
-          (tester) async {
+      testWidgets('unknown route renders the error screen via errorBuilder', (
+        tester,
+      ) async {
         final container = _newContainer();
         await _pumpRoute(tester, container, '/does/not/exist');
         expect(find.byType(RouteErrorScreen), findsOneWidget);
       });
 
-      testWidgets('auth state change re-evaluates the redirect via refreshListenable',
-          (tester) async {
-        final container = _newContainer();
-        await _pumpRoute(tester, container, RoutePaths.mainProfile);
-        expect(find.byType(ProfileScreen), findsOneWidget);
+      testWidgets(
+        'auth state change re-evaluates the redirect via refreshListenable',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(tester, container, RoutePaths.mainProfile);
+          expect(find.byType(ProfileScreen), findsOneWidget);
 
-        final notifier = container.read(authStateProvider.notifier) as _FakeAuthNotifier;
-        notifier.allowSignOut();
-        notifier.state = const AsyncData(AuthState());
-        await tester.pumpAndSettle();
+          final notifier =
+              container.read(authStateProvider.notifier) as _FakeAuthNotifier;
+          notifier.allowSignOut();
+          notifier.state = const AsyncData(AuthState());
+          await tester.pumpAndSettle();
 
-        expect(find.byType(LoginScreen), findsOneWidget);
-        expect(find.byType(ProfileScreen), findsNothing);
-      });
+          expect(find.byType(LoginScreen), findsOneWidget);
+          expect(find.byType(ProfileScreen), findsNothing);
+        },
+      );
     });
 
     group('connectivity banner on shell routes (I-67 + U-08)', () {
@@ -669,13 +765,15 @@ void main() {
           'when offline and hides when online', (tester) async {
         final controller = StreamController<bool>();
         addTearDown(controller.close);
-        final container = _newContainer(extras: [
-          connectivityServiceProvider.overrideWithValue(
-            ConnectivityService(
-              onConnectivityChanged: () => controller.stream,
+        final container = _newContainer(
+          extras: [
+            connectivityServiceProvider.overrideWithValue(
+              ConnectivityService(
+                onConnectivityChanged: () => controller.stream,
+              ),
             ),
-          ),
-        ]);
+          ],
+        );
 
         await tester.pumpWidget(
           UncontrolledProviderScope(
@@ -697,8 +795,11 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text(offlineCopy), findsOneWidget);
         expect(find.byIcon(Icons.wifi_off), findsOneWidget);
-        expect(find.byType(BottomNavigationBar), findsOneWidget,
-            reason: 'the banner overlays the shell — it must never replace it');
+        expect(
+          find.byType(BottomNavigationBar),
+          findsOneWidget,
+          reason: 'the banner overlays the shell — it must never replace it',
+        );
 
         controller.add(true);
         await tester.pumpAndSettle();
@@ -756,8 +857,11 @@ void main() {
         await tester.tap(find.byIcon(Icons.group_outlined));
         await tester.pump();
 
-        expect(find.byType(MyGroupsScreen), findsOneWidget,
-            reason: 'the incoming tab is already present after one frame');
+        expect(
+          find.byType(MyGroupsScreen),
+          findsOneWidget,
+          reason: 'the incoming tab is already present after one frame',
+        );
         expect(
           find.descendant(
             // Page-transition wrappers of the tab pages live BETWEEN the
@@ -776,7 +880,8 @@ void main() {
             ),
           ),
           findsNothing,
-          reason: 'NoTransitionPage disposes the old tab instantly — no '
+          reason:
+              'NoTransitionPage disposes the old tab instantly — no '
               'slide/zoom wrapper around the incoming one (NAV-08)',
         );
         expect(find.byType(BottomNavigationBar), findsOneWidget);

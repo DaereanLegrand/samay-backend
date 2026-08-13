@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
+import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/design_tokens/app_spacing.dart';
 import 'package:samay/core/theme/app_theme.dart';
 import 'package:samay/features/friends/providers/friends_providers.dart';
@@ -14,21 +15,25 @@ import 'package:samay/features/friends/screens/search_screen.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/features/profile/widgets/profile_avatar.dart';
 import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/glass/glass.dart';
 import 'package:samay/shared/widgets/state_views.dart';
+import 'package:samay/shared/widgets/v_aurora.dart';
+import 'package:samay/shared/widgets/v_badge.dart';
 import 'package:samay/shared/widgets/v_button.dart';
+import 'package:samay/shared/widgets/v_count_badge.dart';
 
 import '../../support/fake_supabase_http.dart' as support;
 
-/// Friends-screens disco restyle ledger tests (U-10, Phase 4.4).
+/// Friends screens LUXE v2 restyle ledger tests (XL-09, phase-04-luxe).
 ///
-/// Pins the visual changes from DISCO-DESIGN-SYSTEM §5 applied screen-by-
-/// screen (the ledger in `docs/development/phase-04-ui/2026-08-11_U10-
-/// friends-restyle.md`): the cyan presence dot (`statusOnline`), the shared
-/// `ProfileAvatar` in every tile with size-scaled initials, hairline
-/// separators between name rows, theme-owned TabBar/TextButtons, the compact
-/// outlined 'Agregar' action, and the completed VStateView empty/loading
-/// states. Flow/text is byte-identical — the existing
-/// friends_screens_test assertions stay untouched.
+/// Pins the ORCHESTRATION-LUXE restyle applied screen-by-screen (the ledger
+/// in `docs/development/phase-04-luxe/2026-08-12_XL-09-friends.md`): mint
+/// family everywhere (NO PINK MAINS), one faint mint [VAurora] per screen,
+/// sharp [VGlassCard] hairline tiles instead of dividers, mint accents ONLY
+/// on active elements (accept buttons, pending badges), cyan presence dots
+/// stay semantic, AppBars keep Inter-white titles (no display heroes on
+/// these list screens). Flow/text is byte-identical — the existing
+/// friends_screens_test + flow_test assertions stay untouched.
 
 const _userId1 = '11111111-1111-1111-1111-111111111111';
 const _userId2 = '22222222-2222-2222-2222-222222222222';
@@ -111,25 +116,28 @@ Widget _wrap(Widget child, {List<Override> overrides = const []}) {
   );
 }
 
-/// The first (nearest) [Divider] in the tree and the theme that paints it
-/// (M3: `widget.color ?? dividerTheme.color` — U-09's MISTAKE lesson).
-Divider _firstDivider(WidgetTester tester) =>
-    tester.widget<Divider>(find.byType(Divider).first);
-
-/// Resolved hairline color the [divider] renders with under the test theme.
-Color? _dividerColor(WidgetTester tester, Divider divider) {
-  final theme = Theme.of(tester.element(find.byType(Divider).first));
-  return divider.color ?? theme.dividerTheme.color;
-}
-
 /// The compact outlined [VButton] inside a [ListTile] trailing.
 VButton _tileActionButton(WidgetTester tester) =>
     tester.widget<VButton>(find.byType(VButton));
 
+/// LUXE ambient pin: exactly one [VAurora] per screen, mint-only blobs at
+/// the 0.08 whisper alpha (ORCHESTRATION-LUXE: friends = mint, no pink
+/// mains; the VAurora component's 0.04–0.10 alpha range).
+void _expectMintAurora(WidgetTester tester) {
+  expect(find.byType(VAurora), findsOneWidget);
+  final aurora = tester.widget<VAurora>(find.byType(VAurora));
+  expect(
+    aurora.gradients.every((g) => g.name == 'mint'),
+    isTrue,
+    reason: 'the friends family is mint — no pink, no other main families',
+  );
+  expect(aurora.opacity, 0.08, reason: 'faint ambient wash (0.04–0.10)');
+}
+
 void main() {
   setUpAll(() => support.initSupabaseHarness(sessionEmail: 'a@b.com'));
 
-  group('FriendsListScreen (§5.5 presence dot + §5 avatar tiles)', () {
+  group('FriendsListScreen (mint glass tiles + presence dot)', () {
     testWidgets('renders ProfileAvatar tiles with size-scaled initials', (
       tester,
     ) async {
@@ -173,6 +181,22 @@ void main() {
       expect(decoration.color, AppColors.surfaceAlt);
     });
 
+    testWidgets('sits on the faint mint aurora (family pin)', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const FriendsListScreen(),
+          overrides: [
+            friendsListProvider.overrideWith(
+              () => _StubFriendsListNotifier(data: [_user(_userId1, 'ana')]),
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      _expectMintAurora(tester);
+    });
+
     testWidgets('presence dot is the statusOnline (cyan) 8px token', (
       tester,
     ) async {
@@ -192,12 +216,16 @@ void main() {
       expect(
         dot.color,
         AppColors.statusOnline,
-        reason: 'green presence dot → the statusOnline (discoCyan) alias',
+        reason:
+            'presence stays the statusOnline (discoCyan) semantic — cyan '
+            'is a status color, not the mint screen accent',
       );
       expect(dot.size, 8, reason: '§5.5: online dot = 8px circle');
     });
 
-    testWidgets('name rows are separated by hairline dividers', (tester) async {
+    testWidgets('rows are sharp mint glass tiles — no hairline dividers', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           const FriendsListScreen(),
@@ -213,11 +241,21 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.byType(Divider),
-        findsOneWidget,
-        reason: 'separated list: N-1 hairlines between 2 tiles',
+        find.byType(VGlassCard),
+        findsNWidgets(2),
+        reason: 'each friend row is one sharp glass tile',
       );
-      expect(_dividerColor(tester, _firstDivider(tester)), AppColors.hairline);
+      expect(
+        find.byType(Divider),
+        findsNothing,
+        reason: 'tile gaps replace the old hairline separators',
+      );
+      final card = tester.widget<VGlassCard>(find.byType(VGlassCard).first);
+      expect(
+        card.gradient,
+        AppGradients.mint,
+        reason: 'the glass ring + glow take the mint family',
+      );
     });
 
     testWidgets('shows VLoadingView while the provider is pending', (
@@ -299,7 +337,7 @@ void main() {
     });
   });
 
-  group('SearchScreen (§5.1 compact action + §5 avatar tiles)', () {
+  group('SearchScreen (mint compact action + pending badge)', () {
     testWidgets('result tiles render ProfileAvatar initials', (tester) async {
       await tester.pumpWidget(
         _wrap(
@@ -327,65 +365,94 @@ void main() {
       );
     });
 
-    testWidgets(
-      "'Agregar' is a compact VButton.outlined in the tile trailing",
-      (tester) async {
-        await tester.pumpWidget(
-          _wrap(
-            const SearchScreen(),
-            overrides: [
-              searchResultsProvider.overrideWith(
-                () => _StubSearchResultsNotifier(
-                  data: [
-                    _user(_userId1, 'ana'),
-                    {
-                      ..._user(_userId2, 'lucas'),
-                      'friendship_status': 'pending',
-                    },
-                  ],
-                ),
+    testWidgets('sits on the faint mint aurora (family pin)', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const SearchScreen(),
+          overrides: [
+            searchResultsProvider.overrideWith(
+              () => _StubSearchResultsNotifier(data: [_user(_userId1, 'ana')]),
+            ),
+          ],
+        ),
+      );
+      await tester.enterText(find.byType(TextField), 'an');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+
+      _expectMintAurora(tester);
+    });
+
+    testWidgets("'Agregar' is the compact mint-outlined VButton in the tile "
+        'trailing; pending renders the mint status badge', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const SearchScreen(),
+          overrides: [
+            searchResultsProvider.overrideWith(
+              () => _StubSearchResultsNotifier(
+                data: [
+                  _user(_userId1, 'ana'),
+                  {
+                    ..._user(_userId2, 'lucas'),
+                    'friendship_status': 'pending',
+                  },
+                ],
               ),
-            ],
-          ),
-        );
-        await tester.enterText(find.byType(TextField), 'an');
-        await tester.pump(const Duration(milliseconds: 350));
-        await tester.pumpAndSettle();
+            ),
+          ],
+        ),
+      );
+      await tester.enterText(find.byType(TextField), 'an');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
 
-        final button = _tileActionButton(tester);
-        expect(button.variant, VButtonVariant.outlined);
-        expect(find.text('Agregar'), findsOneWidget);
-        expect(
-          find.descendant(
-            of: find.byType(ListTile),
-            matching: find.byType(VButton),
-          ),
-          findsOneWidget,
-          reason: 'the action stays inside the result tile trailing',
-        );
-        final wrapper = tester.widget<SizedBox>(
-          find
-              .ancestor(
-                of: find.byType(VButton),
-                matching: find.byType(SizedBox),
-              )
-              .first,
-        );
-        expect(
-          wrapper.width,
-          104,
-          reason: 'compact — VButton is full-width by §5.1',
-        );
+      final button = _tileActionButton(tester);
+      expect(button.variant, VButtonVariant.outlined);
+      expect(
+        button.gradient,
+        AppGradients.mint,
+        reason: 'the active add action takes the mint gradient ring',
+      );
+      expect(find.text('Agregar'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ListTile),
+          matching: find.byType(VButton),
+        ),
+        findsOneWidget,
+        reason: 'the action stays inside the result tile trailing',
+      );
+      final wrapper = tester.widget<SizedBox>(
+        find
+            .ancestor(
+              of: find.byType(VButton),
+              matching: find.byType(SizedBox),
+            )
+            .first,
+      );
+      expect(
+        wrapper.width,
+        104,
+        reason: 'compact — VButton is full-width by §5.1',
+      );
 
-        expect(
-          find.text('Solicitado'),
-          findsOneWidget,
-          reason: 'status labels stay theme TextButtons (muted when disabled)',
-        );
-      },
-    );
+      final badge = tester.widget<VBadge>(find.byType(VBadge));
+      expect(
+        badge.gradient,
+        AppGradients.mint,
+        reason: 'the pending readout is the row\'s mint badge accent',
+      );
+      expect(
+        find.text('SOLICITADO'),
+        findsOneWidget,
+        reason: 'VBadge renders the pending label in the §3.3 label voice',
+      );
+    });
 
-    testWidgets('results list uses hairline separators', (tester) async {
+    testWidgets('results render as sharp mint glass tiles — no dividers', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           const SearchScreen(),
@@ -402,8 +469,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 
-      expect(find.byType(Divider), findsOneWidget);
-      expect(_dividerColor(tester, _firstDivider(tester)), AppColors.hairline);
+      expect(find.byType(VGlassCard), findsNWidgets(2));
+      expect(find.byType(Divider), findsNothing);
     });
 
     testWidgets('shows VLoadingView while the search is pending', (
@@ -443,7 +510,7 @@ void main() {
     });
   });
 
-  group('RequestsScreen (U-04 TabBar/TextButton theme + §5.9 empties)', () {
+  group('RequestsScreen (mint accept + glass tiles + tab badges)', () {
     List<Override> requestsOverrides({FriendRequestsData? data}) => [
       friendRequestsProvider.overrideWith(
         () => _StubFriendRequestsNotifier(
@@ -469,8 +536,17 @@ void main() {
       expect(find.text('Invitaciones'), findsOneWidget);
     });
 
-    testWidgets('accept/decline are theme TextButtons and rows are hairline '
-        'separated', (tester) async {
+    testWidgets('sits on the faint mint aurora (family pin)', (tester) async {
+      await tester.pumpWidget(
+        _wrap(const RequestsScreen(), overrides: requestsOverrides()),
+      );
+      await tester.pumpAndSettle();
+
+      _expectMintAurora(tester);
+    });
+
+    testWidgets('accept is the mint VButton, decline the theme TextButton; '
+        'rows are mint glass tiles', (tester) async {
       await tester.pumpWidget(
         _wrap(
           const RequestsScreen(),
@@ -495,21 +571,67 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      final accept = tester.widget<VButton>(find.byType(VButton).first);
+      expect(
+        accept.variant,
+        VButtonVariant.emphasized,
+        reason: 'accept is the row\'s active filled action',
+      );
+      expect(
+        accept.gradient,
+        AppGradients.mint,
+        reason: 'the mint accent lives on the accept face — never pink',
+      );
       expect(find.text('Aceptar'), findsNWidgets(2));
-      expect(find.text('Rechazar'), findsNWidgets(2));
-      final theme = Theme.of(tester.element(find.text('Aceptar').first));
+
+      final theme = Theme.of(tester.element(find.text('Rechazar').first));
       expect(
         theme.textButtonTheme.style?.foregroundColor?.resolve({}),
         AppColors.white,
-        reason: 'actions render via the U-04 textButtonTheme',
+        reason: 'decline stays the theme TextButton (U-04)',
       );
 
       expect(
-        find.byType(Divider),
-        findsOneWidget,
-        reason: '2 received rows → 1 hairline separator',
+        find.byType(VGlassCard),
+        findsNWidgets(2),
+        reason: '2 received rows → 2 sharp glass tiles',
       );
-      expect(_dividerColor(tester, _firstDivider(tester)), AppColors.hairline);
+      expect(find.byType(Divider), findsNothing);
+    });
+
+    testWidgets('the pending-count tab badges take the mint family', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          const RequestsScreen(),
+          overrides: requestsOverrides(
+            data: const FriendRequestsData(
+              requests: [
+                {
+                  'type': 'received',
+                  'friendship_id': 'f1',
+                  'user_id': _userId1,
+                },
+              ],
+              names: {_userId1: 'ana'},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final badge = tester.widget<VCountBadge>(
+        find.descendant(
+          of: find.widgetWithText(Tab, 'Recibidas'),
+          matching: find.byType(VCountBadge),
+        ),
+      );
+      expect(
+        badge.gradient,
+        AppGradients.mint,
+        reason: 'pending counts are mint accents',
+      );
     });
 
     testWidgets('empty tabs render VEmptyView', (tester) async {
@@ -551,8 +673,8 @@ void main() {
     });
   });
 
-  group('BlockedUsersScreen (VStateView + §5 avatar tiles)', () {
-    testWidgets('renders ProfileAvatar tiles with hairline separators and a '
+  group('BlockedUsersScreen (mint glass tiles + theme unblock)', () {
+    testWidgets('renders ProfileAvatar tiles with mint glass tiles and a '
         'theme TextButton unblock action', (tester) async {
       await tester.pumpWidget(
         _wrap(
@@ -576,8 +698,22 @@ void main() {
         AppColors.white,
         reason: 'unblock renders via the U-04 textButtonTheme',
       );
-      expect(find.byType(Divider), findsOneWidget);
-      expect(_dividerColor(tester, _firstDivider(tester)), AppColors.hairline);
+      expect(find.byType(VGlassCard), findsNWidgets(2));
+      expect(find.byType(Divider), findsNothing);
+    });
+
+    testWidgets('sits on the faint mint aurora (family pin)', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const BlockedUsersScreen(),
+          overrides: [
+            blockedUsersProvider.overrideWith(_StubBlockedUsersNotifier.new),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      _expectMintAurora(tester);
     });
 
     testWidgets('empty state renders through VStateView + VEmptyView', (

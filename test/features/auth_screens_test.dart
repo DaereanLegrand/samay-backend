@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/router/route_extras.dart';
+import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/features/auth/screens/welcome_screen.dart';
 import 'package:samay/features/auth/screens/login_screen.dart';
 import 'package:samay/features/auth/screens/signup_contact_screen.dart';
@@ -13,19 +15,28 @@ import 'package:samay/features/auth/screens/profile_setup_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/route_error_screen.dart';
 
+/// Auth notifier pinned to "email already registered" so the signup screen's
+/// exists-dialog can be exercised without network (no-fallback policy
+/// 2026-08-13: the dialog must offer an explicit labeled login action).
+class _FakeExistsAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthState> build() async => const AuthState();
+
+  @override
+  Future<String> checkEmail(String email) async => 'exists';
+}
+
 /// Local test router with the auth-flow routes. Extras are read through the
 /// typed [RouteExtra] factories (I-03 / NAV-04 / H-04) — never raw
 /// `state.extra as Map<String, dynamic>` casts — so a malformed or missing
 /// extra renders [RouteErrorScreen] instead of crashing the harness.
-Widget _wrap(Widget child) {
+Widget _wrap(Widget child, {AuthNotifier? authNotifier}) {
   final router = GoRouter(
     initialLocation: '/test',
     routes: [
       GoRoute(path: '/test', builder: (_, _) => child),
-      GoRoute(
-        path: '/auth/signup',
-        builder: (_, _) => const SignupContactScreen(),
-      ),
+      GoRoute(path: '/auth/login', builder: (_, _) => const LoginScreen()),
+      GoRoute(path: RoutePaths.login, builder: (_, _) => const LoginScreen()),
       GoRoute(
         path: '/auth/verify',
         builder: (_, state) {
@@ -67,7 +78,12 @@ Widget _wrap(Widget child) {
       GoRoute(path: '/main/feed', builder: (_, _) => const Scaffold()),
     ],
   );
+  final overrides = <Override>[
+    if (authNotifier != null)
+      authStateProvider.overrideWith(() => authNotifier),
+  ];
   return ProviderScope(
+    overrides: overrides,
     child: MaterialApp.router(
       routerConfig: router,
       locale: const Locale('es'),
@@ -124,11 +140,44 @@ void main() {
       'renders email, password, confirm password fields and create button',
       (tester) async {
         await tester.pumpWidget(_wrap(const SignupContactScreen()));
+        // Settle the async auth provider: the very first frame is
+        // AsyncLoading (the CTA shows a spinner, not its label).
+        await tester.pumpAndSettle();
         expect(find.text('Correo electrónico'), findsOneWidget);
         expect(find.textContaining('Contraseña'), findsWidgets);
         expect(find.text('Crear cuenta'), findsWidgets);
       },
     );
+
+    testWidgets('already-registered dialog offers an explicit login action '
+        'that navigates to the login screen (no-fallback policy)', (
+      tester,
+    ) async {
+      _usePhoneSurface(tester);
+      await tester.pumpWidget(
+        _wrap(
+          const SignupContactScreen(),
+          authNotifier: _FakeExistsAuthNotifier(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final fields = find.byType(TextField);
+      expect(fields, findsNWidgets(3));
+      await tester.enterText(fields.at(0), 'tester@tester.com');
+      await tester.enterText(fields.at(1), 'tester123');
+      await tester.enterText(fields.at(2), 'tester123');
+      await tester.tap(find.text('Crear cuenta'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Correo ya registrado'), findsOneWidget);
+      expect(find.text('Iniciar sesión'), findsOneWidget);
+
+      await tester.tap(find.text('Iniciar sesión'));
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(find.byType(SignupContactScreen), findsNothing);
+    });
   });
 
   group('OtpVerificationScreen', () {
