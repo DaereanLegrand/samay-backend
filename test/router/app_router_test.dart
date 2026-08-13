@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:samay/app.dart';
 import 'package:samay/core/config/feature_flags.dart';
+import 'package:samay/core/models/event.dart';
 import 'package:samay/core/models/event_photo.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/config_provider.dart';
@@ -22,10 +23,14 @@ import 'package:samay/features/auth/screens/privacy_terms_screen.dart';
 import 'package:samay/features/auth/screens/profile_setup_screen.dart';
 import 'package:samay/features/auth/screens/signup_contact_screen.dart';
 import 'package:samay/features/chat/screens/chat_screen.dart';
+import 'package:samay/features/cosmetics/screens/cosmetics_shop_screen.dart';
 import 'package:samay/features/events/screens/create_event_screen.dart';
+import 'package:samay/features/events/screens/event_collage_screen.dart';
 import 'package:samay/features/events/screens/event_detail_screen.dart';
 import 'package:samay/features/events/screens/event_edit_screen.dart';
+import 'package:samay/features/events/screens/my_events_screen.dart';
 import 'package:samay/features/events/providers/events_providers.dart';
+import 'package:samay/features/events/widgets/event_invite_route.dart';
 import 'package:samay/features/feed/screens/feed_screen.dart';
 import 'package:samay/features/friends/screens/blocked_users_screen.dart';
 import 'package:samay/features/friends/screens/friends_list_screen.dart';
@@ -57,7 +62,7 @@ import 'package:samay/features/shards/providers/shard_ledger_providers.dart';
 import 'package:samay/features/shards/screens/shard_ledger_screen.dart';
 import 'package:samay/features/subscriptions/screens/paywall_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/v_coming_soon.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 import '../support/fake_config_provider.dart';
@@ -114,6 +119,22 @@ class _FakeEventPromotoresNotifier extends EventPromotoresNotifier {
 class _FakeMyEventInviteNotifier extends MyEventInviteNotifier {
   @override
   Future<Map<String, dynamic>?> build(String arg) async => null;
+}
+
+/// Events-tab list provider pinned to an inert value (R1 events sweep): the
+/// router tests only assert which screen the route builds — the real
+/// notifier would hit the network via EventService.
+class _FakeMyEventsNotifier extends MyEventsNotifier {
+  @override
+  Future<List<Map<String, dynamic>>> build() async => const [];
+}
+
+/// Invite-token resolution pinned to "no such token" (EINV, I-66): the
+/// router tests only assert the [EventInviteRoute] builds — the real
+/// notifier would hit the network via EventService.
+class _FakeEventByInviteTokenNotifier extends EventByInviteTokenNotifier {
+  @override
+  Future<Event?> build(String arg) async => null;
 }
 
 class _MemoryStorage extends LocalStorage {
@@ -233,7 +254,6 @@ class _FakeShardLedgerNotifier extends ShardLedgerNotifier {
 
 ProviderContainer _newContainer({
   AppFeatureFlags flags = const AppFeatureFlags(),
-  bool qrProviders = false,
   bool hasProfile = true,
   List<Override> extras = const [],
 }) {
@@ -246,16 +266,18 @@ ProviderContainer _newContainer({
       eventDetailProvider.overrideWith(_FakeEventDetailNotifier.new),
       eventPromotoresProvider.overrideWith(_FakeEventPromotoresNotifier.new),
       myEventInviteProvider.overrideWith(_FakeMyEventInviteNotifier.new),
+      myEventsProvider.overrideWith(_FakeMyEventsNotifier.new),
+      eventByInviteTokenProvider.overrideWith(
+        _FakeEventByInviteTokenNotifier.new,
+      ),
       discoveryOptInProvider.overrideWith(_FakeDiscoveryOptInNotifier.new),
       partyMatchesProvider.overrideWith(_FakePartyMatchesNotifier.new),
       minigameSessionsProvider.overrideWith(_FakeMinigameSessionsNotifier.new),
       eventPhotosProvider.overrideWith(_FakeEventPhotosNotifier.new),
       shardLedgerProvider.overrideWith(_FakeShardLedgerNotifier.new),
+      myQrTokenProvider.overrideWith(_FakeQrTokenNotifier.new),
+      qrDisplayWindowProvider.overrideWith((ref) async => 15),
       appConfigProvider.overrideWith(() => FakeAppConfigNotifier(const {})),
-      if (qrProviders) ...[
-        myQrTokenProvider.overrideWith(_FakeQrTokenNotifier.new),
-        qrDisplayWindowProvider.overrideWith((ref) async => 15),
-      ],
       ...extras,
     ],
   );
@@ -313,59 +335,34 @@ void main() {
       expect(container.read(routerProvider), isNotNull);
     });
 
-    group('coming soon routes', () {
-      for (final (path, title, icon) in [
-        (RoutePaths.eventInvite(_eventId), 'Invitar', Icons.mail),
-        (RoutePaths.eventPhotos(_eventId), 'Fotos', Icons.photo),
-        (RoutePaths.eventCollage(_eventId), 'Collage', Icons.grid_view),
-        (
-          RoutePaths.createGroupEvent(_groupId),
-          'Crear evento',
-          Icons.event_note,
-        ),
-        (RoutePaths.qr(_eventId), 'QR', Icons.qr_code),
-        (RoutePaths.scanner(_eventId), 'Esc\u00e1ner', Icons.qr_code_scanner),
-        (RoutePaths.subscriptions, 'Suscripciones', Icons.subscriptions),
-        (RoutePaths.partyFinder, 'Party Finder', Icons.celebration),
-        (RoutePaths.cosmetics, 'Cosm\u00e9ticos', Icons.checkroom),
-        (RoutePaths.minigames(_groupId), 'Juegos', Icons.sports_esports),
+    group('live feature routes (R1 events sweep — no coming-soon screens)', () {
+      for (final (path, widget) in [
+        (RoutePaths.eventInvite(_eventId), EventInviteRoute),
+        (RoutePaths.eventPhotos(_eventId), PhotoGalleryScreen),
+        (RoutePaths.eventCollage(_eventId), EventCollageScreen),
+        (RoutePaths.createGroupEvent(_groupId), CreateEventScreen),
+        (RoutePaths.qr(_eventId), AttendanceQrScreen),
+        (RoutePaths.partyFinder, PartyFinderScreen),
+        (RoutePaths.cosmetics, CosmeticsShopScreen),
+        (RoutePaths.minigames(_groupId), MinigamesScreen),
       ]) {
-        testWidgets('$path renders coming soon screen', (tester) async {
+        testWidgets('$path renders the real screen', (tester) async {
           final container = _newContainer();
           await _pumpRoute(tester, container, path);
-          expect(find.byType(VComingSoonScreen), findsOneWidget);
-          // LUXE display voice: the MAYUS rule uppercases the headline.
-          expect(find.text('PR\u00d3XIMAMENTE'), findsOneWidget);
-          expect(find.text(title), findsOneWidget);
-          expect(
-            find.byIcon(icon),
-            findsOneWidget,
-            reason: 'coming-soon icon for $path',
-          );
+          expect(find.byType(widget), findsOneWidget);
         });
       }
 
       testWidgets(
-        '${RoutePaths.mainEvents} renders coming soon with bottom nav',
+        '${RoutePaths.mainEvents} renders MyEventsScreen with bottom nav',
         (tester) async {
           final container = _newContainer();
           await _pumpRoute(tester, container, RoutePaths.mainEvents);
-          expect(find.byType(VComingSoonScreen), findsOneWidget);
+          expect(find.byType(MyEventsScreen), findsOneWidget);
           expect(find.byType(BottomNavigationBar), findsOneWidget);
-          expect(
-            find.text(
-              'Los eventos de tus grupos aparecer\u00e1n aqu\u00ed pronto.',
-            ),
-            findsOneWidget,
-          );
-          expect(
-            find.descendant(
-              of: find.byType(VComingSoonScreen),
-              matching: find.byIcon(Icons.event),
-            ),
-            findsOneWidget,
-            reason: 'the events tab icon — scoped away from the nav tab glyph',
-          );
+          // The empty list state — real copy, never 'PRÓXIMAMENTE'.
+          expect(find.text('Aún no tienes eventos'), findsOneWidget);
+          expect(find.text('Crear evento'), findsOneWidget);
         },
       );
 
@@ -375,7 +372,7 @@ void main() {
           final container = _newContainer();
           await _pumpRoute(tester, container, RoutePaths.mainNotifications);
           expect(find.byType(NotificationCenterScreen), findsOneWidget);
-          expect(find.byType(VComingSoonScreen), findsNothing);
+          expect(find.byType(VEmptyView), findsNothing);
           expect(find.byType(BottomNavigationBar), findsOneWidget);
         },
       );
@@ -390,7 +387,6 @@ void main() {
             RoutePaths.groupMembers(_groupId),
           );
           expect(find.byType(GroupMembersScreen), findsOneWidget);
-          expect(find.byType(VComingSoonScreen), findsNothing);
         },
       );
 
@@ -405,7 +401,7 @@ void main() {
             RoutePaths.eventInviteToken(_token),
           );
           expect(find.byType(EventDetailScreen), findsOneWidget);
-          expect(find.byType(VComingSoonScreen), findsNothing);
+          expect(find.byType(VEmptyView), findsNothing);
         },
       );
       testWidgets('${RoutePaths.chat(_chatId)} renders ChatScreen', (
@@ -414,21 +410,46 @@ void main() {
         final container = _newContainer();
         await _pumpRoute(tester, container, RoutePaths.chat(_chatId));
         expect(find.byType(ChatScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
+        expect(find.byType(VEmptyView), findsNothing);
       });
 
       testWidgets(
         '${RoutePaths.chat(_chatId)} with the chat flag dark restores the '
-        'coming-soon kill-switch fallback (I-38/I-69)',
+        'neutral flag-gate kill-switch fallback (I-38/I-69)',
         (tester) async {
           final container = _newContainer(
             flags: const AppFeatureFlags(chat: false),
           );
           await _pumpRoute(tester, container, RoutePaths.chat(_chatId));
-          expect(find.byType(VComingSoonScreen), findsOneWidget);
+          expect(find.byType(VEmptyView), findsOneWidget);
           expect(find.byType(ChatScreen), findsNothing);
-          expect(find.text('Chat'), findsOneWidget);
-          expect(find.byIcon(Icons.chat), findsOneWidget);
+          expect(find.text('No disponible'), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        '${RoutePaths.mainEvents} with the events flag dark renders the '
+        'neutral kill-switch fallback',
+        (tester) async {
+          final container = _newContainer(
+            flags: const AppFeatureFlags(events: false),
+          );
+          await _pumpRoute(tester, container, RoutePaths.mainEvents);
+          expect(find.byType(VEmptyView), findsOneWidget);
+          expect(find.byType(MyEventsScreen), findsNothing);
+          expect(find.text('No disponible'), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        '${RoutePaths.subscriptions} stays on the neutral flag-gate fallback '
+        'while the flag is off (RevenueCat key pending, I-61)',
+        (tester) async {
+          final container = _newContainer();
+          await _pumpRoute(tester, container, RoutePaths.subscriptions);
+          expect(find.byType(VEmptyView), findsOneWidget);
+          expect(find.byType(PaywallScreen), findsNothing);
+          expect(find.text('No disponible'), findsOneWidget);
         },
       );
     });
@@ -437,7 +458,7 @@ void main() {
       for (final (path, widget) in [
         (RoutePaths.mainFeed, FeedScreen),
         (RoutePaths.mainGroups, MyGroupsScreen),
-        (RoutePaths.mainEvents, VComingSoonScreen),
+        (RoutePaths.mainEvents, MyEventsScreen),
         (RoutePaths.mainNotifications, NotificationCenterScreen),
         (RoutePaths.mainProfile, ProfileScreen),
         (RoutePaths.groupCreate, CreateGroupScreen),
@@ -446,11 +467,7 @@ void main() {
         (RoutePaths.friendsRequests, RequestsScreen),
         (RoutePaths.friendsList, FriendsListScreen),
         (RoutePaths.blockedUsers, BlockedUsersScreen),
-        (RoutePaths.subscriptions, VComingSoonScreen),
-        (RoutePaths.partyFinder, VComingSoonScreen),
-        (RoutePaths.cosmetics, VComingSoonScreen),
         (RoutePaths.shardsLedger, ShardLedgerScreen),
-        (RoutePaths.minigames(_groupId), VComingSoonScreen),
         (RoutePaths.settings, SettingsScreen),
         (RoutePaths.deleteAccount, DeleteAccountScreen),
         (RoutePaths.profileEdit, EditProfileScreen),
@@ -459,14 +476,13 @@ void main() {
         (RoutePaths.ageGate, AgeGateScreen),
         (RoutePaths.eventDetail(_eventId), EventDetailScreen),
         (RoutePaths.eventEdit(_eventId), EventEditScreen),
-        (RoutePaths.eventInvite(_eventId), VComingSoonScreen),
-        (RoutePaths.eventPhotos(_eventId), VComingSoonScreen),
-        (RoutePaths.eventCollage(_eventId), VComingSoonScreen),
+        (RoutePaths.eventInvite(_eventId), EventInviteRoute),
+        (RoutePaths.eventPhotos(_eventId), PhotoGalleryScreen),
+        (RoutePaths.eventCollage(_eventId), EventCollageScreen),
         (RoutePaths.eventInviteToken(_token), EventDetailScreen),
-        (RoutePaths.createGroupEvent(_groupId), VComingSoonScreen),
+        (RoutePaths.createGroupEvent(_groupId), CreateEventScreen),
         (RoutePaths.chat(_chatId), ChatScreen),
-        (RoutePaths.qr(_eventId), VComingSoonScreen),
-        (RoutePaths.scanner(_eventId), VComingSoonScreen),
+        (RoutePaths.qr(_eventId), AttendanceQrScreen),
         (RoutePaths.groupMembers(_groupId), GroupMembersScreen),
         (RoutePaths.donateToGroup(_groupId), DonateShardsScreen),
         (RoutePaths.inviteToGroup(_groupId), InviteScreen),
@@ -480,32 +496,12 @@ void main() {
       }
 
       testWidgets(
-        '${RoutePaths.createGroupEvent(_groupId)} renders CreateEventScreen '
-        'when the events flag is on (dark-first gating, I-54)',
+        '${RoutePaths.partyFinder} renders PartyFinderScreen with the default '
+        'flags (R1 events sweep flipped partyFinder live, I-60)',
         (tester) async {
-          final container = _newContainer(
-            flags: const AppFeatureFlags(events: true),
-          );
-          await _pumpRoute(
-            tester,
-            container,
-            RoutePaths.createGroupEvent(_groupId),
-          );
-          expect(find.byType(CreateEventScreen), findsOneWidget);
-          expect(find.byType(VComingSoonScreen), findsNothing);
-        },
-      );
-
-      testWidgets(
-        '${RoutePaths.partyFinder} renders PartyFinderScreen when the '
-        'partyFinder flag is on (dark-first gating, I-60)',
-        (tester) async {
-          final container = _newContainer(
-            flags: const AppFeatureFlags(partyFinder: true),
-          );
+          final container = _newContainer();
           await _pumpRoute(tester, container, RoutePaths.partyFinder);
           expect(find.byType(PartyFinderScreen), findsOneWidget);
-          expect(find.byType(VComingSoonScreen), findsNothing);
         },
       );
 
@@ -516,57 +512,43 @@ void main() {
         );
         await _pumpRoute(tester, container, RoutePaths.subscriptions);
         expect(find.byType(PaywallScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
       });
 
       testWidgets(
-        '${RoutePaths.qr(_eventId)} renders AttendanceQrScreen when the qr '
-        'flag is on (dark-first gating, I-57)',
+        '${RoutePaths.qr(_eventId)} renders AttendanceQrScreen with the '
+        'default flags (R1 events sweep flipped qr live, I-57)',
         (tester) async {
-          final container = _newContainer(
-            flags: const AppFeatureFlags(qr: true),
-            qrProviders: true,
-          );
+          final container = _newContainer();
           await _pumpRoute(tester, container, RoutePaths.qr(_eventId));
           expect(find.byType(AttendanceQrScreen), findsOneWidget);
-          expect(find.byType(VComingSoonScreen), findsNothing);
         },
       );
 
       testWidgets(
-        '${RoutePaths.eventPhotos(_eventId)} renders PhotoGalleryScreen '
-        'when the photoUpload flag is on (dark-first gating, I-59)',
+        '${RoutePaths.eventPhotos(_eventId)} renders PhotoGalleryScreen with '
+        'the default flags (R1 events sweep flipped photoUpload live, I-59)',
         (tester) async {
-          final container = _newContainer(
-            flags: const AppFeatureFlags(photoUpload: true),
-          );
+          final container = _newContainer();
           await _pumpRoute(tester, container, RoutePaths.eventPhotos(_eventId));
           expect(find.byType(PhotoGalleryScreen), findsOneWidget);
-          expect(find.byType(VComingSoonScreen), findsNothing);
         },
       );
 
       testWidgets(
-        '${RoutePaths.minigames(_groupId)} renders MinigamesScreen when the '
-        'minigames flag is on (dark-first gating, I-63)',
+        '${RoutePaths.minigames(_groupId)} renders MinigamesScreen with the '
+        'default flags (R1 events sweep flipped minigames live, I-63)',
         (tester) async {
-          final container = _newContainer(
-            flags: const AppFeatureFlags(minigames: true),
-          );
+          final container = _newContainer();
           await _pumpRoute(tester, container, RoutePaths.minigames(_groupId));
           expect(find.byType(MinigamesScreen), findsOneWidget);
-          expect(find.byType(VComingSoonScreen), findsNothing);
         },
       );
 
       testWidgets(
-        '${RoutePaths.scanner(_eventId)} renders QrScannerScreen when the '
-        'qr flag is on (dark-first gating, I-57)',
+        '${RoutePaths.scanner(_eventId)} renders QrScannerScreen with the '
+        'default flags (R1 events sweep flipped qr live, I-57)',
         (tester) async {
-          final container = _newContainer(
-            flags: const AppFeatureFlags(qr: true),
-            qrProviders: true,
-          );
+          final container = _newContainer();
           await _pumpRoute(
             tester,
             container,
@@ -574,7 +556,6 @@ void main() {
             settle: false,
           );
           expect(find.byType(QrScannerScreen), findsOneWidget);
-          expect(find.byType(VComingSoonScreen), findsNothing);
         },
       );
 

@@ -470,8 +470,8 @@ void main() {
       _disposeSemantics();
     });
 
-    testWidgets('settings placeholder rows (Notificaciones/Privacidad) are '
-        'disabled', (tester) async {
+    testWidgets('settings Notificaciones/Privacidad rows are enabled and '
+        'actionable (R2 — real navigation, not placeholders)', (tester) async {
       await _pump(tester, const SettingsScreen());
 
       for (final label in ['Notificaciones', 'Privacidad']) {
@@ -479,12 +479,20 @@ void main() {
           of: find.text(label),
           matching: find.byType(ListTile),
         );
+        final data = _semanticsOf(tester, tile);
         expect(
-          _isDisabled(_semanticsOf(tester, tile)),
+          _isDisabled(data),
+          isFalse,
+          reason:
+              'R2 — the "$label" row navigates to a real screen; a disabled '
+              'row would block the action (2.1.1/4.1.2)',
+        );
+        expect(
+          _isButton(data),
           isTrue,
           reason:
-              'the "$label" row is a placeholder — an enabled no-op row '
-              'fails 4.1.2 (U-23 F4)',
+              'R2 — the "$label" row is an enabled action with a '
+              'destination (2.1.1/4.1.2)',
         );
       }
       _disposeSemantics();

@@ -18,6 +18,14 @@ set -uo pipefail
 #      authenticated only) -> PGRST203 / permission denied
 #   F) RLS own-row: user reads own e2ee_identity_keys row; another user
 #      CANNOT (e2ee_identity_keys_select_own)
+#   G) minigame session RPCs (migration 20260813000001, agent R4 — I-77/S-03
+#      gap closure): join_minigame_session + finish_minigame_session
+#      exercised end-to-end against the live stack: create (escrow deduct),
+#      join (idempotent, second participant escrow), error paths
+#      (session_not_found / not_member / anon denied), draw settlement
+#      (minigame_refund restores every participant), repeat finish is a
+#      no-op, winner settlement (minigame_win full-pot credit), and
+#      invalid_winner rejection.
 #
 # NOTE: the caller must be an authenticated user (JWT), so the test creates
 # real auth.users rows via the admin API exactly like opt-001. The bundle
@@ -44,11 +52,15 @@ PASS=0
 FAIL=0
 
 # Fixed IDs (unique to this file).
-UUID_A="77777777-7777-7777-7777-777777777777"   # bundle owner
-UUID_B="77777777-7777-7777-7777-777777777778"   # authenticated fetcher
+UUID_A="77777777-7777-7777-7777-777777777777"   # bundle owner / minigame initiator
+UUID_B="77777777-7777-7777-7777-777777777778"   # authenticated fetcher / joiner
+UUID_C="77777777-7777-7777-7777-777777777779"   # non-member (minigame error paths)
 EMAIL_A="user_a_opt006@samay.test"
 EMAIL_B="user_b_opt006@samay.test"
+EMAIL_C="user_c_opt006@samay.test"
 PW="Pass1234!"
+GROUP_ID="88888888-8888-8888-8888-888888888888"
+SESSION_MISSING="99999999-9999-9999-9999-999999999999"
 
 # base64url public keys (opaque to the server — only shape matters)
 IK="AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiM"
@@ -59,9 +71,12 @@ OTPK_1="CQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKis"
 OTPK_2="DA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4v"
 
 cleanup() {
+  svc_delete_quiet "minigame_sessions?group_id=eq.$GROUP_ID"
+  svc_delete_quiet "shard_ledger?user_id=in.($UUID_A,$UUID_B)"
   svc_delete_quiet "e2ee_identity_keys?user_id=eq.$UUID_A"
-  svc_delete_quiet "users?id=in.($UUID_A,$UUID_B)"
-  for uid in $UUID_A $UUID_B; do
+  svc_delete_quiet "users?id=in.($UUID_A,$UUID_B,$UUID_C)"
+  svc_delete_quiet "groups?id=eq.$GROUP_ID"
+  for uid in $UUID_A $UUID_B $UUID_C; do
     curl -s -X DELETE "$SUPABASE_URL/auth/v1/admin/users/$uid" \
       -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" > /dev/null 2>&1 || true
   done
@@ -113,7 +128,7 @@ h1 "SETUP: auth users (bundle owner A, fetcher B)"
 trap cleanup EXIT
 cleanup
 
-for pair in "A $UUID_A user_a_opt006 $EMAIL_A" "B $UUID_B user_b_opt006 $EMAIL_B"; do
+for pair in "A $UUID_A user_a_opt006 $EMAIL_A" "B $UUID_B user_b_opt006 $EMAIL_B" "C $UUID_C user_c_opt006 $EMAIL_C"; do
   set -- $pair
   name=$1; uid=$2; uname=$3; email=$4
   resp=$(curl -s -X POST "$SUPABASE_URL/auth/v1/admin/users" \
@@ -131,8 +146,11 @@ TOKEN_A=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
 TOKEN_B=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
   -H "apikey: $ANON_KEY" -H "Content-Type: application/json" \
   -d "{\"email\":\"$EMAIL_B\",\"password\":\"$PW\"}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
-if [ -n "$TOKEN_A" ] && [ -n "$TOKEN_B" ]; then
-  ok "Obtained auth tokens for both users"
+TOKEN_C=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
+  -H "apikey: $ANON_KEY" -H "Content-Type: application/json" \
+  -d "{\"email\":\"$EMAIL_C\",\"password\":\"$PW\"}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+if [ -n "$TOKEN_A" ] && [ -n "$TOKEN_B" ] && [ -n "$TOKEN_C" ]; then
+  ok "Obtained auth tokens for all three users"
 else
   nok "Failed to get auth tokens"
 fi
@@ -252,6 +270,232 @@ if [ "$resp" = "[]" ] || echo "$resp" | grep -qE '(42501|permission denied|PGRST
   ok "Fetcher B CANNOT read A's bundle row directly (RLS — RPC is the only path)"
 else
   nok "B CAN read A's bundle row directly: $(echo "$resp" | head -c 80)"
+fi
+
+# =========================================================================
+# TEST G — minigame RPC setup: group + memberships (A promotor, B member)
+# =========================================================================
+h1 "TEST G — minigame setup (group + memberships)"
+
+svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Minigame Opt Test\",\"created_by_user_id\":\"$UUID_A\"}" > /dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\"}" > /dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_B\",\"role\":\"member\"}" > /dev/null
+ok "Group + memberships provisioned (A promotor, B member, C non-member)"
+
+# =========================================================================
+# TEST H — create_minigame_session escrow (wager 50, initiator A)
+# =========================================================================
+h1 "TEST H — create_minigame_session escrow"
+
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"poke_chain\",\"p_wager\":50}")
+SESSION_ID=$(echo "$resp" | grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"created"' && [ -n "$SESSION_ID" ]; then
+  ok "Session created (A, wager 50, escrow started)"
+else
+  nok "create_minigame_session wrong: $(echo "$resp" | head -c 120)"
+fi
+
+shards=$(svc_get "users?id=eq.$UUID_A&select=personal_shards")
+if echo "$shards" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*950'; then
+  ok "Initiator A deducted 50 at creation (1000 -> 950)"
+else
+  nok "A shards after create: $(echo "$shards" | head -c 80)"
+fi
+
+ledger=$(svc_get "shard_ledger?user_id=eq.$UUID_A&select=reason,delta,reference_id")
+if echo "$ledger" | grep -q '"minigame_wager"' && echo "$ledger" | grep -q '"delta"[[:space:]]*:[[:space:]]*-50' \
+   && echo "$ledger" | grep -q "\"$SESSION_ID\""; then
+  ok "minigame_wager ledger entry (-50, reference_id = session)"
+else
+  nok "A ledger after create: $(echo "$ledger" | head -c 120)"
+fi
+
+# =========================================================================
+# TEST I — join_minigame_session (B joins, second-participant escrow)
+# =========================================================================
+h1 "TEST I — join_minigame_session"
+
+resp=$(auth_rpc "$TOKEN_B" "join_minigame_session" "{\"p_session_id\":\"$SESSION_ID\"}")
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"joined"'; then
+  ok "B joined the session"
+else
+  nok "join_minigame_session wrong: $(echo "$resp" | head -c 120)"
+fi
+
+parts=$(svc_get "minigame_sessions?id=eq.$SESSION_ID&select=participants")
+if echo "$parts" | grep -q "$UUID_A" && echo "$parts" | grep -q "$UUID_B"; then
+  ok "Participants array holds A and B"
+else
+  nok "Participants wrong: $(echo "$parts" | head -c 120)"
+fi
+
+shards=$(svc_get "users?id=eq.$UUID_B&select=personal_shards")
+if echo "$shards" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*950'; then
+  ok "Joiner B deducted 50 (1000 -> 950, per-participant escrow)"
+else
+  nok "B shards after join: $(echo "$shards" | head -c 80)"
+fi
+
+ledger=$(svc_get "shard_ledger?user_id=eq.$UUID_B&select=reason,delta,reference_id")
+if echo "$ledger" | grep -q '"minigame_wager"' && echo "$ledger" | grep -q '"delta"[[:space:]]*:[[:space:]]*-50' \
+   && echo "$ledger" | grep -q "\"$SESSION_ID\""; then
+  ok "B's minigame_wager ledger entry (-50, reference_id = session)"
+else
+  nok "B ledger after join: $(echo "$ledger" | head -c 120)"
+fi
+
+resp=$(auth_rpc "$TOKEN_B" "join_minigame_session" "{\"p_session_id\":\"$SESSION_ID\"}")
+shards=$(svc_get "users?id=eq.$UUID_B&select=personal_shards")
+count=$(svc_get "shard_ledger?user_id=eq.$UUID_B&select=reason,reference_id" | grep -o '"minigame_wager"' | wc -l | tr -d ' ')
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"joined"' \
+   && echo "$shards" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*950' \
+   && [ "$count" = "1" ]; then
+  ok "Re-join is idempotent (no double deduction, no duplicate ledger row)"
+else
+  nok "Re-join NOT idempotent (shards=$(echo "$shards" | head -c 40), ledger rows=$count)"
+fi
+
+# =========================================================================
+# TEST J — join error paths (missing session / non-member / anon)
+# =========================================================================
+h1 "TEST J — join error paths"
+
+resp=$(auth_rpc "$TOKEN_B" "join_minigame_session" "{\"p_session_id\":\"$SESSION_MISSING\"}")
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"session_not_found"'; then
+  ok "Missing session -> session_not_found"
+else
+  nok "Missing session: $(echo "$resp" | head -c 80)"
+fi
+
+resp=$(auth_rpc "$TOKEN_C" "join_minigame_session" "{\"p_session_id\":\"$SESSION_ID\"}")
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"not_member"'; then
+  ok "Non-member C -> not_member (is_group_member gate)"
+else
+  nok "Non-member join: $(echo "$resp" | head -c 80)"
+fi
+
+resp=$(anon_rpc "join_minigame_session" "{\"p_session_id\":\"$SESSION_ID\"}")
+if echo "$resp" | grep -qE '(PGRST203|permission denied|42501|unauthorized|404)'; then
+  ok "anon join denied (EXECUTE revoked from PUBLIC)"
+else
+  nok "anon join NOT denied: $(echo "$resp" | head -c 80)"
+fi
+
+# =========================================================================
+# TEST K — finish_minigame_session draw (null winner): full refund
+# =========================================================================
+h1 "TEST K — finish_minigame_session draw settlement"
+
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION_ID\",\"p_winner_id\":null,\"p_place\":null}")
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"'; then
+  ok "Session finished (draw)"
+else
+  nok "finish draw wrong: $(echo "$resp" | head -c 120)"
+fi
+
+shards_a=$(svc_get "users?id=eq.$UUID_A&select=personal_shards")
+shards_b=$(svc_get "users?id=eq.$UUID_B&select=personal_shards")
+if echo "$shards_a" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*1000' \
+   && echo "$shards_b" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*1000'; then
+  ok "Draw refunded both participants (A and B back to 1000)"
+else
+  nok "Draw refund wrong: A=$(echo "$shards_a" | head -c 40) B=$(echo "$shards_b" | head -c 40)"
+fi
+
+refunds=$(svc_get "shard_ledger?reference_id=eq.$SESSION_ID&select=reason,delta")
+if [ "$(echo "$refunds" | grep -o '"minigame_refund"' | wc -l | tr -d ' ')" = "2" ]; then
+  ok "Two minigame_refund ledger rows (reference_id = session)"
+else
+  nok "Refund ledger wrong: $(echo "$refunds" | head -c 120)"
+fi
+
+row=$(svc_get "minigame_sessions?id=eq.$SESSION_ID&select=status,winner_id")
+if echo "$row" | grep -q '"status"[[:space:]]*:[[:space:]]*"finished"' && echo "$row" | grep -q '"winner_id"[[:space:]]*:[[:space:]]*null'; then
+  ok "Session row: status=finished, winner_id=null"
+else
+  nok "Session row wrong: $(echo "$row" | head -c 120)"
+fi
+
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION_ID\",\"p_winner_id\":null,\"p_place\":null}")
+shards_a=$(svc_get "users?id=eq.$UUID_A&select=personal_shards")
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"already_finished"' \
+   && echo "$shards_a" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*1000'; then
+  ok "Repeat finish -> already_finished, escrow settled once (no double refund)"
+else
+  nok "Repeat finish NOT idempotent: $(echo "$resp" | head -c 80)"
+fi
+
+# =========================================================================
+# TEST L — finish_minigame_session winner path: full-pot credit
+# =========================================================================
+h1 "TEST L — finish_minigame_session winner settlement"
+
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"questions\",\"p_wager\":50}")
+SESSION_ID_2=$(echo "$resp" | grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+resp=$(auth_rpc "$TOKEN_B" "join_minigame_session" "{\"p_session_id\":\"$SESSION_ID_2\"}")
+if [ -n "$SESSION_ID_2" ] && echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"joined"'; then
+  ok "Second session created (A) and joined (B), wager 50"
+else
+  nok "Second session setup failed: $(echo "$resp" | head -c 80)"
+fi
+
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION_ID_2\",\"p_winner_id\":\"$UUID_A\",\"p_place\":1}")
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"'; then
+  ok "Session finished with winner A"
+else
+  nok "finish winner wrong: $(echo "$resp" | head -c 120)"
+fi
+
+shards_a=$(svc_get "users?id=eq.$UUID_A&select=personal_shards")
+shards_b=$(svc_get "users?id=eq.$UUID_B&select=personal_shards")
+if echo "$shards_a" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*1050' \
+   && echo "$shards_b" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*950'; then
+  ok "Winner A took the full pot (950 + 100 = 1050); B's deduction stands (950)"
+else
+  nok "Winner settlement wrong: A=$(echo "$shards_a" | head -c 40) B=$(echo "$shards_b" | head -c 40)"
+fi
+
+ledger=$(svc_get "shard_ledger?user_id=eq.$UUID_A&select=reason,delta,reference_id")
+if echo "$ledger" | grep -q '"minigame_win"' && echo "$ledger" | grep -q '"delta"[[:space:]]*:[[:space:]]*100' \
+   && echo "$ledger" | grep -q "\"$SESSION_ID_2\""; then
+  ok "minigame_win ledger entry (+100, reference_id = session)"
+else
+  nok "Winner ledger wrong: $(echo "$ledger" | head -c 120)"
+fi
+
+row=$(svc_get "minigame_sessions?id=eq.$SESSION_ID_2&select=winner_id")
+if echo "$row" | grep -q "\"winner_id\": *\"$UUID_A\""; then
+  ok "Session row records winner_id = A"
+else
+  nok "winner_id wrong: $(echo "$row" | head -c 80)"
+fi
+
+# =========================================================================
+# TEST M — finish invalid_winner (winner outside the participants)
+# =========================================================================
+h1 "TEST M — finish invalid_winner"
+
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0}")
+SESSION_ID_3=$(echo "$resp" | grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION_ID_3\",\"p_winner_id\":\"$UUID_C\",\"p_place\":1}")
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"invalid_winner"'; then
+  ok "Non-participant C as winner -> invalid_winner"
+else
+  nok "invalid_winner NOT rejected: $(echo "$resp" | head -c 120)"
+fi
+
+row=$(svc_get "minigame_sessions?id=eq.$SESSION_ID_3&select=status")
+if echo "$row" | grep -q '"status"[[:space:]]*:[[:space:]]*"active"'; then
+  ok "Session stays active after the rejected finish"
+else
+  nok "Session state after invalid_winner: $(echo "$row" | head -c 80)"
+fi
+
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION_ID_3\",\"p_winner_id\":null,\"p_place\":null}")
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"'; then
+  ok "Zero-wager session finishes cleanly with a null winner"
+else
+  nok "Zero-wager finish wrong: $(echo "$resp" | head -c 120)"
 fi
 
 # =========================================================================

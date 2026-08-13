@@ -102,15 +102,22 @@ void main() {
       final url = await service.uploadGroupCover(input);
 
       expect(url, startsWith('https://cdn.example/groups/group_covers/'));
-      final captured = verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
-          .captured;
+      final captured = verify(
+        () => fileApi.uploadBinary(captureAny(), captureAny()),
+      ).captured;
       final path = captured[0] as String;
       final uploadedBytes = captured[1] as Uint8List;
       expect(path, startsWith('group_covers/'));
-      expect(path, endsWith('.png'),
-          reason: 'processed output is always PNG, whatever the source format');
-      expect(uploadedBytes.length, lessThan(input.length),
-          reason: 'downscaled payload must be smaller than the original');
+      expect(
+        path,
+        endsWith('.png'),
+        reason: 'processed output is always PNG, whatever the source format',
+      );
+      expect(
+        uploadedBytes.length,
+        lessThan(input.length),
+        reason: 'downscaled payload must be smaller than the original',
+      );
     });
 
     test('passes small payloads through without processing', () async {
@@ -119,10 +126,14 @@ void main() {
 
       await service.uploadGroupCover(input);
 
-      final captured = verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
-          .captured;
-      expect(captured[1], equals(input),
-          reason: 'cheap uploads must not pay the decode/encode cost');
+      final captured = verify(
+        () => fileApi.uploadBinary(captureAny(), captureAny()),
+      ).captured;
+      expect(
+        captured[1],
+        equals(input),
+        reason: 'cheap uploads must not pay the decode/encode cost',
+      );
     });
 
     test('returns the public URL of the uploaded object', () async {
@@ -162,15 +173,22 @@ void main() {
       final url = await service.uploadUserAvatar('user-1', input);
 
       expect(url, startsWith('https://cdn.example/avatars/avatars/user-1/'));
-      final captured = verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
-          .captured;
+      final captured = verify(
+        () => fileApi.uploadBinary(captureAny(), captureAny()),
+      ).captured;
       final path = captured[0] as String;
       final uploadedBytes = captured[1] as Uint8List;
       expect(path, startsWith('avatars/user-1/'));
-      expect(path, endsWith('.png'),
-          reason: 'processed output is always PNG, whatever the source format');
-      expect(uploadedBytes.length, lessThan(input.length),
-          reason: 'downscaled payload must be smaller than the original');
+      expect(
+        path,
+        endsWith('.png'),
+        reason: 'processed output is always PNG, whatever the source format',
+      );
+      expect(
+        uploadedBytes.length,
+        lessThan(input.length),
+        reason: 'downscaled payload must be smaller than the original',
+      );
     });
 
     test('passes small payloads through without processing', () async {
@@ -179,10 +197,14 @@ void main() {
 
       await service.uploadUserAvatar('user-1', input);
 
-      final captured = verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
-          .captured;
-      expect(captured[1], equals(input),
-          reason: 'cheap uploads must not pay the decode/encode cost');
+      final captured = verify(
+        () => fileApi.uploadBinary(captureAny(), captureAny()),
+      ).captured;
+      expect(
+        captured[1],
+        equals(input),
+        reason: 'cheap uploads must not pay the decode/encode cost',
+      );
     });
 
     test('returns the public URL of the uploaded object', () async {
@@ -197,76 +219,108 @@ void main() {
       final input = await _solidPng(640, 480);
 
       await service.uploadUserAvatar('user-A', input);
-      final capturedA = verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
-          .captured;
+      final capturedA = verify(
+        () => fileApi.uploadBinary(captureAny(), captureAny()),
+      ).captured;
       expect(capturedA[0], startsWith('avatars/user-A/'));
 
       await service.uploadUserAvatar('user-B', input);
-      final capturedB = verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
-          .captured;
+      final capturedB = verify(
+        () => fileApi.uploadBinary(captureAny(), captureAny()),
+      ).captured;
       expect(capturedB[0], startsWith('avatars/user-B/'));
     });
   });
 
-  group('MediaService.uploadEventCover (ECRT step 2 — I-54)', () {
-    late _MockSupabaseClient client;
-    late _MockStorage storage;
-    late _MockFileApi fileApi;
-    late MediaService service;
+  group(
+    'MediaService.uploadEventCover (ECRT step 2 — I-54, S-09 bucket fix)',
+    () {
+      late _MockSupabaseClient client;
+      late _MockStorage storage;
+      late _MockFileApi fileApi;
+      late MediaService service;
 
-    setUp(() {
-      storage = _MockStorage();
-      client = _MockSupabaseClient(storage);
-      fileApi = _MockFileApi();
-      when(() => storage.from('events')).thenReturn(fileApi);
-      when(() => fileApi.uploadBinary(any(), any())).thenAnswer(
-        (invocation) async => invocation.positionalArguments[0] as String,
+      setUp(() {
+        storage = _MockStorage();
+        client = _MockSupabaseClient(storage);
+        fileApi = _MockFileApi();
+        // S-09: event covers upload into the PUBLIC groups bucket (the events
+        // bucket is public=false — getPublicUrl there serves nothing, and
+        // signed URLs would expire while events.cover_url is stored).
+        when(() => storage.from('groups')).thenReturn(fileApi);
+        when(() => fileApi.uploadBinary(any(), any())).thenAnswer(
+          (invocation) async => invocation.positionalArguments[0] as String,
+        );
+        when(() => fileApi.getPublicUrl(any())).thenAnswer(
+          (invocation) =>
+              'https://cdn.example/groups/${invocation.positionalArguments[0]}',
+        );
+        service = MediaService(client: client);
+      });
+
+      test(
+        'compresses a full-resolution payload before uploadBinary',
+        () async {
+          final input = await _noisePng(3000, 2000);
+          expect(input.length, greaterThan(ImageProcessor.skipThresholdBytes));
+
+          final url = await service.uploadEventCover(input);
+
+          expect(url, startsWith('https://cdn.example/groups/event_covers/'));
+          final captured = verify(
+            () => fileApi.uploadBinary(captureAny(), captureAny()),
+          ).captured;
+          final path = captured[0] as String;
+          final uploadedBytes = captured[1] as Uint8List;
+          expect(path, startsWith('event_covers/'));
+          expect(
+            path,
+            endsWith('.png'),
+            reason:
+                'processed output is always PNG, whatever the source format',
+          );
+          expect(
+            uploadedBytes.length,
+            lessThan(input.length),
+            reason: 'downscaled payload must be smaller than the original',
+          );
+        },
       );
-      when(() => fileApi.getPublicUrl(any())).thenAnswer(
-        (invocation) =>
-            'https://cdn.example/events/${invocation.positionalArguments[0]}',
-      );
-      service = MediaService(client: client);
-    });
 
-    test('compresses a full-resolution payload before uploadBinary', () async {
-      final input = await _noisePng(3000, 2000);
-      expect(input.length, greaterThan(ImageProcessor.skipThresholdBytes));
+      test('passes small payloads through without processing', () async {
+        final input = await _solidPng(800, 600);
+        expect(input.length, lessThan(ImageProcessor.skipThresholdBytes));
 
-      final url = await service.uploadEventCover(input);
+        await service.uploadEventCover(input);
 
-      expect(url, startsWith('https://cdn.example/events/event_covers/'));
-      final captured = verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
-          .captured;
-      final path = captured[0] as String;
-      final uploadedBytes = captured[1] as Uint8List;
-      expect(path, startsWith('event_covers/'));
-      expect(path, endsWith('.png'),
-          reason: 'processed output is always PNG, whatever the source format');
-      expect(uploadedBytes.length, lessThan(input.length),
-          reason: 'downscaled payload must be smaller than the original');
-    });
+        final captured = verify(
+          () => fileApi.uploadBinary(captureAny(), captureAny()),
+        ).captured;
+        expect(
+          captured[1],
+          equals(input),
+          reason: 'cheap uploads must not pay the decode/encode cost',
+        );
+      });
 
-    test('passes small payloads through without processing', () async {
-      final input = await _solidPng(800, 600);
-      expect(input.length, lessThan(ImageProcessor.skipThresholdBytes));
+      test('returns the public URL of the uploaded object', () async {
+        final input = await _solidPng(640, 480);
+        final url = await service.uploadEventCover(input);
 
-      await service.uploadEventCover(input);
+        expect(url, startsWith('https://cdn.example/groups/event_covers/'));
+        expect(url, endsWith('.png'));
+      });
 
-      final captured = verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
-          .captured;
-      expect(captured[1], equals(input),
-          reason: 'cheap uploads must not pay the decode/encode cost');
-    });
+      test('never touches the private events bucket (public=false serves '
+          'nothing via getPublicUrl)', () async {
+        final input = await _solidPng(640, 480);
 
-    test('returns the public URL of the uploaded object', () async {
-      final input = await _solidPng(640, 480);
-      final url = await service.uploadEventCover(input);
+        await service.uploadEventCover(input);
 
-      expect(url, startsWith('https://cdn.example/events/event_covers/'));
-      expect(url, endsWith('.png'));
-    });
-  });
+        verifyNever(() => storage.from('events'));
+      });
+    },
+  );
 
   group('MediaService.uploadEventPhoto (PHUP gap — I-44)', () {
     late _MockSupabaseClient client;
@@ -290,12 +344,14 @@ void main() {
       when(() => client.auth).thenReturn(auth);
       fileApi = MockStorageFileApi();
       when(() => storage.from('events')).thenReturn(fileApi);
-      when(() => fileApi.uploadBinary(any(), any()))
-          .thenAnswer((_) async => 'uploaded-path');
+      when(
+        () => fileApi.uploadBinary(any(), any()),
+      ).thenAnswer((_) async => 'uploaded-path');
       photosTable = MockQueryBuilder();
       when(() => client.from('event_photos')).thenAnswer((_) => photosTable);
-      when(() => photosTable.insert(any()))
-          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+      when(
+        () => photosTable.insert(any()),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
       tempDir = Directory.systemTemp.createTempSync('media_service_test_');
       service = MediaService(client: client);
     });
@@ -307,25 +363,28 @@ void main() {
     });
 
     test('uploads the file bytes and records the event_photos row', () async {
-      when(() => auth.currentUser)
-          .thenReturn(User.fromJson({'id': userId, 'email': 'a@b.com'}));
+      when(
+        () => auth.currentUser,
+      ).thenReturn(User.fromJson({'id': userId, 'email': 'a@b.com'}));
       final png = await _solidPng(100, 100);
-      final file = File('${tempDir.path}/foto.jpg')
-        ..writeAsBytesSync(png);
+      final file = File('${tempDir.path}/foto.jpg')..writeAsBytesSync(png);
 
       await service.uploadEventPhoto(eventId, file.path);
 
-      final captured =
-          verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
-              .captured;
+      final captured = verify(
+        () => fileApi.uploadBinary(captureAny(), captureAny()),
+      ).captured;
       final storagePath = captured[0] as String;
       final uploaded = captured[1] as Uint8List;
       expect(storagePath, startsWith('$eventId/photos/'));
       // I-59: the path variant now delegates to the bytes variant, which
       // stores a processed PNG like every other MediaService upload.
       expect(storagePath, endsWith('.png'));
-      expect(uploaded, png,
-          reason: 'small payloads pass compression unchanged');
+      expect(
+        uploaded,
+        png,
+        reason: 'small payloads pass compression unchanged',
+      );
 
       final row =
           verify(() => photosTable.insert(captureAny())).captured.single as Map;
@@ -342,17 +401,17 @@ void main() {
       final file = File('${tempDir.path}/foto.jpg')
         ..writeAsBytesSync(Uint8List(16));
 
-      expect(() => service.uploadEventPhoto(eventId, file.path),
-          throwsA(isA<Exception>()));
+      expect(
+        () => service.uploadEventPhoto(eventId, file.path),
+        throwsA(isA<Exception>()),
+      );
       verifyNever(() => photosTable.insert(any()));
     });
 
     test('propagates a permission-denied PostgrestException', () async {
-      when(() => auth.currentUser)
-          .thenReturn(User.fromJson({'id': userId}));
+      when(() => auth.currentUser).thenReturn(User.fromJson({'id': userId}));
       final png = await _solidPng(100, 100);
-      final file = File('${tempDir.path}/foto.jpg')
-        ..writeAsBytesSync(png);
+      final file = File('${tempDir.path}/foto.jpg')..writeAsBytesSync(png);
       when(() => photosTable.insert(any())).thenThrow(
         const PostgrestException(
           message: 'new row violates row-level security policy',
@@ -386,34 +445,40 @@ void main() {
       when(() => client.auth).thenReturn(auth);
       fileApi = MockStorageFileApi();
       when(() => storage.from('events')).thenReturn(fileApi);
-      when(() => fileApi.uploadBinary(any(), any()))
-          .thenAnswer((_) async => 'uploaded-path');
+      when(
+        () => fileApi.uploadBinary(any(), any()),
+      ).thenAnswer((_) async => 'uploaded-path');
       photosTable = MockQueryBuilder();
       when(() => client.from('event_photos')).thenAnswer((_) => photosTable);
-      when(() => photosTable.insert(any()))
-          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+      when(
+        () => photosTable.insert(any()),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
       service = MediaService(client: client);
     });
 
-    test('compresses the payload, uploads a PNG and records the row',
-        () async {
-      when(() => auth.currentUser)
-          .thenReturn(User.fromJson({'id': userId}));
+    test('compresses the payload, uploads a PNG and records the row', () async {
+      when(() => auth.currentUser).thenReturn(User.fromJson({'id': userId}));
       final input = await _noisePng(3000, 2000);
       expect(input.length, greaterThan(ImageProcessor.skipThresholdBytes));
 
       await service.uploadEventPhotoBytes(eventId, input);
 
-      final captured =
-          verify(() => fileApi.uploadBinary(captureAny(), captureAny()))
-              .captured;
+      final captured = verify(
+        () => fileApi.uploadBinary(captureAny(), captureAny()),
+      ).captured;
       final storagePath = captured[0] as String;
       final uploaded = captured[1] as Uint8List;
       expect(storagePath, startsWith('$eventId/photos/'));
-      expect(storagePath, endsWith('.png'),
-          reason: 'processed output is always PNG, whatever the source format');
-      expect(uploaded.length, lessThan(input.length),
-          reason: 'downscaled payload must be smaller than the original');
+      expect(
+        storagePath,
+        endsWith('.png'),
+        reason: 'processed output is always PNG, whatever the source format',
+      );
+      expect(
+        uploaded.length,
+        lessThan(input.length),
+        reason: 'downscaled payload must be smaller than the original',
+      );
 
       final row =
           verify(() => photosTable.insert(captureAny())).captured.single as Map;
@@ -427,8 +492,10 @@ void main() {
     test('throws without an authenticated session', () async {
       when(() => auth.currentUser).thenReturn(null);
 
-      expect(() => service.uploadEventPhotoBytes(eventId, Uint8List(16)),
-          throwsA(isA<Exception>()));
+      expect(
+        () => service.uploadEventPhotoBytes(eventId, Uint8List(16)),
+        throwsA(isA<Exception>()),
+      );
       verifyNever(() => fileApi.uploadBinary(any(), any()));
       verifyNever(() => photosTable.insert(any()));
     });
@@ -453,8 +520,7 @@ void main() {
       ]);
       when(() => table.select()).thenAnswer((_) => rows);
 
-      final result = await MediaService(client: client)
-          .listEventPhotos('e-1');
+      final result = await MediaService(client: client).listEventPhotos('e-1');
 
       expect(result, hasLength(1));
       expect(result.single['storage_path'], 'e-1/photos/a.png');
@@ -468,15 +534,18 @@ void main() {
       final client = _MockSupabaseClient(storage);
       final fileApi = MockStorageFileApi();
       when(() => storage.from('events')).thenReturn(fileApi);
-      when(() => fileApi.createSignedUrl(any(), any()))
-          .thenAnswer((_) async => 'https://cdn.example/signed/foto.png');
+      when(
+        () => fileApi.createSignedUrl(any(), any()),
+      ).thenAnswer((_) async => 'https://cdn.example/signed/foto.png');
 
-      final url = await MediaService(client: client)
-          .getSignedPhotoUrl('e-1/photos/foto.png');
+      final url = await MediaService(
+        client: client,
+      ).getSignedPhotoUrl('e-1/photos/foto.png');
 
       expect(url, 'https://cdn.example/signed/foto.png');
-      verify(() => fileApi.createSignedUrl('e-1/photos/foto.png', 3600))
-          .called(1);
+      verify(
+        () => fileApi.createSignedUrl('e-1/photos/foto.png', 3600),
+      ).called(1);
     });
   });
 }

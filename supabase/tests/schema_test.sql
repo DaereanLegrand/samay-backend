@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all 25 migrations (20260510000001 through 20260810000007).
+-- Covers all 25 migrations (20260510000001 through 20260813000001).
 BEGIN;
 
-SELECT plan(328);
+SELECT plan(344);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -1305,9 +1305,10 @@ SELECT ok(
      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public'
        AND p.proname IN ('donate_shards_to_group', 'fetch_prekey_bundle',
-                         'validate_qr_token', 'create_minigame_session')
-       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) = 4,
-    'authenticated can EXECUTE the 4 client RPCs'
+                         'validate_qr_token', 'create_minigame_session',
+                         'join_minigame_session', 'finish_minigame_session')
+       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) = 6,
+    'authenticated can EXECUTE the 6 client RPCs'
 );
 
 SELECT ok(
@@ -1337,6 +1338,90 @@ SELECT set_config('request.jwt.claims', '{}', true);
 SELECT throws_ok($$SELECT public.donate_shards_to_group('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 50, '2026-12-31T23:59:59Z')$$,
     'P0001', 'Not authorized',
     'donate_shards_to_group NULL-uid guard raises Not authorized (20260811000001)');
+
+-- ============================================================
+-- SECTION 49: join/finish minigame session RPCs (migration
+-- 20260813000001, agent R4) — closes the I-77/S-03 server RPC gap:
+-- join_minigame_session (session-exists + is_group_member gate, idempotent
+-- participants append, escrow deduction mirroring create_minigame_session)
+-- and finish_minigame_session (winner pot credit via minigame_win ledger /
+-- draw refunds via minigame_refund, status='finished' + winner_id). Both
+-- are SECURITY DEFINER + SET search_path = '' (I-31 pattern), jsonb status
+-- outcomes (I-57 contract), PUBLIC EXECUTE revoked, authenticated-only.
+-- ============================================================
+
+-- 49a: join_minigame_session(uuid)
+SELECT has_function('join_minigame_session', ARRAY['uuid'],
+    'join_minigame_session(p_session_id uuid) exists (migration 20260813000001)');
+SELECT ok(
+    (SELECT prosecdef FROM pg_proc WHERE proname = 'join_minigame_session'),
+    'join_minigame_session is SECURITY DEFINER'
+);
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'join_minigame_session'),
+    'join_minigame_session sets search_path = '''' (migration 20260813000001)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.is_group_member(v_group_id)%'
+     FROM pg_proc p WHERE proname = 'join_minigame_session'),
+    'join_minigame_session validates membership via is_group_member'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_wager%'
+       AND pg_get_functiondef(p.oid) LIKE '%public.shard_ledger%'
+       AND pg_get_functiondef(p.oid) LIKE '%participants || ARRAY[v_current_user]%'
+     FROM pg_proc p WHERE proname = 'join_minigame_session'),
+    'join_minigame_session deducts the wager into the minigame_wager ledger and appends the participant'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''joined''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''session_not_found''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''session_not_active''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''insufficient_shards''%'
+     FROM pg_proc p WHERE proname = 'join_minigame_session'),
+    'join_minigame_session returns typed jsonb statuses (I-57 contract)'
+);
+SELECT function_privs_are('public', 'join_minigame_session', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'join_minigame_session is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'join_minigame_session', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'join_minigame_session is authenticated-EXECUTABLE');
+
+-- 49b: finish_minigame_session(uuid, uuid, integer)
+SELECT has_function('finish_minigame_session', ARRAY['uuid', 'uuid', 'integer'],
+    'finish_minigame_session(p_session_id uuid, p_winner_id uuid, p_place integer) exists (migration 20260813000001)');
+SELECT ok(
+    (SELECT prosecdef FROM pg_proc WHERE proname = 'finish_minigame_session'),
+    'finish_minigame_session is SECURITY DEFINER'
+);
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'finish_minigame_session'),
+    'finish_minigame_session sets search_path = '''' (migration 20260813000001)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_win%'
+       AND pg_get_functiondef(p.oid) LIKE '%public.shard_ledger%'
+     FROM pg_proc p WHERE proname = 'finish_minigame_session'),
+    'finish_minigame_session credits the winner via the minigame_win ledger'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_refund%'
+     FROM pg_proc p WHERE proname = 'finish_minigame_session'),
+    'finish_minigame_session refunds participants on draw (minigame_refund)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''finished''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''already_finished''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''invalid_winner''%'
+       AND pg_get_functiondef(p.oid) LIKE '%status = ''finished''%'
+     FROM pg_proc p WHERE proname = 'finish_minigame_session'),
+    'finish_minigame_session returns typed jsonb statuses and flips the session status (I-57 contract)'
+);
+SELECT function_privs_are('public', 'finish_minigame_session', ARRAY['uuid', 'uuid', 'integer']::name[], 'public', ARRAY[]::name[],
+    'finish_minigame_session is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'finish_minigame_session', ARRAY['uuid', 'uuid', 'integer']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'finish_minigame_session is authenticated-EXECUTABLE');
 
 SELECT * FROM finish();
 ROLLBACK;

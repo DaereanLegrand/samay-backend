@@ -2,11 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/config/feature_flags.dart';
 import 'package:samay/core/providers/auth_provider.dart';
+import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
+import 'package:samay/core/services/moderation_service.dart';
+import 'package:samay/core/services/storage_service.dart';
 import 'package:samay/features/profile/screens/delete_account_screen.dart';
 import 'package:samay/features/profile/screens/edit_profile_screen.dart';
+import 'package:samay/features/profile/screens/notification_settings_screen.dart';
+import 'package:samay/features/profile/screens/privacy_info_screen.dart';
+import 'package:samay/features/profile/providers/notification_prefs_provider.dart';
 import 'package:samay/features/profile/providers/profile_providers.dart';
 import 'package:samay/features/profile/screens/profile_screen.dart';
 import 'package:samay/features/profile/screens/public_profile_screen.dart';
@@ -151,6 +158,28 @@ class _SignOutAuthNotifier extends AuthNotifier {
     state = const AsyncData(AuthState());
   }
 }
+
+/// In-memory [HiveService] stand-in (R2, same seam as theme_persistence_test):
+/// records config writes, seeds reads — no Hive init, no platform channels.
+class _FakeHiveService implements HiveService {
+  _FakeHiveService([Map<String, String>? initial]) : config = {...?initial};
+
+  final Map<String, String> config;
+
+  @override
+  Future<void> init({bool initializeFlutter = true}) async {}
+
+  @override
+  Future<void> cacheConfig(Map<String, String> config) async {
+    this.config.addAll(config);
+  }
+
+  @override
+  Map<String, String>? getCachedConfig() =>
+      config.isEmpty ? null : Map<String, String>.of(config);
+}
+
+class _MockModerationService extends Mock implements ModerationService {}
 
 /// Minimal go_router for the profile/settings flow tests (R7/R8): the real
 /// screens push with `context.push`/`context.go`, which need a router — the
@@ -505,8 +534,45 @@ void main() {
       );
     });
 
-    testWidgets('tapping the disabled Notificaciones/Privacidad placeholder '
-        'rows does nothing (U-26 2.1.1/4.1.2 pin)', (tester) async {
+    testWidgets('Notificaciones row opens the notification-preferences screen '
+        'with persisted toggles (R2)', (tester) async {
+      _useTallViewport(tester);
+      final hive = _FakeHiveService();
+      await tester.pumpWidget(
+        _wrapRouter(
+          const SettingsScreen(),
+          path: RoutePaths.settings,
+          overrides: [hiveServiceProvider.overrideWithValue(hive)],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Notificaciones'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(NotificationSettingsScreen), findsOneWidget);
+      expect(find.text('Preferencias de notificaciones'), findsOneWidget);
+      expect(find.text('Recordatorios de eventos'), findsOneWidget);
+      expect(find.text('Solicitudes de amistad'), findsOneWidget);
+
+      // The toggles are real: flipping the first persists it to the local
+      // config cache (the same Hive seam as the theme-mode choice).
+      await tester.tap(find.byType(SwitchListTile).first);
+      await tester.pumpAndSettle();
+      expect(
+        hive.config[NotificationPrefsNotifier.prefs.first.key],
+        'false',
+        reason: 'R2 — the toggle must persist to the on-device config cache',
+      );
+      final firstSwitch = tester.widget<SwitchListTile>(
+        find.byType(SwitchListTile).first,
+      );
+      expect(firstSwitch.value, isFalse);
+    });
+
+    testWidgets('Privacidad row opens the privacy/terms info screen (R2)', (
+      tester,
+    ) async {
       _useTallViewport(tester);
       await tester.pumpWidget(
         _wrapRouter(
@@ -517,22 +583,17 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      for (final label in ['Notificaciones', 'Privacidad']) {
-        await tester.tap(find.text(label));
-        await tester.pumpAndSettle();
-        expect(
-          find.byType(AlertDialog),
-          findsNothing,
-          reason:
-              'the "$label" placeholder is disabled — tapping opens '
-              'nothing',
-        );
-        expect(
-          find.text('Configuración'),
-          findsOneWidget,
-          reason: 'the screen stays put',
-        );
-      }
+      await tester.tap(find.text('Privacidad'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PrivacyInfoScreen), findsOneWidget);
+      expect(
+        find.text('Acepto la Política de Privacidad'),
+        findsOneWidget,
+        reason: 'the info screen reuses the signup-funnel consent copy',
+      );
+      expect(find.text('Acepto los Términos de Servicio'), findsOneWidget);
+      expect(find.textContaining('Nunca se venden'), findsOneWidget);
     });
   });
 
@@ -630,6 +691,100 @@ void main() {
       // VDisplayText; no AppBar title duplicates it.
       expect(find.text('USUARIO'), findsOneWidget);
       expect(find.text('Agregar amigo'), findsOneWidget);
+    });
+
+    testWidgets(
+      'report flow: reason dialog → moderationService.reportContent → '
+      'confirmation snackbar (R2)',
+      (tester) async {
+        final moderation = _MockModerationService();
+        when(
+          () => moderation.reportContent(any(), any(), any()),
+        ).thenAnswer((_) async {});
+        await tester.pumpWidget(
+          _wrapWithOverrides(const PublicProfileScreen(userId: 'test-id'), [
+            moderationServiceProvider.overrideWithValue(moderation),
+          ]),
+        );
+        await tester.pump(const Duration(seconds: 1));
+
+        await tester.tap(find.byType(PopupMenuButton<String>));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Reportar'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Reportar usuario'),
+          findsOneWidget,
+          reason: 'R2 — the report action opens the reason dialog',
+        );
+        await tester.tap(find.text('Spam'));
+        await tester.pump();
+
+        verify(
+          () => moderation.reportContent('user', 'test-id', 'Spam'),
+        ).called(1);
+        // LUXE: bounded pumps — the aurora drift would advance the fake
+        // clock past the snackbar's auto-dismiss.
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(
+          find.text('Gracias por reportar. Lo revisaremos pronto.'),
+          findsOneWidget,
+          reason: 'R2 — the confirmation is a real, localized message',
+        );
+      },
+    );
+
+    testWidgets('report failure surfaces the mapped error (R2)', (
+      tester,
+    ) async {
+      final moderation = _MockModerationService();
+      when(
+        () => moderation.reportContent(any(), any(), any()),
+      ).thenThrow(Exception('report service down'));
+      await tester.pumpWidget(
+        _wrapWithOverrides(const PublicProfileScreen(userId: 'test-id'), [
+          moderationServiceProvider.overrideWithValue(moderation),
+        ]),
+      );
+      await tester.pump(const Duration(seconds: 1));
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reportar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Acoso o abuso'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(
+        find.textContaining('Error del servidor'),
+        findsOneWidget,
+        reason: 'R2 — a failed report shows the mapped error snackbar',
+      );
+    });
+
+    testWidgets('cancelling the report dialog submits nothing (R2)', (
+      tester,
+    ) async {
+      final moderation = _MockModerationService();
+      await tester.pumpWidget(
+        _wrapWithOverrides(const PublicProfileScreen(userId: 'test-id'), [
+          moderationServiceProvider.overrideWithValue(moderation),
+        ]),
+      );
+      await tester.pump(const Duration(seconds: 1));
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reportar'));
+      await tester.pumpAndSettle();
+      // Dismiss via the barrier — no reason chosen.
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+
+      verifyNever(() => moderation.reportContent(any(), any(), any()));
+      expect(find.byType(AlertDialog), findsNothing);
     });
   });
 

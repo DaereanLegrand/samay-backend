@@ -54,6 +54,10 @@ const _justifiedFixedLists = <String, String>{
       'button — the tier/feature catalogs are const (paywallTiers/'
       'paywallRows), only price values come from app_config, so the child '
       'count never depends on fetched data',
+  'lib/features/profile/screens/notification_settings_screen.dart':
+      'fixed 4-toggle notification preferences — static rows, not data',
+  'lib/features/profile/screens/privacy_info_screen.dart':
+      'fixed privacy/terms section stack — static content, not data',
 };
 
 final _plainListView = RegExp(r'ListView\(');

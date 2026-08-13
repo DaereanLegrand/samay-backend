@@ -14,6 +14,7 @@ import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/repositories/groups_repository.dart';
 import 'package:samay/core/repositories/repository_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
+import 'package:samay/core/services/event_service.dart';
 import 'package:samay/core/services/group_service.dart';
 import 'package:samay/core/services/media_service.dart';
 import 'package:samay/core/services/permission_service.dart';
@@ -139,6 +140,8 @@ class _MockMediaService extends Mock implements MediaService {}
 
 class _MockGroupService extends Mock implements GroupService {}
 
+class _MockEventService extends Mock implements EventService {}
+
 class _MockGroupsRepository extends Mock implements GroupsRepository {}
 
 /// Records every tier argument the leaderboard family is asked to build, so
@@ -259,6 +262,11 @@ Future<_GroupDetailHarness> _pumpGroupDetail(
         path: '/group/:groupId/donate',
         builder: (_, state) =>
             Scaffold(body: Text('donate-${state.pathParameters['groupId']}')),
+      ),
+      GoRoute(
+        path: '/event/:eventId',
+        builder: (_, state) =>
+            Scaffold(body: Text('event-${state.pathParameters['eventId']}')),
       ),
     ],
   );
@@ -669,6 +677,128 @@ void main() {
         expect(find.byType(GroupDetailScreen), findsNothing);
       },
     );
+
+    testWidgets(
+      'events tab lists only this group\'s events (R2 — filters by group_id)',
+      (tester) async {
+        final events = _MockEventService();
+        when(() => events.listEvents()).thenAnswer(
+          (_) async => [
+            {
+              'id': 'e1',
+              'name': 'Rave del Sábado',
+              'group_id': _groupId,
+              'starts_at': '2026-09-01T22:00:00Z',
+              'ends_at': '2026-09-02T04:00:00Z',
+              'location_name': 'La Bodega',
+            },
+            {
+              'id': 'e2',
+              'name': 'Ajeno',
+              'group_id': '99999999-9999-9999-9999-999999999999',
+              'starts_at': '2026-09-01T22:00:00Z',
+              'ends_at': '2026-09-02T04:00:00Z',
+              'location_name': null,
+            },
+          ],
+        );
+        await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
+          ..._loadedGroupDetailOverrides(),
+          eventServiceProvider.overrideWithValue(events),
+        ]);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Eventos'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Rave del Sábado'),
+          findsOneWidget,
+          reason: 'R2 — the group events tab lists the group\'s events',
+        );
+        expect(
+          find.text('Ajeno'),
+          findsNothing,
+          reason: 'events from other groups must be filtered out',
+        );
+        expect(find.textContaining('La Bodega'), findsOneWidget);
+      },
+    );
+
+    testWidgets('events tab empty state when the group has no events (R2)', (
+      tester,
+    ) async {
+      final events = _MockEventService();
+      when(() => events.listEvents()).thenAnswer((_) async => []);
+      await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
+        ..._loadedGroupDetailOverrides(),
+        eventServiceProvider.overrideWithValue(events),
+      ]);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Eventos'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sin eventos en este grupo'), findsOneWidget);
+      expect(
+        find.textContaining('Crea el primer evento'),
+        findsOneWidget,
+        reason: 'R2 — the empty state points at the real create-event action',
+      );
+    });
+
+    testWidgets('events tab error state offers retry (R2)', (tester) async {
+      final events = _MockEventService();
+      when(() => events.listEvents()).thenThrow(Exception('events down'));
+      await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
+        ..._loadedGroupDetailOverrides(),
+        eventServiceProvider.overrideWithValue(events),
+      ]);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Eventos'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ErrorView), findsOneWidget);
+      expect(find.text('Reintentar'), findsOneWidget);
+    });
+
+    testWidgets('tapping a group event pushes the event-detail route (R2)', (
+      tester,
+    ) async {
+      final events = _MockEventService();
+      when(() => events.listEvents()).thenAnswer(
+        (_) async => [
+          {
+            'id': 'e1',
+            'name': 'Rave del Sábado',
+            'group_id': _groupId,
+            'starts_at': '2026-09-01T22:00:00Z',
+            'ends_at': '2026-09-02T04:00:00Z',
+            'location_name': null,
+          },
+        ],
+      );
+      final harness = await _pumpGroupDetail(tester, [
+        ..._loadedGroupDetailOverrides(),
+        eventServiceProvider.overrideWithValue(events),
+      ]);
+
+      await tester.tap(find.text('Eventos'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rave del Sábado'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('event-e1'),
+        findsOneWidget,
+        reason: 'R2 — event rows push RoutePaths.eventDetail',
+      );
+      expect(
+        harness.router.state.matchedLocation,
+        RoutePaths.eventDetail('e1'),
+      );
+    });
   });
 
   group('DonateShardsScreen', () {

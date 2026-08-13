@@ -33,7 +33,6 @@ import 'package:samay/features/profile/screens/delete_account_screen.dart';
 import 'package:samay/features/profile/screens/profile_screen.dart';
 import 'package:samay/features/profile/screens/settings_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/v_coming_soon.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 import '../support/fake_supabase_http.dart' as support;
@@ -434,17 +433,9 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('coming_soon renders without overflow (icon + Playfair '
-        'title + CTA)', (tester) async {
-      await _pump(
-        tester,
-        const VComingSoonScreen(
-          title: 'Party Finder',
-          description:
-              'Encuentra fiestas cerca de ti y únete a la mejor noche de '
-              'tu vida.',
-        ),
-      );
+    testWidgets('settings renders without overflow (menu rows + header)',
+        (tester) async {
+      await _pump(tester, const SettingsScreen());
       expect(tester.takeException(), isNull);
     });
   });

@@ -12,13 +12,13 @@ import 'package:samay/core/services/shards_service.dart';
 import 'package:samay/features/cosmetics/screens/cosmetics_shop_screen.dart';
 import 'package:samay/features/profile/providers/profile_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/v_coming_soon.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 /// Route-level navigation tests for the cosmetics shop (I-62): the profile
 /// "Cosméticos" section navigates to `/cosmetics` (flag-gated, I-49 release
-/// gating), and the route renders the shop when the flag is on / the
-/// coming-soon fallback when it is off.
+/// gating), and the route renders the shop by default (R1 events sweep
+/// flipped the flag live) / the neutral flag-gate fallback when it is off.
 const _cosmeticId = '55555555-5555-5555-5555-555555555555';
 
 Map<String, dynamic> _catalogItem() => {
@@ -230,21 +230,19 @@ void main() {
         await _pumpRoute(tester, container, RoutePaths.cosmetics);
 
         expect(find.byType(CosmeticsShopScreen), findsOneWidget);
-        expect(find.byType(VComingSoonScreen), findsNothing);
+        expect(find.byType(VEmptyView), findsNothing);
         expect(find.text('Marco Neon'), findsOneWidget);
       },
     );
 
-    testWidgets('${RoutePaths.cosmetics} renders the coming-soon fallback '
-        'while the flag is off (dark-first)', (tester) async {
+    testWidgets('${RoutePaths.cosmetics} renders the neutral flag-gate '
+        'fallback while the flag is off (kill-switch seam)', (tester) async {
       final container = _newContainer(cosmeticsOn: false);
       await _pumpRoute(tester, container, RoutePaths.cosmetics);
 
-      expect(find.byType(VComingSoonScreen), findsOneWidget);
+      expect(find.byType(VEmptyView), findsOneWidget);
       expect(find.byType(CosmeticsShopScreen), findsNothing);
-      // LUXE display voice: the MAYUS rule uppercases the headline.
-      expect(find.text('PR\u00d3XIMAMENTE'), findsOneWidget);
-      expect(find.text('Cosméticos'), findsOneWidget);
+      expect(find.text('No disponible'), findsOneWidget);
     });
   });
 

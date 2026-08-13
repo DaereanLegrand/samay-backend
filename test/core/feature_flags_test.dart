@@ -2,26 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/config/feature_flags.dart';
-import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/v_coming_soon.dart';
+import 'package:samay/shared/widgets/state_views.dart';
 
-/// Every flag's expected default (I-49 release-gating contract): only the
-/// features that are LIVE today ship enabled — chat (I-38 E2EE),
-/// notifications (I-53 notification center), feed (I-58 — it's the landing
-/// tab) and e2ee (always on by design). Everything else ships dark until its
-/// feature stack lands behind the flag.
+/// Every flag's expected default (I-49 release-gating contract, refreshed by
+/// the R1 events sweep): every feature that ships a real screen is LIVE by
+/// default — chat (I-38 E2EE), notifications (I-53), feed (I-58 — it's the
+/// landing tab), events (R1), qr (I-57), partyFinder (I-60), minigames
+/// (I-63), photoUpload (I-59), cosmeticsSection (I-62) and e2ee (always on
+/// by design). Only subscriptions stays dark until the RevenueCat SDK key
+/// lands (I-61).
 const Map<AppFeatureFlag, bool> kDefaultFlagStates = {
-  AppFeatureFlag.cosmeticsSection: false,
-  AppFeatureFlag.events: false,
+  AppFeatureFlag.cosmeticsSection: true,
+  AppFeatureFlag.events: true,
   AppFeatureFlag.chat: true,
-  AppFeatureFlag.qr: false,
+  AppFeatureFlag.qr: true,
   AppFeatureFlag.feed: true,
   AppFeatureFlag.notifications: true,
   AppFeatureFlag.subscriptions: false,
-  AppFeatureFlag.partyFinder: false,
-  AppFeatureFlag.minigames: false,
-  AppFeatureFlag.photoUpload: false,
+  AppFeatureFlag.partyFinder: true,
+  AppFeatureFlag.minigames: true,
+  AppFeatureFlag.photoUpload: true,
   AppFeatureFlag.e2ee: true,
   AppFeatureFlag.themePersistence: false,
 };
@@ -41,8 +42,10 @@ class _FlagProbe extends ConsumerWidget {
 
 /// Probe provider reading the `Ref`-based helper inside a provider build —
 /// the seam I-69's router gating will use (`routerProvider` has a `Ref`).
+/// Reads the subscriptions flag: the one flag that stays dark by default
+/// (RevenueCat key pending, I-61), so the probe's default is deterministic.
 final _refProbeProvider = Provider<String>((ref) {
-  return ref.isEnabled(AppFeatureFlag.events) ? 'on' : 'off';
+  return ref.isEnabled(AppFeatureFlag.subscriptions) ? 'on' : 'off';
 });
 
 Future<void> _pumpGate(
@@ -85,15 +88,21 @@ void main() {
         flags.cosmeticsSection,
       );
       expect(flags.isEnabled(AppFeatureFlag.events), flags.events);
-      expect(flags.isEnabled(AppFeatureFlag.notifications),
-          flags.notifications);
-      expect(flags.isEnabled(AppFeatureFlag.subscriptions),
-          flags.subscriptions);
+      expect(
+        flags.isEnabled(AppFeatureFlag.notifications),
+        flags.notifications,
+      );
+      expect(
+        flags.isEnabled(AppFeatureFlag.subscriptions),
+        flags.subscriptions,
+      );
       expect(flags.isEnabled(AppFeatureFlag.partyFinder), flags.partyFinder);
       expect(flags.isEnabled(AppFeatureFlag.minigames), flags.minigames);
       expect(flags.isEnabled(AppFeatureFlag.photoUpload), flags.photoUpload);
-      expect(flags.isEnabled(AppFeatureFlag.themePersistence),
-          flags.themePersistence);
+      expect(
+        flags.isEnabled(AppFeatureFlag.themePersistence),
+        flags.themePersistence,
+      );
       expect(flags.isEnabled(AppFeatureFlag.qr), flags.qr);
       expect(flags.isEnabled(AppFeatureFlag.feed), flags.feed);
     });
@@ -102,14 +111,14 @@ void main() {
       const flags = AppFeatureFlags(events: true, chat: false);
       expect(flags.events, isTrue);
       expect(flags.chat, isFalse);
-      expect(flags.cosmeticsSection, isFalse);
+      expect(flags.subscriptions, isFalse);
       expect(flags.e2ee, isTrue);
     });
 
     test('instances compare by their full flag set', () {
       expect(const AppFeatureFlags(), const AppFeatureFlags());
       expect(
-        const AppFeatureFlags(events: true),
+        const AppFeatureFlags(subscriptions: true),
         isNot(const AppFeatureFlags()),
       );
     });
@@ -125,8 +134,9 @@ void main() {
     test('is overridable in tests (ProviderContainer override)', () {
       final container = ProviderContainer(
         overrides: [
-          featureFlagsProvider
-              .overrideWithValue(const AppFeatureFlags(events: true)),
+          featureFlagsProvider.overrideWithValue(
+            const AppFeatureFlags(events: true),
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -139,8 +149,9 @@ void main() {
     test('Ref.isEnabled reads the overridden provider', () {
       final container = ProviderContainer(
         overrides: [
-          featureFlagsProvider
-              .overrideWithValue(const AppFeatureFlags(events: true)),
+          featureFlagsProvider.overrideWithValue(
+            const AppFeatureFlags(subscriptions: true),
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -167,72 +178,84 @@ void main() {
     testWidgets('renders the child when the flag is enabled', (tester) async {
       await _pumpGate(
         tester,
-        const FlagGate(
-          flag: AppFeatureFlag.events,
-          child: Text('REAL EVENTS'),
-        ),
+        const FlagGate(flag: AppFeatureFlag.events, child: Text('REAL EVENTS')),
         overrides: [
-          featureFlagsProvider
-              .overrideWithValue(const AppFeatureFlags(events: true)),
+          featureFlagsProvider.overrideWithValue(
+            const AppFeatureFlags(events: true),
+          ),
         ],
       );
 
       expect(find.text('REAL EVENTS'), findsOneWidget);
-      expect(find.byType(VComingSoonScreen), findsNothing);
+      expect(find.byType(VEmptyView), findsNothing);
     });
 
-    testWidgets('renders the VComingSoonScreen fallback when disabled',
-        (tester) async {
+    testWidgets('renders the neutral unavailable fallback when disabled', (
+      tester,
+    ) async {
       await _pumpGate(
         tester,
-        const FlagGate(
-          flag: AppFeatureFlag.events,
-          child: Text('REAL EVENTS'),
-        ),
+        const FlagGate(flag: AppFeatureFlag.events, child: Text('REAL EVENTS')),
+        overrides: [
+          featureFlagsProvider.overrideWithValue(
+            const AppFeatureFlags(events: false),
+          ),
+        ],
       );
 
-      expect(find.byType(VComingSoonScreen), findsOneWidget);
-      // LUXE display voice: the MAYUS rule uppercases the headline.
-      expect(find.text('PR\u00d3XIMAMENTE'), findsOneWidget);
+      expect(find.byType(VEmptyView), findsOneWidget);
+      expect(find.text('No disponible'), findsOneWidget);
       expect(find.text('REAL EVENTS'), findsNothing);
     });
 
-    testWidgets('default fallback carries the localized title per gated flag',
-        (tester) async {
-      for (final (flag, title, icon) in [
-        (AppFeatureFlag.events, 'Eventos', Icons.event),
-        (AppFeatureFlag.subscriptions, 'Suscripciones', Icons.subscriptions),
-        (AppFeatureFlag.partyFinder, 'Party Finder', Icons.celebration),
-        (AppFeatureFlag.qr, 'QR', Icons.qr_code),
+    testWidgets('the default fallback is the same neutral state for every '
+        'dark flag (no per-feature coming-soon copy after R1 sweep)', (
+      tester,
+    ) async {
+      for (final flag in [
+        AppFeatureFlag.events,
+        AppFeatureFlag.subscriptions,
+        AppFeatureFlag.partyFinder,
+        AppFeatureFlag.qr,
       ]) {
+        // Every feature now ships live by default — flip the flag under test
+        // dark so the fallback is exercised.
         await _pumpGate(
           tester,
           FlagGate(flag: flag, child: const Text('REAL')),
+          overrides: [
+            featureFlagsProvider.overrideWithValue(switch (flag) {
+              AppFeatureFlag.events => const AppFeatureFlags(events: false),
+              AppFeatureFlag.subscriptions => const AppFeatureFlags(
+                subscriptions: false,
+              ),
+              AppFeatureFlag.partyFinder => const AppFeatureFlags(
+                partyFinder: false,
+              ),
+              AppFeatureFlag.qr => const AppFeatureFlags(qr: false),
+              _ => const AppFeatureFlags(),
+            }),
+          ],
         );
-        expect(find.text(title), findsOneWidget,
-            reason: '${flag.name} fallback title');
-        expect(find.byType(VComingSoonScreen), findsOneWidget,
-            reason: '${flag.name} fallback type');
-        expect(find.byIcon(icon), findsOneWidget,
-            reason: '${flag.name} fallback icon');
+        expect(
+          find.byType(VEmptyView),
+          findsOneWidget,
+          reason: '${flag.name} fallback type',
+        );
+        expect(
+          find.text('No disponible'),
+          findsOneWidget,
+          reason: '${flag.name} fallback title',
+        );
+        expect(
+          find.text('Esta función aún no está disponible.'),
+          findsOneWidget,
+          reason: '${flag.name} fallback body',
+        );
       }
     });
 
-    testWidgets('partyFinder fallback icon uses the §5.7 faint glowPink hero '
-        'color', (tester) async {
-      await _pumpGate(
-        tester,
-        const FlagGate(
-          flag: AppFeatureFlag.partyFinder,
-          child: Text('REAL'),
-        ),
-      );
-      final icon = tester.widget<Icon>(find.byIcon(Icons.celebration));
-      expect(icon.color, AppColors.glowPink.withValues(alpha: 0.5));
-    });
-
-    testWidgets(
-        'a live flag renders its child, not the coming-soon fallback '
+    testWidgets('a live flag renders its child, not the neutral fallback '
         '(notifications is LIVE via I-53)', (tester) async {
       await _pumpGate(
         tester,
@@ -242,11 +265,10 @@ void main() {
         ),
       );
       expect(find.text('NOTIFICATION CENTER'), findsOneWidget);
-      expect(find.byType(VComingSoonScreen), findsNothing);
+      expect(find.byType(VEmptyView), findsNothing);
     });
 
-    testWidgets(
-        'flipping a live flag dark restores the localized coming-soon '
+    testWidgets('flipping a live flag dark restores the neutral unavailable '
         'fallback (kill-switch seam)', (tester) async {
       await _pumpGate(
         tester,
@@ -255,13 +277,14 @@ void main() {
           child: Text('NOTIFICATION CENTER'),
         ),
         overrides: [
-          featureFlagsProvider
-              .overrideWithValue(const AppFeatureFlags(notifications: false)),
+          featureFlagsProvider.overrideWithValue(
+            const AppFeatureFlags(notifications: false),
+          ),
         ],
       );
-      expect(find.text('Notificaciones'), findsOneWidget);
-      expect(find.byIcon(Icons.notifications), findsOneWidget);
-      expect(find.byType(VComingSoonScreen), findsOneWidget);
+      expect(find.text('No disponible'), findsOneWidget);
+      expect(find.text('NOTIFICATION CENTER'), findsNothing);
+      expect(find.byType(VEmptyView), findsOneWidget);
     });
 
     testWidgets('an explicit fallback replaces the default', (tester) async {
@@ -272,14 +295,20 @@ void main() {
           fallback: Text('CUSTOM FALLBACK'),
           child: Text('REAL EVENTS'),
         ),
+        overrides: [
+          featureFlagsProvider.overrideWithValue(
+            const AppFeatureFlags(events: false),
+          ),
+        ],
       );
 
       expect(find.text('CUSTOM FALLBACK'), findsOneWidget);
-      expect(find.byType(VComingSoonScreen), findsNothing);
+      expect(find.byType(VEmptyView), findsNothing);
     });
 
-    testWidgets('enabled flag renders the child even when a fallback is set',
-        (tester) async {
+    testWidgets('enabled flag renders the child even when a fallback is set', (
+      tester,
+    ) async {
       await _pumpGate(
         tester,
         const FlagGate(
@@ -288,8 +317,9 @@ void main() {
           child: Text('REAL EVENTS'),
         ),
         overrides: [
-          featureFlagsProvider
-              .overrideWithValue(const AppFeatureFlags(events: true)),
+          featureFlagsProvider.overrideWithValue(
+            const AppFeatureFlags(events: true),
+          ),
         ],
       );
 
@@ -299,18 +329,24 @@ void main() {
   });
 
   group('isEnabled helper via WidgetRef', () {
-    testWidgets('resolves false with the default flags', (tester) async {
-      await _pumpGate(tester, const _FlagProbe(flag: AppFeatureFlag.events));
+    testWidgets('resolves false for the dark subscriptions flag', (
+      tester,
+    ) async {
+      await _pumpGate(
+        tester,
+        const _FlagProbe(flag: AppFeatureFlag.subscriptions),
+      );
       expect(find.text('off'), findsOneWidget);
     });
 
     testWidgets('resolves true with an overridden provider', (tester) async {
       await _pumpGate(
         tester,
-        const _FlagProbe(flag: AppFeatureFlag.events),
+        const _FlagProbe(flag: AppFeatureFlag.subscriptions),
         overrides: [
-          featureFlagsProvider
-              .overrideWithValue(const AppFeatureFlags(events: true)),
+          featureFlagsProvider.overrideWithValue(
+            const AppFeatureFlags(subscriptions: true),
+          ),
         ],
       );
       expect(find.text('on'), findsOneWidget);
