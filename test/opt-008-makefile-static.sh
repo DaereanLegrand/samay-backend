@@ -103,7 +103,7 @@ echo "════════════════════════�
 # ── 1. Every documented target resolves via `make -n` ────────────────────────
 echo ""
 echo "━━━ 1. make -n resolves all documented targets ━━━"
-TARGETS="build dev install clean clear-storage build-cli build-linux build-api lint check test \
+TARGETS="build dev install clean clear-storage uninstall build-cli build-linux build-api lint check test \
 test-all test-unit test-integration test-backend-static test-go flutter-test \
 flutter-analyze define-env secrets-check tunnel-android tunnel-waydroid \
 supabase-start supabase-stop supabase-status supabase-reset \
@@ -136,6 +136,8 @@ if make -n install TARGET=waydroid >/dev/null 2>&1; then pass "make -n install T
 if make -n clear-storage TARGET=waydroid >/dev/null 2>&1; then pass "make -n clear-storage TARGET=waydroid (tunneled pm clear resolves dry)"; else fail "make -n clear-storage TARGET=waydroid"; fi
 if make -n test-integration TARGET=waydroid >/dev/null 2>&1; then pass "make -n test-integration TARGET=waydroid (device branch resolves dry)"; else fail "make -n test-integration TARGET=waydroid"; fi
 if make -n tunnel-waydroid >/dev/null 2>&1; then pass "make -n tunnel-waydroid (waydroid tunnel target resolves dry)"; else fail "make -n tunnel-waydroid"; fi
+if make -n uninstall TARGET=all >/dev/null 2>&1; then pass "make -n uninstall TARGET=all (all-devices branch resolves dry)"; else fail "make -n uninstall TARGET=all"; fi
+if make -n uninstall TARGET=simulator >/dev/null 2>&1; then pass "make -n uninstall TARGET=simulator (simctl branch resolves dry)"; else fail "make -n uninstall TARGET=simulator"; fi
 
 # ── 2. Fastlane stub contract (lane names fixed for M-17/M-18) ───────────────
 echo ""
