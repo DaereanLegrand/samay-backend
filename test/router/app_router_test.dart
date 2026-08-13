@@ -573,12 +573,21 @@ void main() {
         expect(find.byType(FeedScreen), findsOneWidget);
       });
 
-      testWidgets('authenticated WITHOUT profile is NOT redirected to signup '
-          '(no-fallback policy)', (tester) async {
+      testWidgets('authenticated WITHOUT profile is sent to the age gate '
+          '(funnel-completion gate — never the feed)', (tester) async {
         final container = _newContainer(hasProfile: false);
         await _pumpRoute(tester, container, RoutePaths.mainFeed);
-        expect(find.byType(FeedScreen), findsOneWidget);
+        expect(find.byType(AgeGateScreen), findsOneWidget);
+        expect(find.byType(FeedScreen), findsNothing);
         expect(find.byType(SignupContactScreen), findsNothing);
+      });
+
+      testWidgets('profile-less user on /login lands on the age gate, not the '
+          'feed (funnel-completion gate)', (tester) async {
+        final container = _newContainer(hasProfile: false);
+        await _pumpRoute(tester, container, RoutePaths.login);
+        expect(find.byType(AgeGateScreen), findsOneWidget);
+        expect(find.byType(FeedScreen), findsNothing);
       });
 
       testWidgets('${RoutePaths.signup} stays reachable for a profile-less '
