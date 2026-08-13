@@ -103,9 +103,9 @@ echo "════════════════════════�
 # ── 1. Every documented target resolves via `make -n` ────────────────────────
 echo ""
 echo "━━━ 1. make -n resolves all documented targets ━━━"
-TARGETS="build dev install clean build-cli build-linux build-api lint check test \
+TARGETS="build dev install clean clear-storage build-cli build-linux build-api lint check test \
 test-all test-unit test-integration test-backend-static test-go flutter-test \
-flutter-analyze define-env secrets-check tunnel-android \
+flutter-analyze define-env secrets-check tunnel-android tunnel-waydroid \
 supabase-start supabase-stop supabase-status supabase-reset \
 supabase-docker-start supabase-docker-stop supabase-docker-status supabase-docker-reset \
 supabase-db-test supabase-backend-tests supabase-stack-check \
@@ -130,6 +130,12 @@ if make -n dev TARGET=ios-adhoc >/dev/null 2>&1; then pass "make -n dev TARGET=i
 if make -n dev TARGET=ios-adhoc TESTING=true >/dev/null 2>&1; then pass "make -n dev TARGET=ios-adhoc TESTING=true (TESTING defines + register prereq resolve dry)"; else fail "make -n dev TARGET=ios-adhoc TESTING=true"; fi
 if make -n build TARGET=ios-adhoc >/dev/null 2>&1; then pass "make -n build TARGET=ios-adhoc (fastlane adhoc_local branch resolves dry)"; else fail "make -n build TARGET=ios-adhoc"; fi
 if make -n install TARGET=ios-adhoc >/dev/null 2>&1; then pass "make -n install TARGET=ios-adhoc (devicectl device-install branch resolves dry)"; else fail "make -n install TARGET=ios-adhoc"; fi
+if make -n dev TARGET=waydroid >/dev/null 2>&1; then pass "make -n dev TARGET=waydroid (Darwin tunnel-waydroid + direct branches resolve dry)"; else fail "make -n dev TARGET=waydroid"; fi
+if make -n dev TARGET=android >/dev/null 2>&1; then pass "make -n dev TARGET=android (Darwin tunnel-android + emulator branches resolve dry)"; else fail "make -n dev TARGET=android"; fi
+if make -n install TARGET=waydroid >/dev/null 2>&1; then pass "make -n install TARGET=waydroid (tunneled adb install resolves dry)"; else fail "make -n install TARGET=waydroid"; fi
+if make -n clear-storage TARGET=waydroid >/dev/null 2>&1; then pass "make -n clear-storage TARGET=waydroid (tunneled pm clear resolves dry)"; else fail "make -n clear-storage TARGET=waydroid"; fi
+if make -n test-integration TARGET=waydroid >/dev/null 2>&1; then pass "make -n test-integration TARGET=waydroid (device branch resolves dry)"; else fail "make -n test-integration TARGET=waydroid"; fi
+if make -n tunnel-waydroid >/dev/null 2>&1; then pass "make -n tunnel-waydroid (waydroid tunnel target resolves dry)"; else fail "make -n tunnel-waydroid"; fi
 
 # ── 2. Fastlane stub contract (lane names fixed for M-17/M-18) ───────────────
 echo ""
