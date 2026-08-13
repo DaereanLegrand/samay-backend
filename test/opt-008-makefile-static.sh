@@ -105,7 +105,7 @@ echo ""
 echo "━━━ 1. make -n resolves all documented targets ━━━"
 TARGETS="build dev install clean clear-storage uninstall build-cli build-linux build-api lint check test \
 test-all test-unit test-integration test-backend-static test-go flutter-test \
-flutter-analyze define-env secrets-check tunnel-android tunnel-waydroid \
+flutter-analyze define-env secrets-check tunnel-android tunnel-waydroid ios-signing-restore \
 supabase-start supabase-stop supabase-status supabase-reset \
 supabase-docker-start supabase-docker-stop supabase-docker-status supabase-docker-reset \
 supabase-db-test supabase-backend-tests supabase-stack-check \
@@ -139,6 +139,8 @@ if make -n tunnel-waydroid >/dev/null 2>&1; then pass "make -n tunnel-waydroid (
 if make -n uninstall TARGET=all >/dev/null 2>&1; then pass "make -n uninstall TARGET=all (all-devices branch resolves dry)"; else fail "make -n uninstall TARGET=all"; fi
 if make -n build TARGET=all >/dev/null 2>&1; then pass "make -n build TARGET=all (all-platforms branch resolves dry)"; else fail "make -n build TARGET=all"; fi
 if make -n install TARGET=all >/dev/null 2>&1; then pass "make -n install TARGET=all (all-devices branch resolves dry)"; else fail "make -n install TARGET=all"; fi
+if make -n dev TARGET=ios >/dev/null 2>&1; then pass "make -n dev TARGET=ios (physical-iPhone flutter run branch resolves dry)"; else fail "make -n dev TARGET=ios"; fi
+if make -n ios-signing-restore >/dev/null 2>&1; then pass "make -n ios-signing-restore (pbxproj placeholder restore resolves dry)"; else fail "make -n ios-signing-restore"; fi
 if make -n uninstall TARGET=simulator >/dev/null 2>&1; then pass "make -n uninstall TARGET=simulator (simctl branch resolves dry)"; else fail "make -n uninstall TARGET=simulator"; fi
 
 # ── 2. Fastlane stub contract (lane names fixed for M-17/M-18) ───────────────
