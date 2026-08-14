@@ -199,7 +199,7 @@ SET search_path = ''
 AS $$
 BEGIN
     -- TODO: Replace with pg_net HTTP call to shard-distribution Edge Function
-    -- See docs/implementation/phase-05-events/EEDG-edge-functions-event-lifecycle.md
+    -- See docs/specs/steps/phase-05-events/EEDG-edge-functions-event-lifecycle.md
     RAISE LOG 'shard distribution needed for event %', NEW.id;
     RETURN NEW;
 END;

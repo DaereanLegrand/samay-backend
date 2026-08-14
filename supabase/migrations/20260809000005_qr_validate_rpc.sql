@@ -2,7 +2,7 @@
 -- Migration 22 of 22.
 --
 -- Server-side contract for the promotor scanner
--- (docs/implementation/phase-06-qr-system/QRSC-qr-scanner-promotor.md
+-- (docs/specs/steps/phase-06-qr-system/QRSC-qr-scanner-promotor.md
 -- §Edge Function Integration): the `validate-attendance` Edge Function is
 -- blocked by EEDG (supabase/functions/ does not exist), so this SECURITY
 -- DEFINER RPC is the deployable stand-in — the same validation + atomic

@@ -23,9 +23,9 @@
 --   {status:'not_invited'}    no (non-declined) event_invites row
 --   {status:'ok', token, expiresAt}
 --
--- References: docs/implementation/phase-06-qr-system/QEDG-qr-edge-functions.md
--- §Function 2, docs/implementation/phase-05-events/EEDG, QRAT §Token Fetch
--- Cycle, docs/planification/samay_mvp_spec.md §6.4.
+-- References: docs/specs/steps/phase-06-qr-system/QEDG-qr-edge-functions.md
+-- §Function 2, docs/specs/steps/phase-05-events/EEDG, QRAT §Token Fetch
+-- Cycle, docs/specs/product/samay_mvp_spec.md §6.4.
 
 CREATE OR REPLACE FUNCTION public.rotate_qr_token(p_event_id uuid)
 RETURNS jsonb

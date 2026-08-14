@@ -19,10 +19,10 @@
 -- Only service_role / postgres (admin CLI, cron, triggers) may notify OTHER
 -- users; an authenticated caller may only notify themselves (spam guard).
 --
--- References: docs/implementation/phase-11-gamification-minigames/
--- GRCK-rank-calculation-edge-function.md, docs/implementation/
+-- References: docs/specs/steps/phase-11-gamification-minigames/
+-- GRCK-rank-calculation-edge-function.md, docs/specs/steps/
 -- phase-09-notifications-push/NTRG-notification-triggers-routing.md,
--- docs/planification/samay_mvp_spec.md#gamification--ranks.
+-- docs/specs/product/samay_mvp_spec.md#gamification--ranks.
 
 -- ============================================================
 -- 1. insert_notification helper — guarded SECURITY DEFINER writer

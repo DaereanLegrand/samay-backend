@@ -28,8 +28,8 @@
 -- the spec's Edge Function — same deployable stand-in pattern as
 -- `validate_qr_token` (20260809000005) while EEDG stays blocked.
 --
--- References: docs/implementation/phase-07-chat/CHAT-chat-system-core.md,
--- docs/implementation/phase-07-chat/CHPT-chat-participation-access-rules.md,
+-- References: docs/specs/steps/phase-07-chat/CHAT-chat-system-core.md,
+-- docs/specs/steps/phase-07-chat/CHPT-chat-participation-access-rules.md,
 -- docs/security/E2EE-ARCHITECTURE.md §12.2.
 -- Companion Dart: lib/core/services/chat_service.dart `createDirectChat`.
 

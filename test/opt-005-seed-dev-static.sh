@@ -5,7 +5,7 @@
 # The live application of seed-dev.sql needs the stack (blocked until the
 # checkpoint with the remapped stack — per I-75 mission), so this test is the
 # repeatable static gate instead:
-#   1. Files exist (seed-dev.sql ×2, tool/seed_dev_data.sh).
+#   1. Files exist (seed-dev.sql ×2, tools/seed_dev_data.sh).
 #   2. `bash -n` on every touched shell script.
 #   3. UUID literals in seed-dev.sql are unique (idempotency contract).
 #   4. Every table referenced by INSERT INTO exists in supabase/migrations/.
@@ -29,7 +29,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 MIG="$REPO/supabase/migrations"
 SEED="$REPO/supabase/seed-dev.sql"
 SEED_TESTING="$REPO/supabase-testing/seed-dev.sql"
-TOOL="$REPO/tool/seed_dev_data.sh"
+TOOL="$REPO/tools/seed_dev_data.sh"
 
 FAILURES=0
 fail() { echo "  ❌ $*"; FAILURES=$((FAILURES + 1)); }

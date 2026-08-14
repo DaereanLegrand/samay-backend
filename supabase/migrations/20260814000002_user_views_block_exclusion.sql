@@ -16,8 +16,8 @@
 --      INSERTs now always start at 'b0_20' (recalculate_ranks is the only
 --      rank_bracket writer, service_role-only).
 --
--- References: docs/implementation/phase-13-party-finder-video/PFND,
--- docs/implementation/phase-08-social-feed-photos/FEED, S-03 log
+-- References: docs/specs/steps/phase-13-party-finder-video/PFND,
+-- docs/specs/steps/phase-08-social-feed-photos/FEED, S-03 log
 -- (2026-08-11), S-13/FINAL O8.
 -- Companion Dart: lib/core/services/user_service.dart (searchUsers /
 -- findMatches), lib/core/services/group_service.dart (createGroup).

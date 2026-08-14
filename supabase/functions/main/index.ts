@@ -8,7 +8,7 @@
 // cannot be loaded as a module) and the container crash-loops, breaking
 // `docker compose up -d --wait`.
 //
-// The real functions land with EEDG (docs/implementation/phase-05-events/
+// The real functions land with EEDG (docs/specs/steps/phase-05-events/
 // EEDG-edge-functions-event-lifecycle.md). Until then every request to
 // `/functions/v1/*` (Kong -> edge-runtime) returns this placeholder
 // response. Remove/replace this file when EEDG ships.

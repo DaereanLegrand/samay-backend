@@ -28,9 +28,9 @@
 --     remain Edge-Function territory; rank-bracket notifications ship with
 --     recalculate_ranks (migration 20260814000003).
 --
--- References: docs/implementation/phase-09-notifications-push/
+-- References: docs/specs/steps/phase-09-notifications-push/
 -- NTRG-notification-triggers-routing.md (16 dispatch points, DB subset),
--- docs/planification/samay_mvp_spec.md#notifications.
+-- docs/specs/product/samay_mvp_spec.md#notifications.
 
 -- ============================================================
 -- 1. Event invite sent

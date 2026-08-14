@@ -362,7 +362,7 @@ void main() {
       );
     });
 
-    test('instructions reference AGENT-RULES.md + FILE-OWNERSHIP.md', () {
+    test('instructions reference DEVELOPMENT-WORKFLOW.md + FILE-OWNERSHIP.md', () {
       final instructions = (opencodeConfig()['instructions'] as List)
           .cast<String>()
           .join('\n');
@@ -373,7 +373,7 @@ void main() {
       );
       expect(
         instructions,
-        contains('AGENT-RULES.md'),
+        contains('DEVELOPMENT-WORKFLOW.md'),
         reason: 'the file-semaphore protocol must be injected (M-25)',
       );
       expect(
@@ -425,7 +425,7 @@ void main() {
           'deny',
           reason:
               '$op can destroy another agent\'s uncommitted work '
-              '(AGENT-RULES §0.5) — must stay denied',
+              '(DEVELOPMENT-WORKFLOW §2) — must stay denied',
         );
       }
     });
@@ -629,39 +629,39 @@ void main() {
       }
     });
 
-    test('tool/pre-commit.sh exists and is executable', () {
-      final script = File('$root/tool/pre-commit.sh');
+    test('tools/pre-commit.sh exists and is executable', () {
+      final script = File('$root/tools/pre-commit.sh');
       expect(
         script.existsSync(),
         isTrue,
-        reason: 'TOOL-04 (M-26): tool/pre-commit.sh is the pre-commit gate',
+        reason: 'TOOL-04 (M-26): tools/pre-commit.sh is the pre-commit gate',
       );
       expect(
         script.statSync().mode & 0x111,
         isNot(0),
-        reason: 'tool/pre-commit.sh must be executable (chmod +x)',
+        reason: 'tools/pre-commit.sh must be executable (chmod +x)',
       );
     });
 
-    test('tool/hooks/pre-commit exists, is executable, and delegates', () {
-      final hook = File('$root/tool/hooks/pre-commit');
+    test('tools/hooks/pre-commit exists, is executable, and delegates', () {
+      final hook = File('$root/tools/hooks/pre-commit');
       expect(
         hook.existsSync(),
         isTrue,
         reason:
-            'TOOL-04 (M-26): tool/hooks/pre-commit is the git wrapper '
+            'TOOL-04 (M-26): tools/hooks/pre-commit is the git wrapper '
             '(core.hooksPath target)',
       );
       expect(
         hook.statSync().mode & 0x111,
         isNot(0),
-        reason: 'tool/hooks/pre-commit must be executable (chmod +x)',
+        reason: 'tools/hooks/pre-commit must be executable (chmod +x)',
       );
       expect(
         hook.readAsStringSync(),
-        contains('tool/pre-commit.sh'),
+        contains('tools/pre-commit.sh'),
         reason:
-            'the git hook must delegate to tool/pre-commit.sh so the '
+            'the git hook must delegate to tools/pre-commit.sh so the '
             'gate logic lives in ONE place',
       );
     });
@@ -673,7 +673,7 @@ void main() {
         contains('install-hooks'),
         reason:
             'TOOL-04 (M-26): make install-hooks wires '
-            'core.hooksPath=tool/hooks — document it in DEVELOPMENT-WORKFLOW',
+            'core.hooksPath=tools/hooks — document it in DEVELOPMENT-WORKFLOW',
       );
     });
   });
@@ -737,7 +737,7 @@ void main() {
         isTrue,
         reason:
             'TOOL-06: assets/icons/app_icon.png (the regenerable source) '
-            'is missing — run `dart run tool/icon_gen.dart`',
+            'is missing — run `dart run tools/icon_gen.dart`',
       );
       final bytes = file.readAsBytesSync();
       expect(

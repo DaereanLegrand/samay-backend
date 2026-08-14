@@ -1,6 +1,6 @@
 -- Samay — Party Finder discovery: interest tags + opt-in + discovery view (I-60)
 --
--- Reference: docs/implementation/phase-13-party-finder-video/PFND-party-finder.md
+-- Reference: docs/specs/steps/phase-13-party-finder-video/PFND-party-finder.md
 -- (opt-in toggle default OFF; users with overlapping interest tags who opted
 -- in are discoverable; matches exclude blocked users client-side).
 --

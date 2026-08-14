@@ -2,7 +2,7 @@
 -- Migration 23 of 23.
 --
 -- Server-side contract for minigame session creation
--- (docs/implementation/phase-11-gamification-minigames/GMCR-minigames-core.md
+-- (docs/specs/steps/phase-11-gamification-minigames/GMCR-minigames-core.md
 -- + GWAG-wager-system.md): the client calls this SECURITY DEFINER RPC instead
 -- of inserting into minigame_sessions directly, because under FORCE RLS the
 -- table has no INSERT/UPDATE policy (only ms_read_group_member SELECT) and

@@ -8,7 +8,7 @@
 # documented homes, or a secrets-as-Makefile-variable assignment is a FAIL.
 #
 # Patterns and allowlists (each documented in the M-13 daily log
-# docs/development/phase-00-foundation/2026-08-10_M13-makefile-env.md):
+# docs/history/phase-00-foundation/2026-08-10_M13-makefile-env.md):
 #
 #   P1  sb_publishable_q7ND…           known dev ANON key (H-21/SEC-03 class)
 #         allowlisted: opt-test defaults (dev-only, CI overrides via env —
@@ -29,7 +29,7 @@
 # 2026-08-10 (M-26): EVIDENCE3 added — the M-13/M-17/M-20/M-21 daily logs
 # quote the P2/P3 pattern LITERALS in their pattern tables and evidence
 # commands (same class as the M-03/M-09/D-03/I-34 evidence logs already
-# allowlisted). First flagged by the new pre-commit gate (tool/pre-commit.sh,
+# allowlisted). First flagged by the new pre-commit gate (tools/pre-commit.sh,
 # TOOL-04) — the committed tree had this pre-existing failure since 8ae9e51.
 #
 # Usage: tools/check_secrets.sh   # exit 0 = clean, 1 = violations found
@@ -63,9 +63,9 @@ SELF='tools/check_secrets\.sh'
 TEST_DEFAULTS='test/opt-001-rls-security\.sh|test/opt-002-events\.sh|test/opt-003-chat\.sh|test/opt-004-photos\.sh|test/opt-006-e2ee-rpc\.sh|test/run_all_backend\.sh'
 ENV_LOCAL='supabase/\.env\.local|supabase-testing/\.env\.local'
 OPT007='test/opt-007-compose-static\.sh'
-EVIDENCE='docs/development/phase-00-foundation/2026-08-10_M03-kong-keys\.md|docs/development/phase-00-foundation/2026-08-10_M09-kong\.md'
-EVIDENCE2='docs/development/phase-00-foundation/2026-08-09_D03-tofix-audit\.md|docs/development/phase-02-flutter-foundation/2026-08-09_I34-env-dartdefine\.md'
-EVIDENCE3='docs/development/phase-00-foundation/2026-08-10_M13-makefile-env\.md|docs/development/phase-00-foundation/2026-08-10_M17-fastlane-ios\.md|docs/development/phase-00-foundation/2026-08-10_M20-ci\.md|docs/development/phase-00-foundation/2026-08-10_M21-ci-build\.md'
+EVIDENCE='docs/history/phase-00-foundation/2026-08-10_M03-kong-keys\.md|docs/history/phase-00-foundation/2026-08-10_M09-kong\.md'
+EVIDENCE2='docs/history/phase-00-foundation/2026-08-09_D03-tofix-audit\.md|docs/history/phase-02-flutter-foundation/2026-08-09_I34-env-dartdefine\.md'
+EVIDENCE3='docs/history/phase-00-foundation/2026-08-10_M13-makefile-env\.md|docs/history/phase-00-foundation/2026-08-10_M17-fastlane-ios\.md|docs/history/phase-00-foundation/2026-08-10_M20-ci\.md|docs/history/phase-00-foundation/2026-08-10_M21-ci-build\.md'
 
 printf '── secrets-check: tracked-file scan for committed secrets ──\n'
 scan 'P1 known dev anon key' \

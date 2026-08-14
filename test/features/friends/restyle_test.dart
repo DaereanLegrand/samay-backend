@@ -27,7 +27,7 @@ import '../../support/fake_supabase_http.dart' as support;
 /// Friends screens LUXE v2 restyle ledger tests (XL-09, phase-04-luxe).
 ///
 /// Pins the ORCHESTRATION-LUXE restyle applied screen-by-screen (the ledger
-/// in `docs/development/phase-04-luxe/2026-08-12_XL-09-friends.md`): mint
+/// in `docs/history/phase-04-luxe/2026-08-12_XL-09-friends.md`): mint
 /// family everywhere (NO PINK MAINS), one faint mint [VAurora] per screen,
 /// sharp [VGlassCard] hairline tiles instead of dividers, mint accents ONLY
 /// on active elements (accept buttons, pending badges), cyan presence dots

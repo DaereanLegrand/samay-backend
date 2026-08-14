@@ -4,7 +4,7 @@
 --   3. FORCE ROW LEVEL SECURITY
 --   4. Explicit REVOKE/GRANT on the RPC
 --
--- Reference: docs/to-fix/TODO.md C-01, docs/implementation/phase-00-foundation/SECU-rls-policies.md
+-- Reference: docs/to-fix/TODO.md C-01, docs/specs/steps/phase-00-foundation/SECU-rls-policies.md
 -- Pattern: Juega's SECURITY DEFINER RPCs (SET search_path = '') + user-owned RLS
 
 -- ============================================================

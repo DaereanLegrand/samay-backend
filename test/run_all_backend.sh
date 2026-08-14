@@ -11,6 +11,8 @@ set -uo pipefail
 #   opt-004-photos.sh            photo gallery contract (RLS, likes trigger, UNIQUE)
 #   opt-005-seed-dev-static.sh   STATIC gate for seed-dev.sql (no stack needed)
 #   opt-006-e2ee-rpc.sh          fetch_prekey_bundle contract (OPK consumption)
+#   opt-007-compose-static.sh    STATIC gate for compose/config/ports (no stack needed)
+#   opt-008-makefile-static.sh   STATIC gate for Makefile/scratch-repo rules (no stack)
 #
 # Usage: bash test/run_all_backend.sh
 # Prerequisites: make supabase-docker-start, make supabase-docker-reset

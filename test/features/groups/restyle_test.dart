@@ -40,7 +40,7 @@ import '../../support/fake_supabase_http.dart' as support;
 /// Groups-screens LUXE restyle ledger tests (XL-10, phase-04-luxe).
 ///
 /// Pins the LUXE v2 violet-family restyle applied screen-by-screen (the
-/// ledger in `docs/development/phase-04-luxe/2026-08-12_XL-10-groups.md`):
+/// ledger in `docs/history/phase-04-luxe/2026-08-12_XL-10-groups.md`):
 /// the violet `VAurora` backdrop, glass tiles (VGlassCard) everywhere rows
 /// render, the group-name detail hero + leaderboard podium in violet
 /// `VDisplayText` (Playfair MAYUS), the glowAccent CTAs carrying the violet

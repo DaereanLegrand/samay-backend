@@ -5,7 +5,7 @@
 -- Applied ONLY when explicitly requested:
 --   * `make supabase-seed-dev`           (direct psql against port 54382)
 --   * `SEED_DEV=1 bash supabase/migrate.sh`  /  `SEED_DEV=1 bash supabase/reset.sh`
---   * `bash tool/seed_dev_data.sh`
+--   * `bash tools/seed_dev_data.sh`
 -- Production (`seed.sql` — admin_users + app_config) stays untouched by this
 -- file; the two files are independent and both idempotent.
 --

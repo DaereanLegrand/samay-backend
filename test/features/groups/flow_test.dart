@@ -18,7 +18,7 @@ import '../../support/fake_supabase_http.dart' as support;
 /// U-16 groups FLOW ledger tests (R16-R17, 2026-08-11).
 ///
 /// Pins the Juega-flow-alignment changes from U-13 §5.3 (the ledger in
-/// `docs/development/phase-04-ui/2026-08-11_U16-friends-groups-flow.md`):
+/// `docs/history/phase-04-ui/2026-08-11_U16-friends-groups-flow.md`):
 /// the inline leave-group row (R16) and the admin member-actions sheet
 /// (R17). R11-R15 (friends) live in `test/features/friends/flow_test.dart`.
 

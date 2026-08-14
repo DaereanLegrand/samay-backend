@@ -1,6 +1,6 @@
 -- Samay — RLS audit fixes (agent I-32)
 -- Migration 20 of 20. Policy-by-policy audit in
--- docs/development/phase-00-foundation/2026-08-09_I32-rls-audit.md (all 60
+-- docs/history/phase-00-foundation/2026-08-09_I32-rls-audit.md (all 60
 -- live policies assessed). This migration fixes the genuine gaps found:
 --
 --   G-03 (API3:2023 mass assignment): users_update_own allowed any user to
