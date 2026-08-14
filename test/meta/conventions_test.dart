@@ -383,7 +383,7 @@ void main() {
       );
     });
 
-    test('permission block denies git write/remote operations', () {
+    test('permission block allows commit/push, denies destructive git ops', () {
       final bash = (opencodeConfig()['permission'] as Map)['bash'] as Map;
       expect(
         bash['*'],
@@ -394,15 +394,19 @@ void main() {
       );
       expect(
         bash['git commit*'],
-        'deny',
+        'allow',
         reason:
-            'agents must NEVER commit (AGENT-RULES §0.4) — the '
-            'orchestrator commits at checkpoints',
+            'commit allowed since 2026-08-14 (product decision — the '
+            'campaign is over; the human authorizes commits in-session). '
+            'Destructive git operations below stay denied.',
       );
       expect(
         bash['git push*'],
-        'deny',
-        reason: 'agents must NEVER push (AGENT-RULES §0.4)',
+        'allow',
+        reason:
+            'push allowed since 2026-08-14 (product decision — same '
+            'authorization as commit; the remote branch is pushed at '
+            'explicit human request)',
       );
       for (final op in const [
         'git pull*',

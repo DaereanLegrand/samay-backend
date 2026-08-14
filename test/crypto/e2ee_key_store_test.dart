@@ -80,6 +80,25 @@ void main() {
       expect(retired!.publicKey, equals(spk1.keyPair.publicKey));
     });
 
+    test('retired signed prekeys expire after the 7-day retention window', () async {
+      var now = DateTime.utc(2026, 8, 9);
+      final store = MemoryE2eeKeyStore(clock: () => now);
+      final spk1 = await store.currentSignedPrekey();
+      now = now.add(const Duration(days: 7, hours: 1));
+      final spk2 = await store.currentSignedPrekey();
+      expect(spk2.id, isNot(spk1.id));
+      expect(await store.loadSignedPrekeyPrivate(spk1.id), isNotNull);
+
+      // 7 more days: the retired SPK private key must be gone (§5.2 —
+      // "retain the previous SPK private key for 7 more days. After 7 days
+      // the old SPK private key is deleted").
+      now = now.add(const Duration(days: 7, hours: 1));
+      expect(await store.loadSignedPrekeyPrivate(spk1.id), isNull);
+
+      // The current SPK is unaffected.
+      expect(await store.loadSignedPrekeyPrivate(spk2.id), isNotNull);
+    });
+
     test('generateOneTimePrekeys, count, load and delete', () async {
       final store = MemoryE2eeKeyStore();
       expect(await store.oneTimePrekeyCount(), 0);
@@ -173,6 +192,28 @@ void main() {
       final retired = await store.loadSignedPrekeyPrivate(id1);
       expect(retired, isNotNull);
       expect(retired!.publicKey, equals(spk1.keyPair.publicKey));
+    });
+
+    test('retired signed prekey key file is deleted after the retention window', () async {
+      var now = DateTime.utc(2026, 8, 9);
+      final mock = _MockSecureStorage();
+      mock.setupHealthy();
+      final store = SecureE2eeKeyStore(secureStorage: mock, clock: () => now);
+
+      final spk1 = await store.currentSignedPrekey();
+      final id1 = spk1.id;
+
+      // Rotate after 8 days (past the 7-day rotation age).
+      now = now.add(const Duration(days: 8));
+      final spk2 = await store.currentSignedPrekey();
+      expect(spk2.id, isNot(id1));
+      expect(await store.loadSignedPrekeyPrivate(id1), isNotNull);
+
+      // 8 more days: the retired SPK is past its 7-day retention window and
+      // its key file must be deleted (forward secrecy, §5.2).
+      now = now.add(const Duration(days: 8));
+      expect(await store.loadSignedPrekeyPrivate(id1), isNull);
+      expect(mock.store.containsKey('samay.e2ee.spk.priv.$id1'), isFalse);
     });
 
     test('one-time prekeys use samay.e2ee.opk.priv.<id> and meta count', () async {

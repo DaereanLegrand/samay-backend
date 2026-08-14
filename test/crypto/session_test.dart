@@ -334,6 +334,26 @@ void main() {
       final a2 = a.restartSession();
       expect(await a2.computeFingerprint(), equals(fpA));
     });
+
+    test('computeFingerprint without a session throws — no X3DH side effect', () async {
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      // No session exists yet: the fingerprint MUST NOT initiate X3DH
+      // (no session minted, no OPK consumed — read-only operation).
+      await expectLater(
+        () => a.session.computeFingerprint(),
+        throwsA(isA<E2eeCryptoException>()),
+      );
+      expect(await a.sessions.loadSession(_chatId), isNull);
+
+      // A later legitimate initiate still works normally.
+      final env = await a.session.encryptText('hola');
+      expect(_parseEnvelope(env).type, e2eeEnvelopeTypeInit);
+      expect(await b.session.decryptEnvelope(env), 'hola');
+    });
   });
 
   group('session lifecycle', () {
@@ -360,7 +380,7 @@ void main() {
       expect(await a.session.peerIdentityChanged('bob'), isFalse);
     });
 
-    test('simultaneous initiation: last-processed-wins (D-11)', () async {
+    test('simultaneous initiation: last-processed-wins, inactive session converges (Sesame §3.2/§3.4)', () async {
       final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
       final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
       await a.server.publishAll();
@@ -373,7 +393,8 @@ void main() {
       expect(_parseEnvelope(initB).type, e2eeEnvelopeTypeInit);
 
       // Each processes the other's init: the init envelope REPLACES the
-      // locally-created session (last-processed-wins, E2EE §7.2 / D-11).
+      // locally-created session (last-processed-wins, E2EE §7.2 / D-11) and
+      // the replaced session is kept as inactive (Sesame §3.2).
       expect(await b.session.decryptEnvelope(initA), 'init de A');
       expect(await a.session.decryptEnvelope(initB), 'init de B');
 
@@ -381,11 +402,146 @@ void main() {
       expect(_parseEnvelope(await a.session.encryptText('despues A')).type, e2eeEnvelopeTypeRatchet);
       expect(_parseEnvelope(await b.session.encryptText('despues B')).type, e2eeEnvelopeTypeRatchet);
 
-      // Documented MVP limitation (D-11, Sesame multi-session fallback is
-      // post-MVP): the two crossed init sessions are independent X3DH runs,
-      // so each side drops the other's post-cross ratchet messages.
+      // Sesame §3.4 convergence: A's first post-cross message is encrypted
+      // under the initB family; B's active (initA family) fails to decrypt,
+      // so the inactive initB-family session is tried and activated.
       final afterA = await a.session.encryptText('post A');
-      expect(await b.session.decryptEnvelope(afterA), isNull);
+      expect(await b.session.decryptEnvelope(afterA), 'post A');
+
+      // The conversation continues on the converged session.
+      final back = await b.session.encryptText('post B');
+      expect(await a.session.decryptEnvelope(back), 'post B');
+    });
+
+    test('replayed init envelope → null, session untouched (X3DH §4.2 blacklist)', () async {
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      final init = await a.session.encryptText('hola bob');
+      expect(await b.session.decryptEnvelope(init), 'hola bob');
+
+      // The server (or an attacker) replays the identical init envelope:
+      // dropped without re-delivering plaintext and without touching the
+      // established session.
+      expect(await b.session.decryptEnvelope(init), isNull);
+      expect(await b.session.decryptEnvelope(init), isNull);
+
+      // The active session survived the replays.
+      final next = await a.session.encryptText('sigue');
+      expect(await b.session.decryptEnvelope(next), 'sigue');
+    });
+
+    test('no-OPK init replay is dropped by the persisted marker (X3DH §4.2)', () async {
+      registry.drainOpks = true;
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      final init = await a.session.encryptText('sin opk');
+      expect(_parseEnvelope(init).opkId, e2eeNoOpkId);
+      expect(await b.session.decryptEnvelope(init), 'sin opk');
+
+      // A no-OPK init is fully re-derivable — only the marker stops the
+      // replay (the consumed-OPK mechanism cannot).
+      expect(await b.session.decryptEnvelope(init), isNull);
+      expect(await b.session.decryptEnvelope(init), isNull);
+
+      final next = await a.session.encryptText('sigue');
+      expect(await b.session.decryptEnvelope(next), 'sigue');
+    });
+
+    test('init replay is still dropped after a restart (persisted marker)', () async {
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      final init = await a.session.encryptText('hola');
+      expect(await b.session.decryptEnvelope(init), 'hola');
+
+      // "Restart": a fresh session object over the same store — the marker
+      // must have been persisted with the session JSON.
+      final b2 = b.restartSession();
+      expect(await b2.decryptEnvelope(init), isNull);
+
+      final next = await a.session.encryptText('sigue');
+      expect(await b2.decryptEnvelope(next), 'sigue');
+    });
+
+    test('a NEW init from the same sender is accepted (fresh ekA → new marker)', () async {
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      final init = await a.session.encryptText('primera sesion');
+      expect(await b.session.decryptEnvelope(init), 'primera sesion');
+
+      // Alice wipes her session and re-initiates: a fresh X3DH run (new
+      // ephemeral key) must NOT be mistaken for a replay of the old init.
+      a.session.wipe();
+      final init2 = await a.session.encryptText('segunda sesion');
+      expect(_parseEnvelope(init2).type, e2eeEnvelopeTypeInit);
+      expect(_parseEnvelope(init2).ekA, isNot(equals(_parseEnvelope(init).ekA)));
+      expect(await b.session.decryptEnvelope(init2), 'segunda sesion');
+    });
+
+    test('retired sessions expire after 30 days and can no longer decrypt (Sesame MAXLATENCY)', () async {
+      var now = DateTime.utc(2026, 8, 9);
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry, clock: () => now);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry, clock: () => now);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      // Crossed init: B retires its initiator session when processing initA.
+      final initA = await a.session.encryptText('init de A');
+      final initB = await b.session.encryptText('init de B');
+      await b.session.decryptEnvelope(initA);
+      await a.session.decryptEnvelope(initB);
+
+      // 31 days later the retired session is gone: A's post-cross ratchet
+      // message (initB family) fails on B's active session and the retired
+      // initB-family session is past its 30-day retention → dropped.
+      now = now.add(const Duration(days: 31));
+      final late = await a.session.encryptText('tarde');
+      expect(await b.session.decryptEnvelope(late), isNull);
+    });
+
+    test('session JSON persists the init marker and retired sessions', () async {
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      final initA = await a.session.encryptText('init de A');
+      final initB = await b.session.encryptText('init de B');
+      await b.session.decryptEnvelope(initA);
+      await a.session.decryptEnvelope(initB);
+
+      // Both sides carry a marker (each processed an init) and one retired
+      // session (their own crossed-init session, moved to inactive).
+      final aJson = jsonDecode((await a.sessions.loadSession(_chatId))!) as Map<String, dynamic>;
+      final bJson = jsonDecode((await b.sessions.loadSession(_chatId))!) as Map<String, dynamic>;
+      for (final json in [aJson, bJson]) {
+        expect(json['last_init_marker'], isA<String>());
+        final retired = json['retired_sessions'] as List<dynamic>;
+        expect(retired, hasLength(1));
+        final entry = Map<String, dynamic>.from(retired.first as Map);
+        expect(entry['retired_at'], isA<String>());
+        expect(entry['peer_ik_dh'], isA<String>());
+        expect(entry['ratchet'], isA<Map>());
+      }
+
+      // Restart: the marker and retired session survive, so the replay stays
+      // dropped and the convergence path still works.
+      final a2 = a.restartSession();
+      final b2 = b.restartSession();
+      expect(await b2.decryptEnvelope(initA), isNull);
+      final after = await a2.encryptText('despues');
+      expect(await b2.decryptEnvelope(after), 'despues');
     });
 
     test('expired session (90 days idle) is not loaded and decrypts fail', () async {

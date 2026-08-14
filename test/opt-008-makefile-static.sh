@@ -103,7 +103,7 @@ echo "════════════════════════�
 # ── 1. Every documented target resolves via `make -n` ────────────────────────
 echo ""
 echo "━━━ 1. make -n resolves all documented targets ━━━"
-TARGETS="build dev install clean clear-storage uninstall build-cli build-linux build-api lint check test \
+TARGETS="help build dev install build-install clean clear-storage uninstall build-cli build-linux build-api lint check test \
 test-all test-unit test-integration test-backend-static test-go flutter-test \
 flutter-analyze define-env secrets-check tunnel-android tunnel-waydroid ios-signing-restore \
 supabase-start supabase-stop supabase-status supabase-reset \
@@ -141,6 +141,8 @@ if make -n build TARGET=all >/dev/null 2>&1; then pass "make -n build TARGET=all
 if make -n install TARGET=all >/dev/null 2>&1; then pass "make -n install TARGET=all (all-devices branch resolves dry)"; else fail "make -n install TARGET=all"; fi
 if make -n dev TARGET=ios >/dev/null 2>&1; then pass "make -n dev TARGET=ios (physical-iPhone flutter run branch resolves dry)"; else fail "make -n dev TARGET=ios"; fi
 if make -n ios-signing-restore >/dev/null 2>&1; then pass "make -n ios-signing-restore (pbxproj placeholder restore resolves dry)"; else fail "make -n ios-signing-restore"; fi
+if make -n help >/dev/null 2>&1; then pass "make -n help (target cheatsheet resolves dry)"; else fail "make -n help"; fi
+if make -n build-install TARGET=all >/dev/null 2>&1; then pass "make -n build-install TARGET=all (build+install sweep resolves dry)"; else fail "make -n build-install TARGET=all"; fi
 if make -n uninstall TARGET=simulator >/dev/null 2>&1; then pass "make -n uninstall TARGET=simulator (simctl branch resolves dry)"; else fail "make -n uninstall TARGET=simulator"; fi
 
 # ── 2. Fastlane stub contract (lane names fixed for M-17/M-18) ───────────────
@@ -310,15 +312,19 @@ fi
 
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/samay-opt008.XXXXXX")"
 trap 'rm -rf "$SCRATCH"' EXIT
-git init -q "$SCRATCH"
+# The scratch repo MUST NOT inherit GIT_INDEX_FILE (git sets it for the
+# pre-commit hook): with it set, `git add`/`git commit` here would write the
+# SCRATCH index INTO the hook's temp index, clobbering the commit snapshot
+# and breaking every later `git ls-files` check in this script.
+env -u GIT_INDEX_FILE git init -q "$SCRATCH"
 mkdir -p "$SCRATCH/supabase/migrations" "$SCRATCH/supabase-testing/migrations"
 printf '%s\n' "-- placeholder schema --" > "$SCRATCH/supabase/migrations/20260101000001_dummy.sql"
 cp "$SCRATCH/supabase/migrations/20260101000001_dummy.sql" "$SCRATCH/supabase-testing/migrations/"
-git -C "$SCRATCH" add -A
-git -C "$SCRATCH" -c user.email=t@t -c user.name=t commit -q -m init
+env -u GIT_INDEX_FILE git -C "$SCRATCH" add -A
+env -u GIT_INDEX_FILE git -C "$SCRATCH" -c user.email=t@t -c user.name=t commit -q -m init
 
 # GREEN: clean committed pair → exit 0
-if bash "$REPO/tools/check_migrations.sh" "$SCRATCH" >/dev/null 2>&1; then
+if env -u GIT_INDEX_FILE bash "$REPO/tools/check_migrations.sh" "$SCRATCH" >/dev/null 2>&1; then
   pass "GREEN: clean stacks pass (exit 0)"
 else
   fail "GREEN: clean stacks should pass (exit 0)"
@@ -326,7 +332,7 @@ fi
 
 # RED #1: planted UNTRACKED migration → exit 1 + UNTRACKED message
 printf '%s\n' "-- planted --" > "$SCRATCH/supabase/migrations/20261231000000_planted.sql"
-OUT="$(bash "$REPO/tools/check_migrations.sh" "$SCRATCH" 2>&1)"
+OUT="$(env -u GIT_INDEX_FILE bash "$REPO/tools/check_migrations.sh" "$SCRATCH" 2>&1)"
 if [ $? -eq 1 ] && printf '%s' "$OUT" | grep -q "UNTRACKED"; then
   pass "RED: planted untracked migration flagged (exit 1, UNTRACKED)"
 else
@@ -337,9 +343,9 @@ rm "$SCRATCH/supabase/migrations/20261231000000_planted.sql"
 # RED #2: planted future-dated migration (both stacks) → exit 1 + future message
 printf '%s\n' "-- future --" > "$SCRATCH/supabase/migrations/20990101000000_future.sql"
 cp "$SCRATCH/supabase/migrations/20990101000000_future.sql" "$SCRATCH/supabase-testing/migrations/"
-git -C "$SCRATCH" add -A
-git -C "$SCRATCH" -c user.email=t@t -c user.name=t commit -q -m future
-OUT="$(bash "$REPO/tools/check_migrations.sh" "$SCRATCH" 2>&1)"
+env -u GIT_INDEX_FILE git -C "$SCRATCH" add -A
+env -u GIT_INDEX_FILE git -C "$SCRATCH" -c user.email=t@t -c user.name=t commit -q -m future
+OUT="$(env -u GIT_INDEX_FILE bash "$REPO/tools/check_migrations.sh" "$SCRATCH" 2>&1)"
 if [ $? -eq 1 ] && printf '%s' "$OUT" | grep -q "future"; then
   pass "RED: planted future-dated migration flagged (exit 1, future-dated)"
 else

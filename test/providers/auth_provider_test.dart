@@ -9,6 +9,8 @@ import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/auth_service.dart';
 import 'package:samay/core/services/ban_service.dart';
 import 'package:samay/core/services/telemetry_service.dart';
+import 'package:samay/crypto/e2ee_key_store.dart';
+import 'package:samay/features/chat/providers/chat_providers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
@@ -580,6 +582,63 @@ void main() {
 
       verify(() => service.softDeleteUser()).called(1);
       verify(() => service.signOut()).called(1);
+      expect(
+        container.read(authStateProvider).valueOrNull?.authenticated,
+        isFalse,
+      );
+    });
+
+    test('signOut wipes E2EE key + session material (E2EE §7.6)', () async {
+      final service = _stubbedService();
+      when(() => service.signOut()).thenAnswer((_) async {});
+      final keys = MemoryE2eeKeyStore();
+      final identityBefore = await keys.loadOrCreateIdentity();
+      await keys.currentSignedPrekey();
+      await keys.generateOneTimePrekeys(2);
+      final sessions = MemoryE2eeSessionStore();
+      await sessions.saveSession('chat-1', '{"version":1,"peer":"x"}');
+
+      final container = _newContainer(service, extraOverrides: [
+        e2eeKeyStoreProvider.overrideWithValue(keys),
+        e2eeSessionStoreProvider.overrideWithValue(sessions),
+      ]);
+      await container.read(authStateProvider.future);
+
+      await container.read(authStateProvider.notifier).signOut();
+
+      // New identity is generated on next use — the old one is gone.
+      final identityAfter = await keys.loadOrCreateIdentity();
+      expect(identityAfter.ikDhPublic, isNot(equals(identityBefore.ikDhPublic)));
+      expect(await keys.oneTimePrekeyCount(), 0);
+      expect(await keys.loadSignedPrekeyPrivate(0), isNull);
+      expect(await sessions.loadSession('chat-1'), isNull);
+      expect(
+        container.read(authStateProvider).valueOrNull?.authenticated,
+        isFalse,
+      );
+    });
+
+    test('deleteAccount wipes E2EE key + session material (E2EE §7.6)', () async {
+      final service = _stubbedService();
+      when(() => service.softDeleteUser()).thenAnswer((_) async {});
+      when(() => service.signOut()).thenAnswer((_) async {});
+      final keys = MemoryE2eeKeyStore();
+      await keys.loadOrCreateIdentity();
+      await keys.currentSignedPrekey();
+      final sessions = MemoryE2eeSessionStore();
+      await sessions.saveSession('chat-1', '{"version":1,"peer":"x"}');
+
+      final container = _newContainer(service, extraOverrides: [
+        e2eeKeyStoreProvider.overrideWithValue(keys),
+        e2eeSessionStoreProvider.overrideWithValue(sessions),
+      ]);
+      await container.read(authStateProvider.future);
+
+      await container.read(authStateProvider.notifier).deleteAccount();
+
+      expect(await keys.oneTimePrekeyCount(), 0);
+      expect(await keys.loadSignedPrekeyPrivate(0), isNull);
+      expect(await sessions.loadSession('chat-1'), isNull);
       expect(
         container.read(authStateProvider).valueOrNull?.authenticated,
         isFalse,
