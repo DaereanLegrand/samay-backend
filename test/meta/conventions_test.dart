@@ -521,9 +521,9 @@ void main() {
     // constructor form only (a bare word in a doc comment doesn't trip it).
     const rawSpinnerAllowlist = <String>{
       // photo gallery: 18px upload-button spinner in the AppBar action
-      // photo gallery: 18px upload-button spinner in the AppBar action
-      // (line 148 since the XL-13 mint restyle).
-      'lib/features/photos/screens/photo_gallery_screen.dart:148',
+      // (line 157 since the plugged-UI gallery entry, 2026-08-13 — was
+      // 148 since the XL-13 mint restyle).
+      'lib/features/photos/screens/photo_gallery_screen.dart:157',
       // requests: R11 per-row busy spinner (16px, in a row action; line
       // 374 since the XL-09 mint restyle).
       'lib/features/friends/screens/requests_screen.dart:374',

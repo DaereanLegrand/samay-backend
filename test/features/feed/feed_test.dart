@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:samay/core/config/feature_flags.dart';
 import 'package:samay/core/models/event.dart';
 import 'package:samay/core/providers/config_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
@@ -143,6 +144,13 @@ ProviderContainer _container(
       eventServiceProvider.overrideWithValue(service),
       if (config != null)
         appConfigProvider.overrideWith(() => FakeAppConfigNotifier(config)),
+      // Plugged home (2026-08-13): the games/party-finder sections are
+      // covered by test/features/plugged_entries_test.dart — this suite
+      // pins the feed's event layout, so the quick-access sections are
+      // switched off here.
+      featureFlagsProvider.overrideWithValue(
+        const AppFeatureFlags(minigames: false, partyFinder: false),
+      ),
     ],
   );
   addTearDown(container.dispose);

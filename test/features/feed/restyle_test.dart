@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/config/feature_flags.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/design_tokens/app_typography.dart';
@@ -145,6 +146,13 @@ Future<void> _pumpScreen(WidgetTester tester, _FakeEventService service) async {
     overrides: [
       eventServiceProvider.overrideWithValue(service),
       appConfigProvider.overrideWith(() => FakeAppConfigNotifier(const {})),
+      // Plugged home (2026-08-13): the games/party-finder sections are
+      // covered by test/features/plugged_entries_test.dart — this suite
+      // pins the feed's event layout, so the quick-access sections are
+      // switched off here.
+      featureFlagsProvider.overrideWithValue(
+        const AppFeatureFlags(minigames: false, partyFinder: false),
+      ),
     ],
   );
   addTearDown(container.dispose);

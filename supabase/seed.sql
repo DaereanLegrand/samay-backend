@@ -5,9 +5,11 @@
 -- Applied after migrations by `supabase db reset` (config.toml [db.seed]
 -- sql_paths = ["./seed.sql"]), supabase/reset.sh and supabase/migrate.sh.
 -- Idempotent: ON CONFLICT DO NOTHING (safe to re-run on an existing DB).
+-- NOTE: the system-admin email uses the placeholder domain (DEPLOYMENT-PLACEHOLDER
+-- R03 convention) — swap to the real ops inbox at release, never commit a real one.
 
 INSERT INTO admin_users (id, email, display_name, role)
-VALUES ('00000000-0000-0000-0000-000000000000', 'system@qallariy.lat', 'system', 'super_admin')
+VALUES ('00000000-0000-0000-0000-000000000000', 'system@samay.example.com', 'system', 'super_admin')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO app_config (key, value, description, default_value) VALUES

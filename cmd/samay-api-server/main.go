@@ -48,8 +48,7 @@ func run() error {
 	}
 	dbClient = client
 
-	// PORT defaults to 8090. Note: the deployment placeholder doc says 8080; the
-	// mission directive picks 8090 to keep the Samay server off common dev ports.
+	// PORT defaults to 8090, keeping the Samay server off common dev ports.
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8090"
