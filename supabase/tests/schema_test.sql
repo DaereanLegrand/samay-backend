@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all 25 migrations (20260510000001 through 20260813000001).
+-- Covers all 33 migrations (20260510000001 through 20260814000005).
 BEGIN;
 
-SELECT plan(344);
+SELECT plan(385);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -302,14 +302,15 @@ SELECT policies_are('chats', ARRAY[
 -- ============================================================
 SELECT policies_are('messages', ARRAY[
     'messages_read_participant',
-    'messages_insert_own'
+    'messages_insert_participant'
 ], 'messages has expected RLS policies');
 
 -- ============================================================
 -- SECTION 28: RLS Policies — chat_participants
 -- ============================================================
 SELECT policies_are('chat_participants', ARRAY[
-    'cp_read_own'
+    'cp_read_own',
+    'cp_read_participant'
 ], 'chat_participants has expected RLS policies');
 
 -- ============================================================
@@ -1285,8 +1286,8 @@ SELECT ok(
      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public' AND p.prosecdef
        AND has_function_privilege('anon', p.oid, 'EXECUTE')
-       AND p.proname NOT IN ('check_signup_email', 'is_group_member', 'upsert_signup_tracker')) = 0,
-    'anon cannot EXECUTE any SECURITY DEFINER function (except check_signup_email + is_group_member + upsert_signup_tracker)'
+       AND p.proname NOT IN ('check_signup_email', 'is_group_member', 'is_chat_participant', 'upsert_signup_tracker')) = 0,
+    'anon cannot EXECUTE any SECURITY DEFINER function (except check_signup_email + is_group_member + is_chat_participant + upsert_signup_tracker)'
 );
 
 SELECT ok(
@@ -1422,6 +1423,129 @@ SELECT function_privs_are('public', 'finish_minigame_session', ARRAY['uuid', 'uu
     'finish_minigame_session is not PUBLIC-EXECUTABLE');
 SELECT function_privs_are('public', 'finish_minigame_session', ARRAY['uuid', 'uuid', 'integer']::name[], 'authenticated', ARRAY['EXECUTE'],
     'finish_minigame_session is authenticated-EXECUTABLE');
+
+-- ============================================================
+-- SECTION 50: create_direct_chat RPC + chat RLS (migration 20260814000001)
+-- ============================================================
+SELECT has_function('create_direct_chat', ARRAY['uuid'],
+    'create_direct_chat(p_peer_id uuid) exists');
+SELECT is((SELECT prosecdef FROM pg_proc WHERE proname = 'create_direct_chat'),
+    true, 'create_direct_chat is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY(proconfig) FROM pg_proc WHERE proname = 'create_direct_chat'),
+    'create_direct_chat sets search_path = '''' (I-31 pattern)'
+);
+SELECT has_function('is_chat_participant', ARRAY['uuid', 'uuid'],
+    'is_chat_participant(p_chat_id, p_user_id) exists');
+SELECT is((SELECT prosecdef FROM pg_proc WHERE proname = 'is_chat_participant'),
+    true, 'is_chat_participant is SECURITY DEFINER (RLS-recursion-safe)');
+SELECT function_privs_are('public', 'is_chat_participant', ARRAY['uuid', 'uuid']::name[], 'anon', ARRAY['EXECUTE'],
+    'anon has EXECUTE on is_chat_participant (policy evaluation, mirrors is_group_member)');
+SELECT function_privs_are('public', 'create_direct_chat', ARRAY['uuid']::name[], 'anon', ARRAY[]::name[],
+    'anon has NO EXECUTE on create_direct_chat');
+SELECT function_privs_are('public', 'create_direct_chat', ARRAY['uuid']::name[], 'service_role', ARRAY[]::name[],
+    'service_role has NO EXECUTE on create_direct_chat (client RPC only)');
+SELECT function_privs_are('public', 'create_direct_chat', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'create_direct_chat is authenticated-EXECUTABLE');
+
+-- ============================================================
+-- SECTION 51: Blocked-user view exclusion + rank_bracket INSERT
+-- normalization (migration 20260814000002)
+-- ============================================================
+SELECT ok(
+    (SELECT pg_get_viewdef('user_search_view') LIKE '%blocked%'),
+    'user_search_view excludes blocked friendships (20260814000002)'
+);
+SELECT ok(
+    (SELECT pg_get_viewdef('discovery_view') LIKE '%blocked%'),
+    'discovery_view excludes blocked friendships (20260814000002)'
+);
+SELECT has_function('public', 'assert_safe_group_update', ARRAY[]::name[],
+    'assert_safe_group_update exists (refreshed by 20260814000002)');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY(proconfig) FROM pg_proc WHERE proname = 'assert_safe_group_update'),
+    'assert_safe_group_update sets search_path = '''' (I-31 pattern)'
+);
+
+-- ============================================================
+-- SECTION 52: Rank recalc decay + notifications + cron
+-- (migration 20260814000003)
+-- ============================================================
+SELECT has_function('insert_notification',
+    ARRAY['uuid', 'text', 'text', 'text', 'jsonb'],
+    'insert_notification(p_user_id, p_type, p_title, p_body, p_data) exists');
+SELECT is((SELECT prosecdef FROM pg_proc WHERE proname = 'insert_notification'),
+    true, 'insert_notification is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY(proconfig) FROM pg_proc WHERE proname = 'insert_notification'),
+    'insert_notification sets search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'insert_notification',
+    ARRAY['uuid', 'text', 'text', 'text', 'jsonb']::name[], 'anon', ARRAY[]::name[],
+    'anon has NO EXECUTE on insert_notification');
+SELECT function_privs_are('public', 'insert_notification',
+    ARRAY['uuid', 'text', 'text', 'text', 'jsonb']::name[], 'authenticated', ARRAY[]::name[],
+    'authenticated has NO EXECUTE on insert_notification (trigger/CLI only)');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY(proconfig) FROM pg_proc WHERE proname = 'recalculate_ranks'),
+    'recalculate_ranks sets search_path = '''' (hardened by 20260814000003)'
+);
+SELECT ok(
+    (SELECT count(*) FROM cron.job WHERE jobname = 'ranks-recalculate') = 1,
+    'ranks-recalculate cron job exists (GRCK Step 0, ranks.update_cron)'
+);
+
+-- ============================================================
+-- SECTION 53: rotate_qr_token RPC (migration 20260814000004)
+-- ============================================================
+SELECT has_function('rotate_qr_token', ARRAY['uuid'],
+    'rotate_qr_token(p_event_id uuid) exists');
+SELECT is((SELECT prosecdef FROM pg_proc WHERE proname = 'rotate_qr_token'),
+    true, 'rotate_qr_token is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY(proconfig) FROM pg_proc WHERE proname = 'rotate_qr_token'),
+    'rotate_qr_token sets search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'rotate_qr_token', ARRAY['uuid']::name[], 'anon', ARRAY[]::name[],
+    'anon has NO EXECUTE on rotate_qr_token');
+SELECT function_privs_are('public', 'rotate_qr_token', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'rotate_qr_token is authenticated-EXECUTABLE');
+
+-- ============================================================
+-- SECTION 54: Notification producer triggers (migration 20260814000005)
+-- ============================================================
+SELECT has_function('notify_event_invite', ARRAY[]::name[],
+    'notify_event_invite exists (NTRG #1)');
+SELECT has_trigger('event_invites', 'notify_event_invite_trigger',
+    'event_invites has notify_event_invite_trigger');
+SELECT has_function('notify_friend_request', ARRAY[]::name[],
+    'notify_friend_request exists (NTRG #2)');
+SELECT has_trigger('friendships', 'notify_friend_request_trigger',
+    'friendships has notify_friend_request_trigger');
+SELECT has_function('notify_event_live', ARRAY[]::name[],
+    'notify_event_live exists (NTRG #3)');
+SELECT has_trigger('events', 'notify_event_live_trigger',
+    'events has notify_event_live_trigger');
+SELECT has_function('notify_event_cancelled', ARRAY[]::name[],
+    'notify_event_cancelled exists (NTRG #4)');
+SELECT has_trigger('events', 'notify_event_cancelled_trigger',
+    'events has notify_event_cancelled_trigger');
+SELECT has_function('notify_attendance_confirmed', ARRAY[]::name[],
+    'notify_attendance_confirmed exists (NTRG #5)');
+SELECT has_trigger('event_attendances', 'notify_attendance_confirmed_trigger',
+    'event_attendances has notify_attendance_confirmed_trigger');
+SELECT has_function('notify_new_message', ARRAY[]::name[],
+    'notify_new_message exists (NTRG #6 — generic body, E2EE-safe)');
+SELECT has_trigger('messages', 'notify_new_message_trigger',
+    'messages has notify_new_message_trigger');
+SELECT has_function('notify_minigame_invite', ARRAY[]::name[],
+    'notify_minigame_invite exists (NTRG #7)');
+SELECT has_trigger('minigame_sessions', 'notify_minigame_invite_trigger',
+    'minigame_sessions has notify_minigame_invite_trigger');
+SELECT has_function('notify_feature_request', ARRAY[]::name[],
+    'notify_feature_request exists (NTRG #8)');
+SELECT has_trigger('feature_requests', 'notify_feature_request_trigger',
+    'feature_requests has notify_feature_request_trigger');
 
 SELECT * FROM finish();
 ROLLBACK;

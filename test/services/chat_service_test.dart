@@ -182,4 +182,46 @@ void main() {
       verify(() => channel.subscribe()).called(1);
     });
   });
+
+  group('ChatService.createDirectChat', () {
+    const peerId = '22222222-2222-2222-2222-222222222222';
+
+    test('creates a chat via the RPC and returns the chat id', () async {
+      final rpc = ResolvingBuilder<dynamic>({'chatId': _chatId, 'reused': false});
+      when(() => client.rpc('create_direct_chat', params: any(named: 'params')))
+          .thenAnswer((_) => rpc);
+
+      final id = await service().createDirectChat(peerId);
+
+      expect(id, _chatId);
+      final params =
+          verify(() => client.rpc('create_direct_chat', params: captureAny(named: 'params')))
+              .captured
+              .single as Map<String, dynamic>;
+      expect(params, {'p_peer_id': peerId});
+    });
+
+    test('reuses the existing chat when the pair already has one', () async {
+      final rpc = ResolvingBuilder<dynamic>({'chatId': _chatId, 'reused': true});
+      when(() => client.rpc('create_direct_chat', params: any(named: 'params')))
+          .thenAnswer((_) => rpc);
+
+      expect(await service().createDirectChat(peerId), _chatId);
+    });
+
+    test('throws when the RPC fails (peer not found / unauthorized)', () async {
+      when(() => client.rpc('create_direct_chat', params: any(named: 'params')))
+          .thenThrow(
+        const PostgrestException(
+          message: 'Peer not found',
+          code: 'PGRST203',
+        ),
+      );
+
+      expect(
+        () => service().createDirectChat(peerId),
+        throwsA(isA<PostgrestException>()),
+      );
+    });
+  });
 }

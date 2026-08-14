@@ -63,6 +63,9 @@ class _FakeEventService implements EventService {
       throw UnimplementedError();
 
   @override
+  Future<Map<String, dynamic>?> rotateQrToken(String eventId) async => null;
+
+  @override
   Future<List<Map<String, dynamic>>> getEventPromotores(String eventId) =>
       throw UnimplementedError();
 

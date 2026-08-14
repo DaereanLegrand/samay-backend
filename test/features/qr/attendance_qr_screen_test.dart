@@ -131,7 +131,12 @@ void main() {
     testWidgets('shows the activation countdown message when no token exists',
         (tester) async {
       when(() => service.getMyQrToken(_eventId)).thenAnswer((_) async => null);
+      // The self-issuing probe answers `not_in_window` (pre-activation).
+      when(() => service.rotateQrToken(_eventId)).thenAnswer((_) async => null);
       await _pump(tester, service: service, eventNotifier: _FakeUpcomingEventNotifier.new);
+      // The self-issuing probe (rotate_qr_token RPC) resolves one frame
+      // after the initial fetch.
+      await tester.pump();
 
       expect(find.textContaining('El código QR se activará 92 minutos antes'), findsOneWidget);
       expect(find.byType(QrImageView), findsNothing);
@@ -143,7 +148,13 @@ void main() {
         'inside the activation window with no server token shows the '
         'server-pending state with retry', (tester) async {
       when(() => service.getMyQrToken(_eventId)).thenAnswer((_) async => null);
+      // The self-issuing probe yields no token (RPC unavailable in this
+      // scenario) — the state stays server-pending and retryable.
+      when(() => service.rotateQrToken(_eventId)).thenAnswer((_) async => null);
       await _pump(tester, service: service, eventNotifier: _FakeWindowOpenEventNotifier.new);
+      // The self-issuing probe (rotate_qr_token RPC, mocked to no payload)
+      // resolves one frame after the initial fetch.
+      await tester.pump();
 
       expect(find.text('No se pudo generar el código QR todavía. El servidor aún no está rotando tokens.'), findsOneWidget);
       expect(find.text('Reintentar'), findsOneWidget);
@@ -164,6 +175,50 @@ void main() {
       expect(find.byType(QrImageView), findsOneWidget);
       expect(_displayedToken(container), 't1');
       verify(() => service.getMyQrToken(_eventId)).called(2);
+    });
+  });
+
+  group('AttendanceQrScreen — self-issuing token (rotate_qr_token RPC)', () {
+    testWidgets('issues the first token via the RPC when the server has none',
+        (tester) async {
+      when(() => service.getMyQrToken(_eventId)).thenAnswer((_) async => null);
+      when(() => service.rotateQrToken(_eventId)).thenAnswer((_) async => {
+            'status': 'ok',
+            'token': 't1',
+            'expiresAt': DateTime.now()
+                .add(const Duration(seconds: 15))
+                .toIso8601String(),
+          });
+      final container = await _pump(
+          tester,
+          service: service,
+          eventNotifier: _FakeWindowOpenEventNotifier.new);
+
+      // The QR loop is now alive: inside the window, a missing server token
+      // is issued instead of the eternal server-pending state.
+      expect(find.byType(QrImageView), findsOneWidget);
+      expect(_displayedToken(container), 't1');
+      verify(() => service.rotateQrToken(_eventId)).called(1);
+    });
+
+    testWidgets('rotation at countdown 0 calls the RPC before refetching',
+        (tester) async {
+      final answers = <Map<String, dynamic>?>[_token('t1'), _token('t2')];
+      when(() => service.getMyQrToken(_eventId))
+          .thenAnswer((_) async => answers.removeAt(0));
+      final container = await _pump(
+          tester,
+          service: service,
+          eventNotifier: _FakeWindowOpenEventNotifier.new);
+      expect(find.text('Nuevo código en: 15'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 15));
+      await tester.pump();
+      await tester.pump();
+
+      verify(() => service.rotateQrToken(_eventId)).called(1);
+      expect(_displayedToken(container), 't2');
+      expect(find.text('Nuevo código en: 15'), findsOneWidget);
     });
   });
 

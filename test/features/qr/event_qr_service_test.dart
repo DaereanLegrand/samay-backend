@@ -154,4 +154,49 @@ void main() {
       expectMapped(err, NetworkError);
     });
   });
+
+  group('EventService.rotateQrToken', () {
+    test('invokes the rotate_qr_token RPC with the attendee contract',
+        () async {
+      final rpc = ResolvingBuilder<dynamic>({
+        'status': 'ok',
+        'token': 'abc-123',
+        'expiresAt': '2026-08-14T23:00:00Z',
+      });
+      when(() => client.rpc('rotate_qr_token', params: any(named: 'params')))
+          .thenAnswer((_) => rpc);
+
+      final result = await service().rotateQrToken(_eventId);
+
+      expect(result!['status'], 'ok');
+      expect(result['token'], 'abc-123');
+      expect(result['expiresAt'], '2026-08-14T23:00:00Z');
+      final params =
+          verify(() => client.rpc('rotate_qr_token', params: captureAny(named: 'params')))
+              .captured
+              .single as Map<String, dynamic>;
+      expect(params, {'p_event_id': _eventId});
+    });
+
+    test('returns null when the RPC yields no payload', () async {
+      when(() => client.rpc('rotate_qr_token', params: any(named: 'params')))
+          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+
+      expect(await service().rotateQrToken(_eventId), isNull);
+    });
+
+    test('propagates a network-class PostgrestException', () async {
+      when(() => client.rpc('rotate_qr_token', params: any(named: 'params')))
+          .thenThrow(
+        const PostgrestException(
+          message: 'could not connect to server',
+          code: '28000',
+        ),
+      );
+
+      final err = await captureError(() => service().rotateQrToken(_eventId));
+      expect(err, isA<PostgrestException>());
+      expectMapped(err, NetworkError);
+    });
+  });
 }
