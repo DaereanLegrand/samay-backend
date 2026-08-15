@@ -100,29 +100,84 @@ void main() {
     });
 
     test('known jwt code without keyword message → UnauthorizedError', () {
+      // `bad_jwt` is the canonical server code (error-codes doc) — mapped
+      // code-first, no message parsing needed.
       expect(
         const AuthException(
           'signature check failed',
-          code: 'invalid_jwt',
+          code: 'bad_jwt',
         ).toAppError(),
         isA<UnauthorizedError>(),
       );
     });
 
-    test('unmapped code → UnauthorizedError (auth fallback)', () {
+    test('session-lifecycle codes → UnauthorizedError', () {
+      for (final code in [
+        'session_expired',
+        'session_not_found',
+        'refresh_token_not_found',
+        'refresh_token_already_used',
+        'user_not_found',
+        'no_authorization',
+      ]) {
+        expect(
+          AuthException('some server message', code: code).toAppError(),
+          isA<UnauthorizedError>(),
+          reason: code,
+        );
+      }
+    });
+
+    test('unmapped code → faithful ServerError, not a fake category', () {
       expect(
         const AuthException(
-          'user not found',
-          code: 'user_not_found',
+          'something went wrong',
+          code: 'some_unknown_code',
         ).toAppError(),
-        isA<UnauthorizedError>(),
+        isA<ServerError>(),
       );
     });
 
-    test('null code → UnauthorizedError, no crash (null-safe)', () {
+    test('null code + no keyword message → ServerError, no crash (null-safe)',
+        () {
       expect(
         const AuthException('something happened').toAppError(),
-        isA<UnauthorizedError>(),
+        isA<ServerError>(),
+      );
+    });
+
+    test('email_not_confirmed → ValidationError(correo)', () {
+      final error = const AuthException(
+        'Email not confirmed',
+        code: 'email_not_confirmed',
+      ).toAppError();
+      expect(error, isA<ValidationError>());
+      expect((error as ValidationError).field, 'correo');
+    });
+
+    test('weak_password → ValidationError(contraseña)', () {
+      final error = const AuthException(
+        'Password should be longer than 8 characters',
+        code: 'weak_password',
+      ).toAppError();
+      expect(error, isA<ValidationError>());
+      expect((error as ValidationError).field, 'contraseña');
+    });
+
+    test('user_banned → ValidationError(cuenta)', () {
+      final error = const AuthException(
+        'User is banned',
+        code: 'user_banned',
+      ).toAppError();
+      expect(error, isA<ValidationError>());
+      expect((error as ValidationError).field, 'cuenta');
+    });
+
+    test('request_timeout → NetworkError', () {
+      expect(
+        const AuthException('Request took too long', code: 'request_timeout')
+            .toAppError(),
+        isA<NetworkError>(),
       );
     });
   });

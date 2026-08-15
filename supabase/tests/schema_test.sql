@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all 33 migrations (20260510000001 through 20260814000005).
+-- Covers all 35 migrations (20260510000001 through 20260815000002).
 BEGIN;
 
-SELECT plan(385);
+SELECT plan(401);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -105,10 +105,12 @@ SELECT ok(
 
 -- ============================================================
 -- SECTION 7: Migration 20260520000001 — user_search_view
+-- (bio added 20260815000001 — public profile copy only; the sensitive
+--  columns stay out of the barrier.)
 -- ============================================================
 SELECT has_view('user_search_view');
-SELECT columns_are('user_search_view', ARRAY['id', 'username', 'avatar_url'],
-    'user_search_view exposes only id, username, avatar_url');
+SELECT columns_are('user_search_view', ARRAY['id', 'username', 'avatar_url', 'bio'],
+    'user_search_view exposes only the public identity columns + bio');
 
 -- ============================================================
 -- SECTION 8: Triggers — all 9 (migrations 20260510000001, 20260512000007)
@@ -297,6 +299,30 @@ SELECT policies_are('chats', ARRAY[
     'chats_delete_related'
 ], 'chats has expected RLS policies');
 
+-- 26a: the direct branches must correlate to the OUTER chats.id. The original
+-- policies used an unqualified `id` (shadowed by chat_participants.id →
+-- chat_participants.chat_id = chat_participants.id, never true): direct chats
+-- were invisible to participants and every messages INSERT violated
+-- messages_insert_participant with 42501. Fixed 20260815000003.
+SELECT ok(
+    (SELECT pg_get_expr(polqual, polrelid) FROM pg_policy
+      WHERE polname = 'chats_read_participant' AND polrelid = 'public.chats'::regclass)
+        LIKE '%chat_participants.chat_id = chats.id%'
+      AND (SELECT pg_get_expr(polqual, polrelid) FROM pg_policy
+            WHERE polname = 'chats_read_participant' AND polrelid = 'public.chats'::regclass)
+        NOT LIKE '%chat_participants.chat_id = chat_participants.id%',
+    'chats_read_participant correlates the direct branch to chats.id (20260815000003)'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polwithcheck, polrelid) FROM pg_policy
+      WHERE polname = 'chats_insert_related' AND polrelid = 'public.chats'::regclass)
+        LIKE '%chat_participants.chat_id = chats.id%'
+      AND (SELECT pg_get_expr(polwithcheck, polrelid) FROM pg_policy
+            WHERE polname = 'chats_insert_related' AND polrelid = 'public.chats'::regclass)
+        NOT LIKE '%chat_participants.chat_id = chat_participants.id%',
+    'chats_insert_related correlates the direct branch to chats.id (20260815000003)'
+);
+
 -- ============================================================
 -- SECTION 27: RLS Policies — messages
 -- ============================================================
@@ -312,6 +338,40 @@ SELECT policies_are('chat_participants', ARRAY[
     'cp_read_own',
     'cp_read_participant'
 ], 'chat_participants has expected RLS policies');
+
+-- 28a: chat inbox (migration 20260815000004) — read watermark + RPCs
+SELECT has_column('chat_participants', 'last_read_at',
+    'chat_participants has the last_read_at read watermark');
+SELECT col_type_is('chat_participants', 'last_read_at', 'timestamp with time zone',
+    'last_read_at is timestamptz');
+SELECT col_not_null('chat_participants', 'last_read_at',
+    'last_read_at defaults now() — existing participants start read');
+SELECT has_function('get_chat_inbox',
+    'get_chat_inbox() exists (SECURITY DEFINER RPC, migration 20260815000004)');
+SELECT is_definer('public', 'get_chat_inbox', ARRAY[]::name[],
+    'get_chat_inbox is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'get_chat_inbox'),
+    'get_chat_inbox sets search_path = '''' (migration 20260815000004)'
+);
+SELECT function_privs_are('public', 'get_chat_inbox', ARRAY[]::name[], 'public', ARRAY[]::name[],
+    'get_chat_inbox is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'get_chat_inbox', ARRAY[]::name[], 'authenticated', ARRAY['EXECUTE'],
+    'get_chat_inbox is authenticated-EXECUTABLE');
+SELECT has_function('mark_chat_read', ARRAY['uuid'],
+    'mark_chat_read(p_chat_id uuid) exists (SECURITY DEFINER RPC)');
+SELECT is_definer('public', 'mark_chat_read', ARRAY['uuid'],
+    'mark_chat_read is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'mark_chat_read'),
+    'mark_chat_read sets search_path = '''' (migration 20260815000004)'
+);
+SELECT function_privs_are('public', 'mark_chat_read', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'mark_chat_read is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'mark_chat_read', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'mark_chat_read is authenticated-EXECUTABLE');
 
 -- ============================================================
 -- SECTION 29: RLS Policies — shard_ledger / preshard_ledger
@@ -919,6 +979,13 @@ SELECT ok(
         WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'messages'
     ),
     'messages is in the supabase_realtime publication (E2EE §9.3)'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'friendships'
+    ),
+    'friendships is in the supabase_realtime publication (friendships realtime, 20260815000002)'
 );
 
 -- ============================================================

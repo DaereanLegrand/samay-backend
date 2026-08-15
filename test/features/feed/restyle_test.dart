@@ -31,9 +31,10 @@ import '../../support/fake_config_provider.dart';
 /// *deliberate visual changes* from the LUXE ledger only:
 ///
 /// 1. The 'SAMAY' brand hero renders through [VDisplayText] (Playfair
-///    Display italic bold UPPERCASE — directive #6, the MAYUS rule is
-///    enforced by the widget, never at call sites) with the **cyan**
-///    gradient glyph fill and the glow-strong 3-layer pulsing halo.
+///    Display bold UPPERCASE — directive #6, the MAYUS rule is enforced by
+///    the widget, never at call sites; no italics — user directive
+///    2026-08-14) with **white glyphs** (the cyan family is banned on
+///    glyphs — skyblue text must be white, user directive 2026-08-14).
 /// 2. Always-black background + ONE cyan [VAurora] ambient (directive
 ///    #1/#4; the feed's own family from `AppGradients.familyOf('feed')`).
 /// 3. Section separators use [VDiscoDivider] with the **cyan vivid end at
@@ -197,7 +198,11 @@ void main() {
       final text = tester.widget<Text>(find.text('SAMAY'));
       expect(text.style?.fontFamily, AppTypography.playfair);
       expect(text.style?.fontWeight, FontWeight.w700);
-      expect(text.style?.fontStyle, FontStyle.italic);
+      expect(
+        text.style?.fontStyle,
+        isNull,
+        reason: 'no italics — user directive 2026-08-14',
+      );
     });
   });
 
@@ -240,7 +245,8 @@ void main() {
         expect(
           divider.accentColor,
           AppColors.discoCyan.withValues(alpha: 0.5),
-          reason: 'LUXE feed divider accent: cyan vivid end at α0.5 — '
+          reason:
+              'LUXE feed divider accent: cyan vivid end at α0.5 — '
               'never pink, never the violet default',
         );
       }
@@ -250,9 +256,7 @@ void main() {
         'is no featured section', (tester) async {
       await _pumpScreen(tester, _FakeEventService([_eventRow('e-1')]));
 
-      final divider = tester.widget<VDiscoDivider>(
-        find.byType(VDiscoDivider),
-      );
+      final divider = tester.widget<VDiscoDivider>(find.byType(VDiscoDivider));
       expect(divider.accentColor, AppColors.discoCyan.withValues(alpha: 0.5));
     });
   });
@@ -396,7 +400,8 @@ void main() {
         expect(
           chip.gradient,
           AppGradients.cyan,
-          reason: 'selected = cyan border/fill, the feed family — never '
+          reason:
+              'selected = cyan border/fill, the feed family — never '
               'pink, never the violet default',
         );
       }

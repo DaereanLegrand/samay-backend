@@ -17,10 +17,7 @@ Widget _wrap(Widget child, {bool reduced = false}) {
 }
 
 Text _displayText(WidgetTester tester) => tester.widget<Text>(
-  find.descendant(
-    of: find.byType(VDisplayText),
-    matching: find.byType(Text),
-  ),
+  find.descendant(of: find.byType(VDisplayText), matching: find.byType(Text)),
 );
 
 /// LUXE directive (2026-08-12): "glowing pulsation outside letters must be
@@ -46,41 +43,76 @@ BoxDecoration? _outsideGlow(WidgetTester tester) {
 
 void main() {
   group('VDisplayText', () {
-    testWidgets('renders the text UPPERCASE — the MAYUS rule (directive #6)',
-        (tester) async {
+    testWidgets('renders the text UPPERCASE — the MAYUS rule (directive #6)', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
-          const VDisplayText(text: 'crea tu cuenta', gradient: AppGradients.violet),
+          const VDisplayText(
+            text: 'crea tu cuenta',
+            gradient: AppGradients.violet,
+          ),
         ),
       );
       expect(find.text('CREA TU CUENTA'), findsOneWidget);
       expect(find.text('crea tu cuenta'), findsNothing);
     });
 
-    testWidgets('display voice: Playfair italic bold at the given size',
-        (tester) async {
+    testWidgets('display voice: Playfair bold at the given size', (
+      tester,
+    ) async {
       await tester.pumpWidget(
-        _wrap(
-          const VDisplayText(text: 'crea tu cuenta', size: 40),
-        ),
+        _wrap(const VDisplayText(text: 'crea tu cuenta', size: 40)),
       );
       final style = _displayText(tester).style!;
       expect(style.fontFamily, AppTypography.playfair);
       expect(style.fontSize, AppTypography.displayMedium.fontSize);
       expect(style.fontWeight, FontWeight.w700);
-      expect(style.fontStyle, FontStyle.italic);
+      expect(
+        style.fontStyle,
+        isNull,
+        reason: 'no italics — user directive 2026-08-14',
+      );
     });
 
     testWidgets('wraps the glyphs in a ShaderMask (gradient fill via '
         'AppGradients.textShader)', (tester) async {
       await tester.pumpWidget(
         _wrap(
-          const VDisplayText(text: 'crea tu cuenta', gradient: AppGradients.cyan),
+          const VDisplayText(
+            text: 'crea tu cuenta',
+            gradient: AppGradients.violet,
+          ),
         ),
       );
       final mask = tester.widget<ShaderMask>(find.byType(ShaderMask).first);
       expect(mask.blendMode, BlendMode.srcIn);
       expect(mask.shaderCallback, isNotNull);
+    });
+
+    test('cyan (skyblue) family → white glyphs (user directive 2026-08-14)',
+        () {
+      expect(VDisplayText.rendersWhite(AppGradients.cyan), isTrue,
+          reason: 'skyblue text is banned on glyphs');
+      expect(VDisplayText.rendersWhite(null), isTrue);
+      expect(VDisplayText.rendersWhite(AppGradients.violet), isFalse);
+      expect(VDisplayText.rendersWhite(AppGradients.gold), isFalse);
+    });
+
+    testWidgets('cyan gradient still wraps the glyphs in a ShaderMask '
+        '(white fill via the render decision)', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const VDisplayText(
+            text: 'crea tu cuenta',
+            gradient: AppGradients.cyan,
+          ),
+        ),
+      );
+      final mask = tester.widget<ShaderMask>(find.byType(ShaderMask).first);
+      expect(mask.blendMode, BlendMode.srcIn);
+      expect(mask.shaderCallback, isNotNull);
+      expect(_displayText(tester).style?.color, AppColors.white);
     });
 
     testWidgets('gradient null → white glyphs', (tester) async {
@@ -95,23 +127,36 @@ void main() {
         '2026-08-12)', (tester) async {
       await tester.pumpWidget(
         _wrap(
-          const VDisplayText(text: 'crea tu cuenta', gradient: AppGradients.violet),
+          const VDisplayText(
+            text: 'crea tu cuenta',
+            gradient: AppGradients.violet,
+          ),
         ),
       );
-      expect(_outsideGlow(tester), isNull,
-          reason: 'no boxShadow may sit behind the glyphs');
+      expect(
+        _outsideGlow(tester),
+        isNull,
+        reason: 'no boxShadow may sit behind the glyphs',
+      );
     });
 
-    testWidgets('reduce-motion → no shimmer sweep, no tickers (§6.2/§7.5)',
-        (tester) async {
+    testWidgets('reduce-motion → no shimmer sweep, no tickers (§6.2/§7.5)', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
-          const VDisplayText(text: 'crea tu cuenta', gradient: AppGradients.violet),
+          const VDisplayText(
+            text: 'crea tu cuenta',
+            gradient: AppGradients.violet,
+          ),
           reduced: true,
         ),
       );
-      expect(tester.binding.transientCallbackCount, 0,
-          reason: 'reduced motion → no shimmer ticker');
+      expect(
+        tester.binding.transientCallbackCount,
+        0,
+        reason: 'reduced motion → no shimmer ticker',
+      );
 
       await tester.pump(const Duration(seconds: 5));
       expect(tester.binding.transientCallbackCount, 0);
@@ -121,16 +166,25 @@ void main() {
         'frames after settle)', (tester) async {
       await tester.pumpWidget(
         _wrap(
-          const VDisplayText(text: 'crea tu cuenta', gradient: AppGradients.violet),
+          const VDisplayText(
+            text: 'crea tu cuenta',
+            gradient: AppGradients.violet,
+          ),
         ),
       );
-      expect(tester.binding.transientCallbackCount, greaterThan(0),
-          reason: 'the sweep is live on first build');
+      expect(
+        tester.binding.transientCallbackCount,
+        greaterThan(0),
+        reason: 'the sweep is live on first build',
+      );
 
       await tester.pump(VDisplayText.shimmerDuration);
       await tester.pumpAndSettle();
-      expect(tester.binding.transientCallbackCount, 0,
-          reason: 'the sweep completes and stops — no timer leftovers');
+      expect(
+        tester.binding.transientCallbackCount,
+        0,
+        reason: 'the sweep completes and stops — no timer leftovers',
+      );
     });
   });
 }

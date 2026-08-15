@@ -7,6 +7,7 @@ import 'package:samay/crypto/codec.dart';
 import 'package:samay/crypto/constants.dart';
 import 'package:samay/crypto/e2ee_key_store.dart';
 import 'package:samay/crypto/e2ee_prekey_service.dart';
+import 'package:samay/crypto/e2ee_primitives.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 /// SupabaseE2eePrekeyService behavioral tests: publishes identity + signed
@@ -272,12 +273,16 @@ void main() {
   });
 
   group('handleMissingSession', () {
-    test('publishes only when nothing is published yet', () async {
+    test('publishes only when nothing is published yet, and keeps a healthy '
+        'row untouched', () async {
+      final store = MemoryE2eeKeyStore();
+      final identity = await store.loadOrCreateIdentity();
+      final identityKey = base64UrlNoPadEncode(identity.ikDhPublic);
       var published = false;
       when(() => table.select()).thenAnswer((_) {
         final v = published
             ? <Map<String, dynamic>>[
-                {'user_id': _userId, 'identity_key': 'x'},
+                {'user_id': _userId, 'identity_key': identityKey},
               ]
             : const <Map<String, dynamic>>[];
         return _ResolvingFilter<PostgrestList>(v);
@@ -287,17 +292,46 @@ void main() {
         published = true;
         return _ResolvingFilter<dynamic>(null);
       });
-      final svc = service();
+      final svc = service(store: store);
 
       // First call: no own row → full publish.
       await svc.handleMissingSession();
-      // Second call: row exists → no republish.
+      // Second call: a MATCHING row exists → no republish.
       await svc.handleMissingSession();
       // Single verification AFTER both calls: mocktail re-verifies the same
       // call only once — a second `.called(1)` on the same invocation fails
       // (MISTAKE block in the I-38 daily log).
       verify(() => table.upsert(any(), onConflict: any(named: 'onConflict')))
           .called(1); // still only once
+    });
+
+    test('republishes when the published identity DIFFERS from the local '
+        'one — stale-row recovery (Signal model, 2026-08-15)', () async {
+      // The server row holds an identity that is NOT this device's (a
+      // sign-out/in wipe or reinstall regenerated the local identity).
+      final staleKey = base64UrlNoPadEncode((await E2eeKeyPair.generate(
+        type: E2eeKeyType.x25519,
+      )).publicKey);
+      when(() => table.select()).thenAnswer(
+        (_) => _ResolvingFilter<PostgrestList>(<Map<String, dynamic>>[
+          {'user_id': _userId, 'identity_key': staleKey},
+        ]),
+      );
+      when(() => table.upsert(any(), onConflict: any(named: 'onConflict')))
+          .thenAnswer((_) => _ResolvingFilter<dynamic>(null));
+      final store = MemoryE2eeKeyStore();
+      final identity = await store.loadOrCreateIdentity();
+      final svc = service(store: store);
+
+      await svc.handleMissingSession();
+
+      // The heal must republish the CURRENT identity over the stale row.
+      final captured = verify(() => table.upsert(captureAny(),
+              onConflict: any(named: 'onConflict')))
+          .captured
+          .single as Map;
+      expect(captured['identity_key'],
+          base64UrlNoPadEncode(identity.ikDhPublic));
     });
   });
 

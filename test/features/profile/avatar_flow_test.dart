@@ -11,6 +11,8 @@ import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/auth_service.dart';
 import 'package:samay/core/services/media_service.dart';
 import 'package:samay/core/services/permission_service.dart';
+import 'package:samay/crypto/e2ee_key_store.dart';
+import 'package:samay/features/chat/providers/chat_providers.dart';
 import 'package:samay/core/services/user_service.dart';
 import 'package:samay/features/profile/screens/edit_profile_screen.dart';
 import 'package:samay/features/profile/providers/profile_providers.dart';
@@ -151,6 +153,12 @@ class _Harness {
         authServiceProvider.overrideWithValue(auth),
         mediaServiceProvider.overrideWithValue(media),
         userServiceProvider.overrideWithValue(userService),
+        // E2EE isolation (2026-08-15): the auth restore's ownership guard
+        // touches the key store — the secure store's platform channel does
+        // not complete under testWidgets' FakeAsync. Memory twins keep the
+        // profile tests hermetic (E2EE is not under test here).
+        e2eeKeyStoreProvider.overrideWithValue(MemoryE2eeKeyStore()),
+        e2eeSessionStoreProvider.overrideWithValue(MemoryE2eeSessionStore()),
       ];
 
   void stubAuth({String? email}) {

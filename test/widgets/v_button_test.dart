@@ -34,6 +34,30 @@ void main() {
       expect(find.text('Glow'), findsOneWidget);
     });
 
+    testWidgets('dark variant: black fill, white text, white hairline '
+        '(user directive 2026-08-14)', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: VButton.dark(onPressed: () {}, child: const Text('Black')),
+        ),
+      );
+      final button = tester.widget<VButton>(find.byType(VButton));
+      expect(button.variant, VButtonVariant.dark);
+      final textButton = tester.widget<TextButton>(find.byType(TextButton));
+      final style = textButton.style;
+      expect(
+        style?.backgroundColor?.resolve({}),
+        AppColors.surfaceAlt,
+        reason: 'the face is the black surface, never a family gradient',
+      );
+      expect(
+        style?.foregroundColor?.resolve({}),
+        AppColors.white,
+        reason: 'white text on the black face',
+      );
+      expect(style?.side?.resolve({}), const BorderSide(color: Colors.white));
+    });
+
     testWidgets('fires onPressed', (tester) async {
       var pressed = false;
       await tester.pumpWidget(

@@ -33,7 +33,8 @@ void main() {
   UserService service() => UserService(client: client);
 
   group('UserService.getUserProfile', () {
-    test('returns the profile row mapped to a Map', () async {
+    test('own row → full users-table profile mapped to a Map', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
       final table = MockQueryBuilder();
       when(() => client.from('users')).thenAnswer((_) => table);
       when(() => table.select(any())).thenAnswer(
@@ -54,26 +55,51 @@ void main() {
       expect(profile?['personal_shards'], 120);
     });
 
-    test('returns null when the row does not exist', () async {
-      final table = MockQueryBuilder();
-      when(() => client.from('users')).thenAnswer((_) => table);
-      when(() => table.select(any()))
+    test('other user → security-barrier view profile (public columns)',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final view = MockQueryBuilder();
+      when(() => client.from('user_search_view')).thenAnswer((_) => view);
+      when(() => view.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>({
+          'id': _otherId,
+          'username': 'other',
+          'avatar_url': null,
+          'bio': 'soy otro',
+        }),
+      );
+
+      final profile = await service().getUserProfile(_otherId);
+
+      expect(profile?['id'], _otherId);
+      expect(profile?['username'], 'other');
+      expect(profile?['bio'], 'soy otro');
+      // The view never exposes the sensitive columns.
+      expect(profile?.containsKey('personal_shards'), isFalse);
+    });
+
+    test('returns null when the row does not exist (view path)', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final view = MockQueryBuilder();
+      when(() => client.from('user_search_view')).thenAnswer((_) => view);
+      when(() => view.select(any()))
           .thenAnswer((_) => ResolvingBuilder<PostgrestList>(null));
 
-      expect(await service().getUserProfile(_userId), isNull);
+      expect(await service().getUserProfile(_otherId), isNull);
     });
 
     test('propagates a permission-denied PostgrestException', () async {
-      final table = MockQueryBuilder();
-      when(() => client.from('users')).thenAnswer((_) => table);
-      when(() => table.select(any())).thenThrow(
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final view = MockQueryBuilder();
+      when(() => client.from('user_search_view')).thenAnswer((_) => view);
+      when(() => view.select(any())).thenThrow(
         const PostgrestException(
-          message: 'permission denied for table users',
+          message: 'permission denied for table user_search_view',
           code: '42501',
         ),
       );
 
-      final err = await captureError(() => service().getUserProfile(_userId));
+      final err = await captureError(() => service().getUserProfile(_otherId));
       expect(err, isA<PostgrestException>());
       expectMapped(err, PermissionError);
     });

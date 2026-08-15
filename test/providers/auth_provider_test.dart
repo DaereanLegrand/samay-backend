@@ -10,6 +10,7 @@ import 'package:samay/core/services/auth_service.dart';
 import 'package:samay/core/services/ban_service.dart';
 import 'package:samay/core/services/telemetry_service.dart';
 import 'package:samay/crypto/e2ee_key_store.dart';
+import 'package:samay/crypto/interfaces.dart';
 import 'package:samay/features/chat/providers/chat_providers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
@@ -17,6 +18,8 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 class _FakeAuthService extends Mock implements AuthService {}
 
 class _FakeBanService extends Mock implements BanService {}
+
+class _FakePrekeyService extends Mock implements E2eePrekeyService {}
 
 const _user = {
   'id': '11111111-1111-1111-1111-111111111111',
@@ -90,6 +93,17 @@ class _RecordingTelemetrySink implements TelemetrySink {
   void reset() {}
 }
 
+/// No-op prekey service stub: every auth test is deterministic with zero
+/// network. The publish-on-profile-create / heal-on-restore tests override
+/// the stubs below and assert the calls (E2EE §12.2 step 4 wiring).
+E2eePrekeyService _stubbedPrekeys() {
+  final prekeys = _FakePrekeyService();
+  when(() => prekeys.publishAll()).thenAnswer((_) async {});
+  when(() => prekeys.handleMissingSession()).thenAnswer((_) async {});
+  when(() => prekeys.fetchBundle(any())).thenAnswer((_) async => null);
+  return prekeys;
+}
+
 ProviderContainer _newContainer(
   AuthService service, {
   List<Override> extraOverrides = const [],
@@ -98,6 +112,7 @@ ProviderContainer _newContainer(
     overrides: [
       authServiceProvider.overrideWithValue(service),
       banServiceProvider.overrideWithValue(_stubbedBanService()),
+      e2eePrekeyServiceProvider.overrideWithValue(_stubbedPrekeys()),
       ...extraOverrides,
     ],
   );
@@ -399,7 +414,13 @@ void main() {
 
         final state = container.read(authStateProvider);
         expect(state, isA<AsyncError<AuthState>>());
-        expect(state.error, isA<UnauthorizedError>());
+        // user_already_exists is code-mapped to a validation error (error-codes
+        // doc), not the old blanket UnauthorizedError.
+        expect(state.error, isA<ValidationError>());
+        expect(
+          (state.error as ValidationError).field,
+          'correo',
+        );
         expect(state.valueOrNull?.authenticated, isFalse);
       },
     );
@@ -547,6 +568,111 @@ void main() {
       expect(state.valueOrNull?.authenticated, isTrue);
     });
 
+    test('createProfile publishes the E2EE prekey bundle after the profile '
+        'row (E2EE §12.2 step 4)', () async {
+      final service = _stubbedService();
+      when(
+        () => service.createUserProfile(
+          username: any(named: 'username'),
+          dateOfBirth: any(named: 'dateOfBirth'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => service.getCurrentUser()).thenReturn(_user);
+      final prekeys = _FakePrekeyService();
+      when(() => prekeys.publishAll()).thenAnswer((_) async {});
+      when(() => prekeys.handleMissingSession()).thenAnswer((_) async {});
+      when(() => prekeys.fetchBundle(any())).thenAnswer((_) async => null);
+      final container = _newContainer(service, extraOverrides: [
+        e2eePrekeyServiceProvider.overrideWithValue(prekeys),
+      ]);
+      await container.read(authStateProvider.future);
+
+      await container
+          .read(authStateProvider.notifier)
+          .signIn('a@b.com', 'secret1');
+      await container.read(authStateProvider.notifier).createProfile('dana');
+
+      verify(() => prekeys.publishAll()).called(1);
+      expect(
+        container.read(authStateProvider).valueOrNull?.hasProfile,
+        isTrue,
+      );
+    });
+
+    test('createProfile key-publish failure does not fail the profile '
+        '(best-effort; heal retries on next restore)', () async {
+      final service = _stubbedService();
+      when(
+        () => service.createUserProfile(
+          username: any(named: 'username'),
+          dateOfBirth: any(named: 'dateOfBirth'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => service.getCurrentUser()).thenReturn(_user);
+      final prekeys = _FakePrekeyService();
+      when(() => prekeys.publishAll()).thenThrow(
+        const PostgrestException(message: 'connection refused', code: '28000'),
+      );
+      when(() => prekeys.handleMissingSession()).thenAnswer((_) async {});
+      when(() => prekeys.fetchBundle(any())).thenAnswer((_) async => null);
+      final container = _newContainer(service, extraOverrides: [
+        e2eePrekeyServiceProvider.overrideWithValue(prekeys),
+      ]);
+      await container.read(authStateProvider.future);
+
+      await container
+          .read(authStateProvider.notifier)
+          .signIn('a@b.com', 'secret1');
+      await container.read(authStateProvider.notifier).createProfile('dana');
+
+      final state = container.read(authStateProvider);
+      expect(state.hasError, isFalse);
+      expect(state.valueOrNull?.hasProfile, isTrue);
+    });
+
+    test('session restore heals a legacy account: handleMissingSession is '
+        'called when the bundle may be missing (E2EE §12.2 step 4)', () async {
+      final prekeys = _FakePrekeyService();
+      when(() => prekeys.publishAll()).thenAnswer((_) async {});
+      when(() => prekeys.handleMissingSession()).thenAnswer((_) async {});
+      when(() => prekeys.fetchBundle(any())).thenAnswer((_) async => null);
+      final controller = StreamController<supabase.AuthState>();
+      final service = _streamedService(
+        controller,
+        userSequence: [_user],
+      );
+      final container = _newContainer(service, extraOverrides: [
+        e2eePrekeyServiceProvider.overrideWithValue(prekeys),
+      ]);
+      await container.read(authStateProvider.future);
+
+      verify(() => prekeys.handleMissingSession()).called(1);
+      verifyNever(() => prekeys.publishAll());
+    });
+
+    test('restore key-heal failure never breaks auth (logged, stays put)',
+        () async {
+      final prekeys = _FakePrekeyService();
+      when(() => prekeys.publishAll()).thenAnswer((_) async {});
+      when(() => prekeys.handleMissingSession()).thenThrow(
+        const PostgrestException(message: 'connection refused', code: '28000'),
+      );
+      when(() => prekeys.fetchBundle(any())).thenAnswer((_) async => null);
+      final controller = StreamController<supabase.AuthState>();
+      final service = _streamedService(
+        controller,
+        userSequence: [_user],
+      );
+      final container = _newContainer(service, extraOverrides: [
+        e2eePrekeyServiceProvider.overrideWithValue(prekeys),
+      ]);
+      await container.read(authStateProvider.future);
+
+      final state = container.read(authStateProvider);
+      expect(state.hasValue, isTrue);
+      expect(state.valueOrNull?.authenticated, isTrue);
+    });
+
     test('signOut clears the session state', () async {
       final service = _stubbedService();
       when(() => service.signIn(any(), any())).thenAnswer((_) async {});
@@ -588,7 +714,8 @@ void main() {
       );
     });
 
-    test('signOut wipes E2EE key + session material (E2EE §7.6)', () async {
+    test('signOut KEEPS E2EE key + session material (Signal model §7.6 — '
+        'the identity is bound to the account, not the session)', () async {
       final service = _stubbedService();
       when(() => service.signOut()).thenAnswer((_) async {});
       final keys = MemoryE2eeKeyStore();
@@ -606,16 +733,81 @@ void main() {
 
       await container.read(authStateProvider.notifier).signOut();
 
-      // New identity is generated on next use — the old one is gone.
+      // The identity, prekeys and sessions SURVIVE a plain sign-out — a
+      // same-account re-sign-in decrypts old chats without re-key.
       final identityAfter = await keys.loadOrCreateIdentity();
-      expect(identityAfter.ikDhPublic, isNot(equals(identityBefore.ikDhPublic)));
-      expect(await keys.oneTimePrekeyCount(), 0);
-      expect(await keys.loadSignedPrekeyPrivate(0), isNull);
-      expect(await sessions.loadSession('chat-1'), isNull);
+      expect(identityAfter.ikDhPublic, identityBefore.ikDhPublic,
+          reason: 'sign-out must not regenerate the identity (Signal model)');
+      expect(await keys.oneTimePrekeyCount(), 2);
+      expect(await keys.loadSignedPrekeyPrivate(0), isNotNull);
+      expect(await sessions.loadSession('chat-1'), isNotNull);
       expect(
         container.read(authStateProvider).valueOrNull?.authenticated,
         isFalse,
       );
+    });
+
+    test('an ACCOUNT SWITCH wipes the previous account\'s E2EE material '
+        '(Signal model — keys are per-account)', () async {
+      const userB = {
+        'id': '22222222-2222-2222-2222-222222222222',
+        'email': 'c@d.com',
+      };
+      final controller = StreamController<supabase.AuthState>();
+      final service = _streamedService(controller, userSequence: [null]);
+      final keys = MemoryE2eeKeyStore();
+      await keys.loadOrCreateIdentity();
+      await keys.currentSignedPrekey();
+      await keys.generateOneTimePrekeys(2);
+      final sessions = MemoryE2eeSessionStore();
+      await sessions.saveSession('chat-1', '{"version":1,"peer":"x"}');
+      final prekeys = _FakePrekeyService();
+      when(() => prekeys.publishAll()).thenAnswer((_) async {});
+      when(() => prekeys.handleMissingSession()).thenAnswer((_) async {});
+      when(() => prekeys.fetchBundle(any())).thenAnswer((_) async => null);
+
+      final container = _newContainer(service, extraOverrides: [
+        e2eeKeyStoreProvider.overrideWithValue(keys),
+        e2eeSessionStoreProvider.overrideWithValue(sessions),
+        e2eePrekeyServiceProvider.overrideWithValue(prekeys),
+      ]);
+      await container.read(authStateProvider.future);
+
+      // Account A signs in → claims ownership of the key material.
+      controller.add(
+        supabase.AuthState(
+          supabase.AuthChangeEvent.signedIn,
+          _session(_user),
+        ),
+      );
+      await _settle();
+      expect(await keys.ownerUid(), _user['id']);
+
+      // Sign out (material SURVIVES — the Signal model), then account B
+      // signs in → the A-material is wiped and B claims ownership.
+      controller.add(
+        const supabase.AuthState(
+          supabase.AuthChangeEvent.signedOut,
+          null,
+        ),
+      );
+      await _settle();
+      expect(await keys.ownerUid(), _user['id'],
+          reason: 'a plain sign-out keeps the material');
+
+      controller.add(
+        supabase.AuthState(
+          supabase.AuthChangeEvent.signedIn,
+          _session(userB),
+        ),
+      );
+      await _settle();
+
+      expect(await keys.oneTimePrekeyCount(), 0,
+          reason: 'account switch must wipe the previous keys');
+      expect(await sessions.loadSession('chat-1'), isNull,
+          reason: 'account switch must wipe the previous sessions');
+      expect(await keys.ownerUid(), userB['id']);
     });
 
     test('deleteAccount wipes E2EE key + session material (E2EE §7.6)', () async {

@@ -30,6 +30,10 @@ class _FakeServer {
 
   final Map<String, List<String>> participants = {};
 
+  /// When set, the next insert throws (RLS-policy rejection simulation —
+  /// the 42501 the live direct-chat inserts hit before 20260815000003).
+  bool rejectNextInsert = false;
+
   List<Map<String, dynamic>> messagesFor(String chatId) =>
       rows.where((r) => r['chat_id'] == chatId).toList();
 
@@ -173,6 +177,14 @@ class _Party {
     );
     when(() => messagesQb.insert(any())).thenAnswer((inv) {
       final payload = Map<String, dynamic>.from(inv.positionalArguments.first as Map);
+      if (server.rejectNextInsert) {
+        server.rejectNextInsert = false;
+        throw const PostgrestException(
+          message: 'new row violates row-level security policy for table "messages"',
+          code: '42501',
+          details: 'Forbidden',
+        );
+      }
       server.insertMessage(_chatId, userId, payload);
       return _FixedFilter<dynamic>(null);
     });
@@ -247,10 +259,11 @@ void main() {
     server.participants[_chatId] = [_userIdA, _userIdB];
     alice = _Party(userId: _userIdA, server: server);
     bob = _Party(userId: _userIdB, server: server);
-    // Bob publishes at "profile creation" (§12.2 step 4 hook — the auth
-    // wiring is a documented follow-up); Alice publishes lazily on her
-    // first send (handleMissingSession bootstrap). AWAITED on purpose —
-    // a fire-and-forget publish races the test body (I-38 MISTAKE block).
+    // Bob publishes at "profile creation" (§12.2 step 4 auth-lifecycle hook —
+    // wired in `auth_provider.dart` 2026-08-15: createProfile publishes,
+    // session restore calls handleMissingSession); Alice publishes lazily on
+    // her first send (send-time bootstrap). AWAITED on purpose — a
+    // fire-and-forget publish races the test body (I-38 MISTAKE block).
     await bob.prekeyService.publishAll();
   });
 
@@ -410,4 +423,149 @@ void main() {
     );
     expect(server.messagesFor(_chatId), isEmpty);
   });
+
+  test('profile-creation hook (handleMissingSession, both sides) unblocks the '
+      'first message between two fresh accounts — the §12.2 step 4 auth '
+      'lifecycle wiring', () async {
+    server.prekeys.clear();
+    // The auth provider now calls handleMissingSession at profile creation /
+    // session restore (auth_provider.dart `_ensureE2eeKeysPublished`): both
+    // fresh accounts publish exactly what the hook would.
+    await alice.prekeyService.handleMissingSession();
+    await bob.prekeyService.handleMissingSession();
+    expect(server.prekeys, hasLength(2));
+
+    final serviceA = alice.service();
+    final serviceB = bob.service();
+    await serviceA.sendMessage(_chatId, 'primer mensaje', null);
+    final stored = server.messagesFor(_chatId).single;
+    expect(stored['content'], isNot('primer mensaje'));
+
+    final bobMessages = await serviceB.loadMessages(_chatId);
+    expect(bobMessages.single['content'], 'primer mensaje');
+    expect(bobMessages.single['decryptFailed'], isFalse);
+
+    await serviceB.sendMessage(_chatId, 'respuesta', null);
+    final aliceMessages = await serviceA.loadMessages(_chatId);
+    expect(aliceMessages, hasLength(2));
+    expect(aliceMessages[1]['content'], 'respuesta');
+    expect(aliceMessages.every((m) => m['decryptFailed'] == false), isTrue);
+  });
+
+  test('failed INIT insert rolls the session back — the retry re-initiates '
+      'with a fresh init envelope the peer CAN decrypt (2026-08-15 '
+      'session/insert atomicity regression)', () async {
+    final serviceA = alice.service();
+    final serviceB = bob.service();
+
+    // The live failure (pre-20260815000003): the first INSERT was rejected
+    // by RLS AFTER the session was persisted with has_sent_init=true.
+    server.rejectNextInsert = true;
+    await expectLater(
+      () => serviceA.sendMessage(_chatId, 'no se pudo enviar', null),
+      throwsA(isA<PostgrestException>()),
+    );
+    expect(server.messagesFor(_chatId), isEmpty);
+
+    // The retry MUST NOT resume the poisoned session: it must produce a
+    // fresh type-0x01 init envelope (not a ratchet message), and the peer
+    // must be able to decrypt the thread.
+    await serviceA.sendMessage(_chatId, 'ahora si', null);
+    final stored = server.messagesFor(_chatId).single;
+    final parsed = SamayEnvelope.tryParse(base64UrlNoPadDecode(stored['content'])!)!;
+    expect(parsed.type, e2eeEnvelopeTypeInit,
+        reason: 'retry after a failed init insert must re-initiate X3DH');
+
+    final bobMessages = await serviceB.loadMessages(_chatId);
+    expect(bobMessages, hasLength(1));
+    expect(bobMessages.single['content'], 'ahora si');
+    expect(bobMessages.single['decryptFailed'], isFalse);
+  });
+
+  test('unacknowledged init: EVERY outbound message is a fresh init until the '
+      'peer replies — then ratchet resumes (Signal '
+      'unacknowledgedPreKeyMessage semantics, 2026-08-15)', () async {
+    final serviceA = alice.service();
+    final serviceB = bob.service();
+
+    await serviceA.sendMessage(_chatId, 'uno', null);
+    expect(
+      _typeOf(server.messagesFor(_chatId).first['content']),
+      e2eeEnvelopeTypeInit,
+    );
+
+    // No reply yet → the second send MUST re-initiate (fresh X3DH), not send
+    // a ratchet the peer could never decrypt.
+    await serviceA.sendMessage(_chatId, 'dos', null);
+    final ms = server.messagesFor(_chatId);
+    expect(ms, hasLength(2));
+    expect(
+      _typeOf(ms.first['content']),
+      e2eeEnvelopeTypeInit,
+      reason: 'unacknowledged init → fresh init envelope (Signal prekey semantics)',
+    );
+    // Each unacknowledged init is a NEW X3DH run (fresh ekA — our replay
+    // protection would drop an identical init).
+    final init2 = _envelopeOf(ms.first['content']);
+    final init1 = _envelopeOf(ms.last['content']);
+    expect(init2.ekA, isNot(equals(init1.ekA)),
+        reason: 'a fresh X3DH uses a new ephemeral key (replay-safe)');
+
+    // The peer — fresh, never saw the first init — decrypts the full thread
+    // (the latest init re-establishes the session).
+    final bobMsgs = await serviceB.loadMessages(_chatId);
+    expect(bobMsgs.map((m) => m['content']), ['uno', 'dos']);
+    expect(bobMsgs.every((m) => m['decryptFailed'] == false), isTrue);
+
+    // B's reply acknowledges A's init (clearUnacknowledgedPreKeyMessage).
+    await serviceB.sendMessage(_chatId, 'respuesta', null);
+    final aliceMsgs = await serviceA.loadMessages(_chatId);
+    expect(aliceMsgs.last['content'], 'respuesta');
+
+    // Now A's sends resume the ratchet.
+    await serviceA.sendMessage(_chatId, 'tres', null);
+    expect(
+      _typeOf(server.messagesFor(_chatId).first['content']),
+      e2eeEnvelopeTypeRatchet,
+      reason: 'an acknowledged init sends ratchet (0x02) messages',
+    );
+  });
+
+  test('restored unacknowledged session heals after an "app restart": the '
+      'first send re-initiates with a fresh init the peer can decrypt '
+      '(the live "Mensaje no descifrable" scenario)', () async {
+    final serviceA1 = alice.service();
+    final serviceB = bob.service();
+
+    // The init is sent but never acknowledged (B never processes it).
+    await serviceA1.sendMessage(_chatId, 'uno', null);
+
+    // "App restart": a NEW ChatService over the SAME stores restores the
+    // session JSON (has_sent_init=true, init_acknowledged=false — or the
+    // pre-2026-08-15 JSON without the field).
+    final serviceA2 = alice.service();
+    await serviceA2.sendMessage(_chatId, 'dos', null);
+
+    final ms = server.messagesFor(_chatId);
+    expect(ms, hasLength(2));
+    expect(
+      _typeOf(ms.first['content']),
+      e2eeEnvelopeTypeInit,
+      reason: 'a restored unacknowledged session must heal to a fresh init',
+    );
+
+    final bobMsgs = await serviceB.loadMessages(_chatId);
+    expect(bobMsgs.map((m) => m['content']), ['uno', 'dos']);
+    expect(bobMsgs.every((m) => m['decryptFailed'] == false), isTrue);
+  });
+}
+
+int _typeOf(Object? content) {
+  final bytes = base64UrlNoPadDecode(content as String);
+  return SamayEnvelope.tryParse(bytes!)!.type;
+}
+
+SamayEnvelope _envelopeOf(Object? content) {
+  final bytes = base64UrlNoPadDecode(content as String);
+  return SamayEnvelope.tryParse(bytes!)!;
 }

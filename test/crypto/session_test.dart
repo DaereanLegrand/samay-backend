@@ -54,6 +54,14 @@ class _FakePrekeyServer implements E2eePrekeyService {
     );
   }
 
+  /// "Profile creation" (§12.2 step 4): publish when nothing is published yet.
+  @override
+  Future<void> handleMissingSession() async {
+    if (registry.bundles[userId] == null) {
+      await publishAll();
+    }
+  }
+
   @override
   Future<PrekeyBundle?> fetchBundle(String peerUserId) async {
     var bundle = registry.bundles[peerUserId];
@@ -205,7 +213,7 @@ void main() {
       final env1 = await a.session.encryptText('hola');
       await b.session.decryptEnvelope(env1);
 
-      a.session.wipe();
+      await a.session.wipe();
       expect(await a.sessions.loadSession(_chatId), isNull);
 
       final env2 = await b.session.encryptText('sigue');
@@ -482,7 +490,7 @@ void main() {
 
       // Alice wipes her session and re-initiates: a fresh X3DH run (new
       // ephemeral key) must NOT be mistaken for a replay of the old init.
-      a.session.wipe();
+      await a.session.wipe();
       final init2 = await a.session.encryptText('segunda sesion');
       expect(_parseEnvelope(init2).type, e2eeEnvelopeTypeInit);
       expect(_parseEnvelope(init2).ekA, isNot(equals(_parseEnvelope(init).ekA)));
@@ -544,21 +552,51 @@ void main() {
       expect(await b2.decryptEnvelope(after), 'despues');
     });
 
-    test('expired session (90 days idle) is not loaded and decrypts fail', () async {
+    test('expired session (90 days idle): a stale RATCHET fails to decrypt '
+        'and the session is retired (§7.7)', () async {
       var now = DateTime.utc(2026, 8, 9);
       final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry, clock: () => now);
       final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry, clock: () => now);
       await a.server.publishAll();
       await b.server.publishAll();
 
+      // Full handshake: A initiates, B replies → the init is acknowledged.
       final env = await a.session.encryptText('hola');
       expect(await b.session.decryptEnvelope(env), 'hola');
+      final reply = await b.session.encryptText('respuesta');
+      expect(await a.session.decryptEnvelope(reply), 'respuesta');
 
       // 91 days pass with no activity.
       now = now.add(const Duration(days: 91));
       final envLate = await a.session.encryptText('tarde');
+      // 'tarde' is a RATCHET (acknowledged session) → B's idle-expired
+      // session refuses it and is deleted.
       expect(await b.session.decryptEnvelope(envLate), isNull);
       expect(await b.sessions.loadSession(_chatId), isNull);
+    });
+
+    test('an unacknowledged init after idle expiry RE-ESTABLISHES the '
+        'session — the peer can always decrypt a fresh init (Signal '
+        'prekey semantics, 2026-08-15)', () async {
+      var now = DateTime.utc(2026, 8, 9);
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry, clock: () => now);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry, clock: () => now);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      // A initiates; B decrypts but never replies → init stays
+      // unacknowledged.
+      final env = await a.session.encryptText('hola');
+      expect(await b.session.decryptEnvelope(env), 'hola');
+
+      // 91 days pass. A's next send re-initiates with a FRESH init envelope
+      // (unacknowledged-prekey semantics) — B can still decrypt it even
+      // though the old session was idle-expired.
+      now = now.add(const Duration(days: 91));
+      final envLate = await a.session.encryptText('tarde');
+      expect(_parseEnvelope(envLate).type, e2eeEnvelopeTypeInit,
+          reason: 'unacknowledged init → fresh init envelope');
+      expect(await b.session.decryptEnvelope(envLate), 'tarde');
     });
 
     test('session JSON contains the §8.3 fields and round-trips through storage', () async {
@@ -583,6 +621,9 @@ void main() {
       expect(json['ns'], isA<int>());
       expect(json['skipped'], isA<List<dynamic>>());
       expect(json['has_sent_init'], isTrue);
+      expect(json['init_acknowledged'], isTrue,
+          reason: 'the peer reply acknowledged the init (Signal '
+              'unacknowledged-prekey semantics, 2026-08-15)');
       expect(json['created_at'], isA<String>());
       expect(json['last_used_at'], isA<String>());
     });

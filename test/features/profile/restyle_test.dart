@@ -181,7 +181,11 @@ void main() {
 
       final glyphs = tester.widget<Text>(find.text('DANA'));
       expect(glyphs.style?.fontFamily, AppTypography.playfair);
-      expect(glyphs.style?.fontStyle, FontStyle.italic);
+      expect(
+        glyphs.style?.fontStyle,
+        isNull,
+        reason: 'no italics — user directive 2026-08-14',
+      );
     });
 
     testWidgets('balance card is a gold VGlassCard with the gold lg shard '

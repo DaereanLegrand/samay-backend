@@ -446,7 +446,11 @@ void main() {
         AppTypography.playfair,
         reason: '§3.2 — group names on the detail hero are Playfair',
       );
-      expect(glyphs.style?.fontStyle, FontStyle.italic);
+      expect(
+        glyphs.style?.fontStyle,
+        isNull,
+        reason: 'no italics — user directive 2026-08-14',
+      );
       expect(glyphs.style?.fontSize, 28);
       expect(
         _glassOf(tester, 'DISCO CREW').gradient?.colors,

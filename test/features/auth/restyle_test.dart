@@ -39,8 +39,10 @@ import 'package:samay/shared/widgets/v_display_text.dart';
 ///    plain muted text link (the login-screen secondary pattern) — the
 ///    VDiscoDivider is gone (XL-19: redundant ornament on a brand screen).
 /// 2. Auth big headers render through the LUXE `VDisplayText` hero — Playfair
-///    italic bold, ALWAYS UPPERCASE, family gradient fill + slow pulsing glow
-///    — one hero per screen (§3.2/§3.3, directive #6/#8).
+///    bold (no italics — user directive 2026-08-14), ALWAYS UPPERCASE,
+///    family gradient fill (cyan-family screens render white glyphs — user
+///    directive 2026-08-14) + slow pulsing glow — one hero per screen
+///    (§3.2/§3.3, directive #6/#8).
 /// 3. The OTP field uses the `AppTypography.otpInputText` token (§3.3).
 /// 4. Error texts render in `AppColors.error` (glowPink — never raw red on
 ///    black, §5.2), wired through `VInput.errorText` where it improves the
@@ -183,8 +185,8 @@ void _expectDisplayHeader(
   );
   expect(
     glyph.style?.fontStyle,
-    FontStyle.italic,
-    reason: '$label must be Playfair italic (§3.1/§3.2)',
+    isNull,
+    reason: '$label must be Playfair non-italic (user directive 2026-08-14)',
   );
 }
 
@@ -254,7 +256,8 @@ void main() {
       expect(
         button.style?.side?.resolve({}),
         null,
-        reason: 'XL-19: no border — the secondary entry demotes to a '
+        reason:
+            'XL-19: no border — the secondary entry demotes to a '
             'muted text link',
       );
       final link = tester.widget<Text>(find.text('Iniciar sesión'));
@@ -294,7 +297,11 @@ void main() {
       final text = tester.widget<Text>(find.text('VIVE'));
       expect(text.style?.fontFamily, AppTypography.playfair);
       expect(text.style?.fontSize, AppTypography.displayLarge.fontSize);
-      expect(text.style?.fontStyle, FontStyle.italic);
+      expect(
+        text.style?.fontStyle,
+        isNull,
+        reason: 'no italics — user directive 2026-08-14',
+      );
     });
 
     testWidgets('one aurora ambient per screen (violet + cyan brand wash)', (
@@ -306,6 +313,37 @@ void main() {
 
       final aurora = tester.widget<VAurora>(find.byType(VAurora));
       expect(aurora.gradients, [AppGradients.violet, AppGradients.cyan]);
+    });
+
+    testWidgets('login primary CTA is BLACK — no cyan/skyblue (user '
+        'directive 2026-08-14)', (tester) async {
+      final notifier = _RecordingAuthNotifier();
+      await _pump(tester, const LoginScreen(), notifier);
+      await tester.pumpAndSettle();
+
+      final button = tester.widget<VButton>(
+        find.widgetWithText(VButton, 'Iniciar sesión'),
+      );
+      expect(
+        button.variant,
+        VButtonVariant.dark,
+        reason: 'the login CTA is the black variant, never glowAccent',
+      );
+      expect(button.gradient, isNull);
+      final style = tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Iniciar sesión'))
+          .style;
+      expect(
+        style?.backgroundColor?.resolve({}),
+        AppColors.surfaceAlt,
+        reason: 'black face, not the cyan family gradient',
+      );
+      expect(
+        style?.foregroundColor?.resolve({}),
+        AppColors.white,
+        reason: 'white text on black',
+      );
+      await _unmount(tester);
     });
   });
 

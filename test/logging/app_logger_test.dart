@@ -67,6 +67,26 @@ void main() {
       expect(log, contains('failed'));
       expect(log, contains('fake_stack_line'));
     });
+
+    test('enabled logger ALSO prints to the console (debugPrint) — '
+        'flutter run must show logs on devices/waydroid (2026-08-15)', () {
+      final messages = <String>[];
+      final original = debugPrint;
+      debugPrint = (message, {int? wrapWidth}) {
+        messages.add(message ?? '');
+      };
+      try {
+        logger.warn('console entry');
+      } finally {
+        debugPrint = original;
+      }
+
+      expect(messages, hasLength(1));
+      expect(messages.single, contains('[Samay][WARN]'));
+      expect(messages.single, contains('console entry'));
+      // The file copy is written as well.
+      expect(readLog(), contains('console entry'));
+    });
   });
 
   group('knownBenignError', () {

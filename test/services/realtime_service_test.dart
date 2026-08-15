@@ -44,6 +44,7 @@ void main() {
           event: any(named: 'event'),
           schema: any(named: 'schema'),
           table: any(named: 'table'),
+          filter: any(named: 'filter'),
           callback: any(named: 'callback'),
         )).thenAnswer((invocation) {
       onCallback(invocation.namedArguments[#callback]
@@ -70,6 +71,35 @@ void main() {
             callback: any(named: 'callback'),
           )).called(1);
       verify(() => channel.subscribe()).called(1);
+    });
+  });
+
+  group('RealtimeService.subscribeToInbox', () {
+    test('subscribes to the per-user inbox channel with a sender_id <> me '
+        'filter', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final channel =
+          stubChannel('messages:inbox:$_userId', onCallback: (_) {});
+
+      await service().subscribeToInbox((_) {});
+
+      verify(() => client.channel('messages:inbox:$_userId')).called(1);
+      verify(() => channel.onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'messages',
+            filter: any(named: 'filter'),
+            callback: any(named: 'callback'),
+          )).called(1);
+      verify(() => channel.subscribe()).called(1);
+    });
+
+    test('throws without an authenticated session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+      expect(
+        () => service().subscribeToInbox((_) {}),
+        throwsA(isA<Exception>()),
+      );
     });
   });
 
@@ -146,6 +176,82 @@ void main() {
       ));
 
       expect(received, isEmpty);
+    });
+  });
+
+  group('RealtimeService.subscribeToFriendships', () {
+    test('subscribes to ALL friendships events and filters for the user',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      late void Function(PostgresChangePayload) callback;
+      final channel = stubChannel('friendships:$_userId',
+          onCallback: (cb) => callback = cb);
+
+      final received = <Map<String, dynamic>>[];
+      await service().subscribeToFriendships(received.add);
+
+      verify(() => channel.onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'friendships',
+            callback: any(named: 'callback'),
+          )).called(1);
+      verify(() => channel.subscribe()).called(1);
+
+      // Rows touching the current user (requester or addressee) pass...
+      callback(PostgresChangePayload(
+        schema: 'public',
+        table: 'friendships',
+        commitTimestamp: DateTime.now(),
+        eventType: PostgresChangeEvent.update,
+        newRecord: {
+          'id': 'f-1',
+          'requester_id': _userId,
+          'addressee_id': '22222222-2222-2222-2222-222222222222',
+          'status': 'accepted',
+        },
+        oldRecord: const {},
+        errors: null,
+      ));
+      callback(PostgresChangePayload(
+        schema: 'public',
+        table: 'friendships',
+        commitTimestamp: DateTime.now(),
+        eventType: PostgresChangeEvent.insert,
+        newRecord: {
+          'id': 'f-2',
+          'requester_id': '22222222-2222-2222-2222-222222222222',
+          'addressee_id': _userId,
+          'status': 'pending',
+        },
+        oldRecord: const {},
+        errors: null,
+      ));
+      // ...rows that do not involve the user are dropped.
+      callback(PostgresChangePayload(
+        schema: 'public',
+        table: 'friendships',
+        commitTimestamp: DateTime.now(),
+        eventType: PostgresChangeEvent.delete,
+        newRecord: {
+          'id': 'f-3',
+          'requester_id': '22222222-2222-2222-2222-222222222222',
+          'addressee_id': '33333333-3333-3333-3333-333333333333',
+          'status': 'accepted',
+        },
+        oldRecord: const {},
+        errors: null,
+      ));
+
+      expect(received.map((r) => r['id']).toList(), ['f-1', 'f-2']);
+    });
+
+    test('throws without an authenticated session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+      expect(
+        () => service().subscribeToFriendships((_) {}),
+        throwsA(isA<Exception>()),
+      );
     });
   });
 

@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
@@ -84,7 +83,11 @@ void main() {
           theme.headlineLarge!,
         ]) {
           expect(style.fontFamily, AppTypography.playfair);
-          expect(style.fontStyle, FontStyle.italic);
+          expect(
+            style.fontStyle,
+            isNull,
+            reason: 'no italics — user directive 2026-08-14',
+          );
         }
       });
 
@@ -159,7 +162,10 @@ void main() {
       final navTheme = theme.bottomNavigationBarTheme;
       // LUXE v2 (XL-06): the bar rides on a glass strip — its own fill is a
       // translucent dark tint (surface α0.85) over the white glass sheen.
-      expect(navTheme.backgroundColor, AppColors.surface.withValues(alpha: 0.85));
+      expect(
+        navTheme.backgroundColor,
+        AppColors.surface.withValues(alpha: 0.85),
+      );
       expect(navTheme.selectedItemColor, Colors.white);
       expect(navTheme.unselectedItemColor, AppColors.muted);
       expect(navTheme.type, BottomNavigationBarType.fixed);
@@ -189,33 +195,41 @@ void main() {
         final theme = SamayTheme.dark;
         final input = theme.inputDecorationTheme;
         expect(input.filled, isTrue);
-        expect(
-          input.fillColor,
-          AppColors.surfaceAlt.withValues(alpha: 0.5),
-        );
+        expect(input.fillColor, AppColors.surfaceAlt.withValues(alpha: 0.5));
         expect(input.floatingLabelBehavior, FloatingLabelBehavior.always);
         expect(input.labelStyle?.color, AppColors.mutedStrong);
         expect(input.hintStyle?.color, AppColors.muted);
         final enabled = input.enabledBorder! as OutlineInputBorder;
         expect(enabled.borderRadius, BorderRadius.circular(16));
-        expect(enabled.borderSide.color, AppColors.white.withValues(alpha: 0.25));
+        expect(
+          enabled.borderSide.color,
+          AppColors.white.withValues(alpha: 0.25),
+        );
         expect(enabled.borderSide.width, 1);
         final focused = input.focusedBorder! as OutlineInputBorder;
-        expect(focused.borderSide.color, AppColors.white.withValues(alpha: 0.8));
+        expect(
+          focused.borderSide.color,
+          AppColors.white.withValues(alpha: 0.8),
+        );
         expect(focused.borderSide.width, 1.5);
         final error = input.errorBorder! as OutlineInputBorder;
-        expect(error.borderSide.color, AppColors.glowPink.withValues(alpha: 0.8));
+        expect(
+          error.borderSide.color,
+          AppColors.glowPink.withValues(alpha: 0.8),
+        );
         expect(input.errorStyle?.color, AppColors.error);
       });
 
-      test('pageTransitionsTheme: Cupertino swipe-back on every platform '
-          '(LUXE #9)', () {
+      test('pageTransitionsTheme: static under reduced motion, Cupertino '
+          'swipe-back otherwise (ANIM-OFF, LUXE #9)', () {
         final builders = SamayTheme.dark.pageTransitionsTheme.builders;
         for (final platform in TargetPlatform.values) {
           expect(
             builders[platform],
-            isA<CupertinoPageTransitionsBuilder>(),
-            reason: '$platform must swipe back like iOS (LUXE #9)',
+            isA<StaticPageTransitionsBuilder>(),
+            reason:
+                '$platform must render static routes (ANIM-OFF) and '
+                'delegate to the iOS swipe otherwise (LUXE #9)',
           );
         }
       });
@@ -338,10 +352,7 @@ void main() {
           style.backgroundColor!.resolve({WidgetState.selected}),
           AppColors.white,
         );
-        expect(
-          style.backgroundColor!.resolve(const {}),
-          Colors.transparent,
-        );
+        expect(style.backgroundColor!.resolve(const {}), Colors.transparent);
         expect(
           style.foregroundColor!.resolve({WidgetState.selected}),
           AppColors.discoBlack,

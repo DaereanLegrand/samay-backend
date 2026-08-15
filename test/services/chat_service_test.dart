@@ -5,6 +5,9 @@ import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/services/chat_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
 import 'package:samay/core/utils/input_sanitizer.dart';
+import 'package:samay/crypto/e2ee_key_store.dart';
+import 'package:samay/crypto/interfaces.dart';
+import 'package:samay/crypto/x3dh.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 import '../support/resolving_builder.dart';
@@ -224,4 +227,105 @@ void main() {
       );
     });
   });
+
+  group('ChatService.fetchInbox + markChatRead (20260815000004 RPCs)', () {
+    test('fetchInbox maps the RPC result into rows', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rpc = ResolvingBuilder<dynamic>([
+        {
+          'chat_id': _chatId,
+          'type': 'direct',
+          'peer_id': '22222222-2222-2222-2222-222222222222',
+          'peer_username': 'bob',
+          'last_message_id': 'm-1',
+          'last_message_sender_id': '22222222-2222-2222-2222-222222222222',
+          'last_message_content': 'SME2.envelope',
+          'last_message_created_at': '2026-08-15T00:00:00Z',
+          'unread_count': 3,
+        },
+      ]);
+      when(() => client.rpc('get_chat_inbox')).thenAnswer((_) => rpc);
+
+      final rows = await service().fetchInbox();
+
+      expect(rows, hasLength(1));
+      expect(rows.single['chat_id'], _chatId);
+      expect(rows.single['unread_count'], 3);
+      verify(() => client.rpc('get_chat_inbox')).called(1);
+    });
+
+    test('fetchInbox throws without an authenticated session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+      expect(() => service().fetchInbox(), throwsA(isA<Exception>()));
+    });
+
+    test('markChatRead calls the self-only RPC with the chat id', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rpc = ResolvingBuilder<dynamic>(null);
+      when(() => client.rpc('mark_chat_read', params: any(named: 'params')))
+          .thenAnswer((_) => rpc);
+
+      await service().markChatRead(_chatId);
+
+      final params =
+          verify(() => client.rpc('mark_chat_read', params: captureAny(named: 'params')))
+              .captured
+              .single as Map<String, dynamic>;
+      expect(params, {'p_chat_id': _chatId});
+    });
+
+    test('decryptInboxRow returns the row unchanged without E2EE wiring '
+        '(plaintext service)', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final row = {
+        'chat_id': _chatId,
+        'last_message_id': 'm-1',
+        'last_message_sender_id': 'peer',
+        'last_message_content': 'hola',
+      };
+
+      final out = await service().decryptInboxRow(row);
+
+      expect(out['last_message_content'], 'hola');
+      expect(out['last_message_decrypt_failed'], false);
+    });
+
+    test('decryptInboxRow is E2EE-safe: a malformed envelope yields the '
+        'undecryptable marker, never a throw', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rpc = ResolvingBuilder<dynamic>([
+        {'user_id': 'peer'},
+      ]);
+      when(() => client.rpc('fetch_prekey_bundle', params: any(named: 'params')))
+          .thenAnswer((_) => rpc);
+      when(() => client.from('chat_participants')).thenAnswer((_) => throw UnimplementedError());
+
+      final service = ChatService(
+        client: client,
+        realtime: realtime,
+        e2eeKeyStore: MemoryE2eeKeyStore(),
+        e2eeSessionStore: MemoryE2eeSessionStore(),
+        e2eePrekeyService: _FakePrekeyService(),
+      );
+      final out = await service.decryptInboxRow({
+        'chat_id': _chatId,
+        'last_message_id': 'm-1',
+        'last_message_sender_id': 'peer',
+        'last_message_content': 'not-an-envelope',
+      });
+
+      expect(out['last_message_decrypt_failed'], true);
+    });
+  });
+}
+
+class _FakePrekeyService implements E2eePrekeyService {
+  @override
+  Future<PrekeyBundle?> fetchBundle(String peerUserId) async => null;
+
+  @override
+  Future<void> publishAll() async {}
+
+  @override
+  Future<void> handleMissingSession() async {}
 }

@@ -264,6 +264,7 @@ void main() {
       "RoutePaths.createGroupEvent(':groupId')": 'AppFeatureFlag.events',
       "RoutePaths.minigames(':groupId')": 'AppFeatureFlag.minigames',
       "RoutePaths.chat(':chatId')": 'AppFeatureFlag.chat',
+      'RoutePaths.chatList': 'AppFeatureFlag.chat',
       "RoutePaths.qr(':eventId')": 'AppFeatureFlag.qr',
       "RoutePaths.scanner(':eventId')": 'AppFeatureFlag.qr',
       'RoutePaths.subscriptions': 'AppFeatureFlag.subscriptions',

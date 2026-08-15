@@ -71,6 +71,7 @@ class _FakeRealtimeService extends RealtimeService {
     String table,
     void Function(Map<String, dynamic>) callback, {
     void Function(RealtimeSubscribeStatus status, Object? error)? onStatus,
+    PostgresChangeFilter? filter,
   }) {
     subscribeToChannelCalls++;
     final channel = MockRealtimeChannel();
