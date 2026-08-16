@@ -290,14 +290,15 @@ void main() {
       expect(out['last_message_decrypt_failed'], false);
     });
 
-    test('decryptInboxRow is E2EE-safe: a malformed envelope yields the '
-        'undecryptable marker, never a throw', () async {
+    test('decryptInboxRow is E2EE-safe: a malformed envelope with NO session '
+        'yields the needsSession flag (Signal reinstall semantics 2026-08-16), '
+        'never a throw', () async {
       when(() => auth.currentUser).thenReturn(_currentUser());
-      final rpc = ResolvingBuilder<dynamic>([
-        {'user_id': 'peer'},
-      ]);
       when(() => client.rpc('fetch_prekey_bundle', params: any(named: 'params')))
-          .thenAnswer((_) => rpc);
+          .thenThrow(UnimplementedError());
+      when(() => client.rpc('delete_undecryptable_messages',
+              params: any(named: 'params')))
+          .thenAnswer((_) => ResolvingBuilder<dynamic>(0));
       when(() => client.from('chat_participants')).thenAnswer((_) => throw UnimplementedError());
 
       final service = ChatService(
@@ -314,7 +315,187 @@ void main() {
         'last_message_content': 'not-an-envelope',
       });
 
-      expect(out['last_message_decrypt_failed'], true);
+      // No session exists → the row is the pre-reinstall class: hidden, not
+      // placeholder-marked.
+      expect(out['last_message_needs_session'], true);
+      expect(out['last_message_decrypt_failed'], false);
+    });
+  });
+
+  group('ChatService.deleteMessageForEveryone (20260815000006)', () {
+    test('maps the server verdicts to MessageDeleteOutcome', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      Future<MessageDeleteOutcome> attempt(
+        void Function() rpcStub,
+      ) async {
+        rpcStub();
+        return service().deleteMessageForEveryone('m-1');
+      }
+
+      expect(
+        await attempt(() => when(() => client.rpc('delete_message_for_everyone',
+                params: any(named: 'params')))
+            .thenAnswer((_) => ResolvingBuilder<dynamic>(null))),
+        MessageDeleteOutcome.deleted,
+      );
+
+      expect(
+        await attempt(() => when(() => client.rpc('delete_message_for_everyone',
+                params: any(named: 'params')))
+            .thenThrow(const PostgrestException(
+              message: 'MESSAGE_TOO_OLD',
+              code: 'P0001',
+            ))),
+        MessageDeleteOutcome.tooOld,
+      );
+
+      expect(
+        await attempt(() => when(() => client.rpc('delete_message_for_everyone',
+                params: any(named: 'params')))
+            .thenThrow(const PostgrestException(
+              message: 'NOT_THE_SENDER',
+              code: 'P0001',
+            ))),
+        MessageDeleteOutcome.notSender,
+      );
+
+      expect(
+        await attempt(() => when(() => client.rpc('delete_message_for_everyone',
+                params: any(named: 'params')))
+            .thenThrow(const PostgrestException(
+              message: 'MESSAGE_NOT_FOUND',
+              code: 'P0001',
+            ))),
+        MessageDeleteOutcome.notFound,
+      );
+
+      expect(
+        await attempt(() => when(() => client.rpc('delete_message_for_everyone',
+                params: any(named: 'params')))
+            .thenThrow(const PostgrestException(
+              message: 'connection reset',
+              code: '28000',
+            ))),
+        MessageDeleteOutcome.failed,
+      );
+    });
+
+    test('sends the message id as the RPC param', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(() => client.rpc('delete_message_for_everyone',
+              params: any(named: 'params')))
+          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+
+      await service().deleteMessageForEveryone('m-42');
+
+      verify(() => client.rpc('delete_message_for_everyone',
+              params: {'p_message_id': 'm-42'}))
+          .called(1);
+    });
+  });
+
+  group('ChatService.deleteMessageForMe (2026-08-16)', () {
+    test('tombstones the message locally; other messages are unaffected',
+        () async {
+      final svc = service();
+      await svc.deleteMessageForMe('chat-1', 'm-9');
+
+      expect(svc.isLocallyDeleted('chat-1', 'm-9'), isTrue);
+      expect(svc.isLocallyDeleted('chat-1', 'm-8'), isFalse);
+      expect(svc.isLocallyDeleted('chat-2', 'm-9'), isFalse);
+    });
+  });
+
+  group('ChatService.loadMessages undecryptable cleanup (2026-08-16)', () {
+    test('no-session failures fire the delete_undecryptable_messages RPC '
+        'with the flagged ids (offload)', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(() => client.rpc('fetch_prekey_bundle', params: any(named: 'params')))
+          .thenThrow(UnimplementedError());
+      when(() => client.from('chat_participants')).thenAnswer(
+        (_) => throw UnimplementedError(),
+      );
+      when(() => client.from('messages')).thenAnswer((_) => MockQueryBuilder());
+      final messages = MockQueryBuilder();
+      when(() => client.from('messages')).thenAnswer((_) => messages);
+      when(() => messages.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>([
+          {
+            'id': 'm-2',
+            'sender_id': 'peer',
+            'content': 'not-an-envelope-2',
+            'created_at': '2026-08-01T00:01:00Z',
+          },
+          {
+            'id': 'm-1',
+            'sender_id': 'peer',
+            'content': 'not-an-envelope',
+            'created_at': '2026-08-01T00:00:00Z',
+          },
+        ]),
+      );
+      when(() => client.rpc('delete_undecryptable_messages',
+              params: any(named: 'params')))
+          .thenAnswer((_) => ResolvingBuilder<dynamic>(2));
+
+      final service = ChatService(
+        client: client,
+        realtime: realtime,
+        e2eeKeyStore: MemoryE2eeKeyStore(),
+        e2eeSessionStore: MemoryE2eeSessionStore(),
+        e2eePrekeyService: _FakePrekeyService(),
+      );
+      final rows = await service.loadMessages(_chatId);
+
+      // Both rows are the no-session class (hidden — never a placeholder).
+      expect(rows.every((r) => r['needsSession'] == true), isTrue);
+      expect(rows.every((r) => r['decryptFailed'] != true), isTrue);
+      verify(() => client.rpc('delete_undecryptable_messages',
+              params: {
+                'p_chat_id': _chatId,
+                'p_message_ids': ['m-1', 'm-2'],
+              }))
+          .called(1);
+    });
+
+    test('a missing cleanup RPC (old server) is swallowed — rows stay '
+        'hidden, no throw (compat 2026-08-16)', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(() => client.rpc('fetch_prekey_bundle', params: any(named: 'params')))
+          .thenThrow(UnimplementedError());
+      when(() => client.from('chat_participants')).thenAnswer(
+        (_) => throw UnimplementedError(),
+      );
+      final messages = MockQueryBuilder();
+      when(() => client.from('messages')).thenAnswer((_) => messages);
+      when(() => messages.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>([
+          {
+            'id': 'm-1',
+            'sender_id': 'peer',
+            'content': 'not-an-envelope',
+            'created_at': '2026-08-01T00:00:00Z',
+          },
+        ]),
+      );
+      when(() => client.rpc('delete_undecryptable_messages',
+              params: any(named: 'params')))
+          .thenThrow(const PostgrestException(
+            message: 'Could not find the function public.delete_undecryptable_messages',
+            code: 'PGRST202',
+          ));
+
+      final service = ChatService(
+        client: client,
+        realtime: realtime,
+        e2eeKeyStore: MemoryE2eeKeyStore(),
+        e2eeSessionStore: MemoryE2eeSessionStore(),
+        e2eePrekeyService: _FakePrekeyService(),
+      );
+      final rows = await service.loadMessages(_chatId);
+
+      expect(rows.single['needsSession'], true);
+      expect(rows.single['decryptFailed'], isNot(true));
     });
   });
 }

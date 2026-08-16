@@ -78,6 +78,9 @@ void main() {
         'pastelPeach': Color(0xFFFFE6D9),
         'mint': Color(0xFF37E6A5),
         'peach': Color(0xFFFF8A65),
+        // Chat status ticks (2026-08-15) — verified against white (bubble).
+        'statusGrey': Color(0xFF757575),
+        'statusRead': Color(0xFF007AFF),
       };
       for (final entry in expected.entries) {
         expect(AppColors.all[entry.key], entry.value,

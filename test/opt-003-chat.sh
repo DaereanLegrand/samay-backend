@@ -16,6 +16,10 @@ set -uo pipefail
 #   F) DIRECT chat RLS regression (20260815000003): create_direct_chat RPC →
 #      participant reads the chat row → INSERTs a message (was 42501) →
 #      reads it back; outsider stays blocked
+#   G) deletion RPCs (20260815000006): delete_message_for_everyone (sender +
+#      server-verified 5-min window → MESSAGE_TOO_OLD / NOT_THE_SENDER) and
+#      delete_undecryptable_messages (participant-gated cleanup, cross-chat
+#      ids ignored, NOT_A_PARTICIPANT for outsiders) + deleted_messages audit
 #      suite (supabase/tests/schema_test.sql, I-77) — a curl test cannot call
 #      a trigger function (returns trigger, not callable via PostgREST RPC).
 #
@@ -357,6 +361,100 @@ if ! echo "$inbox_c" | grep -q "$CHAT_DIRECT"; then
   ok "Outsider C's inbox excludes the direct chat (caller-scoped)"
 else
   nok "Outsider C sees the direct chat in the inbox — scope broken"
+fi
+
+# Cleanup the direct chat + its messages.
+svc_delete_quiet "messages?chat_id=eq.$CHAT_DIRECT"
+svc_delete_quiet "chats?id=eq.$CHAT_DIRECT"
+
+# ---------------------------------------------------------------------------
+# G) Message deletion RPCs (20260815000006): delete_message_for_everyone
+#    (sender + server-verified 5-min window) + delete_undecryptable_messages
+#    (participant-gated cleanup) + deleted_messages audit
+# ---------------------------------------------------------------------------
+h1 "G: deletion RPCs (20260815000006)"
+
+# Re-create the direct chat for this section.
+RPC_ID=$(curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/create_direct_chat" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -d "{\"p_peer_id\":\"$UUID_B\"}")
+CHAT_DIRECT=$(echo "$RPC_ID" | grep -o '"chatId": *"[^"]*"' | cut -d'"' -f4)
+if [ -n "$CHAT_DIRECT" ]; then ok "G: recreated direct chat for deletion tests"; fi
+
+DEL_MSG_1="55555555-5555-5555-5555-555555555501"
+DEL_MSG_2="55555555-5555-5555-5555-555555555502"
+DEL_MSG_3="55555555-5555-5555-5555-555555555503"
+
+svc_post "messages" "{\"id\":\"$DEL_MSG_1\",\"chat_id\":\"$CHAT_DIRECT\",\"sender_id\":\"$UUID_A\",\"content\":\"$ENV_1\"}" > /dev/null
+svc_post "messages" "{\"id\":\"$DEL_MSG_2\",\"chat_id\":\"$CHAT_DIRECT\",\"sender_id\":\"$UUID_A\",\"content\":\"$ENV_2\",\"sent_at\":\"$(date -u -v-10M +%Y-%m-%dT%H:%M:%SZ)\"}" > /dev/null
+svc_post "messages" "{\"id\":\"$DEL_MSG_3\",\"chat_id\":\"$CHAT_DIRECT\",\"sender_id\":\"$UUID_B\",\"content\":\"$ENV_3\"}" > /dev/null
+
+# sender A, fresh message (sent_at = server now) → deleted.
+resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/delete_message_for_everyone" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -d "{\"p_message_id\":\"$DEL_MSG_1\"}")
+if [ -z "$resp" ] && ! auth_get "$TOKEN_A" "messages?id=eq.$DEL_MSG_1" | grep -q "$DEL_MSG_1"; then
+  ok "G: sender deletes a fresh message for everyone (row gone)"
+else
+  nok "G: delete_message_for_everyone fresh: $resp"
+fi
+
+# sender A, message older than 5 min (server clock) → MESSAGE_TOO_OLD.
+resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/delete_message_for_everyone" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -d "{\"p_message_id\":\"$DEL_MSG_2\"}")
+if echo "$resp" | grep -q "MESSAGE_TOO_OLD"; then
+  ok "G: a >5-min message is refused with MESSAGE_TOO_OLD (server clock)"
+else
+  nok "G: too-old verdict: $resp"
+fi
+
+# A is NOT the sender of DEL_MSG_3 → NOT_THE_SENDER.
+resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/delete_message_for_everyone" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -d "{\"p_message_id\":\"$DEL_MSG_3\"}")
+if echo "$resp" | grep -q "NOT_THE_SENDER"; then
+  ok "G: a non-sender is refused with NOT_THE_SENDER"
+else
+  nok "G: not-sender verdict: $resp"
+fi
+
+# Participant cleanup: A deletes B's rows as "undecryptable" — the request
+# also carries a GROUP-chat message id (MSG_1) that must be IGNORED.
+svc_post "messages" "{\"id\":\"$DEL_MSG_1\",\"chat_id\":\"$CHAT_DIRECT\",\"sender_id\":\"$UUID_B\",\"content\":\"$ENV_1\"}" > /dev/null
+resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/delete_undecryptable_messages" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d "{\"p_chat_id\":\"$CHAT_DIRECT\",\"p_message_ids\":[\"$DEL_MSG_1\",\"$DEL_MSG_2\",\"$MSG_1\"]}")
+if [ "$resp" = "2" ]; then
+  ok "G: participant cleanup deleted exactly the chat's 2 rows (cross-chat ignored)"
+else
+  nok "G: cleanup count=$resp (expected 2)"
+fi
+# The group-chat message survives the cleanup.
+if auth_get "$TOKEN_A" "messages?id=eq.$MSG_1" | grep -q "$MSG_1"; then
+  ok "G: the cross-chat message id survived (chat_id predicate)"
+else
+  nok "G: cross-chat message was wrongly deleted"
+fi
+
+# Outsider C is NOT a participant → NOT_A_PARTICIPANT.
+resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/delete_undecryptable_messages" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_C" \
+  -H "Content-Type: application/json" \
+  -d "{\"p_chat_id\":\"$CHAT_DIRECT\",\"p_message_ids\":[\"$DEL_MSG_3\"]}")
+if echo "$resp" | grep -q "NOT_A_PARTICIPANT"; then
+  ok "G: outsider is refused with NOT_A_PARTICIPANT"
+else
+  nok "G: outsider verdict: $resp"
+fi
+
+# Audit trail: delete_for_everyone rows are recorded in deleted_messages.
+audit=$(svc_get "deleted_messages?message_id=eq.$DEL_MSG_1")
+if echo "$audit" | grep -q "delete_for_everyone"; then
+  ok "G: deletions are audited in deleted_messages"
+else
+  nok "G: audit row missing: $audit"
 fi
 
 # Cleanup the direct chat + its messages.

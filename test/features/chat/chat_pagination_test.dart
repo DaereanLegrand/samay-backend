@@ -38,7 +38,14 @@ Map<String, dynamic> _message(String id) => {
       'sender_id': _otherId,
       'content': 'contenido $id',
       'media_url': null,
-      'created_at': '2026-08-01T00:00:00Z',
+      // Realistic timestamps: the numeric suffix is the AGE in seconds
+      // (m-0 newest → +0s; m-49 older → -49s; a non-numeric id like the
+      // realtime `m-new` is the newest at +1s). With unique times the
+      // client-side (created_at, id) tie-break never fires — the fixtures
+      // model real Postgres rows, where timestamps rarely collide.
+      'created_at': DateTime.utc(2026, 8, 1)
+          .subtract(Duration(seconds: int.tryParse(id.replaceAll('m-', '')) ?? -1))
+          .toIso8601String(),
     };
 
 /// [count] rows whose ids are `m-<n>` for the window starting at [start]
@@ -120,6 +127,30 @@ void main() {
 
       expect(state.messages, hasLength(30));
       expect(state.hasMore, isFalse);
+    });
+
+    test('needsSession rows are HIDDEN from the thread but still count for '
+        'pagination (a full page of undecryptable rows must not flip '
+        'hasMore — Signal reinstall semantics 2026-08-16)', () async {
+      // A full 50-row page where 10 rows are the no-session (hidden) class.
+      seedService((offset, _) => [
+            for (var i = 0; i < 50; i++)
+              {
+                ..._message('m-$i'),
+                if (i % 5 == 0) 'needsSession': true,
+              },
+          ]);
+      final c = container();
+      addTearDown(c.dispose);
+
+      final state = await c.read(chatMessagesProvider(_chatId).future);
+
+      // Display: the 10 hidden rows are absent.
+      expect(state.messages, hasLength(40));
+      expect(state.messages.any((m) => m['needsSession'] == true), isFalse);
+      // Pagination: the page was FULL (50 raw rows) → older pages exist.
+      expect(state.hasMore, isTrue);
+      expect(state.nextOffset, 50);
     });
 
     test('an empty chat loads an empty state with hasMore false', () async {
@@ -269,7 +300,8 @@ void main() {
   });
 
   group('chatMessagesProvider — realtime append (E2EE path stays intact)', () {
-    test('addMessage appends + dedupes on the paged state', () async {
+    test('addMessage inserts at the sorted position + dedupes (no disorder)',
+        () async {
       seedService((_, _) => _page(0, 2));
       final c = container();
       addTearDown(c.dispose);
@@ -278,9 +310,16 @@ void main() {
       final notifier = c.read(chatMessagesProvider(_chatId).notifier);
       notifier.addMessage(_message('m-new')); // decrypted realtime row
       notifier.addMessage(_message('m-new')); // duplicate — dropped
+      // A late-delivered OLDER row must land before the newer ones — the
+      // pre-fix behavior appended it at the tail (thread disorder).
+      notifier.addMessage({
+        ..._message('m-oldest'),
+        'created_at': DateTime.utc(2026, 7, 31).toIso8601String(),
+      });
 
       final state = c.read(chatMessagesProvider(_chatId)).valueOrNull!;
       expect(state.messages.map((m) => m['id']).toList(), [
+        'm-oldest', // older than everything loaded — inserted in order
         'm-1',
         'm-0',
         'm-new',
@@ -317,8 +356,14 @@ void main() {
     test('offset math and reversed ordering end to end', () async {
       _WindowBuilder.windows.clear();
       // The server holds 150 rows, newest FIRST (PostgREST DESC), ids
-      // m-149 (newest) .. m-0 (oldest).
-      final serverRows = [for (var i = 149; i >= 0; i--) _message('m-$i')];
+      // m-149 (newest) .. m-0 (oldest) — timestamps increasing with the
+      // index, so the (created_at, id) tie-break never fires.
+      final serverRows = [
+        for (var i = 149; i >= 0; i--)
+          _message('m-$i')..['created_at'] = DateTime.utc(2026, 8, 1)
+              .add(Duration(seconds: i))
+              .toIso8601String(),
+      ];
       final client = _MockSupabaseClient();
       final auth = _MockGoTrueClient();
       final messagesQb = _MockQueryBuilder();

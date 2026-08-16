@@ -5,11 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
-import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
+import 'package:samay/core/repositories/chat_repository.dart';
 import 'package:samay/core/services/chat_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
+import 'package:samay/core/services/storage_service.dart';
 import 'package:samay/features/chat/providers/chat_providers.dart';
 import 'package:samay/features/chat/screens/chat_screen.dart';
 import 'package:samay/shared/widgets/glass/v_glass.dart';
@@ -20,6 +21,7 @@ import 'package:samay/l10n/app_localizations.dart';
 
 const _chatId = '33333333-3333-3333-3333-333333333333';
 const _userId = '11111111-1111-1111-1111-111111111111';
+const _peerId = '22222222-2222-2222-2222-222222222222';
 
 class _StubAuthNotifier extends AuthNotifier {
   @override
@@ -63,18 +65,37 @@ class _FakeChatMessagesNotifier extends ChatMessagesNotifier {
   }
 }
 
+class _FakeChatInboxNotifier extends ChatInboxNotifier {
+  final List<ChatInboxItem> items;
+
+  _FakeChatInboxNotifier(this.items);
+
+  @override
+  Future<List<ChatInboxItem>> build() async => items;
+}
+
 class _MockChatService extends Mock implements ChatService {}
 
 class _MockRealtimeService extends Mock implements RealtimeService {}
 
 class _MockRealtimeChannel extends Mock implements RealtimeChannel {}
 
-Map<String, dynamic> _message(String id, String content, {String? sender}) => {
+class _MockChatRepository extends Mock implements ChatRepository {}
+
+Map<String, dynamic> _message(
+  String id,
+  String content, {
+  String? sender,
+  String? readAt,
+  String? sentAt,
+}) => {
   'id': id,
   'sender_id': sender ?? _userId,
   'content': content,
   'media_url': null,
   'created_at': '2026-08-01T00:00:00Z',
+  'sent_at': sentAt,
+  'read_at': ?readAt,
 };
 
 Future<ProviderContainer> _pump(
@@ -84,10 +105,20 @@ Future<ProviderContainer> _pump(
   bool hasMore = false,
   bool loadingOlder = false,
   _FakeChatMessagesNotifier? notifier,
+  List<ChatInboxItem> inbox = const [],
+  HiveService? hive,
+  bool settle = true,
 }) async {
   final chatService = service ?? _MockChatService();
   final channel = _MockRealtimeChannel();
   when(() => chatService.subscribeToMessages(any(), any())).thenReturn(channel);
+  when(() => chatService.subscribeToMessageReads(any(), any())).thenReturn(channel);
+  when(() => chatService.subscribeToMessageDeletes(any(), any())).thenReturn(channel);
+  // Default stub only when the caller did not supply a service — a custom
+  // service's own `peerNeedsRekey` stub must win (the §7.5 notice test).
+  if (service == null) {
+    when(() => chatService.peerNeedsRekey(any())).thenAnswer((_) async => false);
+  }
   when(() => channel.unsubscribe()).thenAnswer((_) => Future.value('ok'));
   final container = ProviderContainer(
     overrides: [
@@ -101,12 +132,14 @@ Future<ProviderContainer> _pump(
               loadingOlder: loadingOlder,
             ),
       ),
+      chatInboxProvider.overrideWith(() => _FakeChatInboxNotifier(inbox)),
       // The screen reads the E2EE repository, which is built from the E2EE
       // service (for the realtime subscription) and the realtime service
       // (raw-channel seam, I-50); mocks avoid touching Supabase.instance
       // (uninitialized in tests).
       chatE2eeServiceProvider.overrideWithValue(chatService),
       realtimeServiceProvider.overrideWithValue(_MockRealtimeService()),
+      if (hive != null) hiveServiceProvider.overrideWithValue(hive),
     ],
   );
   addTearDown(container.dispose);
@@ -121,8 +154,14 @@ Future<ProviderContainer> _pump(
       ),
     ),
   );
-  // Flush the async provider build (AsyncNotifier) before assertions.
-  await tester.pump();
+  // Flush the async provider builds (AsyncNotifier) before assertions.
+  // [settle] false leaves frames pumping manually — an animating loader row
+  // would otherwise run pumpAndSettle's timeout.
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+  }
   return container;
 }
 
@@ -137,9 +176,74 @@ void main() {
 
     expect(find.text('hola'), findsOneWidget);
     expect(find.text('responde'), findsOneWidget);
-    expect(find.text('Chat'), findsOneWidget); // app bar title
+    expect(find.text('Chat'), findsOneWidget); // app bar fallback title
     expect(find.byType(TextField), findsOneWidget);
     expect(find.text('Enviar'), findsOneWidget);
+  });
+
+  testWidgets('app bar shows the PEER USERNAME from the inbox (not "Chat")', (
+    tester,
+  ) async {
+    await _pump(tester, const [], inbox: [
+      const ChatInboxItem(
+        chatId: _chatId,
+        type: 'direct',
+        peerId: _peerId,
+        peerUsername: 'alice',
+        unreadCount: 2,
+      ),
+    ]);
+
+    expect(find.text('alice'), findsOneWidget);
+    expect(find.text('Chat'), findsNothing);
+  });
+
+  testWidgets('date separators group the thread by day (one chip per day)', (
+    tester,
+  ) async {
+    await _pump(tester, [
+      _message('m-1', 'ayer', sender: 'other')..['created_at'] =
+          '2026-08-14T10:00:00Z',
+      _message('m-2', 'hoy', sender: 'other')..['created_at'] =
+          '2026-08-15T10:00:00Z',
+      _message('m-3', 'tambien hoy', sender: 'other')..['created_at'] =
+          '2026-08-15T11:00:00Z',
+    ]);
+
+    expect(find.text('Ayer'), findsOneWidget);
+    expect(find.text('Hoy'), findsOneWidget);
+  });
+
+  testWidgets('every bubble shows the sent time (HH:mm)', (tester) async {
+    await _pump(tester, [
+      _message('m-1', 'hola', sender: 'other'),
+      _message('m-2', 'responde'),
+    ]);
+
+    // Each of the two bubbles carries a footer clock. The exact label is
+    // timezone-dependent (the fixture is UTC), so match the shape.
+    expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNWidgets(2));
+  });
+
+  testWidgets('own messages show a double grey check (received) — not read', (
+    tester,
+  ) async {
+    await _pump(tester, [_message('m-2', 'responde')]);
+
+    final icon = tester.widget<Icon>(find.byIcon(Icons.done_all));
+    expect(icon.color, AppColors.statusGrey);
+    expect(find.byIcon(Icons.check), findsNothing);
+  });
+
+  testWidgets('own messages with read_at show the BLUE double check (read)', (
+    tester,
+  ) async {
+    await _pump(tester, [
+      _message('m-2', 'responde', readAt: '2026-08-01T00:05:00Z'),
+    ]);
+
+    final icon = tester.widget<Icon>(find.byIcon(Icons.done_all));
+    expect(icon.color, AppColors.statusRead);
   });
 
   testWidgets('sends through the provider and clears the composer', (
@@ -193,8 +297,8 @@ void main() {
     );
   });
 
-  testWidgets('bubbles are LUXE liquid glass — own = watered peach + white '
-      'hairline, peer = white glass, radius 16, max width 320', (tester) async {
+  testWidgets('bubbles are WHITE — own = solid white fill + black text, '
+      'peer = white glass, radius 16, max width 320', (tester) async {
     await _pump(tester, [
       _message('m-1', 'hola', sender: 'other'),
       _message('m-2', 'responde'),
@@ -207,35 +311,21 @@ void main() {
     expect(
       ownDecoration.borderRadius,
       const BorderRadius.all(Radius.circular(16)),
-      reason:
-          'LUXE v2: bubbles are liquid (radius 16) — the pre-LUXE '
-          'radius-0 bubble rule is replaced (ORCHESTRATION-LUXE liquid '
-          'corner scope)',
-    );
-    final ownGradient = ownDecoration.gradient as LinearGradient;
-    expect(
-      ownGradient.colors,
-      AppGradients.watered(AppGradients.peach.colors, mix: 0.45),
-      reason:
-          'Gemma 14_chat "MEDIOCRE. Lacks focus": own bubbles are the '
-          'peach family watered 45% toward white — never the saturated fill',
+      reason: 'bubbles stay liquid (radius 16)',
     );
     expect(
-      ownDecoration.border,
-      isNotNull,
+      ownDecoration.color,
+      AppColors.white,
       reason:
-          'the glow halo is replaced by a 1px white α0.2 hairline '
-          '(XL-18 directive: border instead of glow)',
+          '2026-08-15 user directive: own bubbles are SOLID WHITE — the '
+          'peach (orange) fill is replaced, no gradient, no halo',
     );
-    expect(
-      ownDecoration.boxShadow,
-      isNull,
-      reason: 'no glow chrome on bubbles — the composer is the only accent',
-    );
+    expect(ownDecoration.gradient, isNull);
+    expect(ownDecoration.boxShadow, isNull);
     expect(
       tester.widget<Text>(find.text('responde')).style?.color,
       AppColors.discoBlack,
-      reason: 'black text on the watered peach fill (still AA+)',
+      reason: 'black text on the white fill (21:1 AA)',
     );
 
     final peer = tester.widget<VGlass>(
@@ -244,9 +334,7 @@ void main() {
     expect(
       peer.gradient,
       isNull,
-      reason:
-          'peer bubbles are white-only glass — the peach accent is '
-          'confined to the composer row',
+      reason: 'peer bubbles are white-only glass',
     );
     expect(
       peer.radius,
@@ -264,10 +352,23 @@ void main() {
       expect(
         box.constraints.maxWidth,
         320,
-        reason: 'XL-18: bubbles cap at 320 px — the thread is the visual '
-            'center with maximum width utilization',
+        reason: 'bubbles cap at 320 px — the thread is the visual center',
       );
     }
+  });
+
+  testWidgets('send button is flat white (no peach gradient)', (tester) async {
+    await _pump(tester, const []);
+
+    final button = tester.widget<TextButton>(
+      find.ancestor(
+        of: find.text('Enviar'),
+        matching: find.byType(TextButton),
+      ),
+    );
+    final bg = button.style?.backgroundColor;
+    expect(bg, isNotNull);
+    expect(bg!.resolve({}), AppColors.white);
   });
 
   testWidgets('send button shows VThinkingDots while a message is in flight', (
@@ -285,8 +386,8 @@ void main() {
       find.byType(VThinkingDots),
       findsOneWidget,
       reason:
-          'LUXE AI-thinking accent: the send button pulses thinking dots '
-          'instead of the label while the send is in flight',
+          'the send button pulses thinking dots instead of the label while '
+          'the send is in flight',
     );
     expect(find.text('Enviar'), findsNothing);
 
@@ -298,6 +399,68 @@ void main() {
     expect(notifier.sent, ['en camino']);
   });
 
+  testWidgets('optimistic send: pending bubble appears with a single grey '
+      'check and is replaced by the committed row on refresh', (tester) async {
+    final repo = _MockChatRepository();
+    final gate = Completer<void>();
+    final channel = _MockRealtimeChannel();
+    when(() => channel.unsubscribe()).thenAnswer((_) => Future.value('ok'));
+    when(
+      () => repo.loadMessages(
+        _chatId,
+        limit: any(named: 'limit'),
+        offset: any(named: 'offset'),
+      ),
+    ).thenAnswer((_) async => const []);
+    when(() => repo.sendMessage(_chatId, any(), any())).thenAnswer(
+      (_) async => gate.future,
+    );
+    when(() => repo.subscribe(any(), any())).thenReturn(channel);
+    when(() => repo.subscribeToMessageReads(any(), any())).thenReturn(channel);
+    when(() => repo.subscribeToMessageDeletes(any(), any())).thenReturn(channel);
+    when(() => repo.peerNeedsRekey(any())).thenAnswer((_) async => false);
+    when(() => repo.markChatRead(any())).thenAnswer((_) async {});
+    when(() => repo.markMessagesRead(any())).thenAnswer((_) async {});
+    when(() => repo.getReadReceiptsEnabled()).thenAnswer((_) async => true);
+    when(() => repo.fetchInbox()).thenAnswer((_) async => []);
+
+    final container = ProviderContainer(
+      overrides: [
+        authStateProvider.overrideWith(_StubAuthNotifier.new),
+        chatE2eeRepositoryProvider.overrideWithValue(repo),
+        realtimeServiceProvider.overrideWithValue(_MockRealtimeService()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          locale: Locale('es'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ChatScreen(chatId: _chatId),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField), 'en el aire');
+    await tester.tap(find.text('Enviar'));
+    await tester.pump();
+
+    // The optimistic bubble + the WhatsApp "sent" single grey check.
+    expect(find.text('en el aire'), findsOneWidget);
+    final pendingCheck = tester.widget<Icon>(find.byIcon(Icons.check));
+    expect(pendingCheck.color, AppColors.statusGrey);
+
+    // The send confirms → refresh replaces the pending row with the server
+    // truth (empty thread in this harness).
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('en el aire'), findsNothing);
+  });
+
   testWidgets('shows the empty state when there are no messages', (
     tester,
   ) async {
@@ -305,9 +468,9 @@ void main() {
 
     expect(find.text('No hay mensajes todavía'), findsOneWidget);
     expect(find.byType(VEmptyView), findsOneWidget);
-    // XL-19 (14_chat — "trivial / mediocre" on the EMPTY state): the empty
-    // thread is an INTENTIONAL minimal view — chat icon + one line only:
-    // no description, no CTA, nothing between the AppBar and the composer.
+    // The empty thread is an INTENTIONAL minimal view — chat icon + one line
+    // only: no description, no CTA, nothing between the AppBar and the
+    // composer.
     final empty = tester.widget<VEmptyView>(find.byType(VEmptyView));
     expect(empty.icon, Icons.chat_bubble_outline);
     expect(empty.title, 'No hay mensajes todavía');
@@ -357,10 +520,190 @@ void main() {
       [_message('m-1', 'hola')],
       hasMore: true,
       loadingOlder: true,
+      settle: false,
     );
+    await tester.pump();
 
     expect(find.text('Cargar anteriores'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.text('hola'), findsOneWidget); // the list stays visible
   });
+
+  testWidgets('long-press on an OWN message within 5 minutes offers BOTH '
+      'delete options (delete-for-everyone + delete-for-me)', (tester) async {
+    final service = _MockChatService();
+    when(() => service.deleteMessageForEveryone(any()))
+        .thenAnswer((_) async => MessageDeleteOutcome.deleted);
+    when(() => service.deleteMessageForMe(any(), any())).thenAnswer((_) async {});
+    await _pump(
+      tester,
+      [
+        _message(
+          'm-1',
+          'hola',
+          sentAt: DateTime.now().toUtc().toIso8601String(),
+        ),
+      ],
+      service: service,
+    );
+
+    await tester.longPress(find.text('hola'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Eliminar para todos'), findsOneWidget);
+    expect(find.text('Eliminar para mí'), findsOneWidget);
+  });
+
+  testWidgets('long-press on an OWN message OLDER than 5 minutes offers ONLY '
+      'delete-for-me (the server enforces the window too)', (tester) async {
+    await _pump(tester, [
+      _message(
+        'm-1',
+        'hola',
+        sentAt: DateTime.now().toUtc().subtract(const Duration(minutes: 10)).toIso8601String(),
+      ),
+    ]);
+
+    await tester.longPress(find.text('hola'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Eliminar para todos'), findsNothing);
+    expect(find.text('Eliminar para mí'), findsOneWidget);
+  });
+
+  testWidgets('long-press on a PEER message offers ONLY delete-for-me',
+      (tester) async {
+    await _pump(tester, [
+      _message(
+        'm-1',
+        'hola del otro',
+        sender: _peerId,
+        sentAt: DateTime.now().toUtc().toIso8601String(),
+      ),
+    ]);
+
+    await tester.longPress(find.text('hola del otro'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Eliminar para todos'), findsNothing);
+    expect(find.text('Eliminar para mí'), findsOneWidget);
+  });
+
+  testWidgets('delete-for-everyone removes the bubble and the too-old verdict '
+      'shows the snackbar', (tester) async {
+    final service = _MockChatService();
+    when(() => service.deleteMessageForEveryone('m-1'))
+        .thenAnswer((_) async => MessageDeleteOutcome.tooOld);
+    when(() => service.deleteMessageForMe(any(), any())).thenAnswer((_) async {});
+    await _pump(
+      tester,
+      [
+        _message(
+          'm-1',
+          'hola',
+          sentAt: DateTime.now().toUtc().toIso8601String(),
+        ),
+      ],
+      service: service,
+    );
+
+    // too-old verdict → the snackbar explains the 5-minute window.
+    await tester.longPress(find.text('hola'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar para todos'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Solo puedes eliminar mensajes enviados hace menos de 5 minutos'),
+      findsOneWidget,
+    );
+
+    // deleted verdict → the row leaves the thread.
+    when(() => service.deleteMessageForEveryone('m-1'))
+        .thenAnswer((_) async => MessageDeleteOutcome.deleted);
+    await tester.longPress(find.text('hola'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar para todos'));
+    await tester.pumpAndSettle();
+    expect(find.text('hola'), findsNothing);
+  });
+
+  testWidgets('delete-for-me removes the bubble on this device only',
+      (tester) async {
+    final service = _MockChatService();
+    when(() => service.deleteMessageForMe(any(), any())).thenAnswer((_) async {});
+    await _pump(
+      tester,
+      [_message('m-1', 'hola', sentAt: DateTime.now().toUtc().toIso8601String())],
+      service: service,
+    );
+
+    await tester.longPress(find.text('hola'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar para mí'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('hola'), findsNothing);
+    verify(() => service.deleteMessageForMe(_chatId, 'm-1')).called(1);
+  });
+
+  testWidgets('peer-reinstall notice shows ONCE per peer (E2EE §7.5)',
+      (tester) async {
+    final service = _MockChatService();
+    when(() => service.peerNeedsRekey(any())).thenAnswer((_) async => true);
+    final hive = _RecordingHiveService();
+
+    await _pump(
+      tester,
+      const [],
+      service: service,
+      hive: hive,
+      settle: false,
+    );
+    // Drive the snackbar's entrance animation explicitly (settle:false —
+    // the pending 4s dismissal timer would otherwise make pumpAndSettle
+    // advance past the snackbar's lifetime).
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(
+      find.text('El otro usuario reinstaló la app o cambió de dispositivo'),
+      findsOneWidget,
+    );
+    expect(
+      hive.config.containsKey('reinstall_notice_seen_$_chatId'),
+      isTrue,
+    );
+
+    // A SECOND open (fresh screen, flag already persisted) → no notice.
+    final hive2 = _RecordingHiveService({'reinstall_notice_seen_$_chatId': '1'});
+    final service2 = _MockChatService();
+    when(() => service2.peerNeedsRekey(any())).thenAnswer((_) async => true);
+    await _pump(tester, const [], service: service2, hive: hive2);
+    expect(
+      find.text('El otro usuario reinstaló la app o cambió de dispositivo'),
+      findsNothing,
+    );
+  });
+}
+
+class _RecordingHiveService implements HiveService {
+  _RecordingHiveService([Map<String, String>? initial])
+      : config = {...?initial};
+
+  final Map<String, String> config;
+
+  @override
+  Future<void> init({bool initializeFlutter = true}) async {}
+
+  @override
+  Future<void> cacheConfig(Map<String, String> config) async {
+    this.config.addAll(config);
+  }
+
+  @override
+  Map<String, String>? getCachedConfig() => Map.of(config);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName} not used in tests');
 }

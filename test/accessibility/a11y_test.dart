@@ -574,6 +574,13 @@ void main() {
       final channel = _MockRealtimeChannel();
       when(() => channel.unsubscribe()).thenAnswer((_) async => 'ok');
       when(() => repo.subscribe(any(), any())).thenReturn(channel);
+      when(() => repo.subscribeToMessageReads(any(), any())).thenReturn(channel);
+      when(() => repo.subscribeToMessageDeletes(any(), any())).thenReturn(channel);
+      when(() => repo.peerNeedsRekey(any())).thenAnswer((_) async => false);
+      when(() => repo.fetchInbox()).thenAnswer((_) async => <Map<String, dynamic>>[]);
+      when(() => repo.getReadReceiptsEnabled()).thenAnswer((_) async => true);
+      when(() => repo.markMessagesRead(any())).thenAnswer((_) async {});
+      when(() => repo.markChatRead(any())).thenAnswer((_) async {});
       await _pump(
         tester,
         const ChatScreen(chatId: 'c1'),

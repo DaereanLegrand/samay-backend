@@ -408,6 +408,11 @@ void main() {
       final channel = _MockRealtimeChannel();
       when(() => chatService.subscribeToMessages(any(), any()))
           .thenReturn(channel);
+      when(() => chatService.subscribeToMessageReads(any(), any()))
+          .thenReturn(channel);
+      when(() => chatService.subscribeToMessageDeletes(any(), any()))
+          .thenReturn(channel);
+      when(() => chatService.peerNeedsRekey(any())).thenAnswer((_) async => false);
       when(() => channel.unsubscribe()).thenAnswer((_) => Future.value('ok'));
       await _pump(
         tester,

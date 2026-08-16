@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all 35 migrations (20260510000001 through 20260815000002).
+-- Covers all migrations through 20260815000006 (message deletion).
 BEGIN;
 
-SELECT plan(401);
+SELECT plan(428);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -372,6 +372,74 @@ SELECT function_privs_are('public', 'mark_chat_read', ARRAY['uuid']::name[], 'pu
     'mark_chat_read is not PUBLIC-EXECUTABLE');
 SELECT function_privs_are('public', 'mark_chat_read', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
     'mark_chat_read is authenticated-EXECUTABLE');
+
+-- 28b: chat read receipts (migration 20260815000005) — read_at + privacy switch
+SELECT has_column('messages', 'read_at',
+    'messages has the read_at read-receipt timestamp');
+SELECT col_type_is('messages', 'read_at', 'timestamp with time zone',
+    'read_at is timestamptz');
+SELECT col_is_null('messages', 'read_at',
+    'read_at is nullable — NULL until the recipient marks the message read');
+SELECT has_column('users', 'read_receipts_enabled',
+    'users has the read_receipts_enabled privacy switch');
+SELECT col_type_is('users', 'read_receipts_enabled', 'boolean',
+    'read_receipts_enabled is boolean');
+SELECT col_not_null('users', 'read_receipts_enabled',
+    'read_receipts_enabled is NOT NULL');
+SELECT col_default_is('users', 'read_receipts_enabled', 'true',
+    'read_receipts_enabled defaults true — receipts on by default');
+SELECT has_function('mark_messages_read', ARRAY['uuid'],
+    'mark_messages_read(p_chat_id uuid) exists (SECURITY DEFINER RPC)');
+SELECT is_definer('public', 'mark_messages_read', ARRAY['uuid'],
+    'mark_messages_read is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'mark_messages_read'),
+    'mark_messages_read sets search_path = '''' (migration 20260815000005)'
+);
+SELECT function_privs_are('public', 'mark_messages_read', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'mark_messages_read is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'mark_messages_read', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'mark_messages_read is authenticated-EXECUTABLE');
+
+-- 28c: message deletion (migration 20260815000006) — 5-min delete_for_everyone
+--      + undecryptable cleanup + audit trail
+SELECT has_table('deleted_messages',
+    'deleted_messages audit trail exists (migration 20260815000006)');
+SELECT has_column('messages', 'sent_at',
+    'messages has the server-authoritative sent_at send timestamp');
+SELECT col_type_is('messages', 'sent_at', 'timestamp with time zone',
+    'sent_at is timestamptz');
+SELECT col_not_null('messages', 'sent_at',
+    'sent_at is NOT NULL');
+SELECT col_default_is('messages', 'sent_at', 'now()',
+    'sent_at defaults to now() — the SERVER clock anchors the 5-minute delete window');
+SELECT has_function('delete_message_for_everyone', ARRAY['uuid'],
+    'delete_message_for_everyone(p_message_id uuid) exists (SECURITY DEFINER RPC)');
+SELECT is_definer('public', 'delete_message_for_everyone', ARRAY['uuid'],
+    'delete_message_for_everyone is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'delete_message_for_everyone'),
+    'delete_message_for_everyone sets search_path = '''' (migration 20260815000006)'
+);
+SELECT function_privs_are('public', 'delete_message_for_everyone', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'delete_message_for_everyone is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'delete_message_for_everyone', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'delete_message_for_everyone is authenticated-EXECUTABLE');
+SELECT has_function('delete_undecryptable_messages', ARRAY['uuid', 'uuid[]'],
+    'delete_undecryptable_messages(p_chat_id uuid, p_message_ids uuid[]) exists (SECURITY DEFINER RPC)');
+SELECT is_definer('public', 'delete_undecryptable_messages', ARRAY['uuid', 'uuid[]'],
+    'delete_undecryptable_messages is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'delete_undecryptable_messages'),
+    'delete_undecryptable_messages sets search_path = '''' (migration 20260815000006)'
+);
+SELECT function_privs_are('public', 'delete_undecryptable_messages', ARRAY['uuid', 'uuid[]']::name[], 'public', ARRAY[]::name[],
+    'delete_undecryptable_messages is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'delete_undecryptable_messages', ARRAY['uuid', 'uuid[]']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'delete_undecryptable_messages is authenticated-EXECUTABLE');
 
 -- ============================================================
 -- SECTION 29: RLS Policies — shard_ledger / preshard_ledger

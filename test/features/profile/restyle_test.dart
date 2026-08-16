@@ -424,10 +424,11 @@ void main() {
 
       expect(
         find.byType(VGlassCard),
-        findsNWidgets(2),
+        findsNWidgets(3),
         reason:
-            'R6 — appearance + account groups, now liquid glass '
-            '(LUXE v2)',
+            'R6 — appearance + chat + account groups, now liquid glass '
+            '(LUXE v2; the chat group holds the read-receipts switch, '
+            '2026-08-15)',
       );
       expect(
         find.descendant(
@@ -436,6 +437,14 @@ void main() {
         ),
         findsOneWidget,
         reason: 'the theme picker lives in the appearance card',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(VGlassCard).at(1),
+          matching: find.text('Confirmaciones de lectura'),
+        ),
+        findsOneWidget,
+        reason: 'the read-receipts privacy switch lives in the chat card',
       );
 
       final accountCard = find.byType(VGlassCard).last;

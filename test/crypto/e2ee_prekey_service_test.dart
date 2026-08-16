@@ -102,13 +102,15 @@ void main() {
       expect(captured.keys.any((k) => k.contains('priv')), isFalse);
     });
 
-    test('tops up one-time prekeys only up to the batch size', () async {
+    test('tops up one-time prekeys only up to the batch size (same-identity '
+        'republish keeps the merge behavior)', () async {
       final store = MemoryE2eeKeyStore();
+      final identity = await store.loadOrCreateIdentity();
       final existing = <Map<String, dynamic>>[
         {
           'user_id': _userId,
-          'identity_key': 'a',
-          'identity_sig_key': 'b',
+          'identity_key': base64UrlNoPadEncode(identity.ikDhPublic),
+          'identity_sig_key': base64UrlNoPadEncode(identity.ikSigPublic),
           'signed_prekey_id': 0,
           'signed_prekey': 'c',
           'signed_prekey_sig': 'd',
@@ -132,6 +134,73 @@ void main() {
       final opks = captured['one_time_prekeys'] as List;
       expect(opks.length, e2eeOneTimePrekeyBatchSize); // 90 + 10 top-up
       expect(opks.first['key'], 'k0'); // existing keys preserved
+    });
+
+    test('REPLACES the one-time-prekey pool when the published identity '
+        'DIFFERS from the local one — reinstall / account-switch recovery '
+        '(dead-OPK fix, 2026-08-16)', () async {
+      // Reinstall simulation: the server row belongs to the OLD identity
+      // (generated with the previous install) and carries its one-time
+      // prekeys. The local device holds a FRESH identity — the old OPK
+      // private keys no longer exist, so any peer that initiates with them
+      // can never be decrypted. The republish must REPLACE the pool with
+      // freshly generated OPKs instead of merging the dead ones.
+      final staleStore = MemoryE2eeKeyStore();
+      final staleIdentity = await staleStore.loadOrCreateIdentity();
+      final staleOpks = await staleStore.generateOneTimePrekeys(
+        e2eeOneTimePrekeyBatchSize,
+      );
+      final existing = <Map<String, dynamic>>[
+        {
+          'user_id': _userId,
+          'identity_key': base64UrlNoPadEncode(staleIdentity.ikDhPublic),
+          'identity_sig_key': base64UrlNoPadEncode(staleIdentity.ikSigPublic),
+          'signed_prekey_id': 0,
+          'signed_prekey': 'c',
+          'signed_prekey_sig': 'd',
+          'signed_prekey_expires_at': DateTime.now().toIso8601String(),
+          'one_time_prekeys': [
+            for (final opk in staleOpks)
+              {
+                'id': opk.id,
+                'key': base64UrlNoPadEncode(opk.keyPair.publicKey),
+              },
+          ],
+          'consumed_one_time_prekeys': const [],
+        },
+      ];
+      when(() => table.select()).thenAnswer(
+        (_) => _ResolvingFilter<PostgrestList>(existing),
+      );
+      when(() => table.upsert(any(), onConflict: any(named: 'onConflict')))
+          .thenAnswer((_) => _ResolvingFilter<dynamic>(null));
+
+      // The FRESH store: reinstall regenerated the identity and OPKs.
+      final freshStore = MemoryE2eeKeyStore();
+      final freshIdentity = await freshStore.loadOrCreateIdentity();
+      expect(
+        base64UrlNoPadEncode(freshIdentity.ikDhPublic),
+        isNot(base64UrlNoPadEncode(staleIdentity.ikDhPublic)),
+      );
+
+      await service(store: freshStore).publishAll();
+
+      final captured = verify(() => table.upsert(captureAny(),
+              onConflict: any(named: 'onConflict')))
+          .captured
+          .single as Map;
+      // New identity over the stale row.
+      expect(captured['identity_key'],
+          base64UrlNoPadEncode(freshIdentity.ikDhPublic));
+      // The whole OPK pool is FRESH: not a single stale OPK survives.
+      final opks = captured['one_time_prekeys'] as List;
+      expect(opks.length, e2eeOneTimePrekeyBatchSize);
+      final staleKeys = {for (final o in staleOpks) base64UrlNoPadEncode(o.keyPair.publicKey)};
+      for (final opk in opks) {
+        expect(staleKeys, isNot(contains(opk['key'])));
+      }
+      // Consumed markers from the old identity are gone too.
+      expect(captured['consumed_one_time_prekeys'], const []);
     });
 
     test('rotates the signed prekey when the stored one expired (> 7 days)',
@@ -332,6 +401,54 @@ void main() {
           .single as Map;
       expect(captured['identity_key'],
           base64UrlNoPadEncode(identity.ikDhPublic));
+    });
+
+    test('heal on identity mismatch ALSO replaces the OPK pool — the stale '
+        "row's old-identity OPKs must never be served to peers (dead-OPK "
+        'fix, 2026-08-16)', () async {
+      // Account-switch simulation: the row carries the PREVIOUS account's
+      // identity + OPK pool; the local store regenerated identity and OPKs.
+      // The heal republish must drop the dead pool, not merge it.
+      final oldStore = MemoryE2eeKeyStore();
+      final oldIdentity = await oldStore.loadOrCreateIdentity();
+      final oldOpks = await oldStore.generateOneTimePrekeys(40);
+      when(() => table.select()).thenAnswer(
+        (_) => _ResolvingFilter<PostgrestList>(<Map<String, dynamic>>[
+          {
+            'user_id': _userId,
+            'identity_key': base64UrlNoPadEncode(oldIdentity.ikDhPublic),
+            'identity_sig_key': base64UrlNoPadEncode(oldIdentity.ikSigPublic),
+            'signed_prekey_id': 0,
+            'signed_prekey': 'c',
+            'signed_prekey_sig': 'd',
+            'signed_prekey_expires_at': DateTime.now().toIso8601String(),
+            'one_time_prekeys': [
+              for (final opk in oldOpks)
+                {'id': opk.id, 'key': base64UrlNoPadEncode(opk.keyPair.publicKey)},
+            ],
+            'consumed_one_time_prekeys': const [],
+          },
+        ]),
+      );
+      when(() => table.upsert(any(), onConflict: any(named: 'onConflict')))
+          .thenAnswer((_) => _ResolvingFilter<dynamic>(null));
+      final store = MemoryE2eeKeyStore();
+      final svc = service(store: store);
+
+      await svc.handleMissingSession();
+
+      final captured = verify(() => table.upsert(captureAny(),
+              onConflict: any(named: 'onConflict')))
+          .captured
+          .single as Map;
+      final opks = captured['one_time_prekeys'] as List;
+      expect(opks.length, e2eeOneTimePrekeyBatchSize);
+      final oldKeys = {
+        for (final o in oldOpks) base64UrlNoPadEncode(o.keyPair.publicKey),
+      };
+      for (final opk in opks) {
+        expect(oldKeys, isNot(contains(opk['key'])));
+      }
     });
   });
 

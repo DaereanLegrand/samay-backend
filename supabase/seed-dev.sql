@@ -28,17 +28,16 @@
 -- NOTES / known limitations (honest, by design):
 --   * Demo users have NO `auth.users` row → they cannot log in. They are
 --     readable in feed / search (user_search_view) / party finder
---     (discovery_view) / leaderboards / public events. To see demo groups,
---     chat and member-scoped rows with YOUR own account, add your user id
---     (auth.uid()) to `group_members` + `chat_participants` manually:
+--     (discovery_view) / leaderboards / public events. To see demo groups
+--     and member-scoped rows with YOUR OWN account, add your user id
+--     (auth.uid()) to `group_members` manually:
 --         INSERT INTO group_members (group_id, user_id, role, status)
 --         SELECT id, auth.uid(), 'member', 'active' FROM groups
 --         WHERE name = 'Punketo Crew';
---   * The chat's 3rd message is a FAKE opaque ciphertext-looking envelope
---     (starts with `SME2.`). It is NOT a real E2EE envelope and cannot be
---     fabricated client-side — it exists so the chat UI shows an
---     undecryptable row that renders as 'Mensaje no descifrable'
---     (chatUndecryptable). It is clearly marked as a demo placeholder.
+--   * NO demo chat is seeded (removed 2026-08-16): an E2EE app cannot seed
+--     decryptable chat content (keys live on devices, never on the server);
+--     plaintext demo rows would be hidden + deleted by the undecryptable
+--     cleanup on first contact. Real chats are created by real users.
 --   * Groups: size_tier is normally computed by the `group_size_tier_trigger`
 --     (micro < 15 members). 'After Club Lima' is force-set to 'small' at the
 --     END of this file (after all member inserts) so both tier UIs can be
@@ -192,32 +191,12 @@ INSERT INTO event_invites (id, event_id, user_id, invited_by_user_id, status, in
 ON CONFLICT (event_id, user_id) DO NOTHING;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 10. CHAT (group) + PARTICIPANTS + MESSAGES
---     Message 3 is a FAKE opaque base64url envelope (SME2. = demo marker).
---     NOT a real E2EE envelope: chat_service decrypt fails → the row renders
---     'Mensaje no descifrable' (chatUndecryptable). Honest demo placeholder.
+-- 10. (REMOVED 2026-08-16) — the demo CHAT section was dropped: an E2EE app
+--     cannot seed decryptable chat content (keys live on devices, never on
+--     the server), and plaintext demo rows would be hidden + deleted by the
+--     undecryptable cleanup on first contact. Real chats are created by real
+--     users (create_direct_chat RPC / group creation).
 -- ────────────────────────────────────────────────────────────────────────────
-INSERT INTO chats (id, type, reference_id, created_at) VALUES
-    ('10000000-0000-0000-0000-000000000901', 'group', '10000000-0000-0000-0000-000000000201', now() - interval '90 days')
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO chat_participants (id, chat_id, user_id, created_at) VALUES
-    ('10000000-0000-0000-0000-000000000911', '10000000-0000-0000-0000-000000000901', '10000000-0000-0000-0000-000000000001', now() - interval '90 days'),
-    ('10000000-0000-0000-0000-000000000912', '10000000-0000-0000-0000-000000000901', '10000000-0000-0000-0000-000000000002', now() - interval '90 days'),
-    ('10000000-0000-0000-0000-000000000913', '10000000-0000-0000-0000-000000000901', '10000000-0000-0000-0000-000000000003', now() - interval '85 days'),
-    ('10000000-0000-0000-0000-000000000914', '10000000-0000-0000-0000-000000000901', '10000000-0000-0000-0000-000000000004', now() - interval '40 days'),
-    ('10000000-0000-0000-0000-000000000915', '10000000-0000-0000-0000-000000000901', '10000000-0000-0000-0000-000000000005', now() - interval '35 days')
-ON CONFLICT (chat_id, user_id) DO NOTHING;
-
-INSERT INTO messages (id, chat_id, sender_id, content, created_at) VALUES
-    ('10000000-0000-0000-0000-000000000921', '10000000-0000-0000-0000-000000000901', '10000000-0000-0000-0000-000000000001',
-     '¡Hola! ¿Alguien se apunta al punketo del jueves? 🪩', now() - interval '6 days'),
-    ('10000000-0000-0000-0000-000000000922', '10000000-0000-0000-0000-000000000901', '10000000-0000-0000-0000-000000000002',
-     'Yo voy, llego tipo 11. ¿Llevamos algo? 🎉', now() - interval '5 days'),
-    ('10000000-0000-0000-0000-000000000923', '10000000-0000-0000-0000-000000000901', '10000000-0000-0000-0000-000000000003',
-     'SME2.AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4.QnVlbm9zQWlyZXNEZW1vRW52ZWxvcGUuREVNT19OT1RfUkVBTA',
-     now() - interval '5 days' + interval '2 hours')
-ON CONFLICT (id) DO NOTHING;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 11. NOTIFICATIONS — known app types: event_invite / chat_message /
@@ -229,11 +208,6 @@ INSERT INTO notifications (id, user_id, type, title, body, data, read, created_a
      jsonb_build_object('event_id', '10000000-0000-0000-0000-000000000601',
                         'deepLink', '/event/10000000-0000-0000-0000-000000000601'),
      false, now() - interval '1 day'),
-    ('10000000-0000-0000-0000-000000001002', '10000000-0000-0000-0000-000000000001', 'chat_message',
-     'Nuevo mensaje en Punketo Crew', 'Carlos: (mensaje cifrado de demostración).',
-     jsonb_build_object('chat_id', '10000000-0000-0000-0000-000000000901',
-                        'deepLink', '/chat/10000000-0000-0000-0000-000000000901'),
-     false, now() - interval '5 days'),
     ('10000000-0000-0000-0000-000000001003', '10000000-0000-0000-0000-000000000004', 'friend_request',
      'Solicitud de amistad', 'Bia te envió una solicitud de amistad.',
      jsonb_build_object('user_id', '10000000-0000-0000-0000-000000000002',

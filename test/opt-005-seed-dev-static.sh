@@ -64,8 +64,12 @@ echo "━━━ 3. Row-id UUIDs unique (PK idempotency contract) ━━━"
 PK_IDS=$(grep -oE "^    \('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'" "$SEED" | sed "s/^    ('//; s/'$//")
 PK_TOTAL=$(printf '%s\n' "$PK_IDS" | grep -c .)
 PK_DUPES=$(printf '%s\n' "$PK_IDS" | sort | uniq -d)
-if [ -z "$PK_DUPES" ] && [ "$PK_TOTAL" -gt 40 ]; then
-  pass "$PK_TOTAL row-id UUIDs, all unique (>40 seeded rows)"
+# >= 40: the demo chat section (1 chat + 5 participants + 2 messages = 8
+# rows) was removed 2026-08-16 — an E2EE app cannot seed decryptable chat
+# content, and plaintext demo rows would be deleted by the undecryptable
+# cleanup. 40 row-ids remain (users, groups, events, cosmetics, …).
+if [ -z "$PK_DUPES" ] && [ "$PK_TOTAL" -ge 40 ]; then
+  pass "$PK_TOTAL row-id UUIDs, all unique (>=40 seeded rows)"
 else
   fail "row-id UUID duplicates found: $(printf '%s ' $PK_DUPES) (total=$PK_TOTAL)"
 fi
