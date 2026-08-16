@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all migrations through 20260817000005 (deleted_messages RLS).
+-- Covers all migrations through 20260817000006 (group read receipts).
 BEGIN;
 
-SELECT plan(476);
+SELECT plan(494);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -1922,6 +1922,68 @@ SELECT ok(
 SELECT policies_are('deleted_messages', ARRAY[
     'deleted_messages_no_access'
 ], 'deleted_messages is service_role only (no_access policy, migration 20260817000005)');
+
+
+-- ============================================================
+-- 57: group read receipts (migration 20260817000006) —
+--     message_reads per-member table + mark_group_messages_read
+--     (the ISSUE 2026-08-17 fix: a group sender's blue check must
+--     require EVERY other member's read, so reads are tracked per
+--     (message, reader) instead of the 1:1 read_at column).
+-- ============================================================
+SELECT has_table('message_reads',
+    'message_reads exists (migration 20260817000006)');
+SELECT col_type_is('message_reads', 'message_id', 'uuid',
+    'message_reads.message_id is uuid');
+SELECT col_type_is('message_reads', 'user_id', 'uuid',
+    'message_reads.user_id is uuid');
+SELECT col_type_is('message_reads', 'read_at', 'timestamp with time zone',
+    'message_reads.read_at is timestamptz');
+SELECT col_not_null('message_reads', 'read_at',
+    'message_reads.read_at is NOT NULL');
+SELECT col_default_is('message_reads', 'read_at', 'now()',
+    'message_reads.read_at defaults now()');
+SELECT has_pk('message_reads',
+    'message_reads has a primary key (message_id, user_id)');
+SELECT ok(
+    (SELECT contype = 'p' AND array_length(conkey, 1) = 2
+     FROM pg_constraint
+     WHERE conrelid = 'public.message_reads'::regclass AND contype = 'p'),
+    'message_reads PK is composite (message_id, user_id)'
+);
+SELECT fk_ok('message_reads', ARRAY['message_id'::name], 'messages', ARRAY['id'::name],
+    'message_reads.message_id cascades from messages.id (ON DELETE CASCADE)');
+SELECT ok(
+    (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.message_reads'::regclass),
+    'message_reads has RLS enabled (migration 20260817000006)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.message_reads'::regclass),
+    'message_reads has FORCE ROW LEVEL SECURITY (migration 20260817000006)'
+);
+SELECT policies_are('message_reads', ARRAY[
+    'message_reads_insert_own',
+    'message_reads_select_participant'
+], 'message_reads policies: own-row INSERT (participation-gated) + participant SELECT');
+SELECT ok(
+    (SELECT count(*) = 1 FROM pg_publication_tables
+     WHERE pubname = 'supabase_realtime'
+       AND schemaname = 'public' AND tablename = 'message_reads'),
+    'message_reads joins the supabase_realtime publication (20260817000006)'
+);
+SELECT has_function('mark_group_messages_read', ARRAY['uuid'],
+    'mark_group_messages_read(p_chat_id uuid) exists (SECURITY DEFINER RPC)');
+SELECT is_definer('public', 'mark_group_messages_read', ARRAY['uuid'],
+    'mark_group_messages_read is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'mark_group_messages_read'),
+    'mark_group_messages_read sets search_path = empty (migration 20260817000006)'
+);
+SELECT function_privs_are('public', 'mark_group_messages_read', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'mark_group_messages_read is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'mark_group_messages_read', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'mark_group_messages_read is authenticated-EXECUTABLE');
 
 SELECT * FROM finish();
 ROLLBACK;

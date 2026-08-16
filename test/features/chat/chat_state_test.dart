@@ -104,6 +104,95 @@ void main() {
     });
   });
 
+  group('ChatMessagesState group read receipts (20260817000006)', () {
+    Map<String, dynamic> readRow(
+      String messageId,
+      List<Map<String, dynamic>> reads,
+    ) => {
+      ..._row(messageId),
+      'message_reads': reads,
+    };
+
+    test('readersOf returns the embedded read set (empty when absent)', () {
+      expect(ChatMessagesState.readersOf(_row('m-1')), isEmpty);
+      expect(
+        ChatMessagesState.readersOf(readRow('m-1', [
+          {'user_id': 'bob', 'read_at': '2026-08-01T00:05:00Z'},
+        ])),
+        hasLength(1),
+      );
+    });
+
+    test('isReadByAll requires EVERY other member — never just the first '
+        'reader (the ISSUE fix: one reader must not fake blue checks)', () {
+      final row = readRow('m-1', [
+        {'user_id': 'bob', 'read_at': '2026-08-01T00:05:00Z'},
+      ]);
+      expect(ChatMessagesState.isReadByAll(row, {'bob', 'carol'}), isFalse,
+          reason: '1 of 2 other members read → grey');
+      expect(ChatMessagesState.isReadByAll(row, {'bob'}), isTrue,
+          reason: '1 of 1 (only one other member) → blue');
+      expect(ChatMessagesState.isReadByAll(row, <String>{}), isFalse,
+          reason: 'unknown/empty roster is conservative — never blue');
+      expect(ChatMessagesState.isReadByAll(_row('m-1'), {'bob'}), isFalse,
+          reason: 'no readers at all → grey');
+    });
+
+    test('isReadByAll dedupes readers (a reader is counted once)', () {
+      final row = readRow('m-1', [
+        {'user_id': 'bob', 'read_at': '2026-08-01T00:05:00Z'},
+        {'user_id': 'bob', 'read_at': '2026-08-01T00:06:00Z'},
+      ]);
+      expect(ChatMessagesState.isReadByAll(row, {'bob', 'carol'}), isFalse,
+          reason: 'duplicate receipts for one reader must not count as two');
+      expect(ChatMessagesState.isReadByAll(row, {'bob'}), isTrue);
+    });
+
+    test('isReadByAll ignores a DEPARTED member\'s stale receipt — the '
+        'current roster is the authority (verifier fix 2026-08-17: a leaver '
+        'who read before leaving must not fake read-by-everyone)', () {
+      // bob read then LEFT; the current other members are carol + dave —
+      // neither has read → grey, even though a reader count (1 of 2) or a
+      // stale-id count (bob + none) would false-blue.
+      final row = readRow('m-1', [
+        {'user_id': 'bob', 'read_at': '2026-08-01T00:05:00Z'},
+      ]);
+      expect(ChatMessagesState.isReadByAll(row, {'carol', 'dave'}), isFalse,
+          reason: 'a leaver\'s receipt is not a current member\'s read');
+      expect(ChatMessagesState.isReadByAll(row, {'bob', 'carol'}), isFalse,
+          reason: 'a leaver\'s id in the roster set must not count either');
+    });
+
+    test('markMessageRead merges one reader into the matching row; no-op for '
+        'an unknown id; dedupes an existing reader', () {
+      final state = _state([
+        readRow('m-1', []),
+        readRow('m-2', []),
+      ]).markMessageRead('m-1', 'bob', DateTime.utc(2026, 8, 1, 0, 5));
+
+      final m1 = state.messages.firstWhere((r) => r['id'] == 'm-1');
+      final m2 = state.messages.firstWhere((r) => r['id'] == 'm-2');
+      expect(ChatMessagesState.readersOf(m1).single['user_id'], 'bob');
+      expect(ChatMessagesState.readersOf(m2), isEmpty);
+
+      final merged = state.markMessageRead(
+        'm-1',
+        'bob',
+        DateTime.utc(2026, 8, 1, 0, 6),
+      );
+      final m1b = merged.messages.firstWhere((r) => r['id'] == 'm-1');
+      expect(ChatMessagesState.readersOf(m1b), hasLength(1),
+          reason: 'a second receipt from the same reader is a no-op');
+
+      final ghost = state.markMessageRead(
+        'ghost',
+        'bob',
+        DateTime.utc(2026, 8, 1, 0, 7),
+      );
+      expect(ghost.messages, hasLength(2));
+    });
+  });
+
   group('ChatMessagesState pending lifecycle', () {
     test('removeMessage deletes only the pending id', () {
       final state = _state([

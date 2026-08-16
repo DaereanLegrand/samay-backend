@@ -1488,4 +1488,152 @@ void main() {
       expect(resumed.plaintext, 'm1');
     });
   });
+
+  group('key-request retry protocol (2026-08-17 missing-chain deadlock heal)',
+      () {
+    test('isSenderKeyRequest: true for a well-formed request, false for a '
+        'bundle or any non-request plaintext', () async {
+      final alice = _Party(id: _aliceId);
+      final request = await alice.cipher.senderKeyRequestJson(
+        groupChatId: _groupChatId,
+        groupId: _groupId,
+        missingSenderUserId: _aliceId,
+      );
+      expect(await alice.cipher.isSenderKeyRequest(request), isTrue);
+      expect(await alice.cipher.isSenderKeyRequest('hola'), isFalse);
+      expect(await alice.cipher.isSenderKeyRequest('{not json'), isFalse);
+      final bundle = await alice.cipher.senderKeyBundleJson(
+        groupChatId: _groupChatId,
+        senderUserId: _aliceId,
+        groupId: _groupId,
+      );
+      expect(await alice.cipher.isSenderKeyRequest(bundle), isFalse);
+    });
+
+    test('senderKeyRequestTarget round-trips the missing-sender id and '
+        'rejects foreign group/chat/kind/version', () async {
+      final alice = _Party(id: _aliceId);
+      final request = await alice.cipher.senderKeyRequestJson(
+        groupChatId: _groupChatId,
+        groupId: _groupId,
+        missingSenderUserId: _aliceId,
+      );
+      expect(
+        await alice.cipher.senderKeyRequestTarget(
+          json: request,
+          groupChatId: _groupChatId,
+          groupId: _groupId,
+        ),
+        _aliceId,
+      );
+
+      // A request for a DIFFERENT group/chat is not actionable on this chat
+      // (cross-group confusion, the F4 analogue for requests).
+      final foreign = await alice.cipher.senderKeyRequestJson(
+        groupChatId: _otherChatId,
+        groupId: _otherGroupId,
+        missingSenderUserId: _aliceId,
+      );
+      expect(
+        await alice.cipher.senderKeyRequestTarget(
+          json: foreign,
+          groupChatId: _groupChatId,
+          groupId: _groupId,
+        ),
+        isNull,
+      );
+
+      // A bundle (wrong kind) and junk are not requests.
+      final bundle = await alice.cipher.senderKeyBundleJson(
+        groupChatId: _groupChatId,
+        senderUserId: _aliceId,
+        groupId: _groupId,
+      );
+      expect(
+        await alice.cipher.senderKeyRequestTarget(
+          json: bundle,
+          groupChatId: _groupChatId,
+          groupId: _groupId,
+        ),
+        isNull,
+      );
+      expect(
+        await alice.cipher.senderKeyRequestTarget(
+          json: 'nonsense',
+          groupChatId: _groupChatId,
+          groupId: _groupId,
+        ),
+        isNull,
+      );
+    });
+
+    test('unmarkSenderKeyDistributed: a member un-marked is reported missing '
+        'again; unrelated senders/members are untouched; absent registry '
+        'no-ops', () async {
+      final alice = _Party(id: _aliceId);
+      await alice.cipher.markSenderKeyDistributed(
+        groupChatId: _groupChatId,
+        senderUserId: _aliceId,
+        memberIds: [_bobId, _charlieId],
+      );
+      expect(
+        await alice.cipher.membersMissingSenderKey(
+          groupChatId: _groupChatId,
+          senderUserId: _aliceId,
+          activeMemberIds: [_aliceId, _bobId, _charlieId],
+        ),
+        isEmpty,
+      );
+
+      // Bob un-marked → missing again; charlie stays marked.
+      await alice.cipher.unmarkSenderKeyDistributed(
+        groupChatId: _groupChatId,
+        senderUserId: _aliceId,
+        memberIds: [_bobId],
+      );
+      expect(
+        await alice.cipher.membersMissingSenderKey(
+          groupChatId: _groupChatId,
+          senderUserId: _aliceId,
+          activeMemberIds: [_aliceId, _bobId, _charlieId],
+        ),
+        [_bobId],
+      );
+
+      // Un-marking members who were never marked is a no-op.
+      await alice.cipher.unmarkSenderKeyDistributed(
+        groupChatId: _groupChatId,
+        senderUserId: _aliceId,
+        memberIds: [_bobId, 'dave'],
+      );
+      expect(
+        await alice.cipher.membersMissingSenderKey(
+          groupChatId: _groupChatId,
+          senderUserId: _aliceId,
+          activeMemberIds: [_aliceId, _bobId, _charlieId, 'dave'],
+        ),
+        [_bobId, 'dave'],
+      );
+
+      // Another sender's marks are untouched by alice's unmark.
+      await alice.cipher.markSenderKeyDistributed(
+        groupChatId: _groupChatId,
+        senderUserId: _charlieId,
+        memberIds: [_bobId],
+      );
+      await alice.cipher.unmarkSenderKeyDistributed(
+        groupChatId: _groupChatId,
+        senderUserId: _aliceId,
+        memberIds: [_bobId],
+      );
+      expect(
+        await alice.cipher.membersMissingSenderKey(
+          groupChatId: _groupChatId,
+          senderUserId: _charlieId,
+          activeMemberIds: [_aliceId, _bobId, _charlieId],
+        ),
+        [_aliceId],
+      );
+    });
+  });
 }

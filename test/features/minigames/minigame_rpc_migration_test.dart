@@ -485,9 +485,10 @@ void main() {
       // (nested SQL inside ok(...) is also indented), so line-start matches
       // count exactly one per assertion. Same parser contract as I-57's
       // test/features/qr/qr_rpc_migration_test.dart (+ I-78's Section 46
-      // prefixes trigger_is / volatility_is).
+      // prefixes trigger_is / volatility_is; + 2026-08-16 the _ok suffix
+      // family fk_ok/pk_ok — Section 57 introduced fk_ok).
       return RegExp(
-        r'^SELECT (ok|is|has_|hasnt_|col_|trigger_is|volatility_is|policies_are|columns_are|results_eq|function_privs_are|table_privs_are|column_privs_are|any_column_privs_are|any_sequence_privs_are|throws_ok|lives_ok)[a-z_]*\(',
+        r'^SELECT (ok|is|has_|hasnt_|col_|trigger_is|volatility_is|policies_are|columns_are|results_eq|function_privs_are|table_privs_are|column_privs_are|any_column_privs_are|any_sequence_privs_are|throws_ok|lives_ok|fk_ok|pk_ok)[a-z_]*\(',
         multiLine: true,
       ).allMatches(content).length;
     }

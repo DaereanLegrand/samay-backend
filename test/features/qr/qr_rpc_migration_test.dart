@@ -135,12 +135,14 @@ void main() {
       // count exactly one per assertion. The function-name pattern covers
       // every pgTAP assertion prefix used in this file (ok/is/has_* /hasnt_* /
       // col_* /policies_are /columns_are /trigger_is /volatility_is — the
-      // last two from I-77's Section 46). Verified against the pre-existing
+      // last two from I-77's Section 46 — plus the _ok suffix family
+      // fk_ok/pk_ok, added 2026-08-16 when Section 57 introduced fk_ok;
+      // Section 57 lands at plan(494)). Verified against the pre-existing
       // file: 250 assertions ↔ plan(250); Section 44 adds 4 → plan(254);
       // Section 46 adds 42 → plan(304) (I-78 re-verified the regex against
       // every `^SELECT <fn>(` prefix in the file).
       return RegExp(
-        r'^SELECT (ok|is|has_|hasnt_|col_|trigger_is|volatility_is|policies_are|columns_are|results_eq|function_privs_are|table_privs_are|column_privs_are|any_column_privs_are|any_sequence_privs_are|throws_ok|lives_ok)[a-z_]*\(',
+        r'^SELECT (ok|is|has_|hasnt_|col_|trigger_is|volatility_is|policies_are|columns_are|results_eq|function_privs_are|table_privs_are|column_privs_are|any_column_privs_are|any_sequence_privs_are|throws_ok|lives_ok|fk_ok|pk_ok)[a-z_]*\(',
         multiLine: true,
       ).allMatches(content).length;
     }

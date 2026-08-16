@@ -106,6 +106,7 @@ Map<String, dynamic> _message(
   String? sender,
   String? readAt,
   String? sentAt,
+  List<Map<String, dynamic>>? reads,
 }) => {
   'id': id,
   'sender_id': sender ?? _userId,
@@ -114,7 +115,17 @@ Map<String, dynamic> _message(
   'created_at': '2026-08-01T00:00:00Z',
   'sent_at': sentAt,
   'read_at': ?readAt,
+  'message_reads': ?reads,
 };
+
+/// A member row of the group-members stub (the thread's sender labels and
+/// the read-by-all roster derive from these).
+Map<String, dynamic> _member(String id, String username) => {
+      'user_id': id,
+      'role': 'member',
+      'status': 'active',
+      'users': {'username': username},
+    };
 
 Future<ProviderContainer> _pump(
   WidgetTester tester,
@@ -135,6 +146,7 @@ Future<ProviderContainer> _pump(
   when(() => chatService.subscribeToMessages(any(), any())).thenReturn(channel);
   when(() => chatService.subscribeToMessageReads(any(), any())).thenReturn(channel);
   when(() => chatService.subscribeToMessageDeletes(any(), any())).thenReturn(channel);
+  when(() => chatService.subscribeToGroupMessageReads(any(), any())).thenReturn(channel);
   // Default stub only when the caller did not supply a service — a custom
   // service's own `peerNeedsRekey` stub must win (the §7.5 notice test).
   if (service == null) {
@@ -292,6 +304,125 @@ void main() {
 
     final icon = tester.widget<Icon>(find.byIcon(Icons.done_all));
     expect(icon.color, AppColors.statusRead);
+  });
+
+  testWidgets('GROUP: own bubbles turn blue ONLY when every other member '
+      'read — one reader keeps the grey double check (20260817000006 — the '
+      'ISSUE fix: a single reader must not fake read-by-everyone)', (
+    tester,
+  ) async {
+    const me = '11111111-1111-1111-1111-111111111111';
+    const bob = '22222222-2222-2222-2222-222222222222';
+    const carol = '55555555-5555-5555-5555-555555555555';
+    final members = [_member(me, 'tester1'), _member(bob, 'tester2'), _member(carol, 'tester3')];
+
+    // Only bob read → grey double check (2 other members matter).
+    await _pump(
+      tester,
+      [
+        _message('m-2', 'responde', reads: [
+          {'user_id': bob, 'read_at': '2026-08-01T00:05:00Z'},
+        ]),
+      ],
+      groupId: 'group-1',
+      members: members,
+    );
+    var icon = tester.widget<Icon>(find.byIcon(Icons.done_all));
+    expect(icon.color, AppColors.statusGrey,
+        reason: '1 of 2 other members read → grey, never blue');
+    expect(find.byIcon(Icons.check), findsNothing);
+
+    // Both bob AND carol read → BLUE (all other members).
+    await _pump(
+      tester,
+      [
+        _message('m-2', 'responde', reads: [
+          {'user_id': bob, 'read_at': '2026-08-01T00:05:00Z'},
+          {'user_id': carol, 'read_at': '2026-08-01T00:06:00Z'},
+        ]),
+      ],
+      groupId: 'group-1',
+      members: members,
+    );
+    icon = tester.widget<Icon>(find.byIcon(Icons.done_all));
+    expect(icon.color, AppColors.statusRead,
+        reason: 'every other member read → blue');
+  });
+
+  testWidgets('GROUP: an unknown roster never claims all-read — the grey '
+      'check stays (conservative under stale member data)', (tester) async {
+    await _pump(
+      tester,
+      [
+        _message('m-2', 'responde', reads: [
+          {'user_id': '22222222-2222-2222-2222-222222222222',
+            'read_at': '2026-08-01T00:05:00Z'},
+        ]),
+      ],
+      groupId: 'group-1',
+      // members: const [] — the stale/empty-members class (the iPhone
+      // stuck-at-4 bug would otherwise fake read-by-everyone).
+    );
+
+    final icon = tester.widget<Icon>(find.byIcon(Icons.done_all));
+    expect(icon.color, AppColors.statusGrey,
+        reason: 'with no roster the thread must not claim all-read');
+  });
+
+  testWidgets('long-press on an OWN message shows the message-info action '
+      'and sheet: Enviado + Leído por N de M (2026-08-17 user request; '
+      'own messages only)', (tester) async {
+    const bob = '22222222-2222-2222-2222-222222222222';
+    const carol = '55555555-5555-5555-5555-555555555555';
+    final members = [
+      _member(_userId, 'tester1'),
+      _member(bob, 'tester2'),
+      _member(carol, 'tester3'),
+    ];
+    await _pump(
+      tester,
+      [
+        _message('m-2', 'hola', reads: [
+          {'user_id': bob, 'read_at': '2026-08-01T00:05:00Z'},
+        ]),
+      ],
+      groupId: 'group-1',
+      members: members,
+    );
+
+    await tester.longPress(find.text('hola'));
+    await tester.pumpAndSettle();
+    expect(find.text('Información del mensaje'), findsOneWidget);
+
+    await tester.tap(find.text('Información del mensaje'));
+    await tester.pumpAndSettle();
+
+    // The sheet: sent time + the per-member read count with names.
+    expect(find.textContaining('Enviado'), findsOneWidget);
+    expect(find.text('Leído por 1 de 2'), findsOneWidget);
+    expect(find.text('tester2'), findsOneWidget,
+        reason: "the reader's username resolves from the members list");
+  });
+
+  testWidgets('long-press on a PEER message offers NO message-info action '
+      '(status is only available for own messages)', (tester) async {
+    await _pump(
+      tester,
+      [
+        _message('m-1', 'hola del otro', sender: _peerId),
+      ],
+      groupId: 'group-1',
+      members: [
+        _member(_userId, 'tester1'),
+        _member(_peerId, 'tester2'),
+      ],
+    );
+
+    await tester.longPress(find.text('hola del otro'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Información del mensaje'), findsNothing);
+    expect(find.text('Eliminar para mí'), findsOneWidget);
   });
 
   testWidgets('sends through the provider and clears the composer', (

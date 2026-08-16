@@ -75,6 +75,7 @@ _MockChatRepository _stubbedChatRepository() {
   when(() => repo.subscribe(any(), any())).thenReturn(channel);
   when(() => repo.subscribeToMessageReads(any(), any())).thenReturn(channel);
   when(() => repo.subscribeToMessageDeletes(any(), any())).thenReturn(channel);
+  when(() => repo.subscribeToGroupMessageReads(any(), any())).thenReturn(channel);
   when(() => repo.getReadReceiptsEnabled()).thenAnswer((_) async => true);
   when(() => repo.fetchInbox()).thenAnswer((_) async => const []);
   when(() => repo.markChatRead(any())).thenAnswer((_) async {});
