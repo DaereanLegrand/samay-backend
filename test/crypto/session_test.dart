@@ -36,6 +36,9 @@ class _FakePrekeyServer implements E2eePrekeyService {
   /// §9.3 — a re-fetch must serve a fresh OPK).
   final Set<int> _consumed = {};
 
+  /// Number of `fetch_prekey_bundle` calls (each burns one OPK server-side).
+  int fetchCount = 0;
+
   @override
   Future<void> publishAll() async {
     final identity = await store.loadOrCreateIdentity();
@@ -64,6 +67,7 @@ class _FakePrekeyServer implements E2eePrekeyService {
 
   @override
   Future<PrekeyBundle?> fetchBundle(String peerUserId) async {
+    fetchCount++;
     var bundle = registry.bundles[peerUserId];
     if (bundle == null) return null;
     if (bundle.oneTimePrekeyId != null &&
@@ -388,6 +392,31 @@ void main() {
       expect(await a.session.peerIdentityChanged('bob'), isFalse);
     });
 
+    test('peerIdentityChanged detects reinstall even when the session lives '
+        'ONLY in the store — a fresh cipher restores it before comparing '
+        '(2026-08-16 §7.5 first-chat-open detection)', () async {
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+      final env = await a.session.encryptText('hola');
+      await b.session.decryptEnvelope(env);
+      expect(await a.sessions.loadSession(_chatId), isNotNull);
+
+      // "App restart": a BRAND-NEW session object over the same stores — no
+      // in-memory ratchet/peer keys yet.
+      final freshA = a.restartSession();
+      expect(await freshA.peerIdentityChanged('bob'), isFalse);
+
+      // Bob reinstalls: fresh device identity, republishes.
+      final b2 = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await b2.server.publishAll();
+
+      // The fresh cipher must detect it WITHOUT any prior send/decrypt — the
+      // store-restore path (the live §7.5 notice on first chat open).
+      expect(await freshA.peerIdentityChanged('bob'), isTrue);
+    });
+
     test('simultaneous initiation: last-processed-wins, inactive session converges (Sesame §3.2/§3.4)', () async {
       final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
       final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
@@ -626,6 +655,126 @@ void main() {
               'unacknowledged-prekey semantics, 2026-08-15)');
       expect(json['created_at'], isA<String>());
       expect(json['last_used_at'], isA<String>());
+    });
+  });
+
+  group('Signal prekey semantics (2026-08-16 fixes)', () {
+    test('unacknowledged re-send RE-WRAPS with the same baseKey and never '
+        're-fetches the bundle (SessionCipher.encrypt getPreKeyMessage)', () async {
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      final env1 = await a.session.encryptText('uno');
+      expect(_parseEnvelope(env1).type, e2eeEnvelopeTypeInit);
+      final fetchesAfterFirst = a.server.fetchCount;
+
+      final env2 = await a.session.encryptText('dos');
+      final e1 = _parseEnvelope(env1);
+      final e2 = _parseEnvelope(env2);
+      expect(e2.type, e2eeEnvelopeTypeInit,
+          reason: 'an unacknowledged init stays a type-0x01 prekey message');
+      expect(e2.ekA, equals(e1.ekA),
+          reason: 'Signal re-wraps the SAME baseKey — never a fresh X3DH');
+      expect(e2.spkId, equals(e1.spkId));
+      expect(e2.opkId, equals(e1.opkId));
+      expect(a.server.fetchCount, fetchesAfterFirst,
+          reason: 'a re-wrap must not consume another one-time prekey');
+    });
+
+    test('the responder decrypts a re-sent init via the EXISTING session — '
+        'the one-time prekey is neither loaded nor re-consumed', () async {
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      final env1 = await a.session.encryptText('uno');
+      expect(await b.session.decryptEnvelope(env1), 'uno');
+
+      final opksBefore = await b.keys.oneTimePrekeyCount();
+      final env2 = await a.session.encryptText('dos'); // same-baseKey re-wrap
+      expect(await b.session.decryptEnvelope(env2), 'dos');
+      expect(await b.keys.oneTimePrekeyCount(), opksBefore,
+          reason: 'a same-baseKey init must reuse the session, not consume an '
+              'OPK (the old behavior re-ran X3DH per send and broke history)');
+
+      // The chain advanced normally — later messages still decrypt.
+      final env3 = await a.session.encryptText('tres');
+      expect(await b.session.decryptEnvelope(env3), 'tres');
+    });
+
+    test('a REPLAYED init (already processed) is a SILENT drop — never a '
+        'failed/undecryptable classification (Signal '
+        'DuplicateMessageException)', () async {
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      final env = await a.session.encryptText('único');
+      expect(await b.session.decryptEnvelope(env), 'único');
+
+      final result = await b.session.decryptEnvelopeDetailed(env);
+      expect(result.plaintext, isNull);
+      expect(result.dropped, isTrue,
+          reason: 'replays are duplicates — the UI must never bubble them');
+      expect(result.failed, isFalse);
+
+      // The session survived the replay.
+      final next = await a.session.encryptText('sigue');
+      expect(await b.session.decryptEnvelope(next), 'sigue');
+    });
+
+    test('the responder persists init_acknowledged after processing an init '
+        '(Signal clearUnacknowledgedPreKeyMessage on ANY successful decrypt)',
+        () async {
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      final env = await a.session.encryptText('hola');
+      expect(await b.session.decryptEnvelope(env), 'hola');
+
+      final json =
+          jsonDecode((await b.sessions.loadSession(_chatId))!) as Map;
+      expect(json['init_acknowledged'], true);
+    });
+
+    test('a legacy restored session WITHOUT persisted init fields heals with '
+        'ONE fresh X3DH, then re-wraps from the persisted baseKey', () async {
+      final a = _Party(userId: 'alice', peerUserId: 'bob', registry: registry);
+      final b = _Party(userId: 'bob', peerUserId: 'alice', registry: registry);
+      await a.server.publishAll();
+      await b.server.publishAll();
+
+      final env1 = await a.session.encryptText('uno');
+      // Simulate pre-fix JSON: strip the persisted baseKey/prekey fields.
+      final raw =
+          jsonDecode((await a.sessions.loadSession(_chatId))!) as Map;
+      raw.remove('ek_a');
+      raw.remove('spk_id');
+      raw.remove('opk_id');
+      await a.sessions.saveSession(_chatId, jsonEncode(raw));
+
+      final a2 = a.restartSession();
+      final env2 = await a2.encryptText('dos');
+      final e2 = _parseEnvelope(env2);
+      expect(e2.type, e2eeEnvelopeTypeInit);
+      expect(e2.ekA, isNot(equals(_parseEnvelope(env1).ekA)),
+          reason: 'the legacy heal runs one fresh X3DH');
+
+      final b2 = b.restartSession();
+      expect(await b2.decryptEnvelope(env1), 'uno');
+      expect(await b2.decryptEnvelope(env2), 'dos');
+
+      // The healed session persisted the fields — the next send re-wraps
+      // (no further bundle fetches, same baseKey).
+      final env3 = await a2.encryptText('tres');
+      expect(_parseEnvelope(env3).type, e2eeEnvelopeTypeInit);
+      expect(_parseEnvelope(env3).ekA, equals(e2.ekA));
     });
   });
 }

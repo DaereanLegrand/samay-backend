@@ -177,6 +177,18 @@ class _FakeHiveService implements HiveService {
   @override
   Map<String, String>? getCachedConfig() =>
       config.isEmpty ? null : Map<String, String>.of(config);
+
+  @override
+  Future<void> cacheMessage(String chatId, String messageId, String plaintext) async {}
+
+  @override
+  String? getCachedMessage(String chatId, String messageId) => null;
+
+  @override
+  Future<void> deleteCachedMessage(String chatId, String messageId) async {}
+
+  @override
+  Future<void> pruneCachedMessages(String chatId, int maxPerChat) async {}
 }
 
 class _MockModerationService extends Mock implements ModerationService {}

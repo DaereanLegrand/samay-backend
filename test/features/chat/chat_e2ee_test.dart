@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/services/chat_service.dart';
+import 'package:samay/core/services/message_plaintext_store.dart';
 import 'package:samay/core/services/realtime_service.dart';
 import 'package:samay/crypto/codec.dart';
 import 'package:samay/crypto/constants.dart';
@@ -34,6 +35,10 @@ class _FakeServer {
   /// the 42501 the live direct-chat inserts hit before 20260815000003).
   bool rejectNextInsert = false;
 
+  /// `fetch_prekey_bundle` call count (each call consumes one OPK — the
+  /// Signal-aligned fix asserts re-wraps never re-fetch).
+  int bundleFetches = 0;
+
   List<Map<String, dynamic>> messagesFor(String chatId) =>
       rows.where((r) => r['chat_id'] == chatId).toList();
 
@@ -55,6 +60,7 @@ class _FakeServer {
   /// `fetch_prekey_bundle` RPC: pops ONE one-time prekey atomically and
   /// appends it to the consumed list (§9.3 / migration 20260809000003).
   Map<String, dynamic>? fetchBundle(String userId) {
+    bundleFetches++;
     final row = prekeys[userId];
     if (row == null) return null;
     final remaining = (row['one_time_prekeys'] as List).toList();
@@ -78,13 +84,33 @@ class _FakeServer {
     };
   }
 
+  /// Monotonic message-id source — NEVER rows.length: after a deletion the
+  /// count shrinks and a new row could reuse a deleted id (the client's
+  /// decrypted-message cache would then serve the stale plaintext).
+  int _nextMessageId = 0;
+
   void insertMessage(String chatId, String senderId, Map<String, dynamic> payload) {
     rows.insert(0, {
-      'id': 'msg-${rows.length}',
+      'id': 'msg-${_nextMessageId++}',
       'chat_id': chatId,
       'sender_id': senderId,
       ...payload,
     });
+  }
+
+  /// `delete_undecryptable_messages` RPC emulation: removes the given ids
+  /// from [chatId] (participant-gated fake), returns the deleted count.
+  int deleteUndecryptable(String chatId, List<String> ids) {
+    final before = rows.length;
+    rows.removeWhere((r) => r['chat_id'] == chatId && ids.contains(r['id']));
+    return before - rows.length;
+  }
+
+  /// `delete_message_for_everyone` RPC emulation: removes [id] when present
+  /// (the fake treats every row as within the 5-minute window — the age
+  /// enforcement lives server-side and is covered by pgTAP + opt tests).
+  void deleteForEveryone(String id) {
+    rows.removeWhere((r) => r['id'] == id);
   }
 }
 
@@ -160,6 +186,7 @@ class _Party {
   _Party({required this.userId, required this.server}) {
     keys = MemoryE2eeKeyStore();
     sessions = MemoryE2eeSessionStore();
+    plaintext = MemoryMessagePlaintextStore();
     client = _MockSupabaseClient();
     auth = _MockGoTrueClient();
     messagesQb = _MockQueryBuilder();
@@ -224,6 +251,26 @@ class _Party {
       return _FixedFilter<dynamic>(server.fetchBundle(params['p_user_id'] as String));
     });
 
+    when(() => client.rpc('delete_undecryptable_messages',
+            params: any(named: 'params')))
+        .thenAnswer((inv) {
+      final params = inv.namedArguments[#params] as Map;
+      return _FixedFilter<dynamic>(
+        server.deleteUndecryptable(
+          params['p_chat_id'] as String,
+          (params['p_message_ids'] as List).cast<String>(),
+        ),
+      );
+    });
+
+    when(() => client.rpc('delete_message_for_everyone',
+            params: any(named: 'params')))
+        .thenAnswer((inv) {
+      final params = inv.namedArguments[#params] as Map;
+      server.deleteForEveryone(params['p_message_id'] as String);
+      return _FixedFilter<dynamic>(null);
+    });
+
     prekeyService = SupabaseE2eePrekeyService(client: client, keyStore: keys);
   }
 
@@ -231,6 +278,7 @@ class _Party {
   final _FakeServer server;
   late final MemoryE2eeKeyStore keys;
   late final MemoryE2eeSessionStore sessions;
+  late final MemoryMessagePlaintextStore plaintext;
   late final _MockSupabaseClient client;
   late final _MockGoTrueClient auth;
   late final _MockQueryBuilder messagesQb;
@@ -239,13 +287,15 @@ class _Party {
   late final SupabaseE2eePrekeyService prekeyService;
 
   /// A fresh ChatService over the SAME stores — the "app restart" simulation
-  /// (§7.3 resumption via the serialized session JSON).
+  /// (§7.3 resumption via the serialized session JSON; the plaintext store
+  /// survives like the encrypted Hive box on a real device).
   ChatService service({RealtimeService? realtime}) => ChatService(
     client: client,
     realtime: realtime ?? RealtimeService(client: client),
     e2eeKeyStore: keys,
     e2eeSessionStore: sessions,
     e2eePrekeyService: prekeyService,
+    plaintextStore: plaintext,
   );
 }
 
@@ -482,9 +532,10 @@ void main() {
     expect(bobMessages.single['decryptFailed'], isFalse);
   });
 
-  test('unacknowledged init: EVERY outbound message is a fresh init until the '
-      'peer replies — then ratchet resumes (Signal '
-      'unacknowledgedPreKeyMessage semantics, 2026-08-15)', () async {
+  test('unacknowledged init: EVERY outbound message re-wraps the SAME baseKey '
+      '(Signal getPreKeyMessage) until the peer replies — the bundle is '
+      'fetched ONCE, no OPK is re-consumed, and ratchet resumes after the '
+      'reply', () async {
     final serviceA = alice.service();
     final serviceB = bob.service();
 
@@ -493,26 +544,34 @@ void main() {
       _typeOf(server.messagesFor(_chatId).first['content']),
       e2eeEnvelopeTypeInit,
     );
+    expect(server.bundleFetches, 1,
+        reason: 'the first send initiates with exactly one bundle fetch');
 
-    // No reply yet → the second send MUST re-initiate (fresh X3DH), not send
-    // a ratchet the peer could never decrypt.
+    // No reply yet → the second send re-wraps the CURRENT ratchet message as
+    // an init envelope with the SAME ephemeral baseKey and prekey ids
+    // (Signal `SessionCipher.encrypt` getPreKeyMessage) — never a fresh X3DH.
     await serviceA.sendMessage(_chatId, 'dos', null);
     final ms = server.messagesFor(_chatId);
     expect(ms, hasLength(2));
     expect(
       _typeOf(ms.first['content']),
       e2eeEnvelopeTypeInit,
-      reason: 'unacknowledged init → fresh init envelope (Signal prekey semantics)',
+      reason: 'an unacknowledged init stays a type-0x01 prekey message',
     );
-    // Each unacknowledged init is a NEW X3DH run (fresh ekA — our replay
-    // protection would drop an identical init).
     final init2 = _envelopeOf(ms.first['content']);
     final init1 = _envelopeOf(ms.last['content']);
-    expect(init2.ekA, isNot(equals(init1.ekA)),
-        reason: 'a fresh X3DH uses a new ephemeral key (replay-safe)');
+    expect(init2.ekA, equals(init1.ekA),
+        reason: 'Signal re-wraps the SAME baseKey — never a fresh X3DH '
+            '(the old fresh-X3DH behavior burned an OPK per send and made '
+            're-processed inits permanently undecryptable)');
+    expect(init2.spkId, equals(init1.spkId));
+    expect(init2.opkId, equals(init1.opkId));
+    expect(server.bundleFetches, 1,
+        reason: 'a re-wrap never re-fetches the peer bundle (no OPK burn)');
 
-    // The peer — fresh, never saw the first init — decrypts the full thread
-    // (the latest init re-establishes the session).
+    // The peer processes the thread IN ORDER: init1 (full X3DH) then init2
+    // (same baseKey → session reuse — the OPK is neither loaded nor deleted
+    // a second time) — both decrypt.
     final bobMsgs = await serviceB.loadMessages(_chatId);
     expect(bobMsgs.map((m) => m['content']), ['uno', 'dos']);
     expect(bobMsgs.every((m) => m['decryptFailed'] == false), isTrue);
@@ -529,6 +588,58 @@ void main() {
       e2eeEnvelopeTypeRatchet,
       reason: 'an acknowledged init sends ratchet (0x02) messages',
     );
+  });
+
+  test('THE LIVE BUG: messages decrypted live stay readable after an app '
+      'restart — history reload serves the encrypted plaintext cache, ZERO '
+      'undecryptable rows (Signal stores plaintext locally)', () async {
+    final serviceA = alice.service();
+    final serviceB = bob.service();
+
+    // A live conversation while both apps are online. Each send is followed
+    // by the sender-side refresh (the provider's send → refresh contract),
+    // which is also when the sender's OWN messages enter the plaintext store
+    // (via the outbox hit).
+    await serviceA.sendMessage(_chatId, 'hola bob', null);
+    await serviceA.loadMessages(_chatId);
+    final bobLive = await serviceB.loadMessages(_chatId);
+    expect(bobLive.single['content'], 'hola bob');
+    expect(bobLive.single['decryptFailed'], isFalse);
+
+    await serviceB.sendMessage(_chatId, 'hola alice', null);
+    await serviceB.loadMessages(_chatId);
+    await serviceA.loadMessages(_chatId);
+    await serviceA.sendMessage(_chatId, 'tercero', null);
+    await serviceA.loadMessages(_chatId);
+    await serviceB.loadMessages(_chatId);
+
+    // "Both apps restart": fresh ChatService instances over the SAME stores
+    // (secure storage + the encrypted plaintext store). The history must be
+    // re-rendered from the stored plaintext — the stateful ratchet cannot
+    // re-decrypt already-consumed messages (the pre-fix all-bubbles bug).
+    final restartedA = alice.service();
+    final restartedB = bob.service();
+
+    final aliceHistory = await restartedA.loadMessages(_chatId);
+    final bobHistory = await restartedB.loadMessages(_chatId);
+    for (final side in [aliceHistory, bobHistory]) {
+      expect(
+        side.map((m) => m['content']),
+        ['hola bob', 'hola alice', 'tercero'],
+      );
+      expect(
+        side.map((m) => m['content']),
+        everyElement(isNot(contains('Mensaje no descifrable'))),
+      );
+      expect(side.every((m) => m['decryptFailed'] == false), isTrue,
+          reason: 'a restart must never turn readable history into bubbles');
+    }
+
+    // And the conversation continues in the restored sessions.
+    await restartedB.sendMessage(_chatId, 'después del reinicio', null);
+    final bobSees = await restartedA.loadMessages(_chatId);
+    expect(bobSees.last['content'], 'después del reinicio');
+    expect(bobSees.last['decryptFailed'], isFalse);
   });
 
   test('restored unacknowledged session heals after an "app restart": the '
@@ -557,6 +668,70 @@ void main() {
     final bobMsgs = await serviceB.loadMessages(_chatId);
     expect(bobMsgs.map((m) => m['content']), ['uno', 'dos']);
     expect(bobMsgs.every((m) => m['decryptFailed'] == false), isTrue);
+  });
+
+  test('REINSTALL (Signal semantics, 2026-08-16): a fresh identity hides the '
+      'whole old history (needsSession, never the placeholder), the cleanup '
+      'deletes those rows server-side (offload), and the first send '
+      're-establishes the session', () async {
+    final serviceA = alice.service();
+    final serviceB = bob.service();
+    await serviceA.sendMessage(_chatId, 'antes 1', null);
+    await serviceB.loadMessages(_chatId);
+    await serviceB.sendMessage(_chatId, 'antes 2', null);
+    await serviceA.loadMessages(_chatId);
+    expect(server.messagesFor(_chatId), hasLength(2));
+
+    // Bob "reinstalls": brand-new stores — fresh identity, no sessions —
+    // against the SAME server rows. The auth-restore heal republishes his
+    // bundle under the NEW identity (stale-row recovery + the dead-OPK
+    // replacement, Fix 2026-08-16).
+    final bob2 = _Party(userId: _userIdB, server: server);
+    await bob2.prekeyService.handleMissingSession();
+    final serviceB2 = bob2.service();
+
+    // Loading the old history: every row fails with NO session →
+    // needsSession (hidden — never the "Mensaje no descifrable" fallback).
+    final rows = await serviceB2.loadMessages(_chatId);
+    expect(rows, isNotEmpty);
+    expect(rows.every((r) => r['needsSession'] == true), isTrue);
+    expect(rows.every((r) => r['decryptFailed'] != true), isTrue);
+    expect(
+      rows.map((r) => r['content']),
+      everyElement(isNot(contains('Mensaje no descifrable'))),
+    );
+
+    // Server offload: the cleanup RPC removed the permanently undecryptable
+    // rows — nobody can ever read them again (the thread starts fresh).
+    expect(server.messagesFor(_chatId), isEmpty);
+
+    // The first send re-establishes the session (fresh init): Alice's
+    // current bundle + new identity → Alice decrypts the new message.
+    await serviceB2.sendMessage(_chatId, 'después de reinstalar', null);
+    final aliceSees = await serviceA.loadMessages(_chatId);
+    expect(aliceSees.last['content'], 'después de reinstalar');
+    expect(aliceSees.last['decryptFailed'], isFalse);
+  });
+
+  test('delete-for-everyone: the sender removes the row server-side; the '
+      'peer\'s next load no longer sees it (2026-08-16)', () async {
+    final serviceA = alice.service();
+    final serviceB = bob.service();
+    await serviceA.sendMessage(_chatId, 'se borrará', null);
+    final row = server.messagesFor(_chatId).single;
+    final messageId = row['id'] as String;
+    final bobSees = await serviceB.loadMessages(_chatId);
+    expect(bobSees.single['content'], 'se borrará');
+
+    // A (the sender) deletes for everyone.
+    final outcome = await serviceA.deleteMessageForEveryone(messageId);
+    expect(outcome, MessageDeleteOutcome.deleted);
+    expect(server.messagesFor(_chatId), isEmpty);
+
+    // B's thread loses the row on the next load (and live via the realtime
+    // DELETE channel — covered by the provider/widget tests).
+    final bobAfter = await serviceB.loadMessages(_chatId);
+    expect(bobAfter, isEmpty);
   });
 }
 

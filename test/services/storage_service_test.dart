@@ -179,4 +179,53 @@ void main() {
       timeout: const Timeout(Duration(seconds: 20)),
     );
   });
+
+  group('HiveService message cache (Signal plaintext-store backend)', () {
+    test('cacheMessage/getCachedMessage roundtrip is scoped per (chat, message)',
+        () async {
+      final service = HiveService(secureStorage: secureStorage, hive: Hive);
+      await service.init(initializeFlutter: false);
+
+      await service.cacheMessage('chat-1', 'm-1', 'hola');
+      await service.cacheMessage('chat-1', 'm-2', 'mundo');
+      await service.cacheMessage('chat-2', 'm-1', 'otro chat');
+
+      expect(service.getCachedMessage('chat-1', 'm-1'), 'hola');
+      expect(service.getCachedMessage('chat-1', 'm-2'), 'mundo');
+      expect(service.getCachedMessage('chat-2', 'm-1'), 'otro chat');
+      expect(service.getCachedMessage('chat-1', 'm-9'), isNull);
+      expect(service.getCachedMessage('chat-3', 'm-1'), isNull);
+    });
+
+    test('deleteCachedMessage removes only the addressed entry', () async {
+      final service = HiveService(secureStorage: secureStorage, hive: Hive);
+      await service.init(initializeFlutter: false);
+      await service.cacheMessage('chat-1', 'm-1', 'a');
+      await service.cacheMessage('chat-1', 'm-2', 'b');
+
+      await service.deleteCachedMessage('chat-1', 'm-1');
+
+      expect(service.getCachedMessage('chat-1', 'm-1'), isNull);
+      expect(service.getCachedMessage('chat-1', 'm-2'), 'b');
+    });
+
+    test('pruneCachedMessages keeps the newest maxPerChat entries per chat',
+        () async {
+      final service = HiveService(secureStorage: secureStorage, hive: Hive);
+      await service.init(initializeFlutter: false);
+      for (var i = 0; i < 5; i++) {
+        await service.cacheMessage('chat-1', 'm-$i', 'v$i');
+      }
+      await service.cacheMessage('chat-2', 'm-1', 'keep');
+
+      await service.pruneCachedMessages('chat-1', 2);
+
+      expect(service.getCachedMessage('chat-1', 'm-0'), isNull);
+      expect(service.getCachedMessage('chat-1', 'm-1'), isNull);
+      expect(service.getCachedMessage('chat-1', 'm-2'), isNull);
+      expect(service.getCachedMessage('chat-1', 'm-3'), 'v3');
+      expect(service.getCachedMessage('chat-1', 'm-4'), 'v4');
+      expect(service.getCachedMessage('chat-2', 'm-1'), 'keep');
+    });
+  });
 }
