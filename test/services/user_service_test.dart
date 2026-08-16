@@ -202,7 +202,7 @@ void main() {
       when(() => client.from('friendships')).thenAnswer((_) => table);
       final probe = ResolvingBuilder<PostgrestList>(null);
       var selectCalls = 0;
-      when(() => table.select('id')).thenAnswer((_) {
+      when(() => table.select(any())).thenAnswer((_) {
         selectCalls++;
         return selectCalls == 1 ? probe : probe;
       });
@@ -225,7 +225,7 @@ void main() {
       when(() => auth.currentUser).thenReturn(_currentUser());
       final table = MockQueryBuilder();
       when(() => client.from('friendships')).thenAnswer((_) => table);
-      when(() => table.select('id'))
+      when(() => table.select(any()))
           .thenAnswer((_) => ResolvingBuilder<PostgrestList>({'id': 'fr-1'}));
 
       expect(
@@ -243,11 +243,14 @@ void main() {
       final table = MockQueryBuilder();
       when(() => client.from('friendships')).thenAnswer((_) => table);
       var selectCalls = 0;
-      when(() => table.select('id')).thenAnswer((_) {
+      when(() => table.select(any())).thenAnswer((_) {
         selectCalls++;
         return selectCalls == 1
             ? ResolvingBuilder<PostgrestList>(null)
-            : ResolvingBuilder<PostgrestList>({'id': 'fr-rev'});
+            : ResolvingBuilder<PostgrestList>({
+                'id': 'fr-rev',
+                'status': 'pending',
+              });
       });
       final update = ResolvingBuilder<dynamic>(null);
       when(() => table.update(any())).thenAnswer((_) => update);
@@ -257,7 +260,41 @@ void main() {
       expect(status, 'accepted',
           reason: 'a reverse pending request becomes an instant accept (R15)');
       verify(() => table.update({'status': 'accepted'})).called(1);
-      expect(update.filters.single.value, 'fr-rev');
+      expect(update.filters[0].value, 'fr-rev',
+          reason: 'the update targets the reverse row id');
+      expect(update.filters[1].column, 'status',
+          reason: 'only a pending row may be flipped — a blocked row is a '
+              'block, not an accept');
+      expect(update.filters[1].value, 'pending');
+      verifyNever(() => table.insert(any()));
+    });
+
+    test(
+        'throws when the reverse-direction row is a BLOCK — the addressee '
+        'of a blocked row cannot flip it into an accepted friendship',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final table = MockQueryBuilder();
+      when(() => client.from('friendships')).thenAnswer((_) => table);
+      var selectCalls = 0;
+      when(() => table.select(any())).thenAnswer((_) {
+        selectCalls++;
+        return selectCalls == 1
+            ? ResolvingBuilder<PostgrestList>(null)
+            : ResolvingBuilder<PostgrestList>({
+                'id': 'fr-block',
+                'status': 'blocked',
+              });
+      });
+      final update = ResolvingBuilder<dynamic>(null);
+      when(() => table.update(any())).thenAnswer((_) => update);
+
+      expect(
+        () => service().sendFriendRequest(_otherId),
+        throwsA(predicate((e) =>
+            e is Exception && e.toString().contains('bloqueado'))),
+      );
+      verifyNever(() => table.update(any()));
       verifyNever(() => table.insert(any()));
     });
 
@@ -272,7 +309,7 @@ void main() {
       when(() => auth.currentUser).thenReturn(_currentUser());
       final table = MockQueryBuilder();
       when(() => client.from('friendships')).thenAnswer((_) => table);
-      when(() => table.select('id'))
+      when(() => table.select(any()))
           .thenAnswer((_) => ResolvingBuilder<PostgrestList>(null));
       when(() => table.insert(any())).thenThrow(
         const PostgrestException(
@@ -408,6 +445,113 @@ void main() {
       expect(results.single['friendship_status'], 'accepted');
     });
 
+    test('a pending row where the current user is the addressee carries '
+        'friendship_id + friendship_direction received (ISSUE 5)', () async {
+      final usersTable = MockQueryBuilder();
+      when(() => client.from('user_search_view'))
+          .thenAnswer((_) => usersTable);
+      when(() => usersTable.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>([
+          {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+        ]),
+      );
+      final frTable = MockQueryBuilder();
+      when(() => client.from('friendships')).thenAnswer((_) => frTable);
+      final asRequester = ResolvingBuilder<PostgrestList>([]);
+      final asAddressee = ResolvingBuilder<PostgrestList>([
+        {
+          'id': 'fr-9',
+          'requester_id': _otherId,
+          'addressee_id': _userId,
+          'status': 'pending',
+        },
+      ]);
+      var selectCalls = 0;
+      when(() => frTable.select(any())).thenAnswer((_) {
+        selectCalls++;
+        return selectCalls == 1 ? asRequester : asAddressee;
+      });
+
+      final results = await service().searchUsers('a');
+
+      final r = results.single;
+      expect(r['friendship_status'], 'pending');
+      expect(r['friendship_id'], 'fr-9');
+      expect(r['friendship_direction'], 'received');
+      verify(() => frTable.select('id, requester_id, addressee_id, status'))
+          .called(2);
+    });
+
+    test('a pending row where the current user is the requester carries '
+        'friendship_id + friendship_direction sent (ISSUE 5)', () async {
+      final usersTable = MockQueryBuilder();
+      when(() => client.from('user_search_view'))
+          .thenAnswer((_) => usersTable);
+      when(() => usersTable.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>([
+          {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+        ]),
+      );
+      final frTable = MockQueryBuilder();
+      when(() => client.from('friendships')).thenAnswer((_) => frTable);
+      final asRequester = ResolvingBuilder<PostgrestList>([
+        {
+          'id': 'fr-8',
+          'requester_id': _userId,
+          'addressee_id': _otherId,
+          'status': 'pending',
+        },
+      ]);
+      final asAddressee = ResolvingBuilder<PostgrestList>([]);
+      var selectCalls = 0;
+      when(() => frTable.select(any())).thenAnswer((_) {
+        selectCalls++;
+        return selectCalls == 1 ? asRequester : asAddressee;
+      });
+
+      final results = await service().searchUsers('a');
+
+      final r = results.single;
+      expect(r['friendship_status'], 'pending');
+      expect(r['friendship_id'], 'fr-8');
+      expect(r['friendship_direction'], 'sent');
+    });
+
+    test('accepted rows carry neither friendship_id nor '
+        'friendship_direction (ISSUE 5)', () async {
+      final usersTable = MockQueryBuilder();
+      when(() => client.from('user_search_view'))
+          .thenAnswer((_) => usersTable);
+      when(() => usersTable.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>([
+          {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+        ]),
+      );
+      final frTable = MockQueryBuilder();
+      when(() => client.from('friendships')).thenAnswer((_) => frTable);
+      final asRequester = ResolvingBuilder<PostgrestList>([]);
+      final asAddressee = ResolvingBuilder<PostgrestList>([
+        {
+          'id': 'fr-7',
+          'requester_id': _otherId,
+          'addressee_id': _userId,
+          'status': 'accepted',
+        },
+      ]);
+      var selectCalls = 0;
+      when(() => frTable.select(any())).thenAnswer((_) {
+        selectCalls++;
+        return selectCalls == 1 ? asRequester : asAddressee;
+      });
+
+      final results = await service().searchUsers('a');
+
+      final r = results.single;
+      expect(r['friendship_status'], 'accepted');
+      expect(r.containsKey('friendship_id'), isFalse);
+      expect(r.containsKey('friendship_direction'), isFalse);
+    });
+
     test('returns raw results unchanged when the session has no user',
         () async {
       when(() => auth.currentUser).thenReturn(null);
@@ -541,19 +685,22 @@ void main() {
   });
 
   group('UserService.accept/decline/remove friend request', () {
-    test('acceptFriendRequest updates the status to accepted', () async {
-      final table = MockQueryBuilder();
-      when(() => client.from('friendships')).thenAnswer((_) => table);
-      final update = ResolvingBuilder<dynamic>(null);
-      when(() => table.update(any())).thenAnswer((_) => update);
+    test('acceptFriendRequest calls the accept_friend_request RPC (0004/F6 — '
+        'server-side addressee-only consent)', () async {
+      when(() => client.rpc('accept_friend_request',
+              params: any(named: 'params')))
+          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
 
       await service().acceptFriendRequest('fr-1');
 
-      verify(() => table.update({'status': 'accepted'})).called(1);
-      expect(update.filters.single.value, 'fr-1');
+      verify(() => client.rpc('accept_friend_request',
+              params: {'p_friendship_id': 'fr-1'}))
+          .called(1);
+      // The direct UPDATE seam is gone — acceptance is server-verified.
+      verifyNever(() => client.from('friendships').update(any()));
     });
 
-    test('declineFriendRequest deletes the friendship row', () async {
+    test('declineFriendRequest deletes only a pending friendship row', () async {
       final table = MockQueryBuilder();
       when(() => client.from('friendships')).thenAnswer((_) => table);
       final del = ResolvingBuilder<dynamic>(null);
@@ -561,7 +708,11 @@ void main() {
 
       await service().declineFriendRequest('fr-1');
 
-      expect(del.filters.single.value, 'fr-1');
+      expect(del.filters[0].value, 'fr-1');
+      expect(del.filters[1].column, 'status',
+          reason: 'a blocked row must never be deletable through decline — '
+              'only a pending request');
+      expect(del.filters[1].value, 'pending');
     });
 
     test('removeFriend deletes the friendship row', () async {

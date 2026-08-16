@@ -24,12 +24,15 @@ void main() {
   Map<String, dynamic> row({
     String chatId = 'chat-1',
     String peer = 'peer-1',
+    String type = 'direct',
+    String? referenceId,
     int unread = 2,
     String? lastContent = 'SME2.envelope',
   }) =>
       {
         'chat_id': chatId,
-        'type': 'direct',
+        'type': type,
+        'reference_id': ?referenceId,
         'peer_id': peer,
         'peer_username': 'bob',
         'last_message_id': 'm-1',
@@ -60,8 +63,25 @@ void main() {
     expect(items.first.unreadCount, 2);
     expect(items.first.lastMessageContent, 'hola');
     expect(items.first.decryptFailed, isFalse);
+    expect(items.first.referenceId, isNull);
     verify(() => repo.fetchInbox()).called(1);
     verify(() => repo.decryptInboxRow(any())).called(2);
+  });
+
+  test('build maps reference_id onto group-chat inbox rows (D4c)', () async {
+    when(() => repo.fetchInbox()).thenAnswer(
+      (_) async => [row(type: 'group', referenceId: 'group-9')],
+    );
+    when(() => repo.decryptInboxRow(any())).thenAnswer(
+      (inv) async => Map<String, dynamic>.from(inv.positionalArguments.first as Map),
+    );
+    final c = container();
+
+    final items = await  c.read(chatInboxProvider.future);
+
+    expect(items.single.type, 'group');
+    expect(items.single.referenceId, 'group-9');
+    expect(items.single.copyWith(unreadCount: 1).referenceId, 'group-9');
   });
 
   test('chatUnreadCountProvider sums every chat unread count', () async {

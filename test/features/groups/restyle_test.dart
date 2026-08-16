@@ -415,9 +415,11 @@ void main() {
     });
   });
 
-  group('GroupDetailScreen hero (LUXE violet display voice — XL-10)', () {
-    testWidgets('hero name renders a violet VDisplayText (Playfair MAYUS 28) '
-        'inside a glass card', (tester) async {
+  group('GroupDetailScreen (USER FIX 4 — AppBar title, no hero banner)', () {
+    testWidgets('the group name renders in the AppBar title (next to the '
+        'back arrow) exactly once — no hero banner above the tabs', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           const GroupDetailScreen(groupId: _groupId),
@@ -426,39 +428,34 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      final appBarName = find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('Disco Crew'),
+      );
       expect(
-        find.text('DISCO CREW'),
+        appBarName,
         findsOneWidget,
         reason:
-            'LUXE MAYUS rule — the hero name renders uppercase through '
-            'VDisplayText (the AppBar no longer duplicates the title)',
-      );
-      final display = _display(tester, 'Disco Crew');
-      expect(display.size, 28);
-      expect(
-        display.gradient,
-        AppGradients.violet,
-        reason: 'the display voice carries the violet family fill + halo',
-      );
-      final glyphs = _displayGlyphs(tester, 'Disco Crew');
-      expect(
-        glyphs.style?.fontFamily,
-        AppTypography.playfair,
-        reason: '§3.2 — group names on the detail hero are Playfair',
+            'USER FIX 4 — the name lives in the AppBar title next to the '
+            'back arrow',
       );
       expect(
-        glyphs.style?.fontStyle,
-        isNull,
-        reason: 'no italics — user directive 2026-08-14',
+        find.text('Disco Crew'),
+        findsOneWidget,
+        reason: 'the name appears exactly once in the whole tree (USER FIX 4)',
       );
-      expect(glyphs.style?.fontSize, 28);
+      final title = tester.widget<Text>(appBarName);
+      expect(title.maxLines, 1);
+      expect(title.overflow, TextOverflow.ellipsis);
       expect(
-        _glassOf(tester, 'DISCO CREW').gradient?.colors,
-        AppGradients.watered(AppGradients.violet.colors, mix: 0.4),
-        reason:
-            'XL-17 (09_groups) — the hero ring rides the watered violet run '
-            'at a whisper glow; the vivid shader survives only in the '
-            'VDisplayText voice',
+        find.byType(VDisplayText),
+        findsNothing,
+        reason: 'the hero display voice above the tabs is gone (USER FIX 4)',
+      );
+      expect(
+        find.byType(VGlassCard),
+        findsNothing,
+        reason: 'the hero glass card above the tabs is gone (USER FIX 4)',
       );
     });
 
@@ -553,8 +550,9 @@ void main() {
       expect(find.byType(ProfileAvatar), findsNWidgets(2));
       expect(find.text('PROMOTOR'), findsOneWidget);
       expect(find.text('MEMBER'), findsOneWidget);
-      // Scoped to the members list: the hero column also carries a
-      // pre-existing section Divider above the TabBarView (unchanged).
+      // Scoped to the members list: the detail body no longer owns a
+      // screen-level divider (the hero banner is gone — USER FIX 4), so the
+      // ListView scope isolates the row hairs.
       final rows = find.descendant(
         of: find.byType(ListView),
         matching: find.byType(Divider),
@@ -642,7 +640,11 @@ void main() {
         findsNothing,
         reason: 'the skeleton is gone once the data lands',
       );
-      expect(find.text('DISCO CREW'), findsOneWidget);
+      expect(
+        find.text('Disco Crew'),
+        findsOneWidget,
+        reason: 'the loaded screen owns the name in the AppBar title',
+      );
     });
   });
 

@@ -4,14 +4,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/models/group_member.dart';
+import 'package:samay/core/providers/auth_provider.dart';
+import 'package:samay/core/repositories/chat_repository.dart';
 import 'package:samay/core/repositories/groups_repository.dart';
 import 'package:samay/core/repositories/repository_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
+import 'package:samay/features/chat/providers/chat_providers.dart';
+import 'package:samay/features/chat/widgets/chat_thread_view.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/features/groups/screens/group_detail_screen.dart';
 import 'package:samay/features/groups/screens/group_members_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/core/theme/app_theme.dart';
+import 'package:samay/shared/widgets/v_display_text.dart';
+import 'package:samay/shared/widgets/v_network_image.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 import '../../support/fake_supabase_http.dart' as support;
 
@@ -28,6 +35,53 @@ const _userId2 = '22222222-2222-2222-2222-222222222222';
 const _userId3 = '44444444-4444-4444-4444-444444444444';
 
 class _MockGroupsRepository extends Mock implements GroupsRepository {}
+
+class _MockChatRepository extends Mock implements ChatRepository {}
+
+class _MockRealtimeChannel extends Mock implements RealtimeChannel {}
+
+class _StubAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthState> build() async => const AuthState(user: {'id': _myUserId});
+}
+
+/// ISSUE 4: the group detail Chat tab resolves the group's chat id through
+/// [groupChatIdProvider]; the stub pins the resolved id.
+class _StubGroupChatIdNotifier extends GroupChatIdNotifier {
+  final String? data;
+  _StubGroupChatIdNotifier(this.data);
+
+  @override
+  Future<String?> build(String arg) async => data;
+}
+
+/// Empty-thread fake so the Chat tab renders without the real E2EE stack.
+class _FakeChatMessagesNotifier extends ChatMessagesNotifier {
+  final List<Map<String, dynamic>> data;
+  _FakeChatMessagesNotifier(this.data);
+
+  @override
+  Future<ChatMessagesState> build(String arg) async =>
+      ChatMessagesState(messages: data, hasMore: false);
+}
+
+/// Stubs every repository seam ChatThreadView touches (realtime channels,
+/// read receipts, inbox watermark) so the group detail Chat tab renders
+/// hermetically.
+_MockChatRepository _stubbedChatRepository() {
+  final repo = _MockChatRepository();
+  final channel = _MockRealtimeChannel();
+  when(() => channel.unsubscribe()).thenAnswer((_) async => 'ok');
+  when(() => repo.subscribe(any(), any())).thenReturn(channel);
+  when(() => repo.subscribeToMessageReads(any(), any())).thenReturn(channel);
+  when(() => repo.subscribeToMessageDeletes(any(), any())).thenReturn(channel);
+  when(() => repo.getReadReceiptsEnabled()).thenAnswer((_) async => true);
+  when(() => repo.fetchInbox()).thenAnswer((_) async => const []);
+  when(() => repo.markChatRead(any())).thenAnswer((_) async {});
+  when(() => repo.markMessagesRead(any())).thenAnswer((_) async {});
+  when(() => repo.peerNeedsRekey(any())).thenAnswer((_) async => false);
+  return repo;
+}
 
 class _StubGroupDetailNotifier extends GroupDetailNotifier {
   final Map<String, dynamic>? data;
@@ -49,6 +103,27 @@ class _StubContributionsNotifier extends GroupContributionsNotifier {
   @override
   Future<GroupContributionsData> build(String arg) async =>
       const GroupContributionsData(contributors: [], myContribution: 0);
+}
+
+/// ISSUE 2: static my-membership stub (the active-state default renders the
+/// normal detail; `data` carries the caller's own group_members row).
+class _StubMyMembershipNotifier extends MyMembershipNotifier {
+  final Map<String, dynamic>? data;
+  _StubMyMembershipNotifier({this.data});
+
+  @override
+  Future<Map<String, dynamic>?> build(String arg) async => data;
+}
+
+/// ISSUE 2: mutable my-membership stub — [data] can be swapped between
+/// builds so the accept-invite flip (invited → active) can be asserted.
+class _LiveMyMembershipNotifier extends MyMembershipNotifier {
+  _LiveMyMembershipNotifier(this.data);
+
+  Map<String, dynamic>? data;
+
+  @override
+  Future<Map<String, dynamic>?> build(String arg) async => data;
 }
 
 class _GroupDetailHarness {
@@ -112,6 +187,9 @@ Future<_GroupDetailHarness> _pumpGroupDetail(
 List<Override> _loadedGroupDetailOverrides({
   Map<String, dynamic>? group,
   List<Map<String, dynamic>> members = const [],
+  Map<String, dynamic>? membership,
+  MyMembershipNotifier Function()? membershipOverride,
+  _MockGroupsRepository? repo,
 }) => [
   groupDetailProvider.overrideWith(
     () => _StubGroupDetailNotifier(
@@ -123,6 +201,11 @@ List<Override> _loadedGroupDetailOverrides({
     () => _StubGroupMembersNotifier(data: members),
   ),
   contributionsProvider.overrideWith(_StubContributionsNotifier.new),
+  if (repo != null) groupsRepositoryProvider.overrideWithValue(repo),
+  myMembershipProvider.overrideWith(
+    membershipOverride ??
+        () => _StubMyMembershipNotifier(data: membership),
+  ),
 ];
 
 void main() {
@@ -422,6 +505,297 @@ void main() {
         find.text('Expulsar del grupo'),
         findsOneWidget,
         reason: 'the detail members tab honors the sheet too (R17)',
+      );
+    });
+  });
+
+  group('ISSUE 2 — invited membership (pending) detail state', () {
+    const invitedRow = {
+      'id': 'm-invited',
+      'group_id': _groupId,
+      'role': 'member',
+      'status': 'invited',
+    };
+
+    testWidgets('an invited membership shows ONLY Aceptar + Rechazar — no '
+        'tabs, no hero CTAs, no leave', (tester) async {
+      await _pumpGroupDetail(
+        tester,
+        _loadedGroupDetailOverrides(membership: invitedRow),
+      );
+
+      expect(
+        find.text('Aceptar'),
+        findsOneWidget,
+        reason: 'the primary action is a single Aceptar (ISSUE 2)',
+      );
+      expect(
+        find.text('Rechazar'),
+        findsOneWidget,
+        reason: 'the secondary action is a Rechazar text button (ISSUE 2)',
+      );
+      expect(
+        find.textContaining('Has sido invitado a este grupo'),
+        findsOneWidget,
+        reason: 'the pending panel explains the invitation',
+      );
+      expect(
+        find.byType(TabBar),
+        findsNothing,
+        reason: 'an invited user sees no tab bar at all (ISSUE 2)',
+      );
+      for (final cta in [
+        'Donar shards',
+        'Crear evento',
+        'Invitar',
+        'Juegos',
+        'Abandonar grupo',
+      ]) {
+        expect(
+          find.text(cta),
+          findsNothing,
+          reason: 'no "$cta" for an invited user (ISSUE 2)',
+        );
+      }
+    });
+
+    testWidgets('Aceptar calls acceptInvite with the membership id and the '
+        'screen flips to the normal state', (tester) async {
+      final groups = _MockGroupsRepository();
+      when(() => groups.acceptInvite('m-invited')).thenAnswer((_) async {});
+      final membership = _LiveMyMembershipNotifier(invitedRow);
+      await _pumpGroupDetail(
+        tester,
+        _loadedGroupDetailOverrides(
+          membershipOverride: () => membership,
+          repo: groups,
+        ),
+      );
+      expect(find.text('Aceptar'), findsOneWidget);
+
+      await tester.tap(find.text('Aceptar'));
+      // The DB flip lands before the reload — the membership is now active.
+      membership.data = null;
+      await tester.pumpAndSettle();
+
+      verify(() => groups.acceptInvite('m-invited')).called(1);
+      expect(
+        find.byType(TabBar),
+        findsOneWidget,
+        reason: 'the accepted membership reloads into the normal detail',
+      );
+      expect(find.text('Aceptar'), findsNothing);
+    });
+
+    testWidgets('a membership row missing (null) renders the normal active '
+        'state (graceful fallback)', (tester) async {
+      await _pumpGroupDetail(
+        tester,
+        _loadedGroupDetailOverrides(membership: null),
+      );
+
+      expect(
+        find.byType(TabBar),
+        findsOneWidget,
+        reason: 'no membership row falls back to the active detail',
+      );
+      expect(find.text('Donar shards'), findsOneWidget);
+    });
+  });
+
+  group('ISSUE 3 — 4-tab group detail (Info | Chat | Miembros | Eventos)', () {
+    testWidgets('active membership renders the four tabs and the Info tab '
+        'carries the description + donate CTA', (tester) async {
+      await _pumpGroupDetail(
+        tester,
+        _loadedGroupDetailOverrides(
+          group: {
+            'id': _groupId,
+            'name': 'Disco Crew',
+            'group_shards': 100,
+            'description': 'Para los que bailan',
+          },
+        ),
+      );
+
+      expect(find.text('Información'), findsOneWidget);
+      expect(find.text('Chat'), findsOneWidget);
+      expect(find.text('Miembros'), findsOneWidget);
+      expect(find.text('Eventos'), findsOneWidget);
+      expect(
+        find.byType(TabBar),
+        findsOneWidget,
+        reason: 'the active detail owns a 4-tab TabBar (ISSUE 3)',
+      );
+      // The Info tab is the default (first) tab — its content renders
+      // immediately.
+      expect(
+        find.text('Para los que bailan'),
+        findsOneWidget,
+        reason: 'the description lives on the Info tab (ISSUE 3)',
+      );
+      expect(
+        find.text('Donar shards'),
+        findsOneWidget,
+        reason: 'the CTA row lives on the Info tab (ISSUE 3)',
+      );
+    });
+
+    testWidgets('the Chat tab hosts the group ChatThreadView once the group '
+        'chat id resolves (ISSUE 4)', (tester) async {
+      await _pumpGroupDetail(
+        tester,
+        [
+          ..._loadedGroupDetailOverrides(),
+          // ISSUE 4: the group's E2EE chat row resolves via groupChatIdProvider.
+          groupChatIdProvider.overrideWith(
+            () => _StubGroupChatIdNotifier('chat-g-1'),
+          ),
+          chatE2eeRepositoryProvider.overrideWithValue(
+            _stubbedChatRepository(),
+          ),
+          chatMessagesProvider.overrideWith(
+            () => _FakeChatMessagesNotifier(const []),
+          ),
+          authStateProvider.overrideWith(_StubAuthNotifier.new),
+        ],
+      );
+
+      // ISSUE 3: the placeholder is gone — the tab hosts the SAME thread
+      // widget the 1:1 chat screen uses.
+      expect(find.byType(ChatThreadView), findsNothing);
+      expect(find.text('Los chats son 1:1 por ahora'), findsNothing);
+
+      await tester.tap(find.text('Chat'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(ChatThreadView),
+        findsOneWidget,
+        reason:
+            'the active-member Chat tab renders ChatThreadView instead of '
+            'the ISSUE 3 placeholder (ISSUE 4)',
+      );
+      expect(
+        find.text('No hay mensajes todavía'),
+        findsOneWidget,
+        reason: 'the group thread renders its empty state (chatEmpty)',
+      );
+      expect(find.text('Enviar'), findsOneWidget);
+    });
+  });
+
+  group('USER FIX 4 — the group name lives in the AppBar only (no hero '
+      'banner)', () {
+    testWidgets('active state: the name appears exactly once — in the AppBar '
+        'next to the back arrow — and no cover banner renders above the Chat '
+        'tab', (tester) async {
+      await _pumpGroupDetail(
+        tester,
+        [
+          ..._loadedGroupDetailOverrides(
+            group: {
+              'id': _groupId,
+              'name': 'Disco Crew',
+              'group_shards': 100,
+              'cover_url': 'https://example.com/cover.png',
+            },
+          ),
+          // The group chat row does not exist in this fixture — the Chat tab
+          // renders the honest placeholder (no ChatThreadView to pin down).
+          groupChatIdProvider.overrideWith(
+            () => _StubGroupChatIdNotifier(null),
+          ),
+        ],
+      );
+
+      final appBarName = find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('Disco Crew'),
+      );
+      expect(
+        appBarName,
+        findsOneWidget,
+        reason: 'the name renders next to the back arrow in the AppBar '
+            '(USER FIX 4)',
+      );
+      expect(
+        find.text('Disco Crew'),
+        findsOneWidget,
+        reason: 'the name appears exactly once in the whole tree (USER FIX 4)',
+      );
+      expect(
+        find.byType(VDisplayText),
+        findsNothing,
+        reason: 'the hero display voice above the tabs is gone (USER FIX 4)',
+      );
+      expect(
+        find.byType(VNetworkImage),
+        findsOneWidget,
+        reason: 'the cover lives on the Info tab as its first block '
+            '(USER FIX 4)',
+      );
+
+      await tester.tap(find.text('Chat'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(VNetworkImage),
+        findsNothing,
+        reason: 'no cover banner renders above the Chat thread (USER FIX 4)',
+      );
+      expect(
+        find.text('Disco Crew'),
+        findsOneWidget,
+        reason: 'the name stays in the AppBar on every tab (USER FIX 4)',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('Disco Crew'),
+        ),
+        findsOneWidget,
+        reason: 'still exactly one name, in the AppBar (USER FIX 4)',
+      );
+    });
+
+    testWidgets('invited state: the name is in the AppBar only — no in-body '
+        'name, no tabs', (tester) async {
+      await _pumpGroupDetail(
+        tester,
+        _loadedGroupDetailOverrides(
+          membership: {
+            'id': 'm-invited',
+            'group_id': _groupId,
+            'role': 'member',
+            'status': 'invited',
+          },
+        ),
+      );
+
+      expect(find.text('Aceptar'), findsOneWidget);
+      expect(find.text('Rechazar'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('Disco Crew'),
+        ),
+        findsOneWidget,
+        reason: 'the invited panel owns the name in its AppBar title '
+            '(USER FIX 4)',
+      );
+      expect(
+        find.text('Disco Crew'),
+        findsOneWidget,
+        reason:
+            'exactly one name on the invited panel — next to the back arrow '
+            '(USER FIX 4)',
+      );
+      expect(
+        find.byType(VDisplayText),
+        findsNothing,
+        reason: 'the in-body display name is gone from the invited panel '
+            '(USER FIX 4)',
       );
     });
   });

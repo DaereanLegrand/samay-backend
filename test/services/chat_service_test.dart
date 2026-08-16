@@ -1,11 +1,22 @@
 
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/errors/app_error.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/services/chat_service.dart';
+import 'package:samay/core/services/message_plaintext_store.dart';
 import 'package:samay/core/services/realtime_service.dart';
 import 'package:samay/core/utils/input_sanitizer.dart';
+import 'package:samay/crypto/codec.dart';
+import 'package:samay/crypto/constants.dart';
 import 'package:samay/crypto/e2ee_key_store.dart';
+import 'package:samay/crypto/e2ee_prekey_service.dart';
+import 'package:samay/crypto/e2ee_primitives.dart';
+import 'package:samay/crypto/envelope.dart';
+import 'package:samay/crypto/group_cipher.dart';
 import 'package:samay/crypto/interfaces.dart';
 import 'package:samay/crypto/x3dh.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
@@ -498,6 +509,579 @@ void main() {
       expect(rows.single['decryptFailed'], isNot(true));
     });
   });
+  group('ChatService group chat E2EE (ISSUE 4 / D3b)', () {
+    // Two parties with REAL pairwise (1:1 E2EE) crypto + a FAKE
+    // GroupE2eeCipher (mocktail): the pairwise distribution envelopes are
+    // real (X3DH init — the responder flow decrypts them), while the group
+    // cipher's key-holding operations (encrypt/decrypt/processBundle) are
+    // stubbed. Type/marker checks (isSenderKeyEnvelope/isSenderKeyBundle)
+    // delegate to the REAL envelope/JSON parsers.
+    late _GroupFakeServer server;
+    late _GroupParty alice;
+    late _GroupParty bob;
+    late _GroupParty carol;
+
+    setUp(() async {
+      server = _GroupFakeServer(chatId: _groupChatId);
+      final msgEnv = await _makeSenderKeyEnvelope('hola grupo');
+      alice = _GroupParty(userId: _userId, server: server, messageEnvelope: msgEnv);
+      bob = _GroupParty(userId: _memberBobId, server: server, messageEnvelope: msgEnv);
+      carol = _GroupParty(userId: _memberCarolId, server: server, messageEnvelope: msgEnv);
+      server.roster = [_userId, _memberBobId];
+      // Members publish their prekey bundles at "profile creation"; the
+      // distributor initiates the pairwise sessions against these bundles.
+      await bob.prekeyService.publishAll();
+    });
+
+    test('sendMessage on a group chat encrypts via groupCipher and inserts '
+        'the message row with recipient_id NULL', () async {
+      final svc = alice.service();
+      await svc.sendMessage(_groupChatId, 'hola grupo', null);
+
+      // Distribution row (bundle to the only other member) first, then the
+      // single sender-key message row.
+      expect(alice.inserts, hasLength(2));
+      final msg = alice.inserts.last;
+      expect(msg['chat_id'], _groupChatId);
+      expect(msg['sender_id'], _userId);
+      expect(msg['recipient_id'], isNull);
+      expect(msg['content'], alice.messageEnvelope);
+      expect(msg['created_at'], isNotEmpty);
+      // The roster was resolved and handed to the cipher for the
+      // membersMissingSenderKey computation.
+      verify(() => alice.cipher.membersMissingSenderKey(
+            groupChatId: _groupChatId,
+            senderUserId: _userId,
+            activeMemberIds: [_userId, _memberBobId],
+          )).called(1);
+      // Own rows render from the outbox, exactly like the 1:1 path.
+      final mine = await svc.loadMessages(_groupChatId);
+      expect(mine.last['content'], 'hola grupo');
+      expect(mine.last['decryptFailed'], isFalse);
+    });
+
+    test('a group chat with ONLY the sender sends just the message row '
+        '(zero-member distribution, no throw — _resolvePeerUserId is never '
+        'reached)', () async {
+      server.roster = [_userId];
+
+      final svc = alice.service();
+      await svc.sendMessage(_groupChatId, 'solo yo', null);
+
+      expect(alice.inserts, hasLength(1));
+      final msg = alice.inserts.single;
+      expect(msg['recipient_id'], isNull);
+      expect(msg['content'], alice.messageEnvelope);
+      verifyNever(() => alice.cipher.wipeGroupKeys(any()));
+    });
+
+    test('sendMessage distributes sender-key bundles to missing members '
+        'FIRST — distribution rows carry recipient_id + the pairwise-session '
+        'envelope, the message row comes last', () async {
+      server.roster = [_userId, _memberBobId, _memberCarolId];
+      await carol.prekeyService.publishAll();
+
+      final svc = alice.service();
+      await svc.sendMessage(_groupChatId, 'hola a todos', null);
+
+      expect(alice.inserts, hasLength(3));
+      // (a) distribution rows, in member order, recipient_id set, content is
+      // a REAL pairwise X3DH init envelope (0x01).
+      expect(alice.inserts[0]['recipient_id'], _memberBobId);
+      expect(alice.inserts[1]['recipient_id'], _memberCarolId);
+      for (final dist in [alice.inserts[0], alice.inserts[1]]) {
+        final env = base64UrlNoPadDecode(dist['content'] as String)!;
+        expect(SamayEnvelope.tryParse(env)?.type, e2eeEnvelopeTypeInit,
+            reason: 'distribution rows carry the pairwise-session envelope');
+      }
+      // (b) the single sender-key message row, recipient_id NULL, content is
+      // the group cipher's 0x03 envelope.
+      final msg = alice.inserts[2];
+      expect(msg['recipient_id'], isNull);
+      final msgEnv = base64UrlNoPadDecode(msg['content'] as String)!;
+      expect(SamayEnvelope.tryParse(msgEnv)?.type,
+          e2eeEnvelopeTypeSenderKey);
+      // No roster change on a steady state → no rekey.
+      verifyNever(() => alice.cipher.wipeGroupKeys(any()));
+    });
+
+    test('roster SHRINK → wipeGroupKeys (new epoch) + fresh bundle '
+        're-distributed to the remaining members', () async {
+      server.roster = [_userId, _memberBobId, _memberCarolId];
+      await carol.prekeyService.publishAll();
+      final svc = alice.service();
+      await svc.sendMessage(_groupChatId, 'primera', null);
+      expect(alice.inserts, hasLength(3));
+
+      // Carol leaves: the cached roster differs → hard rekey.
+      server.roster = [_userId, _memberBobId];
+      await svc.sendMessage(_groupChatId, 'segunda', null);
+
+      verify(() => alice.cipher.wipeGroupKeys(_groupChatId)).called(1);
+      // The send after the wipe re-distributes to every other active member
+      // (the registry is gone → the members show as missing again).
+      final secondRound = alice.inserts.sublist(3);
+      expect(secondRound, hasLength(2));
+      expect(secondRound.first['recipient_id'], _memberBobId);
+      expect(secondRound.last['recipient_id'], isNull);
+      // The message itself was re-encrypted for the new epoch.
+      expect(secondRound.last['content'], alice.messageEnvelope);
+    });
+
+    test('a member WITHOUT a published prekey bundle is SKIPPED — the send '
+        'must not fail; the other members still get their distribution and '
+        'the message row lands (2026-08-17 live finding: "send does not '
+        'allow")', () async {
+      server.roster = [_userId, _memberBobId, _memberCarolId];
+      // Only carol published her bundle — bob has none, so the X3DH
+      // initiation for bob's distribution cannot happen.
+      await carol.prekeyService.publishAll();
+      // Undo the harness default (setUp publishes every member's bundle):
+      // bob must genuinely have no published prekeys for this scenario.
+      server.prekeys.remove(_memberBobId);
+
+      final svc = alice.service();
+      await svc.sendMessage(_groupChatId, 'hola a todos', null);
+
+      // Bob skipped (no bundle): carol's distribution row + the message row.
+      expect(alice.inserts, hasLength(2));
+      expect(alice.inserts[0]['recipient_id'], _memberCarolId);
+      expect(alice.inserts[1]['recipient_id'], isNull);
+      expect(alice.inserts[1]['content'], alice.messageEnvelope);
+      // The skip is persisted for the reachable member only.
+      verify(() => alice.cipher.markSenderKeyDistributed(
+            groupChatId: _groupChatId,
+            senderUserId: _userId,
+            memberIds: [_memberCarolId],
+          )).called(1);
+      verifyNever(() => alice.cipher.markSenderKeyDistributed(
+            groupChatId: _groupChatId,
+            senderUserId: _userId,
+            memberIds: [_memberBobId],
+          ));
+    });
+
+    test('loadMessages on a group chat: skips recipient_id != me, decrypts '
+        '0x03 via groupCipher (cached to the plaintext store), hides dropped, '
+        'bubbles failed, hides distribution rows after processing the bundle',
+        () async {
+      // Alice sends → server rows: distribution (msg-0) then message (msg-1).
+      final aliceSvc = alice.service();
+      await aliceSvc.sendMessage(_groupChatId, 'hola grupo', null);
+
+      // A bundle addressed to CAROL (not bob): must be skipped untouched.
+      server.rows.insert(0, {
+        'id': 'msg-2',
+        'chat_id': _groupChatId,
+        'sender_id': _userId,
+        'recipient_id': _memberCarolId,
+        'content': 'bundle-not-for-bob',
+        'created_at': '2026-08-16T00:00:03Z',
+      });
+      // A tampered 0x03 (genuine failure → bubble) and a stale 0x03
+      // (protocol drop → hidden).
+      final failedEnv = await _makeSenderKeyEnvelope('tampered');
+      final droppedEnv = await _makeSenderKeyEnvelope('stale');
+      bob.decryptResults[failedEnv] =
+          const E2eeDecryptResult.failed();
+      bob.decryptResults[droppedEnv] =
+          const E2eeDecryptResult.dropped();
+      server.rows.insert(0, {
+        'id': 'msg-3',
+        'chat_id': _groupChatId,
+        'sender_id': _userId,
+        'content': failedEnv,
+        'created_at': '2026-08-16T00:00:04Z',
+      });
+      server.rows.insert(0, {
+        'id': 'msg-4',
+        'chat_id': _groupChatId,
+        'sender_id': _userId,
+        'content': droppedEnv,
+        'created_at': '2026-08-16T00:00:05Z',
+      });
+
+      final bobService = bob.service();
+      final rows = await bobService.loadMessages(_groupChatId);
+
+      // Oldest first: dist, message, carol-bundle, tampered, stale.
+      expect(rows, hasLength(5));
+      // Distribution row: bundle processed, row hidden (never a bubble).
+      expect(rows[0]['decryptDropped'], isTrue);
+      // The sender-key message: plaintext + cached to the plaintext store.
+      expect(rows[1]['content'], 'hola grupo');
+      expect(rows[1]['decryptFailed'], isFalse);
+      expect(await bob.plaintext.get(_groupChatId, 'msg-1'), 'hola grupo');
+      // Non-target row: skipped silently — NOT even parsed.
+      expect(rows[2]['content'], 'bundle-not-for-bob');
+      expect(rows[2]['decryptDropped'], isTrue);
+      verifyNever(() => bob.cipher.isSenderKeyEnvelope('bundle-not-for-bob'));
+      // Genuine failure → the undecryptable bubble.
+      expect(rows[3]['decryptFailed'], isTrue);
+      expect(rows[3]['content'], chatUndecryptablePlaceholder);
+      // Protocol drop → hidden.
+      expect(rows[4]['decryptDropped'], isTrue);
+      // The bundle was processed through the group cipher with the message
+      // row's sender as the chain owner.
+      verify(() => bob.cipher.processSenderKeyBundle(
+            groupChatId: _groupChatId,
+            senderUserId: _userId,
+            groupId: _groupId,
+            bundleJson: _bundleJson,
+          )).called(1);
+    });
+
+    test('subscribeToMessages routes group rows the same way: bundles and '
+        'non-target rows hidden, 0x03 messages decrypted before delivery',
+        () async {
+      final realtime = _MockRealtimeService();
+      final channel = MockRealtimeChannel();
+      void Function(Map<String, dynamic>)? onInsert;
+      when(() => realtime.subscribeToMessages(any(), any())).thenAnswer(
+        (inv) {
+          onInsert =
+              inv.positionalArguments[1] as void Function(Map<String, dynamic>);
+          return channel;
+        },
+      );
+
+      final aliceSvc = alice.service();
+      await aliceSvc.sendMessage(_groupChatId, 'hola en vivo', null);
+      // A non-target distribution row (addressed to carol).
+      server.rows.insert(0, {
+        'id': 'msg-9',
+        'chat_id': _groupChatId,
+        'sender_id': _userId,
+        'recipient_id': _memberCarolId,
+        'content': 'not-for-bob',
+        'created_at': '2026-08-16T00:01:00Z',
+      });
+
+      final received = <Map<String, dynamic>>[];
+      bob.service(realtime: realtime).subscribeToMessages(_groupChatId,
+          received.add);
+      expect(onInsert, isNotNull);
+
+      for (final row in server.messagesFor().toList().reversed) {
+        onInsert!(row);
+      }
+      await pumpEventQueue();
+
+      // Only the sender-key message is delivered (decrypted); the
+      // distribution row and the non-target row are hidden.
+      expect(received, hasLength(1));
+      expect(received.single['content'], 'hola grupo');
+      expect(received.single['decryptFailed'], isFalse);
+    });
+
+    test('decryptInboxRow on a group row decrypts the last message via the '
+        'group path', () async {
+      final bobService = bob.service();
+      final out = await bobService.decryptInboxRow({
+        'chat_id': _groupChatId,
+        'type': 'group',
+        'last_message_id': 'm-1',
+        'last_message_sender_id': _userId,
+        'last_message_content': alice.messageEnvelope,
+      });
+
+      expect(out['last_message_content'], 'hola grupo');
+      expect(out['last_message_decrypt_failed'], false);
+      expect(out['last_message_needs_session'], isNot(true));
+    });
+
+    test('decryptInboxRow skips a group distribution row addressed to '
+        'ANOTHER member silently: null preview, no decrypt attempt, no '
+        'bubble (0004/F5 — last_message_recipient_id)', () async {
+      final bobService = bob.service();
+      final out = await bobService.decryptInboxRow({
+        'chat_id': _groupChatId,
+        'type': 'group',
+        'last_message_id': 'm-dist',
+        'last_message_sender_id': _userId,
+        'last_message_recipient_id': _memberCarolId,
+        'last_message_content': 'bundle-for-carol',
+      });
+
+      expect(out['last_message_content'], isNull);
+      expect(out['last_message_decrypt_failed'], isFalse);
+      expect(out['last_message_needs_session'], isNot(true));
+      // The non-target envelope is never even parsed (no AEAD attempt).
+      verifyNever(() => bob.cipher.isSenderKeyEnvelope('bundle-for-carol'));
+    });
+
+    test('decryptInboxRow still routes a distribution row addressed to ME '
+        'through the group path (bundle processed, row hidden)', () async {
+      // A REAL alice→bob distribution envelope (X3DH init — bob is the
+      // responder), exactly like the loadMessages path.
+      final aliceSvc = alice.service();
+      await aliceSvc.sendMessage(_groupChatId, 'hola grupo', null);
+      final bobEnvelope = alice.inserts
+          .firstWhere((r) => r['recipient_id'] == _memberBobId)['content']
+          as String;
+
+      final bobService = bob.service();
+      final out = await bobService.decryptInboxRow({
+        'chat_id': _groupChatId,
+        'type': 'group',
+        'last_message_id': 'm-me',
+        'last_message_sender_id': _userId,
+        'last_message_recipient_id': _memberBobId,
+        'last_message_content': bobEnvelope,
+      });
+
+      expect(out['last_message_content'], isNull);
+      expect(out['last_message_decrypt_failed'], isFalse);
+      verify(() => bob.cipher.processSenderKeyBundle(
+            groupChatId: _groupChatId,
+            senderUserId: _userId,
+            groupId: _groupId,
+            bundleJson: _bundleJson,
+          )).called(1);
+    });
+
+    test('group sends never open a 1:1 session under the real chatId — the '
+        'pairwise distribution namespace is used instead', () async {
+      final svc = alice.service();
+      await svc.sendMessage(_groupChatId, 'hola', null);
+
+      // The pairwise distribution session lives under the synthetic
+      // 'g:<chatId>:<peer>' key…
+      expect(await alice.sessions.loadSession(
+        'g:$_groupChatId:$_memberBobId',
+      ), isNotNull);
+      // …and the real chatId (the 1:1 namespace) was NEVER used — pinning
+      // that _resolvePeerUserId is not on the group path.
+      expect(await alice.sessions.loadSession(_groupChatId), isNull);
+    });
+
+    test('two concurrent sends on the same group chat serialize their '
+        'cipher encrypts (no overlap → no AEAD key/nonce reuse) and BOTH '
+        'messages land', () async {
+      // Re-stub the fake cipher's encrypt with a Completer-gated overlap
+      // detector: pre-fix two in-flight sends load the same chain root,
+      // derive the same message key and emit two envelopes with the same
+      // AEAD (key, nonce) — GCM nonce reuse (and the second message drops
+      // as a replay on receivers). The per-chat send mutex must keep the
+      // encrypts strictly non-overlapping.
+      final trace = <String>[];
+      var active = 0;
+      var maxActive = 0;
+      final gates = [Completer<void>(), Completer<void>()];
+      var call = 0;
+      when(() => alice.cipher.encrypt(
+            groupChatId: any(named: 'groupChatId'),
+            senderUserId: any(named: 'senderUserId'),
+            groupId: any(named: 'groupId'),
+            plaintext: any(named: 'plaintext'),
+          )).thenAnswer((inv) async {
+        final idx = call++;
+        trace.add('$idx-start');
+        active++;
+        if (active > maxActive) maxActive = active;
+        await gates[idx].future;
+        active--;
+        trace.add('$idx-end');
+        return alice.messageEnvelope;
+      });
+
+      final svc = alice.service();
+      final first = svc.sendMessage(_groupChatId, 'primera', null);
+      final second = svc.sendMessage(_groupChatId, 'segunda', null);
+      // Let both calls progress as far as they can: pre-fix both are inside
+      // encrypt (blocked on the gates); fixed, the second is still queued
+      // behind the first on the per-chat send tail.
+      await pumpEventQueue();
+      gates[0].complete();
+      await pumpEventQueue();
+      gates[1].complete();
+      await Future.wait([first, second]);
+
+      // Both sends succeeded: distribution + message row per send.
+      expect(alice.inserts, hasLength(4));
+      expect(
+        alice.inserts.where((r) => r['recipient_id'] == null),
+        hasLength(2),
+        reason: 'both message rows must land',
+      );
+      expect(
+        alice.inserts.where((r) => r['recipient_id'] == _memberBobId),
+        hasLength(2),
+        reason: 'both distribution rows must land',
+      );
+      // The cipher's encrypt was called exactly twice…
+      verify(() => alice.cipher.encrypt(
+            groupChatId: _groupChatId,
+            senderUserId: _userId,
+            groupId: _groupId,
+            plaintext: any(named: 'plaintext'),
+          )).called(2);
+      // …with strictly serialized invocations: call 1 must not start before
+      // call 0 ends (no overlapping encrypt = no shared chain position).
+      expect(trace, ['0-start', '0-end', '1-start', '1-end'],
+          reason: 'the per-chat send mutex must serialize the two encrypts');
+      expect(maxActive, 1);
+    });
+
+    test('the distribution decrypt path cross-checks the bundle ik_dh '
+        'against the pairwise session\'s BOUND peer identity — a '
+        'spoofed-ik_dh bundle is rejected end-to-end (K1)', () async {
+      // Swap bob's fake cipher for the REAL cipher bound to bob's own
+      // keys/sessions (the identity whose bundle is published on the
+      // server): only the real processSenderKeyBundle applies the
+      // expectedSenderIkDh check — a mock would accept anything.
+      bob.cipher = GroupE2eeCipher(
+        keyStore: bob.keys,
+        sessionStore: bob.sessions,
+      );
+      final aliceSvc = alice.service();
+      final bobSvc = bob.service();
+
+      // Round 1: distribute a NON-bundle plaintext first — the pairwise
+      // session must EXIST (bound to alice's REAL ik_dh) before the spoofed
+      // bundle arrives, otherwise there is no bound identity to check.
+      when(() => alice.cipher.senderKeyBundleJson(
+            groupChatId: any(named: 'groupChatId'),
+            senderUserId: any(named: 'senderUserId'),
+            groupId: any(named: 'groupId'),
+          )).thenAnswer((_) async => 'no-bundle-yet');
+      await aliceSvc.sendMessage(_groupChatId, 'primera', null);
+      await bobSvc.loadMessages(_groupChatId);
+      expect(
+        await bob.sessions.loadSession('g:$_groupChatId:$_userId'),
+        isNotNull,
+        reason: 'the pairwise session must be established before the spoof',
+      );
+
+      // Round 2: the SPOOFED bundle (fake cipher default): sender_user_id is
+      // alice (RLS-bound) but sender_ik_dh is a FOREIGN key — the K1 attack
+      // shape (a learned published key, NOT alice's bound identity).
+      final aliceIkDh =
+          base64UrlNoPadEncode((await alice.keys.loadOrCreateIdentity()).ikDhPublic);
+      final spoofedIkDh = (jsonDecode(_bundleJson) as Map)['sender_ik_dh']
+          as String;
+      expect(spoofedIkDh, isNot(aliceIkDh),
+          reason: 'the harness bundle must genuinely carry a foreign ik_dh');
+      when(() => alice.cipher.senderKeyBundleJson(
+            groupChatId: any(named: 'groupChatId'),
+            senderUserId: any(named: 'senderUserId'),
+            groupId: any(named: 'groupId'),
+          )).thenAnswer((_) async => _bundleJson);
+      await aliceSvc.sendMessage(_groupChatId, 'segunda', null);
+      await bobSvc.loadMessages(_groupChatId);
+
+      // End-to-end: bob did NOT process the spoofed bundle — no sender-key
+      // record exists for alice even though the pairwise decrypt succeeded.
+      expect(
+        await bob.sessions.loadSession(
+          '${GroupE2eeCipher.senderKeyKeyPrefix}$_groupId:$_userId',
+        ),
+        isNull,
+        reason: 'a bundle whose ik_dh the delivering pairwise session did '
+            'not bind must never be accepted (K1 identity binding)',
+      );
+    });
+
+    test('the distribution decrypt path ACCEPTS a bundle whose ik_dh IS the '
+        'pairwise session\'s bound peer identity (the wiring passes the '
+        'bound key through)', () async {
+      bob.cipher = GroupE2eeCipher(
+        keyStore: bob.keys,
+        sessionStore: bob.sessions,
+      );
+      final aliceSvc = alice.service();
+      final bobSvc = bob.service();
+
+      // Establish the pairwise session (round 1, non-bundle plaintext).
+      when(() => alice.cipher.senderKeyBundleJson(
+            groupChatId: any(named: 'groupChatId'),
+            senderUserId: any(named: 'senderUserId'),
+            groupId: any(named: 'groupId'),
+          )).thenAnswer((_) async => 'no-bundle-yet');
+      await aliceSvc.sendMessage(_groupChatId, 'primera', null);
+      await bobSvc.loadMessages(_groupChatId);
+
+      // Round 2: a GENUINE bundle minted by alice's real identity — its
+      // ik_dh equals the key the pairwise session bound.
+      final realAliceGroup = GroupE2eeCipher(
+        keyStore: alice.keys,
+        sessionStore: alice.sessions,
+      );
+      final realBundle = await realAliceGroup.senderKeyBundleJson(
+        groupChatId: _groupChatId,
+        senderUserId: _userId,
+        groupId: _groupId,
+      );
+      when(() => alice.cipher.senderKeyBundleJson(
+            groupChatId: any(named: 'groupChatId'),
+            senderUserId: any(named: 'senderUserId'),
+            groupId: any(named: 'groupId'),
+          )).thenAnswer((_) async => realBundle);
+      await aliceSvc.sendMessage(_groupChatId, 'segunda', null);
+      await bobSvc.loadMessages(_groupChatId);
+
+      final record = await bob.sessions.loadSession(
+        '${GroupE2eeCipher.senderKeyKeyPrefix}$_groupId:$_userId',
+      );
+      expect(record, isNotNull,
+          reason: 'the genuine bundle must be accepted (the reinstall-heal '
+              'path keeps working when the pairwise session bound the NEW '
+              'identity)');
+      final saved = jsonDecode(record!) as Map;
+      expect(saved['sender_ik_dh'],
+          base64UrlNoPadEncode(
+              (await alice.keys.loadOrCreateIdentity()).ikDhPublic),
+          reason: 'the saved record carries alice\'s bound identity');
+    });
+
+    test('1:1 concurrent sends on the same chat serialize their pairwise '
+        'cipher encrypts (no overlap → no AEAD key/nonce reuse) and BOTH '
+        'messages land (K1 — the _sendTail mutex pins the 1:1 path)',
+        () async {
+      // Re-point the chat metadata to a DIRECT chat so the send never
+      // routes to the group path: the 1:1 path uses the REAL pairwise
+      // E2eeSession created inside the service (the harness's real crypto
+      // machinery — X3DH + ratchet).
+      when(() => alice.chatsQb.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>(
+          {'type': 'direct', 'reference_id': null},
+        ),
+      );
+      // Gate the pairwise session's persistence — saveSession is the FINAL
+      // step of the real encrypt. Two overlapping encrypts would enter it
+      // concurrently (pre-fix: both load the same ratchet position and emit
+      // two envelopes with the same AEAD key + nonce — GCM nonce reuse).
+      final gated = _GatedSessionStore(alice.sessions);
+      final svc = alice.service(sessionStore: gated);
+
+      final first = svc.sendMessage(_chatId, 'primera', null);
+      final second = svc.sendMessage(_chatId, 'segunda', null);
+      // Pre-fix both encrypts are inside saveSession (blocked on the
+      // gates); fixed, the second send is still queued behind the first on
+      // the per-chat send tail.
+      await pumpEventQueue();
+      expect(gated.trace, ['0-start'],
+          reason: 'only the first encrypt may be in flight');
+      gated.gates[0].complete();
+      await pumpEventQueue();
+      expect(gated.trace, ['0-start', '0-end', '1-start'],
+          reason: 'the second encrypt starts only after the first completed');
+      gated.gates[1].complete();
+      await Future.wait([first, second]);
+
+      // Both messages inserted as DISTINCT envelopes (serialized chain
+      // positions — never the same AEAD key/nonce).
+      expect(alice.inserts, hasLength(2));
+      expect(alice.inserts[0]['chat_id'], _chatId);
+      expect(alice.inserts[0]['sender_id'], _userId);
+      expect(alice.inserts[0]['content'], isNot(alice.inserts[1]['content']),
+          reason: 'two envelopes from the same chain position would be '
+              'byte-identical');
+      expect(gated.trace, ['0-start', '0-end', '1-start', '1-end']);
+      expect(gated.maxActive, 1,
+          reason: 'the per-chat send mutex must serialize the two encrypts');
+    });
+  });
 }
 
 class _FakePrekeyService implements E2eePrekeyService {
@@ -509,4 +1093,402 @@ class _FakePrekeyService implements E2eePrekeyService {
 
   @override
   Future<void> handleMissingSession() async {}
+}
+
+/// ---------------------------------------------------------------------------
+/// ISSUE 4 group harness: real pairwise E2EE + a FAKE GroupE2eeCipher
+/// ---------------------------------------------------------------------------
+const _groupChatId = '77777777-7777-7777-7777-777777777777';
+const _groupId = '33333333-3333-3333-3333-333333333333';
+const _memberBobId = '22222222-2222-2222-2222-222222222222';
+const _memberCarolId = '55555555-5555-5555-5555-555555555555';
+
+/// The bundle the FAKE group cipher hands out on distribution. `isSenderKeyBundle`
+/// routes on the real `kind` marker, so it must be a well-formed bundle JSON.
+/// v3 wire shape (2026-08-17 rekey epochs): carries `epoch` + `chat_id` so a
+/// future real-cipher switch validates it (and the epoch guard) instead of
+/// silently rejecting a v1-shaped bundle.
+const _bundleJson = '{'
+    '"v":$e2eeSenderKeyBundleVersion,'
+    '"kind":"samay.group_sender_key",'
+    '"group_id":"33333333-3333-3333-3333-333333333333",'
+    '"chat_id":"77777777-7777-7777-7777-777777777777",'
+    '"sender_user_id":"11111111-1111-1111-1111-111111111111",'
+    '"sender_ik_dh":"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",'
+    '"chain_root":"ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0A",'
+    '"chain_index":0,'
+    '"epoch":0,'
+    '"created_at":"2026-08-16T00:00:00Z"'
+    '}';
+
+/// Real type-0x03 sender-key envelope with a deterministic key (the FAKE
+/// cipher's "encrypt" output — structurally valid so the real
+/// `isSenderKeyEnvelope` parser routes it to the 0x03 path).
+Future<String> _makeSenderKeyEnvelope(String plaintext) async {
+  final material = Uint8List.fromList(List.generate(44, (i) => i));
+  final ciphertext = await aesGcmEncrypt(
+    key: Uint8List.sublistView(material, 0, e2eeAeadKeyLength),
+    nonce: Uint8List.sublistView(material, e2eeAeadKeyLength),
+    plaintext: utf8Bytes(plaintext),
+    aad: Uint8List(0),
+  );
+  return base64UrlNoPadEncode(
+    SamayEnvelope.senderKey(
+      senderIkDh: Uint8List.fromList(List.generate(32, (i) => i + 1)),
+      groupId: groupIdToBytes(_groupId),
+      chainIndex: 0,
+      ciphertext: ciphertext,
+    ).encode(),
+  );
+}
+
+class _MockGroupCipher extends Mock implements GroupE2eeCipher {}
+
+class _MockRealtimeService extends Mock implements RealtimeService {}
+
+/// In-memory Supabase stand-in: per-user published prekey rows (atomic OPK
+/// consumption), message rows newest-first, and the chat roster.
+class _GroupFakeServer {
+  _GroupFakeServer({required this.chatId});
+
+  final String chatId;
+  final Map<String, Map<String, dynamic>> prekeys = {};
+  final List<Map<String, dynamic>> rows = [];
+  List<String> roster = [];
+  int _nextMessageId = 0;
+
+  List<Map<String, dynamic>> messagesFor() =>
+      rows.where((r) => r['chat_id'] == chatId).toList();
+
+  Map<String, dynamic>? fetchBundle(String userId) {
+    final row = prekeys[userId];
+    if (row == null) return null;
+    final remaining = (row['one_time_prekeys'] as List).toList();
+    Map<String, dynamic>? popped;
+    if (remaining.isNotEmpty) {
+      popped = Map<String, dynamic>.from(remaining.removeAt(0) as Map);
+      row['one_time_prekeys'] = remaining;
+    }
+    return {
+      'user_id': userId,
+      'identity_key': row['identity_key'],
+      'identity_sig_key': row['identity_sig_key'],
+      'signed_prekey_id': row['signed_prekey_id'],
+      'signed_prekey': row['signed_prekey'],
+      'signed_prekey_sig': row['signed_prekey_sig'],
+      'one_time_prekey': popped,
+    };
+  }
+
+  void insertMessage(String senderId, Map<String, dynamic> payload) {
+    rows.insert(0, {
+      'id': 'msg-${_nextMessageId++}',
+      'chat_id': chatId,
+      'sender_id': senderId,
+      ...payload,
+    });
+  }
+}
+
+class _GroupParty {
+  _GroupParty({
+    required this.userId,
+    required this.server,
+    required this.messageEnvelope,
+  }) {
+    keys = MemoryE2eeKeyStore();
+    sessions = MemoryE2eeSessionStore();
+    plaintext = MemoryMessagePlaintextStore();
+    client = MockSupabaseClient();
+    auth = MockGoTrueClient();
+    messagesQb = MockQueryBuilder();
+    participantsQb = MockQueryBuilder();
+    chatsQb = MockQueryBuilder();
+    prekeysQb = MockQueryBuilder();
+    cipher = _MockGroupCipher();
+
+    when(() => client.auth).thenReturn(auth);
+    when(() => auth.currentUser).thenReturn(User.fromJson({'id': userId}));
+
+    when(() => client.from('messages')).thenAnswer((_) => messagesQb);
+    when(() => messagesQb.select(any())).thenAnswer(
+      (_) => _ServerFilter<List<Map<String, dynamic>>>(
+        () => server.messagesFor(),
+      ),
+    );
+    when(() => messagesQb.insert(any())).thenAnswer((inv) {
+      final payload =
+          Map<String, dynamic>.from(inv.positionalArguments.first as Map);
+      inserts.add(payload);
+      server.insertMessage(userId, payload);
+      return _FixedFilter<dynamic>(null);
+    });
+
+    when(() => client.from('chat_participants')).thenAnswer((_) => participantsQb);
+    when(() => participantsQb.select(any())).thenAnswer(
+      (_) => _ServerFilter<List<Map<String, dynamic>>>(
+        () => [for (final uid in server.roster) {'user_id': uid}],
+      ),
+    );
+
+    // Chat-type resolution: the group chat row (type + reference_id).
+    when(() => client.from('chats')).thenAnswer((_) => chatsQb);
+    when(() => chatsQb.select(any())).thenAnswer(
+      (_) => ResolvingBuilder<PostgrestList>({
+        'type': 'group',
+        'reference_id': _groupId,
+      }),
+    );
+
+    when(() => client.from(SupabaseE2eePrekeyService.tableName))
+        .thenAnswer((_) => prekeysQb);
+    when(() => prekeysQb.select()).thenAnswer(
+      (_) => _ServerFilter<List<Map<String, dynamic>>>(
+        () {
+          final row = server.prekeys[userId];
+          return row == null ? const [] : [Map<String, dynamic>.from(row)];
+        },
+      ),
+    );
+    when(() => prekeysQb.select(any())).thenAnswer(
+      (_) => _ServerFilter<List<Map<String, dynamic>>>(
+        () {
+          final row = server.prekeys[userId];
+          return row == null ? const [] : [Map<String, dynamic>.from(row)];
+        },
+      ),
+    );
+    when(() => prekeysQb.upsert(any(), onConflict: any(named: 'onConflict')))
+        .thenAnswer((inv) {
+      server.prekeys[userId] = {
+        'consumed_one_time_prekeys': const [],
+        ...Map<String, dynamic>.from(inv.positionalArguments.first as Map),
+      };
+      return _FixedFilter<dynamic>(null);
+    });
+
+    when(() => client.rpc('fetch_prekey_bundle', params: any(named: 'params')))
+        .thenAnswer((inv) {
+      final params = inv.namedArguments[#params] as Map;
+      return _FixedFilter<dynamic>(
+        server.fetchBundle(params['p_user_id'] as String),
+      );
+    });
+
+    // The FAKE group cipher. Key-holding operations are stubbed; format
+    // checks use the real parsers so routing behaves like production. The
+    // K1 identity-binding tests swap in a REAL cipher (same keys/sessions)
+    // before building the service — only the real processSenderKeyBundle
+    // can reject a spoofed bundle.
+    when(() => cipher.isSenderKeyEnvelope(any())).thenAnswer((inv) async {
+      final env = inv.positionalArguments.first as String;
+      final bytes = base64UrlNoPadDecode(env);
+      return bytes != null &&
+          SamayEnvelope.tryParse(bytes)?.type == e2eeEnvelopeTypeSenderKey;
+    });
+    when(() => cipher.isSenderKeyBundle(any())).thenAnswer((inv) async {
+      final plaintext = inv.positionalArguments.first as String;
+      try {
+        final decoded = jsonDecode(plaintext);
+        return decoded is Map && decoded['kind'] == e2eeSenderKeyBundleKind;
+      } on FormatException {
+        return false;
+      }
+    });
+    when(() => cipher.senderKeyBundleJson(
+          groupChatId: any(named: 'groupChatId'),
+          senderUserId: any(named: 'senderUserId'),
+          groupId: any(named: 'groupId'),
+        )).thenAnswer((_) async => _bundleJson);
+    when(() => cipher.membersMissingSenderKey(
+          groupChatId: any(named: 'groupChatId'),
+          senderUserId: any(named: 'senderUserId'),
+          activeMemberIds: any(named: 'activeMemberIds'),
+        )).thenAnswer((inv) async {
+      final roster =
+          (inv.namedArguments[#activeMemberIds] as List).cast<String>();
+      final me = inv.namedArguments[#senderUserId] as String;
+      // The fake never "holds" anyone's chain — every other member is missing.
+      return [for (final m in roster) if (m != me) m];
+    });
+    when(() => cipher.wipeGroupKeys(any())).thenAnswer((_) async {});
+    when(() => cipher.markSenderKeyDistributed(
+          groupChatId: any(named: 'groupChatId'),
+          senderUserId: any(named: 'senderUserId'),
+          memberIds: any(named: 'memberIds'),
+        )).thenAnswer((_) async {});
+    when(() => cipher.processSenderKeyBundle(
+          groupChatId: any(named: 'groupChatId'),
+          senderUserId: any(named: 'senderUserId'),
+          groupId: any(named: 'groupId'),
+          bundleJson: any(named: 'bundleJson'),
+        )).thenAnswer((_) async {});
+    when(() => cipher.encrypt(
+          groupChatId: any(named: 'groupChatId'),
+          senderUserId: any(named: 'senderUserId'),
+          groupId: any(named: 'groupId'),
+          plaintext: any(named: 'plaintext'),
+        )).thenAnswer((_) async => messageEnvelope);
+    when(() => cipher.decrypt(
+          groupChatId: any(named: 'groupChatId'),
+          senderUserId: any(named: 'senderUserId'),
+          envelope: any(named: 'envelope'),
+        )).thenAnswer((inv) async {
+      final env = inv.namedArguments[#envelope] as String;
+      return decryptResults[env] ?? const E2eeDecryptResult.plaintext('hola grupo');
+    });
+
+    prekeyService = SupabaseE2eePrekeyService(client: client, keyStore: keys);
+  }
+
+  final String userId;
+  final _GroupFakeServer server;
+  late final MemoryE2eeKeyStore keys;
+  late final MemoryE2eeSessionStore sessions;
+  late final MemoryMessagePlaintextStore plaintext;
+  late final MockSupabaseClient client;
+  late final MockGoTrueClient auth;
+  late final MockQueryBuilder messagesQb;
+  late final MockQueryBuilder participantsQb;
+  late final MockQueryBuilder chatsQb;
+  late final MockQueryBuilder prekeysQb;
+
+  /// The group cipher the service is built with. Defaults to the mocktail
+  /// fake; the K1 identity-binding tests REPLACE it with a real
+  /// [GroupE2eeCipher] bound to [keys]/[sessions] (the fake can only
+  /// accept — only the real `processSenderKeyBundle` applies the
+  /// expectedSenderIkDh check).
+  late GroupE2eeCipher cipher;
+  late final SupabaseE2eePrekeyService prekeyService;
+
+  /// Insert payloads captured in call order (distribution rows first, then
+  /// the message row).
+  final List<Map<String, dynamic>> inserts = [];
+
+  /// Per-envelope decrypt verdicts for the FAKE group cipher (default:
+  /// plaintext).
+  final Map<String, E2eeDecryptResult> decryptResults = {};
+
+  /// A structurally real type-0x03 envelope — the fake cipher's "encrypt"
+  /// output.
+  final String messageEnvelope;
+
+  ChatService service({
+    RealtimeService? realtime,
+    E2eeSessionStore? sessionStore,
+  }) =>
+      ChatService(
+        client: client,
+        realtime: realtime ?? RealtimeService(client: client),
+        e2eeKeyStore: keys,
+        e2eeSessionStore: sessionStore ?? sessions,
+        e2eePrekeyService: prekeyService,
+        plaintextStore: plaintext,
+        groupCipher: cipher,
+      );
+}
+
+/// Wraps an [E2eeSessionStore] and gates every `saveSession` on a Completer —
+/// the overlap detector for the 1:1 concurrent-send pin: the pairwise encrypt
+/// persists the session as its FINAL step, so two overlapping encrypts would
+/// enter saveSession concurrently (pre-serial both derive the same ratchet
+/// position and emit two envelopes with the same AEAD key + nonce).
+class _GatedSessionStore implements E2eeSessionStore {
+  _GatedSessionStore(this._inner);
+
+  final E2eeSessionStore _inner;
+
+  /// One gate per expected saveSession call (the two sends).
+  final List<Completer<void>> gates = [Completer<void>(), Completer<void>()];
+
+  /// Enter/leave trace of the gated saveSession calls.
+  final List<String> trace = [];
+
+  int _call = 0;
+  int _active = 0;
+
+  /// Peak number of saveSession calls in flight — MUST stay 1 (serialized
+  /// encrypts) for the pin to hold.
+  int maxActive = 0;
+
+  @override
+  Future<String?> loadSession(String chatId) => _inner.loadSession(chatId);
+
+  @override
+  Future<void> saveSession(String chatId, String json) async {
+    final idx = _call++;
+    trace.add('$idx-start');
+    _active++;
+    if (_active > maxActive) maxActive = _active;
+    await gates[idx].future;
+    _active--;
+    trace.add('$idx-end');
+    return _inner.saveSession(chatId, json);
+  }
+
+  @override
+  Future<void> deleteSession(String chatId) => _inner.deleteSession(chatId);
+
+  @override
+  Future<Map<String, String>> sessionIndex() => _inner.sessionIndex();
+
+  @override
+  Future<void> sweepExpiredSessions({int maxAgeDays = 90}) =>
+      _inner.sweepExpiredSessions(maxAgeDays: maxAgeDays);
+
+  @override
+  Future<void> wipeAll() => _inner.wipeAll();
+}
+
+/// A Postgrest filter that resolves to a value freshly computed at await time
+/// (every call sees the current server state).
+class _ServerFilter<T> extends PostgrestFilterBuilder<T> {  _ServerFilter(this._resolve)
+      : super(PostgrestBuilder(
+          url: Uri.parse('http://localhost/fake'),
+          headers: const {},
+        ));
+
+  final T Function() _resolve;
+
+  @override
+  _ServerFilter<T> eq(String column, Object value) => this;
+
+  @override
+  _ServerFilter<T> order(
+    String column, {
+    bool ascending = false,
+    bool nullsFirst = false,
+    String? referencedTable,
+  }) =>
+      this;
+
+  @override
+  _ServerFilter<T> range(int from, int to, {String? referencedTable}) => this;
+
+  @override
+  Future<U> then<U>(
+    FutureOr<U> Function(T value) onValue, {
+    Function? onError,
+  }) {
+    return Future<U>.value(onValue(_resolve()));
+  }
+}
+
+/// A filter that resolves to a fixed value (RPC results, insert acks).
+class _FixedFilter<T> extends PostgrestFilterBuilder<T> {
+  _FixedFilter(this._value)
+      : super(PostgrestBuilder(
+          url: Uri.parse('http://localhost/fake'),
+          headers: const {},
+        ));
+
+  final Object? _value;
+
+  @override
+  Future<U> then<U>(
+    FutureOr<U> Function(T value) onValue, {
+    Function? onError,
+  }) {
+    return Future<U>.value(onValue(_value as T));
+  }
 }

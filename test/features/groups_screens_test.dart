@@ -599,11 +599,11 @@ void main() {
       ]);
       await tester.pumpAndSettle();
       expect(
-        find.text('DISCO CREW'),
+        find.text('Disco Crew'),
         findsOneWidget,
         reason:
-            'LUXE MAYUS — the detail hero name renders uppercase through '
-            'VDisplayText',
+            'USER FIX 4 — the name renders only in the AppBar title next to '
+            'the back arrow (no hero banner)',
       );
       expect(find.text('Chat'), findsOneWidget);
       expect(find.text('Miembros'), findsOneWidget);

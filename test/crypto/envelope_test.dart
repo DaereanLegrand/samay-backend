@@ -142,10 +142,77 @@ void main() {
 
     test('unknown type → null', () {
       final bytes = _sampleRatchet().encode();
-      bytes[5] = 0x03;
+      // 0x03 (sender key) is a known type since ISSUE 4 — use 0x04 instead.
+      bytes[5] = 0x04;
       expect(SamayEnvelope.tryParse(bytes), isNull);
       bytes[5] = 0x00;
       expect(SamayEnvelope.tryParse(bytes), isNull);
+    });
+  });
+
+  group('type 0x03 — sender-key envelope (group chat, ISSUE 4)', () {
+    SamayEnvelope sample() => SamayEnvelope.senderKey(
+      senderIkDh: _bytes(32, 0x30),
+      groupId: groupIdToBytes('3b241101-e2bb-4255-8caf-4136c566a962'),
+      chainIndex: 5,
+      ciphertext: _bytes(24, 0x40),
+    );
+
+    test('senderKeyHeaderSize constant = 62 bytes', () {
+      expect(SamayEnvelope.senderKeyHeaderSize, 62);
+    });
+
+    test('byte-exact round-trip encode/parse', () {
+      final env = sample();
+      final bytes = env.encode();
+      expect(bytes.length, SamayEnvelope.senderKeyHeaderSize + 24);
+
+      final parsed = SamayEnvelope.tryParse(bytes);
+      expect(parsed, isNotNull);
+      expect(parsed!.type, e2eeEnvelopeTypeSenderKey);
+      expect(parsed.senderIkDh, equals(env.senderIkDh));
+      expect(parsed.groupId, equals(env.groupId));
+      expect(parsed.chainIndex, 5);
+      expect(parsed.ciphertext, equals(env.ciphertext));
+      expect(parsed.encode(), equals(bytes));
+    });
+
+    test('field boundaries land on the fixed offsets', () {
+      final bytes = sample().encode();
+      expect(bytes.sublist(0, 4), equals([0x53, 0x4D, 0x45, 0x32]));
+      expect(bytes[4], 0x01); // version
+      expect(bytes[5], 0x03); // type
+      expect(bytes.sublist(6, 38), equals(_bytes(32, 0x30))); // sender_ik_dh
+      expect(bytes.sublist(38, 54), equals(groupIdToBytes('3b241101-e2bb-4255-8caf-4136c566a962'))); // group_id
+      expect(readU32be(bytes, 54), 5); // chain_index
+      expect(readU32be(bytes, 58), 24); // ct_len
+    });
+
+    test('groupId encode/decode helpers round-trip', () {
+      final uuid = '3b241101-e2bb-4255-8caf-4136c566a962';
+      final raw = groupIdToBytes(uuid);
+      expect(raw.length, e2eeEnvelopeGroupIdLength);
+      expect(groupIdFromBytes(raw), uuid);
+      expect(() => groupIdToBytes('not-a-uuid'), throwsArgumentError);
+      expect(() => groupIdToBytes('3b241101e2bb42558caf4136c566a96'), throwsArgumentError);
+    });
+
+    test('malformed 0x03 → null (E2EE §6.5)', () {
+      final bytes = sample().encode();
+      expect(SamayEnvelope.tryParse(bytes.sublist(0, bytes.length - 1)), isNull);
+      expect(SamayEnvelope.tryParse(bytes.sublist(0, 40)), isNull);
+      // Oversized ct_len (offset 58) → rejected before any crypto.
+      final oversized = Uint8List.fromList(bytes);
+      oversized[58] = 0xFF;
+      oversized[59] = 0xFF;
+      oversized[60] = 0xFF;
+      oversized[61] = 0xFF;
+      expect(SamayEnvelope.tryParse(oversized), isNull);
+      // Bad magic / bad version.
+      final badMagic = Uint8List.fromList(bytes)..[0] = 0x00;
+      expect(SamayEnvelope.tryParse(badMagic), isNull);
+      final badVersion = Uint8List.fromList(bytes)..[4] = 0x02;
+      expect(SamayEnvelope.tryParse(badVersion), isNull);
     });
   });
 

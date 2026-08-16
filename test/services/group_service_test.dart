@@ -292,6 +292,16 @@ void main() {
       expect(rows.filters, contains(
         const RecordedFilter('status', 'active'),
       ));
+      // OPT-009 regression: the select must carry `group_id` (the freezed
+      // GroupMember.fromJson requires it — a missing key TypeError'd the
+      // whole group detail screen into "Error del servidor") and must join
+      // through the security-barrier `user_search_view` (the raw `users`
+      // join is own-row-only under RLS, so co-members' usernames were
+      // silently dropped from the member list).
+      verify(() => members.select(
+        'id, group_id, user_id, role, joined_at, status, '
+        'users:user_search_view!inner(username)',
+      )).called(1);
     });
 
     test('getGroupInvites returns invited memberships', () async {
@@ -315,8 +325,8 @@ void main() {
     });
   });
 
-  group('GroupService.getMyGroups (my_role enrichment)', () {
-    test('merges the membership role into every group row', () async {
+  group('GroupService.getMyGroups (my_role + my_status enrichment)', () {
+    test('merges the membership role and status into every group row', () async {
       when(() => auth.currentUser).thenReturn(_currentUser());
       final members = MockQueryBuilder();
       final groups = MockQueryBuilder();
@@ -324,8 +334,8 @@ void main() {
       when(() => client.from('groups')).thenAnswer((_) => groups);
       when(() => members.select(any())).thenAnswer(
         (_) => ResolvingBuilder<PostgrestList>([
-          {'group_id': 'g-1', 'role': 'promotor'},
-          {'group_id': 'g-2', 'role': 'member'},
+          {'group_id': 'g-1', 'role': 'promotor', 'status': 'active'},
+          {'group_id': 'g-2', 'role': 'member', 'status': 'invited'},
         ]),
       );
       when(() => groups.select()).thenAnswer(
@@ -339,7 +349,12 @@ void main() {
 
       expect(mine, hasLength(2));
       expect(mine.firstWhere((g) => g['id'] == 'g-1')['my_role'], 'promotor');
+      expect(mine.firstWhere((g) => g['id'] == 'g-1')['my_status'], 'active');
       expect(mine.firstWhere((g) => g['id'] == 'g-2')['my_role'], 'member');
+      expect(mine.firstWhere((g) => g['id'] == 'g-2')['my_status'], 'invited');
+      // ISSUE 2: the select must carry `status` or invited memberships lose
+      // their pending marker (they appeared in the list without one).
+      verify(() => members.select('group_id, role, status')).called(1);
     });
 
     test('returns an empty list when there are no memberships', () async {
@@ -351,6 +366,53 @@ void main() {
 
       expect(await service().getMyGroups(), isEmpty);
       verifyNever(() => client.from('groups'));
+    });
+  });
+
+  group('GroupService.getMyMembership (ISSUE 2)', () {
+    test('returns the caller\'s own membership row for the group', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final members = MockQueryBuilder();
+      when(() => client.from('group_members')).thenAnswer((_) => members);
+      final rows = ResolvingBuilder<PostgrestList>({
+        'id': 'm-1',
+        'group_id': _groupId,
+        'role': 'member',
+        'status': 'invited',
+      });
+      when(() => members.select(any())).thenAnswer((_) => rows);
+
+      final membership = await service().getMyMembership(_groupId);
+
+      expect(membership, isNotNull);
+      expect(membership!['id'], 'm-1');
+      expect(membership['group_id'], _groupId);
+      expect(membership['role'], 'member');
+      expect(membership['status'], 'invited');
+      // The select carries id/group_id/role/status — the detail screen needs
+      // the membership id to accept/decline the invite.
+      verify(() => members.select('id, group_id, role, status')).called(1);
+      expect(rows.filters, contains(const RecordedFilter('group_id', _groupId)));
+    });
+
+    test('returns null when the caller has no membership row', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final members = MockQueryBuilder();
+      when(() => client.from('group_members')).thenAnswer((_) => members);
+      when(() => members.select(any()))
+          .thenAnswer((_) => ResolvingBuilder<PostgrestList>(null));
+
+      expect(await service().getMyMembership(_groupId), isNull);
+    });
+
+    test('throws without an authenticated session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+
+      expect(
+        () => service().getMyMembership(_groupId),
+        throwsA(isA<Exception>()),
+      );
+      verifyNever(() => client.from('group_members'));
     });
   });
 
@@ -374,19 +436,71 @@ void main() {
     });
   });
 
-  group('GroupService.transferPromotor / setMemberRole / kickMember', () {
-    test('transferPromotor demotes the old promotor and promotes the new one',
+  group('GroupService.getGroupChatId (ISSUE 4 / D3d)', () {
+    test('returns the chats.id of the group chat (type=group, reference_id)',
         () async {
+      final chats = MockQueryBuilder();
+      when(() => client.from('chats')).thenAnswer((_) => chats);
+      final rows = ResolvingBuilder<PostgrestList>({'id': 'chat-1'});
+      when(() => chats.select(any())).thenAnswer((_) => rows);
+
+      final chatId = await service().getGroupChatId(_groupId);
+
+      expect(chatId, 'chat-1');
+      verify(() => chats.select('id')).called(1);
+      // The lookup is scoped to the group chat row of THIS group.
+      expect(rows.filters, containsAllInOrder([
+        const RecordedFilter('type', 'group'),
+        const RecordedFilter('reference_id', _groupId),
+      ]));
+    });
+
+    test('returns null when the group has no chat row', () async {
+      final chats = MockQueryBuilder();
+      when(() => client.from('chats')).thenAnswer((_) => chats);
+      when(() => chats.select(any()))
+          .thenAnswer((_) => ResolvingBuilder<PostgrestList>(null));
+
+      expect(await service().getGroupChatId(_groupId), isNull);
+    });
+
+    test('propagates a permission-denied PostgrestException', () async {
+      final chats = MockQueryBuilder();
+      when(() => client.from('chats')).thenAnswer((_) => chats);
+      when(() => chats.select(any())).thenThrow(
+        const PostgrestException(
+          message: 'new row violates row-level security policy',
+          code: '42501',
+        ),
+      );
+
+      final err =
+          await captureError(() => service().getGroupChatId(_groupId));
+      expect(err, isA<PostgrestException>());
+      expectMapped(err, PermissionError);
+    });
+  });
+
+  group('GroupService.transferPromotor / setMemberRole / kickMember', () {
+    test('transferPromotor runs the transfer_promotor RPC (OPT-009 chain: '
+        'promotor-only, atomic — the old two-PATCH dance let co_promotors '
+        'interleave and broke under the role-hierarchy RLS)', () async {
       when(() => auth.currentUser).thenReturn(_currentUser());
-      final members = MockQueryBuilder();
-      when(() => client.from('group_members')).thenAnswer((_) => members);
-      when(() => members.update(any()))
-          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
+      final rpc = ResolvingBuilder<dynamic>({'status': 'ok'});
+      when(
+        () => client.rpc(
+          'transfer_promotor',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => rpc);
 
       await service().transferPromotor(_groupId, _memberId);
 
-      verify(() => members.update({'role': 'co_promotor'})).called(1);
-      verify(() => members.update({'role': 'promotor'})).called(1);
+      verify(() => client.rpc('transfer_promotor', params: {
+        'p_group_id': _groupId,
+        'p_new_promotor_id': _memberId,
+      })).called(1);
+      verifyNever(() => client.from('group_members'));
     });
 
     test('setMemberRole updates the role for the target member', () async {

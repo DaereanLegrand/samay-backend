@@ -66,13 +66,14 @@ void main() {
   Map<String, dynamic> row({
     String chatId = 'chat-1',
     String peer = 'peer-1',
+    String type = 'direct',
     String username = 'bob',
     int unread = 0,
     String senderId = 'peer-1',
   }) =>
       {
         'chat_id': chatId,
-        'type': 'direct',
+        'type': type,
         'peer_id': peer,
         'peer_username': username,
         'last_message_id': 'm-1',
@@ -97,6 +98,31 @@ void main() {
     expect(find.text('bob'), findsOneWidget);
     expect(find.text('hola bob'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
+  });
+
+  testWidgets('a GROUP-type row renders the group icon avatar + the group '
+      'name as the title (D4d)', (tester) async {
+    await pump(tester, rows: [
+      row(chatId: 'chat-g', type: 'group', username: 'Disco Crew', unread: 1),
+    ]);
+
+    // The avatar square carries the group icon instead of the initial letter.
+    final tile = find.byType(Container);
+    expect(
+      find.descendant(of: tile, matching: find.byIcon(Icons.group)),
+      findsOneWidget,
+      reason:
+          'group rows swap the initial-letter avatar for the group icon '
+          '(ISSUE 4)',
+    );
+    expect(
+      find.byIcon(Icons.group),
+      findsOneWidget,
+      reason: 'the group icon renders exactly once',
+    );
+    // The group name stays as the row title (server RPC peer_username).
+    expect(find.text('Disco Crew'), findsOneWidget);
+    expect(find.text('hola bob'), findsOneWidget);
   });
 
   testWidgets('own last message gets the "Tú:" prefix', (tester) async {

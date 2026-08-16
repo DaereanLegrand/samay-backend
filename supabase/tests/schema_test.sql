@@ -1,8 +1,8 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all migrations through 20260815000006 (message deletion).
+-- Covers all migrations through 20260817000005 (deleted_messages RLS).
 BEGIN;
 
-SELECT plan(428);
+SELECT plan(476);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -1681,6 +1681,247 @@ SELECT has_function('notify_feature_request', ARRAY[]::name[],
     'notify_feature_request exists (NTRG #8)');
 SELECT has_trigger('feature_requests', 'notify_feature_request_trigger',
     'feature_requests has notify_feature_request_trigger');
+
+
+-- ============================================================
+-- SECTION 55: Group chain of command (migration 20260816000001)
+-- ============================================================
+SELECT has_function('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[],
+    'transfer_promotor exists (OPT-009 — atomic promotor handover)');
+SELECT is_definer('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[],
+    'transfer_promotor is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'transfer_promotor'),
+    'transfer_promotor sets search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[], 'public', ARRAY[]::name[],
+    'transfer_promotor is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'transfer_promotor is authenticated-EXECUTABLE');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%co_promotor%'
+       AND pg_get_functiondef(p.oid) LIKE '%not_promotor%'
+       AND pg_get_functiondef(p.oid) LIKE '%role = ''promotor''%'
+     FROM pg_proc p WHERE proname = 'transfer_promotor'),
+    'transfer_promotor is promotor-only and demotes self + promotes successor'
+);
+SELECT has_function('public', 'promote_next_member', ARRAY['uuid']::name[],
+    'promote_next_member exists (OPT-009 — successor pick)');
+SELECT is_definer('public', 'promote_next_member', ARRAY['uuid']::name[],
+    'promote_next_member is SECURITY DEFINER');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%role = ''co_promotor''%'
+       AND pg_get_functiondef(p.oid) LIKE '%random()%'
+       AND pg_get_functiondef(p.oid) LIKE '%status = ''active''%'
+     FROM pg_proc p WHERE proname = 'promote_next_member'),
+    'promote_next_member prefers co_promotors, random pick, active-only'
+);
+SELECT has_function('public', 'reassign_group_promotor', ARRAY[]::name[],
+    'reassign_group_promotor exists (OPT-009 — ban/delete leadership pass)');
+SELECT is_definer('public', 'reassign_group_promotor', ARRAY[]::name[],
+    'reassign_group_promotor is SECURITY DEFINER');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%banned_at%'
+       AND pg_get_functiondef(p.oid) LIKE '%deleted_at%'
+       AND pg_get_functiondef(p.oid) LIKE '%promote_next_member%'
+     FROM pg_proc p WHERE proname = 'reassign_group_promotor'),
+    'reassign_group_promotor demotes banned/deleted promotors and passes leadership'
+);
+SELECT has_trigger('group_members', 'reassign_group_promotor_delete_trigger',
+    'group_members has the promotor-reassignment delete trigger');
+SELECT has_trigger('users', 'reassign_group_promotor_user_trigger',
+    'users has the promotor-reassignment ban/delete trigger');
+
+-- ============================================================
+-- SECTION 56: Group chat E2EE support (migrations 20260817000001
+-- through 20260817000004, ISSUE 4 — D1/D3 + the F5/F6/F7 fix round)
+--   56a. 20260817000001 — group_members realtime (publication + REPLICA
+--        IDENTITY FULL, mirroring the messages/friendships pattern).
+--   56b. 20260817000002 — participant-sync triggers + SECURITY DEFINER
+--        functions (search_path = '', not PUBLIC-executable); active-only
+--        RLS gates on the group branches of the three chat policies;
+--        get_chat_inbox group branch (groups.name join, peer_id NULL).
+--   56c. 20260817000003 — messages.recipient_id (uuid, nullable).
+--   56d. 20260817000004 — accept_friend_request RPC (addressee-only,
+--        pending-only, authenticated-only) + get_chat_inbox now carries
+--        last_message_recipient_id + enforce_message_cap skips
+--        recipient_id (distribution) rows (behavioral, rolled back).
+-- ============================================================
+
+-- 56a: group_members realtime (20260817000001)
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'group_members'
+    ),
+    'group_members is in the supabase_realtime publication (20260817000001)'
+);
+SELECT is(
+    (SELECT relreplident FROM pg_class WHERE oid = 'public.group_members'::regclass),
+    'f',
+    'group_members has REPLICA IDENTITY FULL (realtime full-row delivery, 20260817000001)'
+);
+
+-- 56b: participant-sync triggers + functions + active RLS gates (20260817000002)
+SELECT has_trigger('group_members', 'sync_group_chat_participant_trigger',
+    'group_members has the chat-participant sync trigger (D1b)');
+SELECT has_trigger('chats', 'sync_group_chat_participants_on_chats_trigger',
+    'chats has the participant-backfill sync trigger (D1c)');
+SELECT has_function('public', 'sync_group_chat_participant', ARRAY[]::name[],
+    'sync_group_chat_participant exists (D1b trigger function)');
+SELECT is_definer('public', 'sync_group_chat_participant', ARRAY[]::name[],
+    'sync_group_chat_participant is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'sync_group_chat_participant'),
+    'sync_group_chat_participant sets search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'sync_group_chat_participant', ARRAY[]::name[], 'public', ARRAY[]::name[],
+    'sync_group_chat_participant is not PUBLIC-EXECUTABLE (Section 48 posture)');
+SELECT has_function('public', 'sync_group_chat_participants_on_chats', ARRAY[]::name[],
+    'sync_group_chat_participants_on_chats exists (D1c trigger function)');
+SELECT is_definer('public', 'sync_group_chat_participants_on_chats', ARRAY[]::name[],
+    'sync_group_chat_participants_on_chats is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'sync_group_chat_participants_on_chats'),
+    'sync_group_chat_participants_on_chats sets search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'sync_group_chat_participants_on_chats', ARRAY[]::name[], 'public', ARRAY[]::name[],
+    'sync_group_chat_participants_on_chats is not PUBLIC-EXECUTABLE (Section 48 posture)');
+-- 56b: active-only gates on the group branches (D1e) — invited users are
+-- excluded from group chats until they accept.
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_policies p
+            WHERE p.schemaname = 'public' AND p.tablename = 'messages'
+              AND p.policyname = 'messages_read_participant'
+              AND EXISTS (SELECT 1 FROM regexp_matches(p.qual, 'status = ''active'''))),
+    'messages_read_participant group branch gates on status = ''active'' (D1e)'
+);
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_policies p
+            WHERE p.schemaname = 'public' AND p.tablename = 'messages'
+              AND p.policyname = 'messages_insert_participant'
+              AND EXISTS (SELECT 1 FROM regexp_matches(p.with_check, 'status = ''active'''))),
+    'messages_insert_participant group branch gates on status = ''active'' (D1e)'
+);
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_policies p
+            WHERE p.schemaname = 'public' AND p.tablename = 'chats'
+              AND p.policyname = 'chats_read_participant'
+              AND EXISTS (SELECT 1 FROM regexp_matches(p.qual, 'status = ''active'''))),
+    'chats_read_participant group branch gates on status = ''active'' (D1e)'
+);
+-- 56b: get_chat_inbox group branch (D1d) — groups.name join + peer_id NULL.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.groups g%'
+       AND pg_get_functiondef(p.oid) LIKE '%g.name%'
+       AND pg_get_functiondef(p.oid) LIKE '%THEN NULL ELSE usv.id%'
+     FROM pg_proc p WHERE proname = 'get_chat_inbox'),
+    'get_chat_inbox group branch joins groups.name and keeps peer_id NULL (D1d)'
+);
+
+-- 56c: distribution addressing (20260817000003)
+SELECT has_column('messages', 'recipient_id',
+    'messages.recipient_id exists — sender-key distribution targeting (20260817000003)');
+SELECT col_type_is('messages', 'recipient_id', 'uuid',
+    'messages.recipient_id is uuid (the target member id)');
+SELECT col_is_null('messages', 'recipient_id',
+    'messages.recipient_id is nullable — NULL on ordinary message rows');
+
+-- 56d: fix round (20260817000004)
+SELECT has_function('public', 'accept_friend_request', ARRAY['uuid']::name[],
+    'accept_friend_request(p_friendship_id uuid) exists (F6 — addressee-only acceptance)');
+SELECT is_definer('public', 'accept_friend_request', ARRAY['uuid']::name[],
+    'accept_friend_request is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'accept_friend_request'),
+    'accept_friend_request sets search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'accept_friend_request', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'accept_friend_request is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'accept_friend_request', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'accept_friend_request is authenticated-EXECUTABLE');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%last_message_recipient_id%'
+     FROM pg_proc p WHERE proname = 'get_chat_inbox'),
+    'get_chat_inbox returns last_message_recipient_id (F5 — preview skips non-target distribution rows)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%recipient_id IS NULL%'
+     FROM pg_proc p WHERE proname = 'enforce_message_cap'),
+    'enforce_message_cap rolling-window DELETE skips recipient_id rows (F7)'
+);
+-- 56d: behavioral cap check (rolled back with the suite): cap=3, 2 recipient
+-- rows FIRST (oldest — the old trigger would prune them) + 4 ordinary rows →
+-- only ordinary rows are pruned; the distribution rows survive.
+SELECT lives_ok($$
+    INSERT INTO public.users (id, username) VALUES
+        ('88888888-8888-8888-8888-888888888801', 'pg56_cap_sender');
+    INSERT INTO public.chats (id, type) VALUES
+        ('88888888-8888-8888-8888-888888888811', 'direct');
+    INSERT INTO public.app_config (key, value) VALUES ('chat.message_cap', '3')
+        ON CONFLICT (key) DO UPDATE SET value = '3';
+    INSERT INTO public.messages (id, chat_id, sender_id, content, recipient_id, created_at) VALUES
+        ('88888888-8888-8888-8888-888888888825', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'r1', '88888888-8888-8888-8888-888888888802', '2026-08-17T00:00:01Z'),
+        ('88888888-8888-8888-8888-888888888826', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'r2', '88888888-8888-8888-8888-888888888802', '2026-08-17T00:00:02Z'),
+        ('88888888-8888-8888-8888-888888888821', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'n1', NULL, '2026-08-17T00:00:03Z'),
+        ('88888888-8888-8888-8888-888888888822', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'n2', NULL, '2026-08-17T00:00:04Z'),
+        ('88888888-8888-8888-8888-888888888823', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'n3', NULL, '2026-08-17T00:00:05Z'),
+        ('88888888-8888-8888-8888-888888888824', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'n4', NULL, '2026-08-17T00:00:06Z');
+$$, 'cap behavior (F7): inserting beyond the cap with recipient_id rows succeeds');
+SELECT is(
+    (SELECT count(*) FROM public.messages
+      WHERE chat_id = '88888888-8888-8888-8888-888888888811'
+        AND recipient_id IS NOT NULL),
+    2::bigint,
+    'cap behavior (F7): both recipient_id rows survive beyond the cap'
+);
+SELECT is(
+    (SELECT count(*) FROM public.messages
+      WHERE chat_id = '88888888-8888-8888-8888-888888888811'),
+    3::bigint,
+    'cap behavior (F7): the chat holds cap + surviving distribution rows (n4 + r1 + r2)'
+);
+SELECT is(
+    (SELECT count(*) FROM public.messages
+      WHERE chat_id = '88888888-8888-8888-8888-888888888811'
+        AND id IN ('88888888-8888-8888-8888-888888888821',
+                   '88888888-8888-8888-8888-888888888822',
+                   '88888888-8888-8888-8888-888888888823')),
+    0::bigint,
+    'cap behavior (F7): the three oldest ordinary rows are pruned (n1..n3 gone)'
+);
+SELECT is(
+    (SELECT count(*) FROM public.messages
+      WHERE chat_id = '88888888-8888-8888-8888-888888888811'
+        AND recipient_id IS NULL),
+    1::bigint,
+    'cap behavior (F7): ordinary rows are pruned down to the cap (n4 survives)'
+);
+
+-- ============================================================
+-- 56e: deleted_messages RLS (migration 20260817000005 — K1 re-audit:
+-- the deletion audit trail was created WITHOUT RLS; it now ENABLEs +
+-- FORCEs RLS and carries the admin_audit_log no-access policy, so no
+-- anon/authenticated client can read or write the deletion trail. The
+-- SECURITY DEFINER RPCs (delete_message_for_everyone /
+-- delete_undecryptable_messages) run as the definer (superuser) and
+-- bypass RLS — they keep writing the audit rows unchanged.
+-- ============================================================
+SELECT ok(
+    (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.deleted_messages'::regclass),
+    'deleted_messages has RLS enabled (migration 20260817000005)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.deleted_messages'::regclass),
+    'deleted_messages has FORCE ROW LEVEL SECURITY (migration 20260817000005)'
+);
+SELECT policies_are('deleted_messages', ARRAY[
+    'deleted_messages_no_access'
+], 'deleted_messages is service_role only (no_access policy, migration 20260817000005)');
 
 SELECT * FROM finish();
 ROLLBACK;

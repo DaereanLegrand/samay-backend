@@ -54,6 +54,17 @@ class RecordingHttpClient extends http.BaseClient {
               (e) => '${e.key}=${e.value}' == queryFragment,
             ),
       );
+
+  /// Whether a POST to the `rpc/[fn]` endpoint was recorded whose JSON body
+  /// contains [bodyFragment] (postgrest sends RPC params in the body, not the
+  /// query), e.g. `sentRpc('accept_friend_request', '"p_friendship_id":"f1"')`.
+  bool sentRpc(String fn, [String? bodyFragment]) => requests.any(
+        (r) =>
+            r.method == 'POST' &&
+            r.url.path.endsWith('/rpc/$fn') &&
+            (bodyFragment == null ||
+                (r is http.Request && r.body.contains(bodyFragment))),
+      );
 }
 
 /// In-memory `LocalStorage` pair (proven in `test/router/app_router_test.dart`

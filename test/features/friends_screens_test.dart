@@ -275,8 +275,8 @@ void main() {
       expect(find.text('Sin invitaciones'), findsOneWidget);
     });
 
-    testWidgets('accept calls the service (PATCH friendships) and reloads the '
-        'provider (TST-07/M-14)', (tester) async {
+    testWidgets('accept calls the service (accept_friend_request RPC) and '
+        'reloads the provider (TST-07/M-14)', (tester) async {
       final requests = _CountingFriendRequestsNotifier(
         const FriendRequestsData(
           requests: [
@@ -301,9 +301,20 @@ void main() {
         reason: 'accepting must invalidate (reload) the requests provider',
       );
       expect(
-        support.harnessHttp.sent('PATCH', 'id=eq.f1'),
+        support.harnessHttp.sentRpc(
+          'accept_friend_request',
+          '"p_friendship_id":"f1"',
+        ),
         isTrue,
-        reason: 'acceptFriendRequest must update the friendship row',
+        reason:
+            'acceptFriendRequest must call the accept_friend_request RPC '
+            '(server-side addressee-only consent, migration 20260817000004)',
+      );
+      // The direct UPDATE seam is gone — acceptance is server-verified.
+      expect(
+        support.harnessHttp.sent('PATCH', 'id=eq.f1'),
+        isFalse,
+        reason: 'acceptance no longer patches the friendship row directly',
       );
     });
 

@@ -50,6 +50,32 @@ void main() {
     });
   });
 
+  group('GroupsRepository.getMyMembership (ISSUE 2)', () {
+    test('forwards the own membership row untouched (map passthrough)',
+        () async {
+      when(() => groups.getMyMembership(_groupId)).thenAnswer((_) async => {
+            'id': _membershipId,
+            'group_id': _groupId,
+            'role': 'member',
+            'status': 'invited',
+          });
+
+      final row = await repo.getMyMembership(_groupId);
+
+      verify(() => groups.getMyMembership(_groupId)).called(1);
+      expect(row, isNotNull);
+      expect(row!['id'], _membershipId);
+      expect(row['status'], 'invited');
+    });
+
+    test('returns null when there is no membership row', () async {
+      when(() => groups.getMyMembership(_groupId))
+          .thenAnswer((_) async => null);
+
+      expect(await repo.getMyMembership(_groupId), isNull);
+    });
+  });
+
   group('GroupsRepository.getGroup', () {
     test('returns a typed Group', () async {
       when(() => groups.getGroup(_groupId)).thenAnswer(
@@ -96,6 +122,41 @@ void main() {
       expect(members, isA<List<GroupMember>>());
       expect(members.first.role, 'promotor');
       expect(members.first.username, 'ana');
+    });
+
+    test('OPT-009: rows from the user_search_view join parse and resolve '
+        'co-member usernames', () async {
+      when(() => groups.getGroupMembers(_groupId)).thenAnswer((_) async => [
+            {'id': 'm-1', 'group_id': _groupId, 'user_id': _userId,
+             'role': 'promotor', 'status': 'active',
+             'joined_at': '2026-08-01T00:00:00Z',
+             'users': {'username': 'ana'}},
+            {'id': 'm-2', 'group_id': _groupId, 'user_id': 'other-user',
+             'role': 'member', 'status': 'active',
+             'joined_at': '2026-08-01T00:00:00Z',
+             'users': {'username': 'bob'}},
+          ]);
+
+      final members = await repo.getGroupMembers(_groupId);
+
+      expect(members, hasLength(2));
+      expect(members[0].username, 'ana');
+      expect(members[1].username, 'bob');
+    });
+
+    test('OPT-009: a membership row WITHOUT group_id must fail loudly (the '
+        'missing-key TypeError that broke group detail into "Error del '
+        'servidor") — the service select is pinned to always include it',
+        () async {
+      when(() => groups.getGroupMembers(_groupId)).thenAnswer((_) async => [
+            {'id': _membershipId, 'user_id': _userId, 'role': 'promotor',
+             'status': 'active', 'joined_at': '2026-08-01T00:00:00Z'},
+          ]);
+
+      expect(
+        () => repo.getGroupMembers(_groupId),
+        throwsA(isA<TypeError>()),
+      );
     });
   });
 
@@ -161,6 +222,24 @@ void main() {
       expect(await repo.getUserContributionToGroup(_groupId), 30);
 
       verify(() => shards.getUserContributionToGroup(_groupId)).called(1);
+    });
+  });
+
+  group('GroupsRepository.getGroupChatId (ISSUE 4 / D3d)', () {
+    test('forwards the group id and returns the group chat id', () async {
+      when(() => groups.getGroupChatId(_groupId))
+          .thenAnswer((_) async => 'chat-1');
+
+      expect(await repo.getGroupChatId(_groupId), 'chat-1');
+
+      verify(() => groups.getGroupChatId(_groupId)).called(1);
+    });
+
+    test('returns null when the group has no chat row', () async {
+      when(() => groups.getGroupChatId(_groupId))
+          .thenAnswer((_) async => null);
+
+      expect(await repo.getGroupChatId(_groupId), isNull);
     });
   });
 

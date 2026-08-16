@@ -255,6 +255,68 @@ void main() {
     });
   });
 
+  group('RealtimeService.subscribeToGroupMemberships', () {
+    test('subscribes to ALL group_members events and filters for the user',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      late void Function(PostgresChangePayload) callback;
+      final channel = stubChannel('group-members:$_userId',
+          onCallback: (cb) => callback = cb);
+
+      final received = <Map<String, dynamic>>[];
+      await service().subscribeToGroupMemberships(received.add);
+
+      verify(() => channel.onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'group_members',
+            callback: any(named: 'callback'),
+          )).called(1);
+      verify(() => channel.subscribe()).called(1);
+
+      // Rows belonging to the current user pass...
+      callback(PostgresChangePayload(
+        schema: 'public',
+        table: 'group_members',
+        commitTimestamp: DateTime.now(),
+        eventType: PostgresChangeEvent.insert,
+        newRecord: {
+          'id': 'gm-1',
+          'group_id': 'g-1',
+          'user_id': _userId,
+          'status': 'invited',
+        },
+        oldRecord: const {},
+        errors: null,
+      ));
+      // ...rows for other users are dropped.
+      callback(PostgresChangePayload(
+        schema: 'public',
+        table: 'group_members',
+        commitTimestamp: DateTime.now(),
+        eventType: PostgresChangeEvent.insert,
+        newRecord: {
+          'id': 'gm-2',
+          'group_id': 'g-1',
+          'user_id': '22222222-2222-2222-2222-222222222222',
+          'status': 'invited',
+        },
+        oldRecord: const {},
+        errors: null,
+      ));
+
+      expect(received.map((r) => r['id']).toList(), ['gm-1']);
+    });
+
+    test('throws without an authenticated session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+      expect(
+        () => service().subscribeToGroupMemberships((_) {}),
+        throwsA(isA<Exception>()),
+      );
+    });
+  });
+
   group('RealtimeService.subscribeToQRToken', () {
     test('forwards the token from the QR payload', () async {
       when(() => auth.currentUser).thenReturn(_currentUser());

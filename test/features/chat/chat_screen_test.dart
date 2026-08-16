@@ -5,14 +5,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
+import 'package:samay/core/models/user_profile.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/repositories/chat_repository.dart';
+import 'package:samay/core/repositories/friends_repository.dart';
+import 'package:samay/core/repositories/repository_providers.dart';
 import 'package:samay/core/services/chat_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
 import 'package:samay/core/services/storage_service.dart';
 import 'package:samay/features/chat/providers/chat_providers.dart';
 import 'package:samay/features/chat/screens/chat_screen.dart';
+import 'package:samay/features/chat/widgets/chat_thread_view.dart';
+import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/shared/widgets/glass/v_glass.dart';
 import 'package:samay/shared/widgets/state_views.dart';
 import 'package:samay/shared/widgets/v_thinking_dots.dart';
@@ -82,6 +87,19 @@ class _MockRealtimeChannel extends Mock implements RealtimeChannel {}
 
 class _MockChatRepository extends Mock implements ChatRepository {}
 
+class _MockFriendsRepository extends Mock implements FriendsRepository {}
+
+/// Group-members stub for the ChatThreadView sender-label tests: returns
+/// [members] as-is (rows carry `users.username` like the real RPC).
+class _StubGroupMembersNotifier extends GroupMembersNotifier {
+  final List<Map<String, dynamic>> data;
+
+  _StubGroupMembersNotifier(this.data);
+
+  @override
+  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+}
+
 Map<String, dynamic> _message(
   String id,
   String content, {
@@ -108,6 +126,9 @@ Future<ProviderContainer> _pump(
   List<ChatInboxItem> inbox = const [],
   HiveService? hive,
   bool settle = true,
+  String? groupId,
+  List<Map<String, dynamic>> members = const [],
+  FriendsRepository? friends,
 }) async {
   final chatService = service ?? _MockChatService();
   final channel = _MockRealtimeChannel();
@@ -139,6 +160,12 @@ Future<ProviderContainer> _pump(
       // (uninitialized in tests).
       chatE2eeServiceProvider.overrideWithValue(chatService),
       realtimeServiceProvider.overrideWithValue(_MockRealtimeService()),
+      if (groupId != null)
+        groupMembersProvider.overrideWith(
+          () => _StubGroupMembersNotifier(members),
+        ),
+      if (friends != null)
+        friendsRepositoryProvider.overrideWithValue(friends),
       if (hive != null) hiveServiceProvider.overrideWithValue(hive),
     ],
   );
@@ -146,11 +173,17 @@ Future<ProviderContainer> _pump(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(
-        locale: Locale('es'),
+      child: MaterialApp(
+        locale: const Locale('es'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: ChatScreen(chatId: _chatId),
+        home: groupId == null
+            ? const ChatScreen(chatId: _chatId)
+            // The GROUP thread hosts the same ChatThreadView the group
+            // detail Chat tab mounts (ISSUE 4) — pump it directly.
+            : Scaffold(
+                body: ChatThreadView(chatId: _chatId, groupId: groupId),
+              ),
       ),
     ),
   );
@@ -201,13 +234,28 @@ void main() {
   testWidgets('date separators group the thread by day (one chip per day)', (
     tester,
   ) async {
+    // Relative to now so the Hoy/Ayer chips hold on any run date. Built from
+    // LOCAL calendar parts (no 'Z') — the thread's day labels compare local
+    // dates, so the fixtures must not drift across timezones either.
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    String at(int hour) => (DateTime(
+          today.year,
+          today.month,
+          today.day,
+          hour,
+        ))
+            .toIso8601String();
     await _pump(tester, [
-      _message('m-1', 'ayer', sender: 'other')..['created_at'] =
-          '2026-08-14T10:00:00Z',
-      _message('m-2', 'hoy', sender: 'other')..['created_at'] =
-          '2026-08-15T10:00:00Z',
-      _message('m-3', 'tambien hoy', sender: 'other')..['created_at'] =
-          '2026-08-15T11:00:00Z',
+      _message('m-1', 'ayer', sender: 'other')..['created_at'] = DateTime(
+              yesterday.year,
+              yesterday.month,
+              yesterday.day,
+              10,
+            ).toIso8601String(),
+      _message('m-2', 'hoy', sender: 'other')..['created_at'] = at(10),
+      _message('m-3', 'tambien hoy', sender: 'other')..['created_at'] = at(11),
     ]);
 
     expect(find.text('Ayer'), findsOneWidget);
@@ -683,6 +731,114 @@ void main() {
       find.text('El otro usuario reinstaló la app o cambió de dispositivo'),
       findsNothing,
     );
+  });
+
+  testWidgets('GROUP thread: peer bubbles show the sender username from '
+      'groupMembersProvider; own bubbles do not (D4a)', (tester) async {
+    await _pump(tester, [
+      _message('m-1', 'hola a todos', sender: _peerId),
+      _message('m-2', 'yo tambien'),
+    ], groupId: 'group-9', members: [
+      {'user_id': _peerId, 'users': {'username': 'lucas'}},
+      {'user_id': _userId, 'users': {'username': 'yo'}},
+    ]);
+
+    // The peer bubble renders the sender's username as a small label.
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chatBubblePeer-m-1')),
+        matching: find.text('lucas'),
+      ),
+      findsOneWidget,
+      reason:
+          'group peer bubbles label the sender from groupMembersProvider '
+          '(ISSUE 4)',
+    );
+    // Own bubbles never label their sender (the white bubble stays clean).
+    expect(find.text('yo'), findsNothing);
+    // The 1:1 bubble chrome (time clock) survives in the group thread too.
+    expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNWidgets(2));
+  });
+
+  testWidgets('GROUP thread: an unknown sender falls back to a short uid '
+      'prefix instead of crashing (D4a)', (tester) async {
+    await _pump(tester, [
+      _message('m-1', 'quien soy', sender: '99999999-9999-9999-9999-999999999999'),
+    ], groupId: 'group-9', members: const []);
+
+    expect(
+      find.text('99999999'),
+      findsOneWidget,
+      reason:
+          'senders missing from the members list fall back to the first 8 '
+          'uid chars — never crash',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('GROUP thread: with an EMPTY members list the sender label '
+      'resolves the username via getUserProfile — the uid prefix is only '
+      'shown while the lookup is pending (USER FIX 2)', (tester) async {
+    const senderId = 'e5b725d6-0000-0000-0000-000000000001';
+    final friends = _MockFriendsRepository();
+    final gate = Completer<UserProfile?>();
+    when(
+      () => friends.getUserProfile(senderId),
+    ).thenAnswer((_) => gate.future);
+
+    await _pump(tester, [
+      _message('m-1', 'hola a todos', sender: senderId),
+    ], groupId: 'group-9', members: const [], friends: friends, settle: false);
+    await tester.pump();
+
+    // While the profile lookup is in flight the pending uid-prefix fallback
+    // keeps the label non-empty (deterministic — the completer is gated).
+    expect(
+      find.text('e5b725d6'),
+      findsOneWidget,
+      reason:
+          'the uid-prefix fallback renders while the direct lookup is pending',
+    );
+
+    gate.complete(const UserProfile(id: senderId, username: 'tester4'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('tester4'),
+      findsOneWidget,
+      reason:
+          'a resolvable sender must NEVER keep the uid-prefix label — the '
+          'username replaces it once the lookup lands (USER FIX 2)',
+    );
+    expect(find.text('e5b725d6'), findsNothing);
+    verify(() => friends.getUserProfile(senderId)).called(1);
+  });
+
+  testWidgets('GROUP thread: concurrent bubbles for the same unknown sender '
+      'fire exactly ONE profile lookup (USER FIX 2)', (tester) async {
+    const senderId = 'e5b725d6-0000-0000-0000-000000000001';
+    final friends = _MockFriendsRepository();
+    final gate = Completer<UserProfile?>();
+    when(
+      () => friends.getUserProfile(senderId),
+    ).thenAnswer((_) => gate.future);
+
+    await _pump(tester, [
+      _message('m-1', 'primero', sender: senderId),
+      _message('m-2', 'segundo', sender: senderId),
+      _message('m-3', 'tercero', sender: senderId),
+    ], groupId: 'group-9', members: const [], friends: friends, settle: false);
+    await tester.pump();
+
+    gate.complete(const UserProfile(id: senderId, username: 'tester4'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('tester4'),
+      findsNWidgets(3),
+      reason: 'every bubble of the same sender shows the resolved username',
+    );
+    verify(() => friends.getUserProfile(senderId)).called(1);
   });
 }
 

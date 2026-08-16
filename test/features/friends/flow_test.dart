@@ -165,12 +165,79 @@ class _CountingMyGroupsNotifier extends MyGroupsNotifier {
   }
 }
 
+/// Counting group-members variant (USER FIX 2): the accept-invite
+/// invalidation assertion — invalidating an alive provider re-runs [build].
+class _CountingGroupMembersNotifier extends GroupMembersNotifier {
+  _CountingGroupMembersNotifier(this.data);
+
+  final List<Map<String, dynamic>> data;
+  int builds = 0;
+
+  @override
+  Duration get refreshThrottle => Duration.zero;
+
+  @override
+  Future<List<Map<String, dynamic>>> build(String arg) async {
+    builds++;
+    return data;
+  }
+}
+
+/// Counting group-detail variant (USER FIX 2).
+class _CountingGroupDetailNotifier extends GroupDetailNotifier {
+  _CountingGroupDetailNotifier(this.data);
+
+  final Map<String, dynamic>? data;
+  int builds = 0;
+
+  @override
+  Duration get refreshThrottle => Duration.zero;
+
+  @override
+  Future<Map<String, dynamic>?> build(String arg) async {
+    builds++;
+    return data;
+  }
+}
+
+/// Counting contributions variant (USER FIX 2).
+class _CountingContributionsNotifier extends GroupContributionsNotifier {
+  int builds = 0;
+
+  @override
+  Duration get refreshThrottle => Duration.zero;
+
+  @override
+  Future<GroupContributionsData> build(String arg) async {
+    builds++;
+    return const GroupContributionsData(contributors: [], myContribution: 0);
+  }
+}
+
 class _StubSearchResultsNotifier extends SearchResultsNotifier {
   final List<Map<String, dynamic>> data;
   _StubSearchResultsNotifier({this.data = const []});
 
   @override
   Future<List<Map<String, dynamic>>> build(String arg) async => data;
+}
+
+/// Counting search-results variant — the post-accept reload assertion
+/// (ISSUE 5).
+class _CountingSearchResultsNotifier extends SearchResultsNotifier {
+  _CountingSearchResultsNotifier(this.data);
+
+  final List<Map<String, dynamic>> data;
+  int builds = 0;
+
+  @override
+  Duration get refreshThrottle => Duration.zero;
+
+  @override
+  Future<List<Map<String, dynamic>>> build(String arg) async {
+    builds++;
+    return data;
+  }
 }
 
 const _twoReceived = FriendRequestsData(
@@ -1070,6 +1137,137 @@ void main() {
     });
   });
 
+  group('ISSUE 5 — accept an inbound request from search', () {
+    testWidgets('a received pending result renders an Aceptar button that '
+        'accepts the request directly and refreshes the providers', (
+      tester,
+    ) async {
+      final friends = _MockFriendsRepository();
+      when(() => friends.acceptFriendRequest('f7')).thenAnswer((_) async {});
+
+      final results = _CountingSearchResultsNotifier([
+        {
+          ..._user(_userId1, 'ana'),
+          'friendship_status': 'pending',
+          'friendship_id': 'f7',
+          'friendship_direction': 'received',
+        },
+      ]);
+      final requests = _CountingFriendRequestsNotifier(
+        const FriendRequestsData(requests: [], names: {}),
+      );
+      final friendsList = _CountingFriendsListNotifier(const []);
+
+      final container = ProviderContainer(
+        overrides: [
+          searchResultsProvider.overrideWith(() => results),
+          friendRequestsProvider.overrideWith(() => requests),
+          friendsListProvider.overrideWith(() => friendsList),
+          friendsRepositoryProvider.overrideWithValue(friends),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Pre-load the non-watched friendship surfaces so the accept's
+      // invalidations have live state to invalidate (ISSUE 5).
+      await container.read(friendsListProvider.future);
+      await container.read(friendRequestsProvider.future);
+      expect(friendsList.builds, 1);
+      expect(requests.builds, 1);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            locale: Locale('es'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: SearchScreen(),
+          ),
+        ),
+      );
+      await tester.enterText(find.byType(TextField), 'an');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Aceptar'),
+        findsOneWidget,
+        reason: 'an inbound pending request shows the accept action (ISSUE 5)',
+      );
+      expect(find.text('SOLICITADO'), findsNothing);
+      expect(find.text('Solicitado'), findsNothing);
+
+      await tester.tap(find.text('Aceptar'));
+      // LUXE note: bounded pumps, NOT pumpAndSettle — the screen's VAurora
+      // drift advances the fake clock past the snackbar's auto-dismiss
+      // under pumpAndSettle (XL-10 MISTAKE block).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      verify(() => friends.acceptFriendRequest('f7')).called(1);
+      verifyNever(() => friends.sendFriendRequest(any()));
+      expect(
+        results.builds,
+        2,
+        reason: 'accepting must re-run the search (searchResultsProvider)',
+      );
+      await container.read(friendsListProvider.future);
+      expect(
+        friendsList.builds,
+        2,
+        reason: 'accepting must refresh the friends list',
+      );
+      await container.read(friendRequestsProvider.future);
+      expect(
+        requests.builds,
+        2,
+        reason: 'accepting must refresh the requests list',
+      );
+      expect(
+        find.text('Solicitud aceptada'),
+        findsOneWidget,
+        reason: 'the accept succeeds with a confirmation snackbar',
+      );
+    });
+
+    testWidgets('an outbound (sent) pending result keeps the Solicitudo '
+        'badge and no accept action', (tester) async {
+      final friends = _MockFriendsRepository();
+      await tester.pumpWidget(
+        _wrap(
+          const SearchScreen(),
+          overrides: [
+            searchResultsProvider.overrideWith(
+              () => _StubSearchResultsNotifier(
+                data: [
+                  {
+                    ..._user(_userId1, 'ana'),
+                    'friendship_status': 'pending',
+                    'friendship_id': 'f8',
+                    'friendship_direction': 'sent',
+                  },
+                ],
+              ),
+            ),
+            friendsRepositoryProvider.overrideWithValue(friends),
+          ],
+        ),
+      );
+      await tester.enterText(find.byType(TextField), 'an');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('SOLICITADO'),
+        findsOneWidget,
+        reason: 'an outbound request keeps the pending badge (ISSUE 5)',
+      );
+      expect(find.text('Aceptar'), findsNothing);
+      verifyNever(() => friends.acceptFriendRequest(any()));
+    });
+  });
+
   group('U-26 disabled controls — tapping does nothing (U-28 pin)', () {
     testWidgets('tapping the "Bloqueado" status readout fires no action: no '
         'dialog, no re-fetch, no navigation', (tester) async {
@@ -1151,6 +1349,215 @@ void main() {
       expect(find.text('Amigos'), findsOneWidget);
       verifyNever(() => friends.sendFriendRequest(_userId2));
       verifyNever(() => friends.declineFriendRequest(_userId2));
+    });
+  });
+
+  group('ISSUE 2 (B7) — invites actions also refresh myGroupsProvider', () {
+    /// Keeps myGroupsProvider alive so an invalidation actually re-runs its
+    /// build (invalidating an unwatched provider is a no-op).
+    Widget pumpWithGroupsWatcher(List<Override> overrides) => _wrap(
+      Column(
+        children: [
+          const Expanded(child: RequestsScreen()),
+          Consumer(
+            builder: (_, ref, _) {
+              ref.watch(myGroupsProvider);
+              return const SizedBox.shrink();
+            },
+          ),
+        ],
+      ),
+      overrides: overrides,
+    );
+
+    testWidgets('accepting a group invite invalidates myGroupsProvider (an '
+        'accepted group appears in the list immediately)', (tester) async {
+      final groups = _MockGroupsRepository();
+      when(() => groups.acceptInvite('m1')).thenAnswer((_) async {});
+      final myGroups = _CountingMyGroupsNotifier(const []);
+      await tester.pumpWidget(
+        pumpWithGroupsWatcher([
+          friendRequestsProvider.overrideWith(
+            _StubFriendRequestsNotifier.new,
+          ),
+          groupInvitesProvider.overrideWith(
+            () => _StubGroupInvitesNotifier(
+              data: [
+                {
+                  'id': 'm1',
+                  'groups': {'name': 'Disco Crew'},
+                  'role': 'member',
+                },
+              ],
+            ),
+          ),
+          groupsRepositoryProvider.overrideWithValue(groups),
+          myGroupsProvider.overrideWith(() => myGroups),
+        ]),
+      );
+      await tester.pumpAndSettle();
+      expect(myGroups.builds, 1);
+
+      await tester.tap(find.text('Invitaciones'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Aceptar'));
+      await tester.pumpAndSettle();
+
+      expect(
+        myGroups.builds,
+        2,
+        reason: 'accepting an invite must invalidate myGroupsProvider (B7)',
+      );
+    });
+
+    testWidgets('declining a group invite invalidates myGroupsProvider (a '
+        'declined one disappears from the list)', (tester) async {
+      final groups = _MockGroupsRepository();
+      when(() => groups.declineInvite('m1')).thenAnswer((_) async {});
+      final myGroups = _CountingMyGroupsNotifier(const [
+        {
+          'id': _groupId1,
+          'name': 'Disco Crew',
+          'group_shards': 100,
+          'my_role': 'member',
+          'my_status': 'invited',
+        },
+      ]);
+      await tester.pumpWidget(
+        pumpWithGroupsWatcher([
+          friendRequestsProvider.overrideWith(
+            _StubFriendRequestsNotifier.new,
+          ),
+          groupInvitesProvider.overrideWith(
+            () => _StubGroupInvitesNotifier(
+              data: [
+                {
+                  'id': 'm1',
+                  'groups': {'name': 'Disco Crew'},
+                  'role': 'member',
+                },
+              ],
+            ),
+          ),
+          groupsRepositoryProvider.overrideWithValue(groups),
+          myGroupsProvider.overrideWith(() => myGroups),
+        ]),
+      );
+      await tester.pumpAndSettle();
+      expect(myGroups.builds, 1);
+
+      await tester.tap(find.text('Invitaciones'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rechazar'));
+      await tester.pumpAndSettle();
+
+      expect(
+        myGroups.builds,
+        2,
+        reason: 'declining an invite must invalidate myGroupsProvider (B7)',
+      );
+    });
+  });
+
+  group('USER FIX 2 — invite accept also invalidates the group '
+      'membership-dependent providers', () {
+    testWidgets('accepting a group invite invalidates groupMembersProvider, '
+        'groupDetailProvider and contributionsProvider for the group '
+        '(the stale empty members cache must not survive the accept)', (
+      tester,
+    ) async {
+      final groups = _MockGroupsRepository();
+      when(() => groups.acceptInvite('m1')).thenAnswer((_) async {});
+      final myGroups = _CountingMyGroupsNotifier(const []);
+      final members = _CountingGroupMembersNotifier(const []);
+      final detail = _CountingGroupDetailNotifier(null);
+      final contributions = _CountingContributionsNotifier();
+
+      final container = ProviderContainer(
+        overrides: [
+          friendRequestsProvider.overrideWith(
+            _StubFriendRequestsNotifier.new,
+          ),
+          groupInvitesProvider.overrideWith(
+            () => _StubGroupInvitesNotifier(
+              data: [
+                {
+                  'id': 'm1',
+                  'group_id': _groupId1,
+                  'groups': {'name': 'Disco Crew'},
+                  'role': 'member',
+                },
+              ],
+            ),
+          ),
+          groupsRepositoryProvider.overrideWithValue(groups),
+          myGroupsProvider.overrideWith(() => myGroups),
+          groupMembersProvider.overrideWith(() => members),
+          groupDetailProvider.overrideWith(() => detail),
+          contributionsProvider.overrideWith(() => contributions),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Pre-load the membership-dependent providers so the accept's
+      // invalidations have live state to invalidate (ISSUE 5 pattern).
+      await container.read(groupMembersProvider(_groupId1).future);
+      await container.read(groupDetailProvider(_groupId1).future);
+      await container.read(contributionsProvider(_groupId1).future);
+      await container.read(myGroupsProvider.future);
+      expect(members.builds, 1);
+      expect(detail.builds, 1);
+      expect(contributions.builds, 1);
+      expect(myGroups.builds, 1);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            locale: Locale('es'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: RequestsScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Invitaciones'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Aceptar'));
+      await tester.pumpAndSettle();
+
+      await container.read(groupMembersProvider(_groupId1).future);
+      await container.read(groupDetailProvider(_groupId1).future);
+      await container.read(contributionsProvider(_groupId1).future);
+      await container.read(myGroupsProvider.future);
+      expect(
+        members.builds,
+        2,
+        reason:
+            'accepting an invite must invalidate groupMembersProvider — the '
+            'stale empty members cache is the USER FIX 2 root cause',
+      );
+      expect(
+        detail.builds,
+        2,
+        reason:
+            'accepting an invite must invalidate groupDetailProvider for the '
+            'group',
+      );
+      expect(
+        contributions.builds,
+        2,
+        reason:
+            'accepting an invite must invalidate contributionsProvider for '
+            'the group',
+      );
+      expect(
+        myGroups.builds,
+        2,
+        reason: 'the B7 myGroupsProvider invalidation stays intact',
+      );
     });
   });
 }
