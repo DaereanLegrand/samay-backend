@@ -51,7 +51,7 @@ func SetConfig(ctx context.Context, client *db.DBClient, key, value, adminUserID
 	if current != nil {
 		before = current.Value
 	}
-	if _, err := client.Update(ctx, "app_config", "key=eq."+key, map[string]interface{}{
+	if _, err := client.Update(ctx, "app_config", "key=eq."+key, map[string]any{
 		"value": value,
 	}); err != nil {
 		return fmt.Errorf("set config: %w", err)
@@ -80,7 +80,7 @@ func ResetConfig(ctx context.Context, client *db.DBClient, key, adminUserID stri
 	if current.DefaultValue == nil {
 		return fmt.Errorf("config key %s has no default value", key)
 	}
-	if _, err = client.Update(ctx, "app_config", "key=eq."+key, map[string]interface{}{
+	if _, err = client.Update(ctx, "app_config", "key=eq."+key, map[string]any{
 		"value": *current.DefaultValue,
 	}); err != nil {
 		return fmt.Errorf("reset config: %w", err)

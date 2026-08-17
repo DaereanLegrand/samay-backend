@@ -47,7 +47,7 @@ func (c *DBClient) request(ctx context.Context, method, path string, body io.Rea
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
@@ -59,6 +59,8 @@ func (c *DBClient) request(ctx context.Context, method, path string, body io.Rea
 	return respBody, nil
 }
 
+// TODO(GO-FIX): Migrate all callers to use QueryBuilder for filter construction
+// to prevent potential injection via raw string concatenation. See audit M9.
 func (c *DBClient) Select(ctx context.Context, table, filter string, limit, offset int) ([]byte, error) {
 	path := "/rest/v1/" + table
 	var params []string
@@ -83,7 +85,7 @@ func (c *DBClient) Select(ctx context.Context, table, filter string, limit, offs
 	return c.request(ctx, "GET", path, nil)
 }
 
-func (c *DBClient) Insert(ctx context.Context, table string, row interface{}) ([]byte, error) {
+func (c *DBClient) Insert(ctx context.Context, table string, row any) ([]byte, error) {
 	b, err := json.Marshal(row)
 	if err != nil {
 		return nil, fmt.Errorf("json marshal: %w", err)
@@ -92,7 +94,9 @@ func (c *DBClient) Insert(ctx context.Context, table string, row interface{}) ([
 	return c.request(ctx, "POST", path, bytes.NewReader(b))
 }
 
-func (c *DBClient) Update(ctx context.Context, table, filter string, patch interface{}) ([]byte, error) {
+// TODO(GO-FIX): Migrate all callers to use QueryBuilder for filter construction
+// to prevent potential injection via raw string concatenation. See audit M9.
+func (c *DBClient) Update(ctx context.Context, table, filter string, patch any) ([]byte, error) {
 	b, err := json.Marshal(patch)
 	if err != nil {
 		return nil, fmt.Errorf("json marshal: %w", err)
@@ -101,12 +105,14 @@ func (c *DBClient) Update(ctx context.Context, table, filter string, patch inter
 	return c.request(ctx, "PATCH", path, bytes.NewReader(b))
 }
 
+// TODO(GO-FIX): Migrate all callers to use QueryBuilder for filter construction
+// to prevent potential injection via raw string concatenation. See audit M9.
 func (c *DBClient) Delete(ctx context.Context, table, filter string) ([]byte, error) {
 	path := "/rest/v1/" + table + "?" + filter
 	return c.request(ctx, "DELETE", path, nil)
 }
 
-func (c *DBClient) RPC(ctx context.Context, function string, params map[string]interface{}) ([]byte, error) {
+func (c *DBClient) RPC(ctx context.Context, function string, params map[string]any) ([]byte, error) {
 	b, err := json.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("json marshal: %w", err)

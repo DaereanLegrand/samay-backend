@@ -87,7 +87,7 @@ func init() {
 	configCmd.AddCommand(configListCmd, configGetCmd, configSetCmd, configResetCmd)
 }
 
-func configTableBuilder(data interface{}) ([]string, [][]string) {
+func configTableBuilder(data any) ([]string, [][]string) {
 	rows := data.([]ops.ConfigRow)
 	headers := []string{"KEY", "VALUE", "DEFAULT", "DESCRIPTION", "UPDATED_AT"}
 	out := make([][]string, 0, len(rows))

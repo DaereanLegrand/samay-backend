@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -103,49 +102,6 @@ func initClient() error {
 
 func adminUserID() string {
 	return viper.GetString("SUPABASE_ADMIN_USER_ID")
-}
-
-func oneOf(value string, allowed ...string) error {
-	for _, a := range allowed {
-		if value == a {
-			return nil
-		}
-	}
-	return fmt.Errorf("invalid value %q: must be one of %s", value, strings.Join(allowed, ", "))
-}
-
-func parseDate(s string) (time.Time, error) {
-	t, err := time.Parse("2006-01-02", s)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("invalid date %q: must be YYYY-MM-DD", s)
-	}
-	return t, nil
-}
-
-func parsePositiveInt(s string) (int, error) {
-	n, err := strconv.Atoi(s)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("invalid amount %q: must be a positive integer", s)
-	}
-	return n, nil
-}
-
-func parseUUID(s string) error {
-	if len(s) != 36 {
-		return fmt.Errorf("invalid id %q: must be a UUID", s)
-	}
-	for i, r := range s {
-		if i == 8 || i == 13 || i == 18 || i == 23 {
-			if r != '-' {
-				return fmt.Errorf("invalid id %q: must be a UUID", s)
-			}
-			continue
-		}
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
-			return fmt.Errorf("invalid id %q: must be a UUID", s)
-		}
-	}
-	return nil
 }
 
 func deref(s *string) string {

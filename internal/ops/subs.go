@@ -31,7 +31,7 @@ func GetSub(ctx context.Context, client *db.DBClient, userID string) (*db.User, 
 }
 
 func OverrideSub(ctx context.Context, client *db.DBClient, userID, tier, adminUserID string, expiresAt time.Time, reason string) error {
-	_, err := client.Insert(ctx, "subscription_overrides", map[string]interface{}{
+	_, err := client.Insert(ctx, "subscription_overrides", map[string]any{
 		"user_id":       userID,
 		"admin_user_id": adminUserID,
 		"tier":          tier,
@@ -41,7 +41,7 @@ func OverrideSub(ctx context.Context, client *db.DBClient, userID, tier, adminUs
 	if err != nil {
 		return fmt.Errorf("override sub: %w", err)
 	}
-	details, err := json.Marshal(map[string]interface{}{
+	details, err := json.Marshal(map[string]any{
 		"tier":    tier,
 		"expires": expiresAt.Format(time.RFC3339),
 	})
@@ -58,7 +58,7 @@ func OverrideSub(ctx context.Context, client *db.DBClient, userID, tier, adminUs
 }
 
 func RevokeOverride(ctx context.Context, client *db.DBClient, userID, adminUserID string) error {
-	_, err := client.Update(ctx, "subscription_overrides", "user_id=eq."+userID+"&revoked=eq.false", map[string]interface{}{
+	_, err := client.Update(ctx, "subscription_overrides", "user_id=eq."+userID+"&revoked=eq.false", map[string]any{
 		"revoked": true,
 	})
 	if err != nil {

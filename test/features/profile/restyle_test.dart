@@ -16,7 +16,7 @@ import 'package:samay/features/profile/screens/edit_profile_screen.dart';
 import 'package:samay/features/profile/screens/profile_screen.dart';
 import 'package:samay/features/profile/screens/public_profile_screen.dart';
 import 'package:samay/features/profile/screens/settings_screen.dart';
-import 'package:samay/features/profile/widgets/profile_avatar.dart';
+import 'package:samay/shared/widgets/profile_avatar.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/glass/v_glass.dart';
 import 'package:samay/shared/widgets/skeletons.dart';
@@ -30,16 +30,16 @@ import '../../support/fake_supabase_http.dart' as support;
 /// "Gradient family → screen map": profile/settings/edit/delete/public all
 /// own the **gold** family — NO PINK MAINS).
 ///
-/// Pins the LUXE changes screen-by-screen: faint gold `VAurora` ambient
-/// (α0.06), the username hero as gold `VDisplayText` (uppercase Playfair +
-/// gradient + pulse), the balance card as `VGlassCard` with the gold ring +
-/// glow + gold lg shard icon, settings groups as sharp `VGlassCard`s with
-/// `AppTypography.sectionLabel` headers and hairline rows, the gold
-/// glowAccent public-profile primary + delete CTA, and the error semantic
-/// (AppColors.error — the documented LUXE exception) for every danger row
-/// and confirm dialog. Flow/text is byte-identical — the existing
-/// profile_screens_test / avatar_flow_test / delete_account_flow_test
-/// behavior assertions stay green (hero texts now assert uppercase).
+/// Pins the LUXE changes screen-by-screen: the username hero as gold
+/// `VDisplayText` (uppercase Playfair + gradient + pulse), the balance card
+/// as `VGlassCard` with the gold ring + glow + gold lg shard icon, settings
+/// groups as sharp `VGlassCard`s with `AppTypography.sectionLabel` headers
+/// and hairline rows, the gold glowAccent public-profile primary + delete
+/// CTA, and the error semantic (AppColors.error — the documented LUXE
+/// exception) for every danger row and confirm dialog. Flow/text is
+/// byte-identical — the existing profile_screens_test / avatar_flow_test /
+/// delete_account_flow_test behavior assertions stay green (hero texts now
+/// assert uppercase).
 
 const _userId = '11111111-1111-1111-1111-111111111111';
 

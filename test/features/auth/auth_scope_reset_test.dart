@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/models/user_profile.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/services/chat_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
@@ -35,9 +36,9 @@ class _CountingFriendsListNotifier extends FriendsListNotifier {
   _CountingFriendsListNotifier(this.onBuild);
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<UserProfile>> build() async {
     onBuild.add(1);
-    return <Map<String, dynamic>>[];
+    return const [];
   }
 }
 

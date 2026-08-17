@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -14,6 +14,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/samay-app/samay/internal/ops"
+	"github.com/samay-app/samay/internal/validate"
+	"github.com/spf13/viper"
 )
 
 // adminAPIKeyEnv is the placeholder admin gate. Real auth (Supabase JWKS
@@ -119,7 +121,7 @@ func recovery() gin.HandlerFunc {
 // bearer token against ADMIN_API_KEY using a constant-time compare. JWT/JWKS
 // verification (S-06) and admin_users role resolution (M-21) replace this body.
 func requireAdmin() gin.HandlerFunc {
-	expected := os.Getenv(adminAPIKeyEnv)
+	expected := viper.GetString(adminAPIKeyEnv)
 	if expected == "" {
 		log.Printf("WARNING: %s unset — admin routes fail closed (401). Set a placeholder key for local testing; real JWT auth lands with S-06/M-21.", adminAPIKeyEnv)
 	}
@@ -151,15 +153,23 @@ func notImplemented(c *gin.Context) {
 // ctx through the DB client (I-39/I-40 migration); handlers use a background
 // context today — S-06/M-21 may switch this to the request context.
 func opsCtx() context.Context {
-	return context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	_ = cancel // timeout fires if handler doesn't finish; no leak since background
+	return ctx
 }
 
 // writeError maps ops errors to JSON responses: validation → 400, not-found →
 // 404, anything else → 500 with a generic body (internals stay server-side).
 func writeError(c *gin.Context, err error) {
-	msg := err.Error()
 	status := http.StatusInternalServerError
+	msg := err.Error()
 	switch {
+	case errors.Is(err, ops.ErrNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, ops.ErrInvalid):
+		status = http.StatusBadRequest
+	case errors.Is(err, ops.ErrUnauthorized):
+		status = http.StatusUnauthorized
 	case strings.Contains(msg, "not found"):
 		status = http.StatusNotFound
 	case strings.Contains(msg, "invalid"):
@@ -173,7 +183,7 @@ func writeError(c *gin.Context, err error) {
 }
 
 // bindJSON decodes the request body into dst or aborts with 400.
-func bindJSON(c *gin.Context, dst interface{}) bool {
+func bindJSON(c *gin.Context, dst any) bool {
 	if err := c.ShouldBindJSON(dst); err != nil {
 		writeError(c, fmt.Errorf("invalid request body: %w", err))
 		return false
@@ -183,51 +193,6 @@ func bindJSON(c *gin.Context, dst interface{}) bool {
 
 func ok(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
-}
-
-// ── param helpers (mirror cmd/samay-admin validation) ─────────────────────────
-
-func parsePositiveInt(s string) (int, error) {
-	n, err := strconv.Atoi(s)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("invalid amount %q: must be a positive integer", s)
-	}
-	return n, nil
-}
-
-func parseDate(s string) (time.Time, error) {
-	t, err := time.Parse("2006-01-02", s)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("invalid date %q: must be YYYY-MM-DD", s)
-	}
-	return t, nil
-}
-
-func parseUUID(s string) error {
-	if len(s) != 36 {
-		return fmt.Errorf("invalid id %q: must be a UUID", s)
-	}
-	for i, r := range s {
-		if i == 8 || i == 13 || i == 18 || i == 23 {
-			if r != '-' {
-				return fmt.Errorf("invalid id %q: must be a UUID", s)
-			}
-			continue
-		}
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
-			return fmt.Errorf("invalid id %q: must be a UUID", s)
-		}
-	}
-	return nil
-}
-
-func oneOf(value string, allowed ...string) error {
-	for _, a := range allowed {
-		if value == a {
-			return nil
-		}
-	}
-	return fmt.Errorf("invalid value %q: must be one of %s", value, strings.Join(allowed, ", "))
 }
 
 // queryLimit parses the ?limit= query param, defaulting to 50.
@@ -323,7 +288,7 @@ func healthHandler(c *gin.Context) {
 func listUsersHandler(c *gin.Context) {
 	tier := c.Query("tier")
 	if tier != "" {
-		if err := oneOf(tier, "free", "pro", "vip"); err != nil {
+		if err := validate.OneOf(tier, "free", "pro", "vip"); err != nil {
 			writeError(c, err)
 			return
 		}
@@ -420,7 +385,7 @@ func grantPreshardsHandler(c *gin.Context) {
 
 func deleteUserHandler(c *gin.Context) {
 	id := c.Param("id")
-	if err := parseUUID(id); err != nil {
+	if err := validate.ParseUUID(id); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -450,14 +415,14 @@ func userLedgerHandler(c *gin.Context) {
 func listEventsHandler(c *gin.Context) {
 	status := c.Query("status")
 	if status != "" {
-		if err := oneOf(status, "draft", "upcoming", "live", "ended", "cancelled"); err != nil {
+		if err := validate.OneOf(status, "draft", "upcoming", "live", "ended", "cancelled"); err != nil {
 			writeError(c, err)
 			return
 		}
 	}
 	eventType := c.Query("type")
 	if eventType != "" {
-		if err := oneOf(eventType, "casual", "juerga", "tono"); err != nil {
+		if err := validate.OneOf(eventType, "casual", "juerga", "tono"); err != nil {
 			writeError(c, err)
 			return
 		}
@@ -488,7 +453,7 @@ func featureEventHandler(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-	expiresAt, err := parseDate(req.Expires)
+	expiresAt, err := validate.ParseDate(req.Expires)
 	if err != nil {
 		writeError(c, err)
 		return
@@ -537,14 +502,14 @@ func distributeShardsHandler(c *gin.Context) {
 func listGroupsHandler(c *gin.Context) {
 	tier := c.Query("tier")
 	if tier != "" {
-		if err := oneOf(tier, "micro", "small", "medium", "large"); err != nil {
+		if err := validate.OneOf(tier, "micro", "small", "medium", "large"); err != nil {
 			writeError(c, err)
 			return
 		}
 	}
 	bracket := c.Query("bracket")
 	if bracket != "" {
-		if err := oneOf(bracket, "b0_20", "b20_40", "b40_60", "b60_80", "b80_90", "b90_100"); err != nil {
+		if err := validate.OneOf(bracket, "b0_20", "b20_40", "b40_60", "b60_80", "b80_90", "b90_100"); err != nil {
 			writeError(c, err)
 			return
 		}
@@ -592,14 +557,14 @@ func groupLedgerHandler(c *gin.Context) {
 func listReportsHandler(c *gin.Context) {
 	status := c.Query("status")
 	if status != "" {
-		if err := oneOf(status, "pending", "reviewed", "actioned", "dismissed"); err != nil {
+		if err := validate.OneOf(status, "pending", "reviewed", "actioned", "dismissed"); err != nil {
 			writeError(c, err)
 			return
 		}
 	}
 	targetType := c.Query("type")
 	if targetType != "" {
-		if err := oneOf(targetType, "message", "photo", "user", "event"); err != nil {
+		if err := validate.OneOf(targetType, "message", "photo", "user", "event"); err != nil {
 			writeError(c, err)
 			return
 		}
@@ -629,7 +594,7 @@ func actionReportHandler(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-	if err := oneOf(req.Action, "remove", "dismiss", "warn"); err != nil {
+	if err := validate.OneOf(req.Action, "remove", "dismiss", "warn"); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -648,7 +613,7 @@ func recalculateRanksHandler(c *gin.Context) {
 		return
 	}
 	if req.Tier != "" {
-		if err := oneOf(req.Tier, "micro", "small", "medium", "large"); err != nil {
+		if err := validate.OneOf(req.Tier, "micro", "small", "medium", "large"); err != nil {
 			writeError(c, err)
 			return
 		}
@@ -697,7 +662,7 @@ func setConfigHandler(c *gin.Context) {
 func listSubsHandler(c *gin.Context) {
 	tier := c.Query("tier")
 	if tier != "" {
-		if err := oneOf(tier, "free", "pro", "vip"); err != nil {
+		if err := validate.OneOf(tier, "free", "pro", "vip"); err != nil {
 			writeError(c, err)
 			return
 		}
@@ -724,11 +689,11 @@ func overrideSubHandler(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-	if err := oneOf(req.Tier, "pro", "vip"); err != nil {
+	if err := validate.OneOf(req.Tier, "pro", "vip"); err != nil {
 		writeError(c, err)
 		return
 	}
-	expiresAt, err := parseDate(req.Expires)
+	expiresAt, err := validate.ParseDate(req.Expires)
 	if err != nil {
 		writeError(c, err)
 		return
@@ -753,7 +718,7 @@ func revokeOverrideHandler(c *gin.Context) {
 func listFeatureRequestsHandler(c *gin.Context) {
 	status := c.Query("status")
 	if status != "" {
-		if err := oneOf(status, "pending", "approved", "rejected"); err != nil {
+		if err := validate.OneOf(status, "pending", "approved", "rejected"); err != nil {
 			writeError(c, err)
 			return
 		}

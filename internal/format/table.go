@@ -30,7 +30,7 @@ func RenderTable(headers []string, rows [][]string) {
 	t.Render()
 }
 
-func RenderJSON(data interface{}) {
+func RenderJSON(data any) {
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error marshaling JSON: %v\n", err)
@@ -39,7 +39,7 @@ func RenderJSON(data interface{}) {
 	fmt.Println(string(b))
 }
 
-func Output(data interface{}, jsonFlag bool, tableBuilder func(interface{}) ([]string, [][]string)) {
+func Output(data any, jsonFlag bool, tableBuilder func(any) ([]string, [][]string)) {
 	if jsonFlag {
 		RenderJSON(data)
 		return

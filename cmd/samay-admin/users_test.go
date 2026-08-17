@@ -156,3 +156,51 @@ func TestUsersListJSONOutput(t *testing.T) {
 		t.Errorf("JSON output missing user fields: %q", out)
 	}
 }
+
+func TestUsersBanSuccess(t *testing.T) {
+	setupTestEnv(t)
+	stubCreateClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[]`))
+	})
+	rootCmd.SetArgs([]string{"users", "ban", "12345678-1234-1234-1234-123456789012", "--reason", "spam"})
+	out, err := captureStdout(t, rootCmd.Execute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "banned") {
+		t.Errorf("expected success message, got: %q", out)
+	}
+}
+
+func TestUsersUnbanSuccess(t *testing.T) {
+	setupTestEnv(t)
+	stubCreateClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[]`))
+	})
+	rootCmd.SetArgs([]string{"users", "unban", "12345678-1234-1234-1234-123456789012"})
+	out, err := captureStdout(t, rootCmd.Execute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "unbanned") {
+		t.Errorf("expected success message, got: %q", out)
+	}
+}
+
+func TestUsersGrantShardsSuccess(t *testing.T) {
+	setupTestEnv(t)
+	stubCreateClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[]`))
+	})
+	rootCmd.SetArgs([]string{"users", "grant-shards", "12345678-1234-1234-1234-123456789012", "50", "--confirm"})
+	out, err := captureStdout(t, rootCmd.Execute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "granted") {
+		t.Errorf("expected success message, got: %q", out)
+	}
+}

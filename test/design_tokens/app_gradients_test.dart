@@ -9,37 +9,36 @@ import 'package:samay/core/design_tokens/app_gradients.dart';
 ///
 /// Every family is a 3-stop `pastel → mid → vivid` run ("watered down with
 /// white"), the `familyOf` map mirrors the doc table 1:1, and the glow/text
-/// helpers are the primitives XL-02..XL-13 compose (VGlass, VGradientText,
-/// VAurora, ...).
+/// helpers are the primitives the glass/button components compose.
 void main() {
   // ── Doc table (ORCHESTRATION-LUXE.md, verbatim) ────────────────────────
   const roseColors = <Color>[
-    Color(0xFFFFD6E8),
+    Color(0xFFFF8CBE),
     Color(0xFFFF8AC2),
     Color(0xFFFF2E88),
   ];
   const violetColors = <Color>[
-    Color(0xFFE3D9FF),
+    Color(0xFFBFA5FA),
     Color(0xFFB79CFF),
     Color(0xFF8B5CF6),
   ];
   const cyanColors = <Color>[
-    Color(0xFFD6F7FF),
+    Color(0xFF73F1FF),
     Color(0xFF7FE9FF),
     Color(0xFF00E5FF),
   ];
   const goldColors = <Color>[
-    Color(0xFFFFF3D6),
+    Color(0xFFFFE19D),
     Color(0xFFFFDF99),
     Color(0xFFFFC94D),
   ];
   const mintColors = <Color>[
-    Color(0xFFD8FFEE),
+    Color(0xFF91F1CD),
     Color(0xFF8BFFD9),
     Color(0xFF37E6A5),
   ];
   const peachColors = <Color>[
-    Color(0xFFFFE6D9),
+    Color(0xFFFFCCBB),
     Color(0xFFFFC09E),
     Color(0xFFFF8A65),
   ];
@@ -177,18 +176,6 @@ void main() {
       );
       expect(linear.begin, Alignment.bottomLeft);
       expect(linear.end, Alignment.topRight);
-    });
-
-    test('radial exposes the family colors/stops centered by default', () {
-      final radial = AppGradients.violet.radial();
-      expect(radial.colors, AppGradients.violet.colors);
-      expect(radial.stops, [0.0, 0.5, 1.0]);
-      expect(radial.center, Alignment.center);
-    });
-
-    test('radial accepts an off-center alignment (aurora blob anchors)', () {
-      final radial = AppGradients.gold.radial(center: Alignment.topLeft);
-      expect(radial.center, Alignment.topLeft);
     });
   });
 

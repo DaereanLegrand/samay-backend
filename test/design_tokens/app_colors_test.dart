@@ -70,12 +70,12 @@ void main() {
         'discoGold': Color(0xFFFFC94D),
         'discoSilver': Color(0xFFC0C0C0),
         'discoBronze': Color(0xFFCD7F32),
-        'pastelRose': Color(0xFFFFD6E8),
-        'pastelViolet': Color(0xFFE3D9FF),
-        'pastelCyan': Color(0xFFD6F7FF),
-        'pastelGold': Color(0xFFFFF3D6),
-        'pastelMint': Color(0xFFD8FFEE),
-        'pastelPeach': Color(0xFFFFE6D9),
+        'pastelRose': Color(0xFFFF8CBE),
+        'pastelViolet': Color(0xFFBFA5FA),
+        'pastelCyan': Color(0xFF73F1FF),
+        'pastelGold': Color(0xFFFFE19D),
+        'pastelMint': Color(0xFF91F1CD),
+        'pastelPeach': Color(0xFFFFCCBB),
         'mint': Color(0xFF37E6A5),
         'peach': Color(0xFFFF8A65),
         // Chat status ticks (2026-08-15) — verified against white (bubble).
@@ -182,12 +182,12 @@ void main() {
   group('LUXE pastel + vivid tokens (ORCHESTRATION-LUXE §"Foundation API '
       'contract")', () {
     test('every pastel token exists with the exact documented hex', () {
-      expect(AppColors.pastelRose, const Color(0xFFFFD6E8));
-      expect(AppColors.pastelViolet, const Color(0xFFE3D9FF));
-      expect(AppColors.pastelCyan, const Color(0xFFD6F7FF));
-      expect(AppColors.pastelGold, const Color(0xFFFFF3D6));
-      expect(AppColors.pastelMint, const Color(0xFFD8FFEE));
-      expect(AppColors.pastelPeach, const Color(0xFFFFE6D9));
+      expect(AppColors.pastelRose, const Color(0xFFFF8CBE));
+      expect(AppColors.pastelViolet, const Color(0xFFBFA5FA));
+      expect(AppColors.pastelCyan, const Color(0xFF73F1FF));
+      expect(AppColors.pastelGold, const Color(0xFFFFE19D));
+      expect(AppColors.pastelMint, const Color(0xFF91F1CD));
+      expect(AppColors.pastelPeach, const Color(0xFFFFCCBB));
     });
 
     test('the missing vivid ends mint and peach exist with exact hexes', () {
@@ -222,17 +222,17 @@ void main() {
     test('documented LUXE ratios match the token doc comments (tolerance 0.02)',
         () {
       expect(AppColors.contrastRatio(AppColors.pastelRose, _black),
-          closeTo(16.04, 0.02));
+          closeTo(9.75, 0.02));
       expect(AppColors.contrastRatio(AppColors.pastelViolet, _black),
-          closeTo(15.64, 0.02));
+          closeTo(9.98, 0.02));
       expect(AppColors.contrastRatio(AppColors.pastelCyan, _black),
-          closeTo(18.61, 0.02));
+          closeTo(15.75, 0.02));
       expect(AppColors.contrastRatio(AppColors.pastelGold, _black),
-          closeTo(19.04, 0.02));
+          closeTo(16.51, 0.02));
       expect(AppColors.contrastRatio(AppColors.pastelMint, _black),
-          closeTo(19.46, 0.02));
+          closeTo(15.66, 0.02));
       expect(AppColors.contrastRatio(AppColors.pastelPeach, _black),
-          closeTo(17.57, 0.02));
+          closeTo(14.60, 0.02));
       expect(AppColors.contrastRatio(AppColors.mint, _black),
           closeTo(13.02, 0.02));
       expect(AppColors.contrastRatio(AppColors.peach, _black),

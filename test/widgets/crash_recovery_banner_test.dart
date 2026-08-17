@@ -110,26 +110,28 @@ void main() {
       return c;
     }
 
-    testWidgets('recoveredFromCrash: true surfaces the banner above the app', (
-      tester,
-    ) async {
-      final c = container();
-      c.read(routerProvider).go(RoutePaths.welcome);
+    testWidgets(
+      'recoveredFromCrash: true surfaces the banner above the nav bar',
+      (tester) async {
+        final c = container();
+        c.read(routerProvider).go(RoutePaths.welcome);
 
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: c,
-          child: const SamayApp(recoveredFromCrash: true),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: c,
+            child: const SamayApp(recoveredFromCrash: true),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      expect(
-        find.text('La app se recuperó de un cierre inesperado'),
-        findsOneWidget,
-        reason: 'the flag from main() reaches the user-facing banner',
-      );
-    });
+        expect(
+          find.text('La app se recuperó de un cierre inesperado'),
+          findsOneWidget,
+          reason:
+              'the flag from main() reaches the user-facing banner at the bottom',
+        );
+      },
+    );
 
     testWidgets('recoveredFromCrash: false shows no banner', (tester) async {
       final c = container();

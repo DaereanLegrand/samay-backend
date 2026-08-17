@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/models/event.dart';
 import 'package:samay/core/models/event_photo.dart';
 import 'package:samay/features/events/providers/events_providers.dart';
 import 'package:samay/features/events/screens/event_collage_screen.dart';
@@ -18,14 +19,14 @@ import 'package:samay/shared/widgets/v_network_image.dart';
 /// empty states.
 const _eventId = '66666666-6666-6666-6666-666666666666';
 
-Map<String, dynamic> _event() => {
-  'id': _eventId,
-  'name': 'Rave en el garaje',
-  'type': 'juerga',
-  'status': 'live',
-  'starts_at': DateTime(2026, 8, 9, 20).toIso8601String(),
-  'ends_at': DateTime(2026, 8, 10, 2).toIso8601String(),
-};
+Event _event() => Event(
+  id: _eventId,
+  name: 'Rave en el garaje',
+  type: 'juerga',
+  status: 'live',
+  startsAt: DateTime(2026, 8, 9, 20),
+  endsAt: DateTime(2026, 8, 10, 2),
+);
 
 EventPhoto _photo(String id, {String? url}) => EventPhoto(
   id: id,
@@ -40,10 +41,10 @@ EventPhoto _photo(String id, {String? url}) => EventPhoto(
 class _FakeEventDetailNotifier extends EventDetailNotifier {
   _FakeEventDetailNotifier(this.row);
 
-  final Map<String, dynamic> row;
+  final Event row;
 
   @override
-  Future<Map<String, dynamic>> build(String arg) async => row;
+  Future<Event> build(String arg) async => row;
 }
 
 class _FakeEventPhotosNotifier extends EventPhotosNotifier {

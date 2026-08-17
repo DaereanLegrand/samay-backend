@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/config/feature_flags.dart';
+import 'package:samay/core/models/event.dart';
 import 'package:samay/core/providers/config_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/repositories/chat_repository.dart';
@@ -24,25 +25,18 @@ class _FakeEventService extends EventService {
   _FakeEventService() : super(client: MockSupabaseClient());
 
   @override
-  Future<List<Map<String, dynamic>>> listEvents(
+  Future<List<Event>> listEvents(
     [String? status, String? type]) async {
     final start = DateTime(2026, 9, 15, 22);
     return [
-      {
-        'id': 'e-1',
-        'name': 'Fiesta',
-        'type': 'juerga',
-        'status': 'upcoming',
-        'group_id': null,
-        'location_name': null,
-        'cover_url': null,
-        'featured': false,
-        'starts_at': start.toUtc().toIso8601String(),
-        'ends_at': start
-            .add(const Duration(hours: 4))
-            .toUtc()
-            .toIso8601String(),
-      },
+      Event(
+        id: 'e-1',
+        name: 'Fiesta',
+        type: 'juerga',
+        status: 'upcoming',
+        startsAt: start,
+        endsAt: start.add(const Duration(hours: 4)),
+      ),
     ];
   }
 }

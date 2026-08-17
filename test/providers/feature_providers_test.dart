@@ -4,6 +4,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/models/friendship.dart';
 import 'package:samay/core/models/group.dart';
 import 'package:samay/core/models/user_profile.dart';
+import 'package:samay/core/models/user_search_result.dart';
 import 'package:samay/core/repositories/chat_repository.dart';
 import 'package:samay/core/repositories/friends_repository.dart';
 import 'package:samay/core/repositories/groups_repository.dart';
@@ -52,7 +53,7 @@ class _CountingFriendsListNotifier extends FriendsListNotifier {
   Duration get refreshThrottle => Duration.zero;
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<UserProfile>> build() async {
     buildCount++;
     return [];
   }
@@ -65,7 +66,7 @@ class _CountingMyGroupsNotifier extends MyGroupsNotifier {
   Duration get refreshThrottle => Duration.zero;
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<Group>> build() async {
     buildCount++;
     return [];
   }
@@ -104,7 +105,7 @@ class _CountingLeaderboardNotifier extends LeaderboardNotifier {
   Duration get refreshThrottle => Duration.zero;
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<LeaderboardEntry>> build(String arg) async {
     buildCount++;
     return [];
   }
@@ -114,7 +115,7 @@ class _CountingSearchResultsNotifier extends SearchResultsNotifier {
   int buildCount = 0;
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<UserSearchResult>> build(String arg) async {
     buildCount++;
     return [];
   }
@@ -128,7 +129,7 @@ class _CountingSearchResultsNotifier extends SearchResultsNotifier {
 /// covered at the service layer in `test/services/*_test.dart`.
 class _ThrowingFriendsListNotifier extends FriendsListNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<UserProfile>> build() async {
     throw StateError('friends list unavailable');
   }
 }
@@ -142,21 +143,21 @@ class _ThrowingFriendRequestsNotifier extends FriendRequestsNotifier {
 
 class _ThrowingSearchResultsNotifier extends SearchResultsNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<UserSearchResult>> build(String arg) async {
     throw StateError('search unavailable');
   }
 }
 
 class _ThrowingMyGroupsNotifier extends MyGroupsNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<Group>> build() async {
     throw StateError('groups unavailable');
   }
 }
 
 class _ThrowingGroupDetailNotifier extends GroupDetailNotifier {
   @override
-  Future<Map<String, dynamic>?> build(String arg) async {
+  Future<Group?> build(String arg) async {
     throw StateError('group unavailable');
   }
 }
@@ -170,14 +171,14 @@ class _ThrowingContributionsNotifier extends GroupContributionsNotifier {
 
 class _ThrowingLeaderboardNotifier extends LeaderboardNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<LeaderboardEntry>> build(String arg) async {
     throw StateError('leaderboard unavailable');
   }
 }
 
 class _ThrowingBlockedUsersNotifier extends BlockedUsersNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<UserProfile>> build() async {
     throw StateError('blocked users unavailable');
   }
 }
@@ -306,7 +307,7 @@ void main() {
           await _readAbsorbed(() => container.read(friendsListProvider.future));
       expect(err, isA<StateError>());
       expect(container.read(friendsListProvider),
-          isA<AsyncError<List<Map<String, dynamic>>>>());
+          isA<AsyncError<List<UserProfile>>>());
     });
 
     test('friendRequestsProvider failure surfaces AsyncError', () async {
@@ -338,7 +339,7 @@ void main() {
           () => container.read(searchResultsProvider('ana').future));
       expect(err, isA<StateError>());
       expect(container.read(searchResultsProvider('ana')),
-          isA<AsyncError<List<Map<String, dynamic>>>>());
+          isA<AsyncError<List<UserSearchResult>>>());
     });
 
     test('myGroupsProvider failure surfaces AsyncError', () async {
@@ -353,7 +354,7 @@ void main() {
           () => container.read(myGroupsProvider.future));
       expect(err, isA<StateError>());
       expect(container.read(myGroupsProvider),
-          isA<AsyncError<List<Map<String, dynamic>>>>());
+          isA<AsyncError<List<Group>>>());
     });
 
     test('groupDetailProvider failure surfaces AsyncError', () async {
@@ -368,7 +369,7 @@ void main() {
           () => container.read(groupDetailProvider('g-1').future));
       expect(err, isA<StateError>());
       expect(container.read(groupDetailProvider('g-1')),
-          isA<AsyncError<Map<String, dynamic>?>>());
+          isA<AsyncError<Group?>>());
     });
 
     test('contributionsProvider failure surfaces AsyncError', () async {
@@ -399,7 +400,7 @@ void main() {
           () => container.read(leaderboardProvider('micro').future));
       expect(err, isA<StateError>());
       expect(container.read(leaderboardProvider('micro')),
-          isA<AsyncError<List<Map<String, dynamic>>>>());
+          isA<AsyncError<List<LeaderboardEntry>>>());
     });
 
     test('blockedUsersProvider failure surfaces AsyncError', () async {
@@ -414,7 +415,7 @@ void main() {
           () => container.read(blockedUsersProvider.future));
       expect(err, isA<StateError>());
       expect(container.read(blockedUsersProvider),
-          isA<AsyncError<List<Map<String, dynamic>>>>());
+          isA<AsyncError<List<UserProfile>>>());
     });
 
     test('groupInvitesProvider failure surfaces AsyncError', () async {
@@ -451,14 +452,14 @@ void main() {
 
       verify(() => repo.getFriends()).called(1);
       verify(() => repo.getUserProfile(_otherId)).called(1);
-      expect(state.single['username'], 'ana');
+      expect(state.single.username, 'ana');
     });
 
     test('searchResultsProvider forwards the query to the repository',
         () async {
       final repo = _MockFriendsRepository();
-      when(() => repo.searchUsers('ana')).thenAnswer((_) async => const [
-            {'id': _otherId, 'username': 'ana', 'friendship_status': 'pending'},
+      when(() => repo.searchUsers('ana')).thenAnswer((_) async => [
+            const UserSearchResult(id: _otherId, username: 'ana', friendshipStatus: 'pending'),
           ]);
       final container = ProviderContainer(
         overrides: [friendsRepositoryProvider.overrideWithValue(repo)],
@@ -468,7 +469,7 @@ void main() {
       final state = await container.read(searchResultsProvider('ana').future);
 
       verify(() => repo.searchUsers('ana')).called(1);
-      expect(state.single['friendship_status'], 'pending');
+      expect(state.single.friendshipStatus, 'pending');
     });
 
     test('myGroupsProvider delegates to the groups repository', () async {
@@ -484,7 +485,7 @@ void main() {
       final state = await container.read(myGroupsProvider.future);
 
       verify(() => repo.getMyGroups()).called(1);
-      expect(state.single['my_role'], 'promotor');
+      expect(state.single.myRole, 'promotor');
     });
 
     test('groupDetailProvider delegates to the groups repository per id',
@@ -500,7 +501,7 @@ void main() {
       final state = await container.read(groupDetailProvider(_groupId).future);
 
       verify(() => repo.getGroup(_groupId)).called(1);
-      expect(state?['name'], 'Crew');
+      expect(state?.name, 'Crew');
     });
 
     test('contributionsProvider aggregates via the repository', () async {
@@ -543,8 +544,8 @@ void main() {
 
       verify(() => repo.getLeaderboard('micro')).called(1);
       verify(() => repo.getGroup(_groupId)).called(1);
-      expect(state.single['score'], 500);
-      expect(state.single['name'], 'Crew');
+      expect(state.single.score, 500);
+      expect(state.single.group.name, 'Crew');
     });
 
     test('myProfileProvider reads the profile repository', () async {

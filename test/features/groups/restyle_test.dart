@@ -8,7 +8,9 @@ import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/design_tokens/app_icon_sizes.dart';
 import 'package:samay/core/design_tokens/app_typography.dart';
+import 'package:samay/core/models/group.dart';
 import 'package:samay/core/models/group_member.dart';
+import 'package:samay/core/models/user_search_result.dart';
 import 'package:samay/core/repositories/groups_repository.dart';
 import 'package:samay/core/repositories/repository_providers.dart';
 import 'package:samay/core/theme/app_theme.dart';
@@ -21,14 +23,13 @@ import 'package:samay/features/groups/screens/group_members_screen.dart';
 import 'package:samay/features/groups/screens/invite_screen.dart';
 import 'package:samay/features/groups/screens/leaderboard_screen.dart';
 import 'package:samay/features/groups/screens/my_groups_screen.dart';
-import 'package:samay/features/profile/widgets/profile_avatar.dart';
+import 'package:samay/shared/widgets/profile_avatar.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/glass/v_gradient_border.dart';
 import 'package:samay/shared/widgets/glass/v_glass.dart';
 import 'package:samay/shared/widgets/rank_badge.dart';
 import 'package:samay/shared/widgets/skeletons.dart';
 import 'package:samay/shared/widgets/state_views.dart';
-import 'package:samay/shared/widgets/v_aurora.dart';
 import 'package:samay/shared/widgets/v_badge.dart';
 import 'package:samay/shared/widgets/v_button.dart';
 import 'package:samay/shared/widgets/v_chip.dart';
@@ -41,7 +42,7 @@ import '../../support/fake_supabase_http.dart' as support;
 ///
 /// Pins the LUXE v2 violet-family restyle applied screen-by-screen (the
 /// ledger in `docs/history/phase-04-luxe/2026-08-12_XL-10-groups.md`):
-/// the violet `VAurora` backdrop, glass tiles (VGlassCard) everywhere rows
+/// glass tiles (VGlassCard) everywhere rows
 /// render, the group-name detail hero + leaderboard podium in violet
 /// `VDisplayText` (Playfair MAYUS), the glowAccent CTAs carrying the violet
 /// gradient, the violet ring on the invite search field, and the glass
@@ -54,28 +55,28 @@ const _groupId = '33333333-3333-3333-3333-333333333333';
 const _userId1 = '11111111-1111-1111-1111-111111111111';
 const _userId2 = '22222222-2222-2222-2222-222222222222';
 
-Map<String, dynamic> _group(String id, String name, {String? myRole}) => {
-  'id': id,
-  'name': name,
-  'group_shards': 100,
-  'rank_bracket': 'b0_20',
-  'my_role': myRole,
-};
+Group _group(String id, String name, {String? myRole}) => Group(
+  id: id,
+  name: name,
+  groupShards: 100,
+  rankBracket: 'b0_20',
+  myRole: myRole,
+);
 
 class _StubMyGroupsNotifier extends MyGroupsNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<Group> data;
   _StubMyGroupsNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build() async => data;
+  Future<List<Group>> build() async => data;
 }
 
 class _StubGroupDetailNotifier extends GroupDetailNotifier {
-  final Map<String, dynamic>? data;
+  final Group? data;
   _StubGroupDetailNotifier({this.data});
 
   @override
-  Future<Map<String, dynamic>?> build(String arg) async => data;
+  Future<Group?> build(String arg) async => data;
 }
 
 /// Completer-gated group-detail variant — holds the provider pending so the
@@ -83,18 +84,29 @@ class _StubGroupDetailNotifier extends GroupDetailNotifier {
 class _GatedGroupDetailNotifier extends GroupDetailNotifier {
   _GatedGroupDetailNotifier(this.gate);
 
-  final Completer<Map<String, dynamic>?> gate;
+  final Completer<Group?> gate;
 
   @override
-  Future<Map<String, dynamic>?> build(String arg) => gate.future;
+  Future<Group?> build(String arg) => gate.future;
+}
+
+/// Gated combined provider — holds the provider pending for skeleton tests
+/// (M5).
+class _GatedGroupDetailCombinedNotifier extends GroupDetailCombinedNotifier {
+  _GatedGroupDetailCombinedNotifier(this.gate);
+
+  final Completer<GroupDetailData> gate;
+
+  @override
+  Future<GroupDetailData> build(String arg) => gate.future;
 }
 
 class _StubGroupMembersNotifier extends GroupMembersNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<GroupMember> data;
   _StubGroupMembersNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+  Future<List<GroupMember>> build(String arg) async => data;
 }
 
 class _StubContributionsNotifier extends GroupContributionsNotifier {
@@ -103,28 +115,37 @@ class _StubContributionsNotifier extends GroupContributionsNotifier {
       const GroupContributionsData(contributors: [], myContribution: 0);
 }
 
+/// Combined provider stub for the group detail screen (M5).
+class _StubGroupDetailCombinedNotifier extends GroupDetailCombinedNotifier {
+  final GroupDetailData _data;
+  _StubGroupDetailCombinedNotifier(this._data);
+
+  @override
+  Future<GroupDetailData> build(String arg) async => _data;
+}
+
 class _StubLeaderboardNotifier extends LeaderboardNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<LeaderboardEntry> data;
   _StubLeaderboardNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+  Future<List<LeaderboardEntry>> build(String arg) async => data;
 }
 
 class _StubSearchResultsNotifier extends SearchResultsNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<UserSearchResult> data;
   _StubSearchResultsNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+  Future<List<UserSearchResult>> build(String arg) async => data;
 }
 
 /// Pending search-results variant — pins the invite search-loading surface
 /// (U-24: the §5.8 spinner replaced the Material linear bar).
 class _PendingSearchResultsNotifier extends SearchResultsNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) =>
-      Completer<List<Map<String, dynamic>>>().future;
+  Future<List<UserSearchResult>> build(String arg) =>
+      Completer<List<UserSearchResult>>().future;
 }
 
 class _MockGroupsRepository extends Mock implements GroupsRepository {}
@@ -206,20 +227,31 @@ Color _badgeBorderColor(WidgetTester tester, String name) {
 }
 
 List<Override> _detailOverrides({
-  Map<String, dynamic>? group,
-  List<Map<String, dynamic>> members = const [],
-}) => [
-  groupDetailProvider.overrideWith(
-    () => _StubGroupDetailNotifier(
-      data:
-          group ?? {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
+  Group? group,
+  List<GroupMember> members = const [],
+}) {
+  final g =
+      group ?? const Group(id: _groupId, name: 'Disco Crew', groupShards: 100);
+  final contributions =
+      const GroupContributionsData(contributors: [], myContribution: 0);
+  return [
+    groupDetailProvider.overrideWith(
+      () => _StubGroupDetailNotifier(data: g),
     ),
-  ),
-  groupMembersProvider.overrideWith(
-    () => _StubGroupMembersNotifier(data: members),
-  ),
-  contributionsProvider.overrideWith(_StubContributionsNotifier.new),
-];
+    groupMembersProvider.overrideWith(
+      () => _StubGroupMembersNotifier(data: members),
+    ),
+    contributionsProvider.overrideWith(_StubContributionsNotifier.new),
+    groupDetailCombinedProvider.overrideWith(
+      () => _StubGroupDetailCombinedNotifier(GroupDetailData(
+        group: g,
+        members: members,
+        contributions: contributions,
+        membership: null,
+      )),
+    ),
+  ];
+}
 
 void main() {
   setUpAll(() => support.initSupabaseHarness(sessionEmail: 'a@b.com'));
@@ -250,16 +282,6 @@ void main() {
       await tester.pumpWidget(pumpMyGroups());
       await tester.pumpAndSettle();
 
-      expect(
-        find.byType(VAurora),
-        findsOneWidget,
-        reason: 'the LUXE violet ambient aurora backs the screen',
-      );
-      expect(
-        tester.widget<VAurora>(find.byType(VAurora)).gradients,
-        const [AppGradients.violet],
-        reason: 'the groups family is violet (NO PINK MAINS)',
-      );
       expect(
         find.byType(ProfileAvatar),
         findsNWidgets(2),
@@ -376,12 +398,11 @@ void main() {
             myGroupsProvider.overrideWith(
               () => _StubMyGroupsNotifier(
                 data: [
-                  {
-                    'id': _groupId,
-                    'name': 'No Role Club',
-                    'group_shards': 7,
-                    'rank_bracket': null,
-                  },
+                  const Group(
+                    id: _groupId,
+                    name: 'No Role Club',
+                    groupShards: 7,
+                  ),
                 ],
               ),
             ),
@@ -465,13 +486,13 @@ void main() {
         _wrap(
           const GroupDetailScreen(groupId: _groupId),
           overrides: _detailOverrides(
-            group: {
-              'id': _groupId,
-              'name': 'Disco Crew',
-              'group_shards': 100,
-              'size_tier': 'micro',
-              'rank_bracket': 'b0_20',
-            },
+            group: const Group(
+              id: _groupId,
+              name: 'Disco Crew',
+              groupShards: 100,
+              sizeTier: 'micro',
+              rankBracket: 'b0_20',
+            ),
           ),
         ),
       );
@@ -528,16 +549,22 @@ void main() {
           const GroupDetailScreen(groupId: _groupId),
           overrides: _detailOverrides(
             members: [
-              {
-                'user_id': _userId1,
-                'role': 'promotor',
-                'users': {'username': 'ana'},
-              },
-              {
-                'user_id': _userId2,
-                'role': 'member',
-                'users': {'username': 'lucas'},
-              },
+              GroupMember(
+                id: 'gm-1',
+                groupId: _groupId,
+                userId: _userId1,
+                role: 'promotor',
+                joinedAt: DateTime(2026),
+                users: const {'username': 'ana'},
+              ),
+              GroupMember(
+                id: 'gm-2',
+                groupId: _groupId,
+                userId: _userId2,
+                role: 'member',
+                joinedAt: DateTime(2026),
+                users: const {'username': 'lucas'},
+              ),
             ],
           ),
         ),
@@ -571,12 +598,12 @@ void main() {
         _wrap(
           const GroupDetailScreen(groupId: _groupId),
           overrides: _detailOverrides(
-            group: {
-              'id': _groupId,
-              'name': 'Disco Crew',
-              'group_shards': 100,
-              'frozen_at': '2026-01-01T00:00:00Z',
-            },
+            group: Group(
+              id: _groupId,
+              name: 'Disco Crew',
+              groupShards: 100,
+              frozenAt: DateTime(2026),
+            ),
           ),
         ),
       );
@@ -603,7 +630,8 @@ void main() {
 
     testWidgets('first load shows the cover+lines skeleton, not a spinner '
         '(U-24 §5.8)', (tester) async {
-      final gate = Completer<Map<String, dynamic>?>();
+      final gate = Completer<Group?>();
+      final combinedGate = Completer<GroupDetailData>();
       await tester.pumpWidget(
         _wrap(
           const GroupDetailScreen(groupId: _groupId),
@@ -613,6 +641,9 @@ void main() {
             ),
             groupMembersProvider.overrideWith(_StubGroupMembersNotifier.new),
             contributionsProvider.overrideWith(_StubContributionsNotifier.new),
+            groupDetailCombinedProvider.overrideWith(
+              () => _GatedGroupDetailCombinedNotifier(combinedGate),
+            ),
           ],
         ),
       );
@@ -628,11 +659,22 @@ void main() {
       );
       expect(find.byType(VLoadingView), findsNothing);
 
-      gate.complete({
-        'id': _groupId,
-        'name': 'Disco Crew',
-        'group_shards': 100,
-      });
+      gate.complete(const Group(
+        id: _groupId,
+        name: 'Disco Crew',
+        groupShards: 100,
+      ));
+      combinedGate.complete(const GroupDetailData(
+        group: Group(
+          id: _groupId,
+          name: 'Disco Crew',
+          groupShards: 100,
+        ),
+        members: [],
+        contributions:
+            GroupContributionsData(contributors: [], myContribution: 0),
+        membership: null,
+      ));
       await tester.pumpAndSettle();
 
       expect(
@@ -649,31 +691,31 @@ void main() {
   });
 
   group('LeaderboardScreen (LUXE violet podium — XL-10)', () {
-    List<Map<String, dynamic>> podium() => [
-      {
-        ..._group('11111111-1111-1111-1111-111111111111', 'Top Uno'),
-        'rank_position': 1,
-        'score': 500,
-        'member_count': 12,
-      },
-      {
-        ..._group('22222222-2222-2222-2222-222222222222', 'Top Dos'),
-        'rank_position': 2,
-        'score': 300,
-        'member_count': 8,
-      },
-      {
-        ..._group('33333333-3333-3333-3333-333333333333', 'Top Tres'),
-        'rank_position': 3,
-        'score': 150,
-        'member_count': 5,
-      },
-      {
-        ..._group('44444444-4444-4444-4444-444444444444', 'Cuarto'),
-        'rank_position': 4,
-        'score': 50,
-        'member_count': 3,
-      },
+    List<LeaderboardEntry> podium() => [
+      LeaderboardEntry(
+        group: _group('11111111-1111-1111-1111-111111111111', 'Top Uno'),
+        rankPosition: 1,
+        score: 500,
+        memberCount: 12,
+      ),
+      LeaderboardEntry(
+        group: _group('22222222-2222-2222-2222-222222222222', 'Top Dos'),
+        rankPosition: 2,
+        score: 300,
+        memberCount: 8,
+      ),
+      LeaderboardEntry(
+        group: _group('33333333-3333-3333-3333-333333333333', 'Top Tres'),
+        rankPosition: 3,
+        score: 150,
+        memberCount: 5,
+      ),
+      LeaderboardEntry(
+        group: _group('44444444-4444-4444-4444-444444444444', 'Cuarto'),
+        rankPosition: 4,
+        score: 50,
+        memberCount: 3,
+      ),
     ];
 
     Widget pumpLeaderboard() => _wrap(
@@ -776,10 +818,6 @@ void main() {
       await tester.pumpWidget(_wrap(const CreateGroupScreen()));
       await tester.pumpAndSettle();
 
-      expect(find.byType(VAurora), findsOneWidget);
-      expect(tester.widget<VAurora>(find.byType(VAurora)).gradients, const [
-        AppGradients.violet,
-      ]);
       expect(
         tester.widget<VGlassCard>(find.byType(VGlassCard)).gradient,
         AppGradients.violet,
@@ -846,7 +884,6 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byType(VAurora), findsOneWidget);
       expect(
         tester.widget<VGlassCard>(find.byType(VGlassCard)).gradient,
         AppGradients.violet,
@@ -883,8 +920,8 @@ void main() {
         searchResultsProvider.overrideWith(
           () => _StubSearchResultsNotifier(
             data: [
-              {'id': _userId1, 'username': 'ana', 'avatar_url': null},
-              {'id': _userId2, 'username': 'lucas', 'avatar_url': null},
+              const UserSearchResult(id: _userId1, username: 'ana'),
+              const UserSearchResult(id: _userId2, username: 'lucas'),
             ],
           ),
         ),
@@ -1017,7 +1054,6 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byType(VAurora), findsOneWidget);
       expect(find.byType(ProfileAvatar), findsNWidgets(2));
       expect(find.text('PROMOTOR'), findsOneWidget);
       expect(find.text('MEMBER'), findsOneWidget);

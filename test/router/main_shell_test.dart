@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/design_tokens/app_gradients.dart';
+import 'package:samay/core/models/friend_request_summary.dart';
 import 'package:samay/core/router/main_shell.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/theme/samay_durations.dart';
@@ -408,8 +409,8 @@ void main() {
     group('R18 — Grupos-tab pending badge (U-13 §5.4)', () {
       const received = FriendRequestsData(
         requests: [
-          {'type': 'received', 'friendship_id': 'f1', 'user_id': 'u1'},
-          {'type': 'received', 'friendship_id': 'f2', 'user_id': 'u2'},
+          FriendRequestSummary(type: 'received', friendshipId: 'f1', userId: 'u1'),
+          FriendRequestSummary(type: 'received', friendshipId: 'f2', userId: 'u2'),
         ],
         names: {'u1': 'ana', 'u2': 'lucas'},
       );
@@ -534,7 +535,7 @@ void main() {
         // invite is answered — the badge must re-derive 1 + 0.
         requests.data = const FriendRequestsData(
           requests: [
-            {'type': 'received', 'friendship_id': 'f1', 'user_id': 'u1'},
+            FriendRequestSummary(type: 'received', friendshipId: 'f1', userId: 'u1'),
           ],
           names: {'u1': 'ana'},
         );

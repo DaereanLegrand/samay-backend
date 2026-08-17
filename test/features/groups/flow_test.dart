@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:samay/core/models/group.dart';
 import 'package:samay/core/models/group_member.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/repositories/chat_repository.dart';
@@ -21,6 +22,7 @@ import 'package:samay/shared/widgets/v_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 import '../../support/fake_supabase_http.dart' as support;
+import '../../support/stub_auth_notifier.dart';
 
 /// U-16 groups FLOW ledger tests (R16-R17, 2026-08-11).
 ///
@@ -39,11 +41,6 @@ class _MockGroupsRepository extends Mock implements GroupsRepository {}
 class _MockChatRepository extends Mock implements ChatRepository {}
 
 class _MockRealtimeChannel extends Mock implements RealtimeChannel {}
-
-class _StubAuthNotifier extends AuthNotifier {
-  @override
-  Future<AuthState> build() async => const AuthState(user: {'id': _myUserId});
-}
 
 /// ISSUE 4: the group detail Chat tab resolves the group's chat id through
 /// [groupChatIdProvider]; the stub pins the resolved id.
@@ -75,7 +72,9 @@ _MockChatRepository _stubbedChatRepository() {
   when(() => repo.subscribe(any(), any())).thenReturn(channel);
   when(() => repo.subscribeToMessageReads(any(), any())).thenReturn(channel);
   when(() => repo.subscribeToMessageDeletes(any(), any())).thenReturn(channel);
-  when(() => repo.subscribeToGroupMessageReads(any(), any())).thenReturn(channel);
+  when(
+    () => repo.subscribeToGroupMessageReads(any(), any()),
+  ).thenReturn(channel);
   when(() => repo.getReadReceiptsEnabled()).thenAnswer((_) async => true);
   when(() => repo.fetchInbox()).thenAnswer((_) async => const []);
   when(() => repo.markChatRead(any())).thenAnswer((_) async {});
@@ -85,19 +84,19 @@ _MockChatRepository _stubbedChatRepository() {
 }
 
 class _StubGroupDetailNotifier extends GroupDetailNotifier {
-  final Map<String, dynamic>? data;
+  final Group? data;
   _StubGroupDetailNotifier({this.data});
 
   @override
-  Future<Map<String, dynamic>?> build(String arg) async => data;
+  Future<Group?> build(String arg) async => data;
 }
 
 class _StubGroupMembersNotifier extends GroupMembersNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<GroupMember> data;
   _StubGroupMembersNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+  Future<List<GroupMember>> build(String arg) async => data;
 }
 
 class _StubContributionsNotifier extends GroupContributionsNotifier {
@@ -116,6 +115,16 @@ class _StubMyMembershipNotifier extends MyMembershipNotifier {
   Future<Map<String, dynamic>?> build(String arg) async => data;
 }
 
+/// Combined provider stub for the group detail screen (M5 — replaces
+/// the 4-level nested when() with a single fetch).
+class _StubGroupDetailCombinedNotifier extends GroupDetailCombinedNotifier {
+  final GroupDetailData _data;
+  _StubGroupDetailCombinedNotifier(this._data);
+
+  @override
+  Future<GroupDetailData> build(String arg) async => _data;
+}
+
 /// ISSUE 2: mutable my-membership stub — [data] can be swapped between
 /// builds so the accept-invite flip (invited → active) can be asserted.
 class _LiveMyMembershipNotifier extends MyMembershipNotifier {
@@ -125,6 +134,23 @@ class _LiveMyMembershipNotifier extends MyMembershipNotifier {
 
   @override
   Future<Map<String, dynamic>?> build(String arg) async => data;
+}
+
+/// M5: mutable combined provider stub for the accept-invite flip test.
+class _LiveGroupDetailCombinedNotifier extends GroupDetailCombinedNotifier {
+  _LiveGroupDetailCombinedNotifier(this._data);
+
+  GroupDetailData _data;
+
+  GroupDetailData get current => _data;
+
+  set current(GroupDetailData value) {
+    _data = value;
+    ref.invalidateSelf();
+  }
+
+  @override
+  Future<GroupDetailData> build(String arg) async => _data;
 }
 
 class _GroupDetailHarness {
@@ -186,28 +212,43 @@ Future<_GroupDetailHarness> _pumpGroupDetail(
 }
 
 List<Override> _loadedGroupDetailOverrides({
-  Map<String, dynamic>? group,
-  List<Map<String, dynamic>> members = const [],
+  Group? group,
+  List<GroupMember> members = const [],
   Map<String, dynamic>? membership,
   MyMembershipNotifier Function()? membershipOverride,
   _MockGroupsRepository? repo,
-}) => [
-  groupDetailProvider.overrideWith(
-    () => _StubGroupDetailNotifier(
-      data:
-          group ?? {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
+}) {
+  final g =
+      group ?? const Group(id: _groupId, name: 'Disco Crew', groupShards: 100);
+  final contributions = const GroupContributionsData(
+    contributors: [],
+    myContribution: 0,
+  );
+  final m = membership;
+  return [
+    groupDetailProvider.overrideWith(() => _StubGroupDetailNotifier(data: g)),
+    groupMembersProvider.overrideWith(
+      () => _StubGroupMembersNotifier(data: members),
     ),
-  ),
-  groupMembersProvider.overrideWith(
-    () => _StubGroupMembersNotifier(data: members),
-  ),
-  contributionsProvider.overrideWith(_StubContributionsNotifier.new),
-  if (repo != null) groupsRepositoryProvider.overrideWithValue(repo),
-  myMembershipProvider.overrideWith(
-    membershipOverride ??
-        () => _StubMyMembershipNotifier(data: membership),
-  ),
-];
+    contributionsProvider.overrideWith(_StubContributionsNotifier.new),
+    if (repo != null) groupsRepositoryProvider.overrideWithValue(repo),
+    myMembershipProvider.overrideWith(
+      membershipOverride ?? () => _StubMyMembershipNotifier(data: m),
+    ),
+    // M5: combined provider override — the screen now watches this single
+    // provider instead of four separate ones.
+    groupDetailCombinedProvider.overrideWith(
+      () => _StubGroupDetailCombinedNotifier(
+        GroupDetailData(
+          group: g,
+          members: members,
+          contributions: contributions,
+          membership: m,
+        ),
+      ),
+    ),
+  ];
+}
 
 void main() {
   setUpAll(() => support.initSupabaseHarness(sessionEmail: 'a@b.com'));
@@ -264,12 +305,12 @@ void main() {
       await _pumpGroupDetail(
         tester,
         _loadedGroupDetailOverrides(
-          group: {
-            'id': _groupId,
-            'name': 'Disco Crew',
-            'group_shards': 100,
-            'frozen_at': '2026-08-01T00:00:00Z',
-          },
+          group: Group(
+            id: _groupId,
+            name: 'Disco Crew',
+            groupShards: 100,
+            frozenAt: DateTime(2026),
+          ),
         ),
       );
 
@@ -456,9 +497,9 @@ void main() {
       await tester.tap(find.text('Expulsar del grupo'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Expulsar'));
-      // LUXE: bounded pumps instead of pumpAndSettle — the members screen's
-      // VAurora drift would advance the fake clock past the snackbar's 4s
-      // auto-dismiss before the assertion runs.
+      // LUXE: bounded pumps instead of pumpAndSettle — pumpAndSettle would
+      // advance the fake clock past the snackbar's 4s auto-dismiss before
+      // the assertion runs.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -482,16 +523,22 @@ void main() {
         tester,
         _loadedGroupDetailOverrides(
           members: [
-            {
-              'user_id': _myUserId,
-              'role': 'promotor',
-              'users': {'username': 'yo'},
-            },
-            {
-              'user_id': _userId2,
-              'role': 'member',
-              'users': {'username': 'lucas'},
-            },
+            GroupMember(
+              id: 'gm-1',
+              groupId: _groupId,
+              userId: _myUserId,
+              role: 'promotor',
+              joinedAt: DateTime(2026),
+              users: const {'username': 'yo'},
+            ),
+            GroupMember(
+              id: 'gm-2',
+              groupId: _groupId,
+              userId: _userId2,
+              role: 'member',
+              joinedAt: DateTime(2026),
+              users: const {'username': 'lucas'},
+            ),
           ],
         ),
       );
@@ -565,18 +612,37 @@ void main() {
       final groups = _MockGroupsRepository();
       when(() => groups.acceptInvite('m-invited')).thenAnswer((_) async {});
       final membership = _LiveMyMembershipNotifier(invitedRow);
-      await _pumpGroupDetail(
-        tester,
-        _loadedGroupDetailOverrides(
+      final g = const Group(id: _groupId, name: 'Disco Crew', groupShards: 100);
+      final contributions = const GroupContributionsData(
+        contributors: [],
+        myContribution: 0,
+      );
+      final combined = _LiveGroupDetailCombinedNotifier(
+        GroupDetailData(
+          group: g,
+          members: const [],
+          contributions: contributions,
+          membership: invitedRow,
+        ),
+      );
+      await _pumpGroupDetail(tester, [
+        ..._loadedGroupDetailOverrides(
           membershipOverride: () => membership,
           repo: groups,
         ),
-      );
+        // Override the combined provider with the mutable live version.
+        groupDetailCombinedProvider.overrideWith(() => combined),
+      ]);
       expect(find.text('Aceptar'), findsOneWidget);
 
       await tester.tap(find.text('Aceptar'));
       // The DB flip lands before the reload — the membership is now active.
-      membership.data = null;
+      combined.current = GroupDetailData(
+        group: g,
+        members: const [],
+        contributions: contributions,
+        membership: null,
+      );
       await tester.pumpAndSettle();
 
       verify(() => groups.acceptInvite('m-invited')).called(1);
@@ -610,12 +676,12 @@ void main() {
       await _pumpGroupDetail(
         tester,
         _loadedGroupDetailOverrides(
-          group: {
-            'id': _groupId,
-            'name': 'Disco Crew',
-            'group_shards': 100,
-            'description': 'Para los que bailan',
-          },
+          group: const Group(
+            id: _groupId,
+            name: 'Disco Crew',
+            groupShards: 100,
+            description: 'Para los que bailan',
+          ),
         ),
       );
 
@@ -644,23 +710,18 @@ void main() {
 
     testWidgets('the Chat tab hosts the group ChatThreadView once the group '
         'chat id resolves (ISSUE 4)', (tester) async {
-      await _pumpGroupDetail(
-        tester,
-        [
-          ..._loadedGroupDetailOverrides(),
-          // ISSUE 4: the group's E2EE chat row resolves via groupChatIdProvider.
-          groupChatIdProvider.overrideWith(
-            () => _StubGroupChatIdNotifier('chat-g-1'),
-          ),
-          chatE2eeRepositoryProvider.overrideWithValue(
-            _stubbedChatRepository(),
-          ),
-          chatMessagesProvider.overrideWith(
-            () => _FakeChatMessagesNotifier(const []),
-          ),
-          authStateProvider.overrideWith(_StubAuthNotifier.new),
-        ],
-      );
+      await _pumpGroupDetail(tester, [
+        ..._loadedGroupDetailOverrides(),
+        // ISSUE 4: the group's E2EE chat row resolves via groupChatIdProvider.
+        groupChatIdProvider.overrideWith(
+          () => _StubGroupChatIdNotifier('chat-g-1'),
+        ),
+        chatE2eeRepositoryProvider.overrideWithValue(_stubbedChatRepository()),
+        chatMessagesProvider.overrideWith(
+          () => _FakeChatMessagesNotifier(const []),
+        ),
+        authStateProvider.overrideWith(() => StubAuthNotifier()),
+      ]);
 
       // ISSUE 3: the placeholder is gone — the tab hosts the SAME thread
       // widget the 1:1 chat screen uses.
@@ -691,24 +752,19 @@ void main() {
     testWidgets('active state: the name appears exactly once — in the AppBar '
         'next to the back arrow — and no cover banner renders above the Chat '
         'tab', (tester) async {
-      await _pumpGroupDetail(
-        tester,
-        [
-          ..._loadedGroupDetailOverrides(
-            group: {
-              'id': _groupId,
-              'name': 'Disco Crew',
-              'group_shards': 100,
-              'cover_url': 'https://example.com/cover.png',
-            },
+      await _pumpGroupDetail(tester, [
+        ..._loadedGroupDetailOverrides(
+          group: const Group(
+            id: _groupId,
+            name: 'Disco Crew',
+            groupShards: 100,
+            coverUrl: 'https://example.com/cover.png',
           ),
-          // The group chat row does not exist in this fixture — the Chat tab
-          // renders the honest placeholder (no ChatThreadView to pin down).
-          groupChatIdProvider.overrideWith(
-            () => _StubGroupChatIdNotifier(null),
-          ),
-        ],
-      );
+        ),
+        // The group chat row does not exist in this fixture — the Chat tab
+        // renders the honest placeholder (no ChatThreadView to pin down).
+        groupChatIdProvider.overrideWith(() => _StubGroupChatIdNotifier(null)),
+      ]);
 
       final appBarName = find.descendant(
         of: find.byType(AppBar),
@@ -717,7 +773,8 @@ void main() {
       expect(
         appBarName,
         findsOneWidget,
-        reason: 'the name renders next to the back arrow in the AppBar '
+        reason:
+            'the name renders next to the back arrow in the AppBar '
             '(USER FIX 4)',
       );
       expect(
@@ -733,7 +790,8 @@ void main() {
       expect(
         find.byType(VNetworkImage),
         findsOneWidget,
-        reason: 'the cover lives on the Info tab as its first block '
+        reason:
+            'the cover lives on the Info tab as its first block '
             '(USER FIX 4)',
       );
 
@@ -782,7 +840,8 @@ void main() {
           matching: find.text('Disco Crew'),
         ),
         findsOneWidget,
-        reason: 'the invited panel owns the name in its AppBar title '
+        reason:
+            'the invited panel owns the name in its AppBar title '
             '(USER FIX 4)',
       );
       expect(
@@ -795,7 +854,8 @@ void main() {
       expect(
         find.byType(VDisplayText),
         findsNothing,
-        reason: 'the in-body display name is gone from the invited panel '
+        reason:
+            'the in-body display name is gone from the invited panel '
             '(USER FIX 4)',
       );
     });

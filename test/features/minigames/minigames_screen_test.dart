@@ -126,9 +126,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '25');
       await tester.tap(find.text('Crear partida'));
-      // Bounded pumps, not pumpAndSettle: the screen's VAurora drift keeps
-      // frames scheduled for ~10s of fake time, which would run the snackbar
-      // through its full 4s lifecycle and dismiss it (LUXE restyle, XL-13).
+      // Bounded pumps, not pumpAndSettle: the fake clock must not advance
+      // past pending timers, which would run the snackbar through its full
+      // 4s lifecycle and dismiss it (LUXE restyle, XL-13).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -211,8 +211,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '9999');
       await tester.tap(find.text('Crear partida'));
-      // Bounded pumps — the VAurora drift would dismiss the 4s snackbar
-      // under pumpAndSettle (LUXE restyle, XL-13).
+      // Bounded pumps — pumpAndSettle would advance the fake clock past the
+      // 4s snackbar's auto-dismiss (LUXE restyle, XL-13).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -235,8 +235,8 @@ void main() {
       await tester.tap(find.text('Preguntas'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Crear partida'));
-      // Bounded pumps — the VAurora drift would dismiss the 4s snackbar
-      // under pumpAndSettle (LUXE restyle, XL-13).
+      // Bounded pumps — pumpAndSettle would advance the fake clock past the
+      // 4s snackbar's auto-dismiss (LUXE restyle, XL-13).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -301,8 +301,8 @@ void main() {
       await _pumpScreen(tester, sessions: [_session()]);
 
       await tester.tap(find.text('Apuesta: 50 shards'));
-      // Bounded pumps — the VAurora drift would dismiss the 4s snackbar
-      // under pumpAndSettle (LUXE restyle, XL-13).
+      // Bounded pumps — pumpAndSettle would advance the fake clock past the
+      // 4s snackbar's auto-dismiss (LUXE restyle, XL-13).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 

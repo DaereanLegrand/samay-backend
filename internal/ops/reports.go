@@ -40,9 +40,9 @@ func ActionReport(ctx context.Context, client *db.DBClient, reportID, action, ad
 	case "warn":
 		status = "actioned"
 	default:
-		return fmt.Errorf("invalid action: %s", action)
+		return fmt.Errorf("invalid action: %s: %w", action, ErrInvalid)
 	}
-	_, err := client.Update(ctx, "reports", "id=eq."+reportID, map[string]interface{}{
+	_, err := client.Update(ctx, "reports", "id=eq."+reportID, map[string]any{
 		"status": status,
 	})
 	if err != nil {

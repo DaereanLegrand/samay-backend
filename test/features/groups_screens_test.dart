@@ -10,6 +10,10 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
+import 'package:samay/core/models/event.dart';
+import 'package:samay/core/models/group.dart';
+import 'package:samay/core/models/group_member.dart';
+import 'package:samay/core/models/user_search_result.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/repositories/groups_repository.dart';
 import 'package:samay/core/repositories/repository_providers.dart';
@@ -39,16 +43,16 @@ const _groupId = '33333333-3333-3333-3333-333333333333';
 const _userId1 = '11111111-1111-1111-1111-111111111111';
 const _userId2 = '22222222-2222-2222-2222-222222222222';
 
-Map<String, dynamic> _group(String id, String name, {String? myRole}) => {
-  'id': id,
-  'name': name,
-  'group_shards': 100,
-  'rank_bracket': 'b0_20',
-  'my_role': myRole,
-};
+Group _group(String id, String name, {String? myRole}) => Group(
+  id: id,
+  name: name,
+  groupShards: 100,
+  rankBracket: 'b0_20',
+  myRole: myRole,
+);
 
 class _FakeMyGroupsNotifier extends MyGroupsNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<Group> data;
   final Object? error;
 
   /// When set, [build] awaits it before resolving — tests hold the provider
@@ -57,7 +61,7 @@ class _FakeMyGroupsNotifier extends MyGroupsNotifier {
   _FakeMyGroupsNotifier({this.data = const [], this.error, this.gate});
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<Group>> build() async {
     final g = gate;
     if (g != null) await g;
     if (error != null) throw error!;
@@ -66,23 +70,23 @@ class _FakeMyGroupsNotifier extends MyGroupsNotifier {
 }
 
 class _FakeGroupDetailNotifier extends GroupDetailNotifier {
-  final Map<String, dynamic>? data;
+  final Group? data;
   final Object? error;
   _FakeGroupDetailNotifier({this.data, this.error});
 
   @override
-  Future<Map<String, dynamic>?> build(String arg) async {
+  Future<Group?> build(String arg) async {
     if (error != null) throw error!;
     return data;
   }
 }
 
 class _FakeGroupMembersNotifier extends GroupMembersNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<GroupMember> data;
   _FakeGroupMembersNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+  Future<List<GroupMember>> build(String arg) async => data;
 }
 
 class _FakeContributionsNotifier extends GroupContributionsNotifier {
@@ -98,8 +102,16 @@ class _FakeContributionsNotifier extends GroupContributionsNotifier {
   Future<GroupContributionsData> build(String arg) async => data;
 }
 
+class _FakeGroupDetailCombinedNotifier extends GroupDetailCombinedNotifier {
+  final GroupDetailData _data;
+  _FakeGroupDetailCombinedNotifier(this._data);
+
+  @override
+  Future<GroupDetailData> build(String arg) async => _data;
+}
+
 class _FakeLeaderboardNotifier extends LeaderboardNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<LeaderboardEntry> data;
   final Object? error;
 
   /// When set, [build] awaits it before resolving — tests hold the provider
@@ -108,7 +120,7 @@ class _FakeLeaderboardNotifier extends LeaderboardNotifier {
   _FakeLeaderboardNotifier({this.data = const [], this.error, this.gate});
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<LeaderboardEntry>> build(String arg) async {
     final g = gate;
     if (g != null) await g;
     if (error != null) throw error!;
@@ -117,11 +129,11 @@ class _FakeLeaderboardNotifier extends LeaderboardNotifier {
 }
 
 class _FakeSearchResultsNotifier extends SearchResultsNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<UserSearchResult> data;
   _FakeSearchResultsNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+  Future<List<UserSearchResult>> build(String arg) async => data;
 }
 
 /// Records every query the provider is asked to resolve, so tests can assert
@@ -130,7 +142,7 @@ class _RecordingSearchResultsNotifier extends SearchResultsNotifier {
   final List<String> queries = [];
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<UserSearchResult>> build(String arg) async {
     queries.add(arg);
     return const [];
   }
@@ -154,7 +166,7 @@ class _RecordingLeaderboardNotifier extends LeaderboardNotifier {
   final List<String> tiers;
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<LeaderboardEntry>> build(String arg) async {
     tiers.add(arg);
     return const [];
   }
@@ -288,29 +300,42 @@ Future<_GroupDetailHarness> _pumpGroupDetail(
 }
 
 /// The full set of provider overrides that renders a loaded GroupDetailScreen.
-List<Override> _loadedGroupDetailOverrides() => [
-  groupDetailProvider.overrideWith(
-    () => _FakeGroupDetailNotifier(
-      data: {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
+List<Override> _loadedGroupDetailOverrides() {
+  const g = Group(id: _groupId, name: 'Disco Crew', groupShards: 100);
+  final members = [
+    GroupMember(
+      id: 'gm-1',
+      groupId: _groupId,
+      userId: _userId1,
+      role: 'promotor',
+      joinedAt: DateTime(2026),
+      users: const {'username': 'ana'},
     ),
-  ),
-  groupMembersProvider.overrideWith(
-    () => _FakeGroupMembersNotifier(
-      data: [
-        {
-          'user_id': _userId1,
-          'role': 'promotor',
-          'users': {'username': 'ana'},
-        },
-      ],
+  ];
+  const contributions =
+      GroupContributionsData(contributors: [], myContribution: 0);
+  return [
+    groupDetailProvider.overrideWith(
+      () => _FakeGroupDetailNotifier(data: g),
     ),
-  ),
-  contributionsProvider.overrideWith(
-    () => _FakeContributionsNotifier(
-      data: const GroupContributionsData(contributors: [], myContribution: 0),
+    groupMembersProvider.overrideWith(
+      () => _FakeGroupMembersNotifier(data: members),
     ),
-  ),
-];
+    contributionsProvider.overrideWith(
+      () => _FakeContributionsNotifier(data: contributions),
+    ),
+    groupDetailCombinedProvider.overrideWith(
+      () => _FakeGroupDetailCombinedNotifier(
+        GroupDetailData(
+          group: g,
+          members: members,
+          contributions: contributions,
+          membership: null,
+        ),
+      ),
+    ),
+  ];
+}
 
 void main() {
   setUpAll(() async {
@@ -563,22 +588,28 @@ void main() {
       await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
         groupDetailProvider.overrideWith(
           () => _FakeGroupDetailNotifier(
-            data: {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100},
+            data: const Group(id: _groupId, name: 'Disco Crew', groupShards: 100),
           ),
         ),
         groupMembersProvider.overrideWith(
           () => _FakeGroupMembersNotifier(
             data: [
-              {
-                'user_id': _userId1,
-                'role': 'promotor',
-                'users': {'username': 'ana'},
-              },
-              {
-                'user_id': _userId2,
-                'role': 'member',
-                'users': {'username': 'lucas'},
-              },
+              GroupMember(
+                id: 'gm-1',
+                groupId: _groupId,
+                userId: _userId1,
+                role: 'promotor',
+                joinedAt: DateTime(2026),
+                users: const {'username': 'ana'},
+              ),
+              GroupMember(
+                id: 'gm-2',
+                groupId: _groupId,
+                userId: _userId2,
+                role: 'member',
+                joinedAt: DateTime(2026),
+                users: const {'username': 'lucas'},
+              ),
             ],
           ),
         ),
@@ -593,6 +624,42 @@ void main() {
                 },
               ],
               myContribution: 30,
+            ),
+          ),
+        ),
+        groupDetailCombinedProvider.overrideWith(
+          () => _FakeGroupDetailCombinedNotifier(
+            GroupDetailData(
+              group: const Group(id: _groupId, name: 'Disco Crew', groupShards: 100),
+              members: [
+                GroupMember(
+                  id: 'gm-1',
+                  groupId: _groupId,
+                  userId: _userId1,
+                  role: 'promotor',
+                  joinedAt: DateTime(2026),
+                  users: const {'username': 'ana'},
+                ),
+                GroupMember(
+                  id: 'gm-2',
+                  groupId: _groupId,
+                  userId: _userId2,
+                  role: 'member',
+                  joinedAt: DateTime(2026),
+                  users: const {'username': 'lucas'},
+                ),
+              ],
+              contributions: const GroupContributionsData(
+                contributors: [
+                  {
+                    'user_id': _userId1,
+                    'shards_contributed': 50,
+                    'users': {'username': 'ana'},
+                  },
+                ],
+                myContribution: 30,
+              ),
+              membership: null,
             ),
           ),
         ),
@@ -618,6 +685,19 @@ void main() {
       await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
         groupDetailProvider.overrideWith(
           () => _FakeGroupDetailNotifier(error: Exception('grupo perdido')),
+        ),
+        groupDetailCombinedProvider.overrideWith(
+          () => _FakeGroupDetailCombinedNotifier(
+            const GroupDetailData(
+              group: null,
+              members: [],
+              contributions: GroupContributionsData(
+                contributors: [],
+                myContribution: 0,
+              ),
+              membership: null,
+            ),
+          ),
         ),
       ]);
       await tester.pumpAndSettle();
@@ -684,22 +764,25 @@ void main() {
         final events = _MockEventService();
         when(() => events.listEvents()).thenAnswer(
           (_) async => [
-            {
-              'id': 'e1',
-              'name': 'Rave del Sábado',
-              'group_id': _groupId,
-              'starts_at': '2026-09-01T22:00:00Z',
-              'ends_at': '2026-09-02T04:00:00Z',
-              'location_name': 'La Bodega',
-            },
-            {
-              'id': 'e2',
-              'name': 'Ajeno',
-              'group_id': '99999999-9999-9999-9999-999999999999',
-              'starts_at': '2026-09-01T22:00:00Z',
-              'ends_at': '2026-09-02T04:00:00Z',
-              'location_name': null,
-            },
+            Event(
+              id: 'e1',
+              name: 'Rave del Sábado',
+              type: 'juerga',
+              status: 'upcoming',
+              groupId: _groupId,
+              startsAt: DateTime.utc(2026, 9, 1, 22),
+              endsAt: DateTime.utc(2026, 9, 2, 4),
+              locationName: 'La Bodega',
+            ),
+            Event(
+              id: 'e2',
+              name: 'Ajeno',
+              type: 'juerga',
+              status: 'upcoming',
+              groupId: '99999999-9999-9999-9999-999999999999',
+              startsAt: DateTime.utc(2026, 9, 1, 22),
+              endsAt: DateTime.utc(2026, 9, 2, 4),
+            ),
           ],
         );
         await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
@@ -769,14 +852,15 @@ void main() {
       final events = _MockEventService();
       when(() => events.listEvents()).thenAnswer(
         (_) async => [
-          {
-            'id': 'e1',
-            'name': 'Rave del Sábado',
-            'group_id': _groupId,
-            'starts_at': '2026-09-01T22:00:00Z',
-            'ends_at': '2026-09-02T04:00:00Z',
-            'location_name': null,
-          },
+          Event(
+            id: 'e1',
+            name: 'Rave del Sábado',
+            type: 'juerga',
+            status: 'upcoming',
+            groupId: _groupId,
+            startsAt: DateTime.utc(2026, 9, 1, 22),
+            endsAt: DateTime.utc(2026, 9, 2, 4),
+          ),
         ],
       );
       final harness = await _pumpGroupDetail(tester, [
@@ -841,9 +925,9 @@ void main() {
 
       await tester.enterText(find.byType(TextField), '0');
       await tester.tap(find.text('Donar'));
-      // LUXE: bounded pumps instead of pumpAndSettle — the VAurora drift
-      // would otherwise advance the fake clock past the snackbar's 4s
-      // auto-dismiss before the assertion runs.
+      // LUXE: bounded pumps instead of pumpAndSettle — pumpAndSettle would
+      // otherwise advance the fake clock past the snackbar's 4s auto-dismiss
+      // before the assertion runs.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -861,8 +945,8 @@ void main() {
 
       await tester.enterText(find.byType(TextField), 'abc');
       await tester.tap(find.text('Donar'));
-      // LUXE: bounded pumps (see the sibling test's note — the aurora
-      // drift would dismiss the snackbar before the assertion).
+      // LUXE: bounded pumps (see the sibling test's note — pumpAndSettle
+      // would dismiss the snackbar before the assertion).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -939,8 +1023,8 @@ void main() {
 
       await tester.enterText(find.byType(TextField), '120');
       await tester.tap(find.text('Donar'));
-      // LUXE: bounded pumps (see the sibling test's note — the aurora
-      // drift would dismiss the snackbar before the assertion).
+      // LUXE: bounded pumps (see the sibling test's note — pumpAndSettle
+      // would dismiss the snackbar before the assertion).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -975,15 +1059,21 @@ void main() {
         groupMembersProvider.overrideWith(
           () => _FakeGroupMembersNotifier(
             data: [
-              {'user_id': _userId1, 'role': 'member'},
+              GroupMember(
+                id: 'gm-1',
+                groupId: _groupId,
+                userId: _userId1,
+                role: 'member',
+                joinedAt: DateTime(2026),
+              ),
             ],
           ),
         ),
         searchResultsProvider.overrideWith(
           () => _FakeSearchResultsNotifier(
             data: [
-              {'id': _userId1, 'username': 'ana', 'avatar_url': null},
-              {'id': _userId2, 'username': 'lucas', 'avatar_url': null},
+              const UserSearchResult(id: _userId1, username: 'ana'),
+              const UserSearchResult(id: _userId2, username: 'lucas'),
             ],
           ),
         ),
@@ -1047,12 +1137,12 @@ void main() {
         leaderboardProvider.overrideWith(
           () => _FakeLeaderboardNotifier(
             data: [
-              {
-                ..._group('44444444-4444-4444-4444-444444444444', 'Disco Crew'),
-                'rank_position': 1,
-                'score': 500,
-                'member_count': 12,
-              },
+              LeaderboardEntry(
+                group: _group('44444444-4444-4444-4444-444444444444', 'Disco Crew'),
+                rankPosition: 1,
+                score: 500,
+                memberCount: 12,
+              ),
             ],
             gate: gate.future,
           ),
@@ -1091,21 +1181,21 @@ void main() {
         leaderboardProvider.overrideWith(
           () => _FakeLeaderboardNotifier(
             data: [
-              {
-                ..._group('44444444-4444-4444-4444-444444444444', 'Disco Crew'),
-                'rank_position': 1,
-                'score': 500,
-                'member_count': 12,
-              },
-              {
-                ..._group(
+              LeaderboardEntry(
+                group: _group('44444444-4444-4444-4444-444444444444', 'Disco Crew'),
+                rankPosition: 1,
+                score: 500,
+                memberCount: 12,
+              ),
+              LeaderboardEntry(
+                group: _group(
                   '55555555-5555-5555-5555-555555555555',
                   'Vinyl Lovers',
                 ),
-                'rank_position': 2,
-                'score': 300,
-                'member_count': 8,
-              },
+                rankPosition: 2,
+                score: 300,
+                memberCount: 8,
+              ),
             ],
           ),
         ),
@@ -1204,15 +1294,15 @@ void main() {
             leaderboardProvider.overrideWith(
               () => _FakeLeaderboardNotifier(
                 data: [
-                  {
-                    ..._group(
+                  LeaderboardEntry(
+                    group: _group(
                       '44444444-4444-4444-4444-444444444444',
                       'Disco Crew',
                     ),
-                    'rank_position': 1,
-                    'score': 500,
-                    'member_count': 12,
-                  },
+                    rankPosition: 1,
+                    score: 500,
+                    memberCount: 12,
+                  ),
                 ],
               ),
             ),

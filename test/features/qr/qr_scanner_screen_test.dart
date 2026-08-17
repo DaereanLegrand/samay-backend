@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:samay/core/models/event.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/event_service.dart';
 import 'package:samay/core/services/permission_service.dart';
@@ -26,13 +27,14 @@ class MockEventService extends Mock implements EventService {}
 
 class _FakeEventDetailNotifier extends EventDetailNotifier {
   @override
-  Future<Map<String, dynamic>> build(String arg) async => {
-        'id': _eventId,
-        'name': 'Rave en el garaje',
-        'status': 'live',
-        'starts_at': DateTime.now().toIso8601String(),
-        'ends_at': DateTime.now().add(const Duration(hours: 3)).toIso8601String(),
-      };
+  Future<Event> build(String arg) async => Event(
+        id: _eventId,
+        name: 'Rave en el garaje',
+        type: 'juerga',
+        status: 'live',
+        startsAt: DateTime.now(),
+        endsAt: DateTime.now().add(const Duration(hours: 3)),
+      );
 }
 
 /// Fake camera widget: renders a button that fires the on-detect callback

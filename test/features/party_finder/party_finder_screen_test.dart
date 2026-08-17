@@ -302,9 +302,9 @@ void main() {
       );
 
       await tester.tap(find.byTooltip('Bloquear'));
-      // Bounded pumps, not pumpAndSettle: the screen's VAurora drift keeps
-      // frames scheduled for ~10s of fake time, which would run the snackbar
-      // through its full 4s lifecycle and dismiss it (LUXE restyle, XL-13).
+      // Bounded pumps, not pumpAndSettle: the fake clock must not advance
+      // past pending timers, which would run the snackbar through its full
+      // 4s lifecycle and dismiss it (LUXE restyle, XL-13).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -333,7 +333,7 @@ void main() {
       );
 
       await tester.tap(find.byTooltip('Bloquear'));
-      // Bounded pumps — see the block-success test above (VAurora drift vs
+      // Bounded pumps — see the block-success test above (pending timers vs
       // the 4s snackbar lifecycle under pumpAndSettle).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));

@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/models/friend_request_summary.dart';
+import 'package:samay/core/models/user_profile.dart';
+import 'package:samay/core/models/user_search_result.dart';
 import 'package:samay/features/friends/providers/friends_providers.dart';
 import 'package:samay/features/friends/screens/search_screen.dart';
 import 'package:samay/features/friends/screens/requests_screen.dart';
@@ -17,19 +20,24 @@ import '../support/fake_supabase_http.dart' as support;
 const _userId1 = '11111111-1111-1111-1111-111111111111';
 const _userId2 = '22222222-2222-2222-2222-222222222222';
 
-Map<String, dynamic> _user(String id, String username) => {
-  'id': id,
-  'username': username,
-  'avatar_url': null,
-};
+UserProfile _user(String id, String username) => UserProfile(
+  id: id,
+  username: username,
+  avatarUrl: null,
+);
+
+UserSearchResult _searchResult(String id, String username) => UserSearchResult(
+  id: id,
+  username: username,
+);
 
 class _FakeFriendsListNotifier extends FriendsListNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<UserProfile> data;
   final Object? error;
   _FakeFriendsListNotifier({this.data = const [], this.error});
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<UserProfile>> build() async {
     if (error != null) throw error!;
     return data;
   }
@@ -37,8 +45,8 @@ class _FakeFriendsListNotifier extends FriendsListNotifier {
 
 class _PendingFriendsListNotifier extends FriendsListNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build() async {
-    return Completer<List<Map<String, dynamic>>>().future;
+  Future<List<UserProfile>> build() async {
+    return Completer<List<UserProfile>>().future;
   }
 }
 
@@ -75,25 +83,25 @@ class _CountingGroupInvitesNotifier extends GroupInvitesNotifier {
 }
 
 class _FakeBlockedUsersNotifier extends BlockedUsersNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<UserProfile> data;
   _FakeBlockedUsersNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build() async => data;
+  Future<List<UserProfile>> build() async => data;
 }
 
 class _FakeSearchResultsNotifier extends SearchResultsNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<UserSearchResult> data;
   _FakeSearchResultsNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+  Future<List<UserSearchResult>> build(String arg) async => data;
 }
 
 /// Search provider pinned to a failure — the error-state rendering under test.
 class _ErrorSearchResultsNotifier extends SearchResultsNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<UserSearchResult>> build(String arg) async {
     throw Exception('search down');
   }
 }
@@ -104,7 +112,7 @@ class _RecordingSearchResultsNotifier extends SearchResultsNotifier {
   final List<String> queries = [];
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<UserSearchResult>> build(String arg) async {
     queries.add(arg);
     return const [];
   }
@@ -220,12 +228,16 @@ void main() {
           () => _FakeFriendRequestsNotifier(
             data: const FriendRequestsData(
               requests: [
-                {
-                  'type': 'received',
-                  'friendship_id': 'f1',
-                  'user_id': _userId1,
-                },
-                {'type': 'sent', 'friendship_id': 'f2', 'user_id': _userId2},
+                FriendRequestSummary(
+                  type: 'received',
+                  friendshipId: 'f1',
+                  userId: _userId1,
+                ),
+                FriendRequestSummary(
+                  type: 'sent',
+                  friendshipId: 'f2',
+                  userId: _userId2,
+                ),
               ],
               names: {_userId1: 'ana', _userId2: 'lucas'},
             ),
@@ -280,7 +292,11 @@ void main() {
       final requests = _CountingFriendRequestsNotifier(
         const FriendRequestsData(
           requests: [
-            {'type': 'received', 'friendship_id': 'f1', 'user_id': _userId1},
+            FriendRequestSummary(
+              type: 'received',
+              friendshipId: 'f1',
+              userId: _userId1,
+            ),
           ],
           names: {_userId1: 'ana'},
         ),
@@ -323,7 +339,11 @@ void main() {
       final requests = _CountingFriendRequestsNotifier(
         const FriendRequestsData(
           requests: [
-            {'type': 'received', 'friendship_id': 'f1', 'user_id': _userId1},
+            FriendRequestSummary(
+              type: 'received',
+              friendshipId: 'f1',
+              userId: _userId1,
+            ),
           ],
           names: {_userId1: 'ana'},
         ),
@@ -428,8 +448,12 @@ void main() {
         searchResultsProvider.overrideWith(
           () => _FakeSearchResultsNotifier(
             data: [
-              _user(_userId1, 'ana'),
-              {..._user(_userId2, 'lucas'), 'friendship_status': 'pending'},
+              _searchResult(_userId1, 'ana'),
+              const UserSearchResult(
+                id: _userId2,
+                username: 'lucas',
+                friendshipStatus: 'pending',
+              ),
             ],
           ),
         ),

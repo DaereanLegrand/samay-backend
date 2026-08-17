@@ -24,7 +24,7 @@ func ListFeatureRequests(ctx context.Context, client *db.DBClient, params ListFe
 }
 
 func ApproveFeatureRequest(ctx context.Context, client *db.DBClient, requestID string, featuredUntil time.Time, adminUserID string) error {
-	_, err := client.Update(ctx, "feature_requests", "id=eq."+requestID, map[string]interface{}{
+	_, err := client.Update(ctx, "feature_requests", "id=eq."+requestID, map[string]any{
 		"status":         "approved",
 		"featured_until": featuredUntil.Format(time.RFC3339),
 	})
@@ -47,7 +47,7 @@ func ApproveFeatureRequest(ctx context.Context, client *db.DBClient, requestID s
 }
 
 func RejectFeatureRequest(ctx context.Context, client *db.DBClient, requestID, adminUserID string) error {
-	_, err := client.Update(ctx, "feature_requests", "id=eq."+requestID, map[string]interface{}{
+	_, err := client.Update(ctx, "feature_requests", "id=eq."+requestID, map[string]any{
 		"status": "rejected",
 	})
 	if err != nil {

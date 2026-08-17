@@ -19,7 +19,6 @@ import 'package:samay/features/auth/screens/profile_setup_screen.dart';
 import 'package:samay/features/auth/screens/signup_contact_screen.dart';
 import 'package:samay/features/auth/screens/welcome_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/v_aurora.dart';
 import 'package:samay/shared/widgets/v_button.dart';
 import 'package:samay/shared/widgets/v_disco_divider.dart';
 import 'package:samay/shared/widgets/v_display_text.dart';
@@ -302,17 +301,6 @@ void main() {
         isNull,
         reason: 'no italics — user directive 2026-08-14',
       );
-    });
-
-    testWidgets('one aurora ambient per screen (violet + cyan brand wash)', (
-      tester,
-    ) async {
-      final notifier = _RecordingAuthNotifier();
-      await _pump(tester, const WelcomeScreen(), notifier);
-      await tester.pumpAndSettle();
-
-      final aurora = tester.widget<VAurora>(find.byType(VAurora));
-      expect(aurora.gradients, [AppGradients.violet, AppGradients.cyan]);
     });
 
     testWidgets('login primary CTA is BLACK — no cyan/skyblue (user '

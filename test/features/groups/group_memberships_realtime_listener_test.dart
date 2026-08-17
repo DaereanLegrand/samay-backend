@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:samay/core/models/group.dart';
+import 'package:samay/core/models/group_member.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/realtime_service.dart';
@@ -43,9 +45,9 @@ class _CountingMyGroupsNotifier extends MyGroupsNotifier {
   _CountingMyGroupsNotifier(this.onBuild);
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<Group>> build() async {
     onBuild.add(1);
-    return <Map<String, dynamic>>[];
+    return const <Group>[];
   }
 }
 
@@ -55,9 +57,9 @@ class _CountingGroupMembersNotifier extends GroupMembersNotifier {
   _CountingGroupMembersNotifier(this.onBuild);
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<GroupMember>> build(String arg) async {
     onBuild.add(1);
-    return <Map<String, dynamic>>[];
+    return const <GroupMember>[];
   }
 }
 

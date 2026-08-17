@@ -6,6 +6,7 @@ import (
 	"github.com/samay-app/samay/internal/db"
 	"github.com/samay-app/samay/internal/format"
 	"github.com/samay-app/samay/internal/ops"
+	"github.com/samay-app/samay/internal/validate"
 	"github.com/spf13/cobra"
 )
 
@@ -22,13 +23,13 @@ var reportsListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		status, _ := cmd.Flags().GetString("status")
 		if status != "" {
-			if err := oneOf(status, "pending", "reviewed", "actioned", "dismissed"); err != nil {
+			if err := validate.OneOf(status, "pending", "reviewed", "actioned", "dismissed"); err != nil {
 				return err
 			}
 		}
 		targetType, _ := cmd.Flags().GetString("type")
 		if targetType != "" {
-			if err := oneOf(targetType, "message", "photo", "user", "event"); err != nil {
+			if err := validate.OneOf(targetType, "message", "photo", "user", "event"); err != nil {
 				return err
 			}
 		}
@@ -68,7 +69,7 @@ var reportsActionCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		action, _ := cmd.Flags().GetString("action")
-		if err := oneOf(action, "remove", "dismiss", "warn"); err != nil {
+		if err := validate.OneOf(action, "remove", "dismiss", "warn"); err != nil {
 			return err
 		}
 		ctx, cancel := rootCtx()
@@ -91,7 +92,7 @@ func init() {
 	reportsCmd.AddCommand(reportsListCmd, reportsGetCmd, reportsActionCmd)
 }
 
-func reportsTableBuilder(data interface{}) ([]string, [][]string) {
+func reportsTableBuilder(data any) ([]string, [][]string) {
 	reports := data.([]db.Report)
 	headers := []string{"ID", "REPORTER", "TARGET_TYPE", "TARGET_ID", "REASON", "STATUS", "CREATED_AT"}
 	rows := make([][]string, 0, len(reports))

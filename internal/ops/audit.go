@@ -16,7 +16,7 @@ type AuditParams struct {
 }
 
 func LogAction(ctx context.Context, client *db.DBClient, params AuditParams) error {
-	_, err := client.Insert(ctx, "admin_audit_log", map[string]interface{}{
+	_, err := client.Insert(ctx, "admin_audit_log", map[string]any{
 		"admin_user_id": params.AdminUserID,
 		"action":        params.Action,
 		"target_type":   params.TargetType,

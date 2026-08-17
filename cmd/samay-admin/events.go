@@ -7,6 +7,7 @@ import (
 	"github.com/samay-app/samay/internal/db"
 	"github.com/samay-app/samay/internal/format"
 	"github.com/samay-app/samay/internal/ops"
+	"github.com/samay-app/samay/internal/validate"
 	"github.com/spf13/cobra"
 )
 
@@ -23,13 +24,13 @@ var eventsListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		status, _ := cmd.Flags().GetString("status")
 		if status != "" {
-			if err := oneOf(status, "draft", "upcoming", "live", "ended", "cancelled"); err != nil {
+			if err := validate.OneOf(status, "draft", "upcoming", "live", "ended", "cancelled"); err != nil {
 				return err
 			}
 		}
 		eventType, _ := cmd.Flags().GetString("type")
 		if eventType != "" {
-			if err := oneOf(eventType, "casual", "juerga", "tono"); err != nil {
+			if err := validate.OneOf(eventType, "casual", "juerga", "tono"); err != nil {
 				return err
 			}
 		}
@@ -73,7 +74,7 @@ var eventsFeatureCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		expiresStr, _ := cmd.Flags().GetString("expires")
-		expiresAt, err := parseDate(expiresStr)
+		expiresAt, err := validate.ParseDate(expiresStr)
 		if err != nil {
 			return err
 		}
@@ -177,7 +178,7 @@ func init() {
 	)
 }
 
-func eventsTableBuilder(data interface{}) ([]string, [][]string) {
+func eventsTableBuilder(data any) ([]string, [][]string) {
 	events := data.([]db.Event)
 	headers := []string{"ID", "NAME", "TYPE", "STATUS", "STARTS_AT", "PROMOTOR", "POOL", "FEATURED"}
 	rows := make([][]string, 0, len(events))

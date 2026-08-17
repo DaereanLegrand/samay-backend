@@ -263,8 +263,8 @@ void main() {
       await _pumpGroupScreen(tester, service);
 
       await tester.tap(find.text('Agregar foto de portada'));
-      // LUXE: bounded pumps — the screen's VAurora drift advances the fake
-      // clock past the snackbar's auto-dismiss under pumpAndSettle.
+      // LUXE: bounded pumps — pumpAndSettle would advance the fake clock past
+      // the snackbar's auto-dismiss.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 

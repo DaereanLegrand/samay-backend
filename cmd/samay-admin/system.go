@@ -52,7 +52,7 @@ func init() {
 	systemCmd.AddCommand(systemStatsCmd, systemHealthCmd)
 }
 
-func statsTableBuilder(data interface{}) ([]string, [][]string) {
+func statsTableBuilder(data any) ([]string, [][]string) {
 	stats := data.(*ops.SystemStats)
 	headers := []string{"METRIC", "VALUE"}
 	rows := [][]string{
@@ -89,7 +89,7 @@ func mapSummary(m map[string]int) string {
 	return strings.Join(parts, ", ")
 }
 
-func healthTableBuilder(data interface{}) ([]string, [][]string) {
+func healthTableBuilder(data any) ([]string, [][]string) {
 	health := data.(*ops.SystemHealth)
 	headers := []string{"METRIC", "VALUE"}
 	rows := [][]string{

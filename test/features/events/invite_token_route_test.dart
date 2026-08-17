@@ -20,29 +20,19 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 const _eventId = '11111111-1111-1111-1111-111111111111';
 const _token = 'invite-tok-1';
 
-Map<String, dynamic> _event() => {
-  'id': _eventId,
-  'name': 'Rave en el garaje',
-  'description': 'La mejor fiesta del barrio',
-  'type': 'juerga',
-  'status': 'upcoming',
-  'created_by_user_id': _eventId,
-  'group_id': null,
-  'location_name': 'Av. Los Aromos 123',
-  'starts_at': DateTime(2026, 5, 15, 21).toIso8601String(),
-  'ends_at': DateTime(2026, 5, 16, 2).toIso8601String(),
-  'join_mode': 'open',
-  'preshards_pool': 500,
-  'preshards_distributed': false,
-  'preshards_cap_per_user': null,
-  'preshards_remainder_action': 'return',
-  'dynamic_qr_enabled': true,
-  'invite_token': _token,
-  'cover_url': null,
-  'featured': false,
-  'created_at': DateTime(2026, 5, 10).toIso8601String(),
-  'updated_at': DateTime(2026, 5, 10).toIso8601String(),
-};
+Event _event() => Event(
+  id: _eventId,
+  name: 'Rave en el garaje',
+  description: 'La mejor fiesta del barrio',
+  type: 'juerga',
+  status: 'upcoming',
+  createdByUserId: _eventId,
+  locationName: 'Av. Los Aromos 123',
+  startsAt: DateTime(2026, 5, 15, 21),
+  endsAt: DateTime(2026, 5, 16, 2),
+  joinMode: 'open',
+  preshardsPool: 500,
+);
 
 class _MockEventService extends Mock implements EventService {}
 
@@ -167,7 +157,7 @@ void main() {
         final service = _MockEventService();
         when(
           () => service.getEventByInviteToken(_token),
-        ).thenAnswer((_) async => Event.fromJson(_event()));
+        ).thenAnswer((_) async => _event());
         when(
           () => service.getEvent(_eventId),
         ).thenAnswer((_) async => _event());
@@ -203,7 +193,7 @@ void main() {
       );
 
       // LUXE restyle: the not-found fallback is the VEmptyView state (peach
-      // aurora accent), not the generic RouteErrorScreen.
+      // accent), not the generic RouteErrorScreen.
       expect(find.byType(VEmptyView), findsOneWidget);
       expect(
         find.text('La invitaci\u00f3n solicitada no es v\u00e1lida.'),
@@ -250,7 +240,7 @@ void main() {
       expect(find.byType(VLoadingView), findsOneWidget);
       expect(find.byType(EventDetailScreen), findsNothing);
 
-      completer.complete(Event.fromJson(_event()));
+      completer.complete(_event());
       await tester.pumpAndSettle();
       expect(find.byType(EventDetailScreen), findsOneWidget);
     });

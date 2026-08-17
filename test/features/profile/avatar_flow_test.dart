@@ -206,9 +206,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.camera_alt));
-      // LUXE v2 (XL-08): the gold VAurora's 10s ambient drift keeps frames
-      // scheduled — `pumpAndSettle` would advance the clock past the
-      // snackbar's 4s auto-dismiss. Bounded pumps: the async upload chain
+      // LUXE v2 (XL-08): bounded pumps — `pumpAndSettle` would advance the
+      // clock past the snackbar's 4s auto-dismiss. The async upload chain
       // (all microtasks, no timers) completes, then the entrance plays.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
@@ -234,8 +233,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.camera_alt));
-      // Bounded pump (not pumpAndSettle — the aurora drift would outlive the
-      // snackbar's 4s auto-dismiss; see the full-flow test note).
+      // Bounded pump (not pumpAndSettle — it would advance the fake clock past
+      // the snackbar's 4s auto-dismiss; see the full-flow test note).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -276,8 +275,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.camera_alt));
-      // Bounded pump (not pumpAndSettle — the aurora drift would outlive the
-      // snackbar's 4s auto-dismiss; see the full-flow test note).
+      // Bounded pump (not pumpAndSettle — it would advance the fake clock past
+      // the snackbar's 4s auto-dismiss; see the full-flow test note).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 

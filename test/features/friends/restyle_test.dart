@@ -6,6 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/design_tokens/app_spacing.dart';
+import 'package:samay/core/models/friend_request_summary.dart';
+import 'package:samay/core/models/user_profile.dart';
+import 'package:samay/core/models/user_search_result.dart';
 import 'package:samay/core/theme/app_theme.dart';
 import 'package:samay/features/friends/providers/friends_providers.dart';
 import 'package:samay/features/friends/screens/blocked_users_screen.dart';
@@ -13,11 +16,10 @@ import 'package:samay/features/friends/screens/friends_list_screen.dart';
 import 'package:samay/features/friends/screens/requests_screen.dart';
 import 'package:samay/features/friends/screens/search_screen.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
-import 'package:samay/features/profile/widgets/profile_avatar.dart';
+import 'package:samay/shared/widgets/profile_avatar.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/glass/glass.dart';
 import 'package:samay/shared/widgets/state_views.dart';
-import 'package:samay/shared/widgets/v_aurora.dart';
 import 'package:samay/shared/widgets/v_badge.dart';
 import 'package:samay/shared/widgets/v_button.dart';
 import 'package:samay/shared/widgets/v_count_badge.dart';
@@ -28,7 +30,7 @@ import '../../support/fake_supabase_http.dart' as support;
 ///
 /// Pins the ORCHESTRATION-LUXE restyle applied screen-by-screen (the ledger
 /// in `docs/history/phase-04-luxe/2026-08-12_XL-09-friends.md`): mint
-/// family everywhere (NO PINK MAINS), one faint mint [VAurora] per screen,
+/// family everywhere (NO PINK MAINS),
 /// sharp [VGlassCard] hairline tiles instead of dividers, mint accents ONLY
 /// on active elements (accept buttons, pending badges), cyan presence dots
 /// stay semantic, AppBars keep Inter-white titles (no display heroes on
@@ -38,24 +40,29 @@ import '../../support/fake_supabase_http.dart' as support;
 const _userId1 = '11111111-1111-1111-1111-111111111111';
 const _userId2 = '22222222-2222-2222-2222-222222222222';
 
-Map<String, dynamic> _user(String id, String username) => {
-  'id': id,
-  'username': username,
-  'avatar_url': null,
-};
+UserProfile _user(String id, String username) => UserProfile(
+  id: id,
+  username: username,
+  avatarUrl: null,
+);
+
+UserSearchResult _searchResult(String id, String username) => UserSearchResult(
+  id: id,
+  username: username,
+);
 
 class _StubFriendsListNotifier extends FriendsListNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<UserProfile> data;
   _StubFriendsListNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build() async => data;
+  Future<List<UserProfile>> build() async => data;
 }
 
 class _PendingFriendsListNotifier extends FriendsListNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build() =>
-      Completer<List<Map<String, dynamic>>>().future;
+  Future<List<UserProfile>> build() =>
+      Completer<List<UserProfile>>().future;
 }
 
 class _StubFriendRequestsNotifier extends FriendRequestsNotifier {
@@ -82,25 +89,25 @@ class _StubGroupInvitesNotifier extends GroupInvitesNotifier {
 }
 
 class _StubBlockedUsersNotifier extends BlockedUsersNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<UserProfile> data;
   _StubBlockedUsersNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build() async => data;
+  Future<List<UserProfile>> build() async => data;
 }
 
 class _StubSearchResultsNotifier extends SearchResultsNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<UserSearchResult> data;
   _StubSearchResultsNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+  Future<List<UserSearchResult>> build(String arg) async => data;
 }
 
 class _PendingSearchResultsNotifier extends SearchResultsNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) =>
-      Completer<List<Map<String, dynamic>>>().future;
+  Future<List<UserSearchResult>> build(String arg) =>
+      Completer<List<UserSearchResult>>().future;
 }
 
 Widget _wrap(Widget child, {List<Override> overrides = const []}) {
@@ -119,20 +126,6 @@ Widget _wrap(Widget child, {List<Override> overrides = const []}) {
 /// The compact outlined [VButton] inside a [ListTile] trailing.
 VButton _tileActionButton(WidgetTester tester) =>
     tester.widget<VButton>(find.byType(VButton));
-
-/// LUXE ambient pin: exactly one [VAurora] per screen, mint-only blobs at
-/// the 0.08 whisper alpha (ORCHESTRATION-LUXE: friends = mint, no pink
-/// mains; the VAurora component's 0.04–0.10 alpha range).
-void _expectMintAurora(WidgetTester tester) {
-  expect(find.byType(VAurora), findsOneWidget);
-  final aurora = tester.widget<VAurora>(find.byType(VAurora));
-  expect(
-    aurora.gradients.every((g) => g.name == 'mint'),
-    isTrue,
-    reason: 'the friends family is mint — no pink, no other main families',
-  );
-  expect(aurora.opacity, 0.08, reason: 'faint ambient wash (0.04–0.10)');
-}
 
 void main() {
   setUpAll(() => support.initSupabaseHarness(sessionEmail: 'a@b.com'));
@@ -179,22 +172,6 @@ void main() {
       final decoration = ring.decoration as BoxDecoration;
       expect(decoration.shape, BoxShape.circle);
       expect(decoration.color, AppColors.surfaceAlt);
-    });
-
-    testWidgets('sits on the faint mint aurora (family pin)', (tester) async {
-      await tester.pumpWidget(
-        _wrap(
-          const FriendsListScreen(),
-          overrides: [
-            friendsListProvider.overrideWith(
-              () => _StubFriendsListNotifier(data: [_user(_userId1, 'ana')]),
-            ),
-          ],
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      _expectMintAurora(tester);
     });
 
     testWidgets('presence dot is the statusOnline (cyan) 8px token', (
@@ -345,7 +322,7 @@ void main() {
           overrides: [
             searchResultsProvider.overrideWith(
               () => _StubSearchResultsNotifier(
-                data: [_user(_userId1, 'ana'), _user(_userId2, 'lucas')],
+                data: [_searchResult(_userId1, 'ana'), _searchResult(_userId2, 'lucas')],
               ),
             ),
           ],
@@ -365,24 +342,6 @@ void main() {
       );
     });
 
-    testWidgets('sits on the faint mint aurora (family pin)', (tester) async {
-      await tester.pumpWidget(
-        _wrap(
-          const SearchScreen(),
-          overrides: [
-            searchResultsProvider.overrideWith(
-              () => _StubSearchResultsNotifier(data: [_user(_userId1, 'ana')]),
-            ),
-          ],
-        ),
-      );
-      await tester.enterText(find.byType(TextField), 'an');
-      await tester.pump(const Duration(milliseconds: 350));
-      await tester.pumpAndSettle();
-
-      _expectMintAurora(tester);
-    });
-
     testWidgets("'Agregar' is the compact mint-outlined VButton in the tile "
         'trailing; pending renders the mint status badge', (tester) async {
       await tester.pumpWidget(
@@ -392,11 +351,12 @@ void main() {
             searchResultsProvider.overrideWith(
               () => _StubSearchResultsNotifier(
                 data: [
-                  _user(_userId1, 'ana'),
-                  {
-                    ..._user(_userId2, 'lucas'),
-                    'friendship_status': 'pending',
-                  },
+                  _searchResult(_userId1, 'ana'),
+                  const UserSearchResult(
+                    id: _userId2,
+                    username: 'lucas',
+                    friendshipStatus: 'pending',
+                  ),
                 ],
               ),
             ),
@@ -459,7 +419,7 @@ void main() {
           overrides: [
             searchResultsProvider.overrideWith(
               () => _StubSearchResultsNotifier(
-                data: [_user(_userId1, 'ana'), _user(_userId2, 'lucas')],
+                data: [_searchResult(_userId1, 'ana'), _searchResult(_userId2, 'lucas')],
               ),
             ),
           ],
@@ -536,15 +496,6 @@ void main() {
       expect(find.text('Invitaciones'), findsOneWidget);
     });
 
-    testWidgets('sits on the faint mint aurora (family pin)', (tester) async {
-      await tester.pumpWidget(
-        _wrap(const RequestsScreen(), overrides: requestsOverrides()),
-      );
-      await tester.pumpAndSettle();
-
-      _expectMintAurora(tester);
-    });
-
     testWidgets('accept is the mint VButton, decline the theme TextButton; '
         'rows are mint glass tiles', (tester) async {
       await tester.pumpWidget(
@@ -553,16 +504,16 @@ void main() {
           overrides: requestsOverrides(
             data: const FriendRequestsData(
               requests: [
-                {
-                  'type': 'received',
-                  'friendship_id': 'f1',
-                  'user_id': _userId1,
-                },
-                {
-                  'type': 'received',
-                  'friendship_id': 'f2',
-                  'user_id': _userId2,
-                },
+                FriendRequestSummary(
+                  type: 'received',
+                  friendshipId: 'f1',
+                  userId: _userId1,
+                ),
+                FriendRequestSummary(
+                  type: 'received',
+                  friendshipId: 'f2',
+                  userId: _userId2,
+                ),
               ],
               names: {_userId1: 'ana', _userId2: 'lucas'},
             ),
@@ -608,11 +559,11 @@ void main() {
           overrides: requestsOverrides(
             data: const FriendRequestsData(
               requests: [
-                {
-                  'type': 'received',
-                  'friendship_id': 'f1',
-                  'user_id': _userId1,
-                },
+                FriendRequestSummary(
+                  type: 'received',
+                  friendshipId: 'f1',
+                  userId: _userId1,
+                ),
               ],
               names: {_userId1: 'ana'},
             ),
@@ -700,20 +651,6 @@ void main() {
       );
       expect(find.byType(VGlassCard), findsNWidgets(2));
       expect(find.byType(Divider), findsNothing);
-    });
-
-    testWidgets('sits on the faint mint aurora (family pin)', (tester) async {
-      await tester.pumpWidget(
-        _wrap(
-          const BlockedUsersScreen(),
-          overrides: [
-            blockedUsersProvider.overrideWith(_StubBlockedUsersNotifier.new),
-          ],
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      _expectMintAurora(tester);
     });
 
     testWidgets('empty state renders through VStateView + VEmptyView', (

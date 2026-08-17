@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/providers/service_providers.dart';
+import 'package:samay/core/services/discovery_service.dart';
 import 'package:samay/core/services/user_service.dart';
 import 'package:samay/features/party_finder/providers/party_finder_providers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
@@ -18,9 +19,11 @@ const _thirdId = '33333333-3333-3333-3333-333333333333';
 
 User _currentUser() => User.fromJson({'id': _userId, 'email': 'a@b.com'})!;
 
-ProviderContainer _container(UserService service) {
+ProviderContainer _container(UserService service, {DiscoveryService? discovery}) {
   final container = ProviderContainer(overrides: [
     userServiceProvider.overrideWithValue(service),
+    if (discovery != null)
+      discoveryServiceProvider.overrideWithValue(discovery),
   ]);
   addTearDown(container.dispose);
   return container;
@@ -38,6 +41,7 @@ void main() {
   });
 
   UserService service() => UserService(client: client);
+  DiscoveryService discoveryService() => DiscoveryService(client: client);
 
   group('discoveryOptInProvider (PFND opt-in toggle)', () {
     test('build reads users.discovery_opt_in through the service', () async {
@@ -47,7 +51,7 @@ void main() {
         (_) => ResolvingBuilder<PostgrestList>({'discovery_opt_in': false}),
       );
 
-      final container = _container(service());
+      final container = _container(service(), discovery: discoveryService());
 
       expect(await container.read(discoveryOptInProvider.future), isFalse);
     });
@@ -62,7 +66,7 @@ void main() {
       final update = ResolvingBuilder<dynamic>(null);
       when(() => users.update(any())).thenAnswer((_) => update);
 
-      final container = _container(service());
+      final container = _container(service(), discovery: discoveryService());
       expect(await container.read(discoveryOptInProvider.future), isFalse);
 
       await container.read(discoveryOptInProvider.notifier).setOptIn(true);
@@ -85,7 +89,7 @@ void main() {
         ),
       );
 
-      final container = _container(service());
+      final container = _container(service(), discovery: discoveryService());
       await container.read(discoveryOptInProvider.future);
 
       await expectLater(
@@ -129,7 +133,7 @@ void main() {
       when(() => frTable.select(any()))
           .thenAnswer((_) => ResolvingBuilder<PostgrestList>([]));
 
-      final container = _container(service());
+      final container = _container(service(), discovery: discoveryService());
       final matches = await container.read(partyMatchesProvider.future);
 
       expect(matches.map((m) => m['id']), [_thirdId, _otherId]);
@@ -165,7 +169,7 @@ void main() {
       when(() => frTable.select(any()))
           .thenAnswer((_) => ResolvingBuilder<PostgrestList>([]));
 
-      final container = _container(service());
+      final container = _container(service(), discovery: discoveryService());
       expect(await container.read(partyMatchesProvider.future), hasLength(1));
 
       blocked = true;
@@ -184,7 +188,7 @@ void main() {
         ),
       );
 
-      final container = _container(service());
+      final container = _container(service(), discovery: discoveryService());
 
       await expectLater(
         container.read(partyMatchesProvider.future),

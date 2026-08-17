@@ -14,6 +14,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/samay-app/samay/internal/db"
+	"github.com/spf13/viper"
 )
 
 // envKeys are the required environment variables, mirroring cmd/samay-admin/root.go.
@@ -39,6 +40,7 @@ func main() {
 
 func run() error {
 	_ = godotenv.Load()
+	initConfig()
 	if err := validateEnv(); err != nil {
 		return err
 	}
@@ -49,7 +51,8 @@ func run() error {
 	dbClient = client
 
 	// PORT defaults to 8090, keeping the Samay server off common dev ports.
-	port := os.Getenv("PORT")
+	_ = viper.BindEnv("PORT")
+	port := viper.GetString("PORT")
 	if port == "" {
 		port = "8090"
 	}
@@ -77,10 +80,17 @@ func run() error {
 	return srv.Shutdown(shutdownCtx)
 }
 
+func initConfig() {
+	for _, key := range envKeys {
+		_ = viper.BindEnv(key)
+	}
+	_ = viper.BindEnv("ADMIN_API_KEY")
+}
+
 func validateEnv() error {
 	var missing []string
 	for _, key := range envKeys {
-		if os.Getenv(key) == "" {
+		if viper.GetString(key) == "" {
 			missing = append(missing, key)
 		}
 	}
@@ -93,5 +103,5 @@ func validateEnv() error {
 // adminIdentity returns the audit actor id for admin mutations. The CLI reads the
 // same var; when JWT verification lands (S-06/M-21), this becomes the token subject.
 func adminIdentity() string {
-	return os.Getenv("SUPABASE_ADMIN_USER_ID")
+	return viper.GetString("SUPABASE_ADMIN_USER_ID")
 }

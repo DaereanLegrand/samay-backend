@@ -9,6 +9,7 @@ func TestValidateEnv_MissingVars(t *testing.T) {
 	for _, key := range envKeys {
 		t.Setenv(key, "")
 	}
+	initConfig()
 
 	err := validateEnv()
 
@@ -26,6 +27,7 @@ func TestValidateEnv_AllSet(t *testing.T) {
 	t.Setenv("SUPABASE_URL", "https://example.supabase.co")
 	t.Setenv("SUPABASE_SERVICE_ROLE_KEY", "placeholder-service-key")
 	t.Setenv("SUPABASE_ADMIN_USER_ID", "00000000-0000-0000-0000-000000000000")
+	initConfig()
 
 	if err := validateEnv(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -36,6 +38,7 @@ func TestRun_FailsFastOnMissingEnv(t *testing.T) {
 	for _, key := range envKeys {
 		t.Setenv(key, "")
 	}
+	initConfig()
 
 	err := run()
 

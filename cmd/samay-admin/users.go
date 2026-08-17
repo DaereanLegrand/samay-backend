@@ -7,6 +7,7 @@ import (
 	"github.com/samay-app/samay/internal/db"
 	"github.com/samay-app/samay/internal/format"
 	"github.com/samay-app/samay/internal/ops"
+	"github.com/samay-app/samay/internal/validate"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +25,7 @@ var usersListCmd = &cobra.Command{
 		search, _ := cmd.Flags().GetString("search")
 		tier, _ := cmd.Flags().GetString("tier")
 		if tier != "" {
-			if err := oneOf(tier, "free", "pro", "vip"); err != nil {
+			if err := validate.OneOf(tier, "free", "pro", "vip"); err != nil {
 				return err
 			}
 		}
@@ -102,7 +103,7 @@ var usersGrantShardsCmd = &cobra.Command{
 		if !confirm {
 			return fmt.Errorf("refusing to grant shards: pass --confirm to confirm")
 		}
-		amount, err := parsePositiveInt(args[1])
+		amount, err := validate.ParsePositiveInt(args[1])
 		if err != nil {
 			return err
 		}
@@ -126,7 +127,7 @@ var usersGrantPreshardsCmd = &cobra.Command{
 		if !confirm {
 			return fmt.Errorf("refusing to grant preshards: pass --confirm to confirm")
 		}
-		amount, err := parsePositiveInt(args[1])
+		amount, err := validate.ParsePositiveInt(args[1])
 		if err != nil {
 			return err
 		}
@@ -150,7 +151,7 @@ var usersDeleteCmd = &cobra.Command{
 		if !confirm {
 			return fmt.Errorf("refusing to delete user %s: pass --confirm to confirm", args[0])
 		}
-		if err := parseUUID(args[0]); err != nil {
+		if err := validate.ParseUUID(args[0]); err != nil {
 			return err
 		}
 		ctx, cancel := rootCtx()
@@ -193,7 +194,7 @@ func init() {
 	)
 }
 
-func usersTableBuilder(data interface{}) ([]string, [][]string) {
+func usersTableBuilder(data any) ([]string, [][]string) {
 	users := data.([]db.User)
 	headers := []string{"ID", "USERNAME", "TIER", "SHARDS", "PRESHARDS", "CREATED_AT", "BANNED"}
 	rows := make([][]string, 0, len(users))

@@ -72,33 +72,23 @@ const _groupId = '22222222-2222-2222-2222-222222222222';
 const _chatId = '33333333-3333-3333-3333-333333333333';
 const _token = '44444444-4444-4444-4444-444444444444';
 
-Map<String, dynamic> _event() => {
-  'id': _eventId,
-  'name': 'Rave en el garaje',
-  'description': 'La mejor fiesta del barrio',
-  'type': 'juerga',
-  'status': 'upcoming',
-  'created_by_user_id': _eventId,
-  'group_id': null,
-  'location_name': 'Av. Los Aromos 123',
-  'starts_at': DateTime(2026, 5, 15, 21).toIso8601String(),
-  'ends_at': DateTime(2026, 5, 16, 2).toIso8601String(),
-  'join_mode': 'open',
-  'preshards_pool': 500,
-  'preshards_distributed': false,
-  'preshards_cap_per_user': null,
-  'preshards_remainder_action': 'return',
-  'dynamic_qr_enabled': true,
-  'invite_token': 'invite-token',
-  'cover_url': null,
-  'featured': false,
-  'created_at': DateTime(2026, 5, 10).toIso8601String(),
-  'updated_at': DateTime(2026, 5, 10).toIso8601String(),
-};
+Event _event() => Event(
+  id: _eventId,
+  name: 'Rave en el garaje',
+  description: 'La mejor fiesta del barrio',
+  type: 'juerga',
+  status: 'upcoming',
+  createdByUserId: _eventId,
+  locationName: 'Av. Los Aromos 123',
+  startsAt: DateTime(2026, 5, 15, 21),
+  endsAt: DateTime(2026, 5, 16, 2),
+  joinMode: 'open',
+  preshardsPool: 500,
+);
 
 class _FakeEventDetailNotifier extends EventDetailNotifier {
   @override
-  Future<Map<String, dynamic>> build(String arg) async => _event();
+  Future<Event> build(String arg) async => _event();
 }
 
 class _FakeEventPromotoresNotifier extends EventPromotoresNotifier {
@@ -126,7 +116,7 @@ class _FakeMyEventInviteNotifier extends MyEventInviteNotifier {
 /// notifier would hit the network via EventService.
 class _FakeMyEventsNotifier extends MyEventsNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build() async => const [];
+  Future<List<Event>> build() async => const [];
 }
 
 /// Invite-token resolution pinned to "no such token" (EINV, I-66): the

@@ -6,6 +6,7 @@ import (
 	"github.com/samay-app/samay/internal/db"
 	"github.com/samay-app/samay/internal/format"
 	"github.com/samay-app/samay/internal/ops"
+	"github.com/samay-app/samay/internal/validate"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +23,7 @@ var subsListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tier, _ := cmd.Flags().GetString("tier")
 		if tier != "" {
-			if err := oneOf(tier, "free", "pro", "vip"); err != nil {
+			if err := validate.OneOf(tier, "free", "pro", "vip"); err != nil {
 				return err
 			}
 		}
@@ -66,11 +67,11 @@ var subsOverrideCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tier, _ := cmd.Flags().GetString("tier")
-		if err := oneOf(tier, "pro", "vip"); err != nil {
+		if err := validate.OneOf(tier, "pro", "vip"); err != nil {
 			return err
 		}
 		expiresStr, _ := cmd.Flags().GetString("expires")
-		expiresAt, err := parseDate(expiresStr)
+		expiresAt, err := validate.ParseDate(expiresStr)
 		if err != nil {
 			return err
 		}
@@ -113,7 +114,7 @@ func init() {
 	subsCmd.AddCommand(subsListCmd, subsGetCmd, subsOverrideCmd, subsRevokeCmd)
 }
 
-func subsTableBuilder(data interface{}) ([]string, [][]string) {
+func subsTableBuilder(data any) ([]string, [][]string) {
 	users := data.([]db.User)
 	headers := []string{"ID", "USERNAME", "TIER", "EXPIRES_AT", "CREATED_AT"}
 	rows := make([][]string, 0, len(users))

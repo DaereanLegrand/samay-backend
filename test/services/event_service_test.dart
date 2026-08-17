@@ -1,6 +1,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/errors/app_error.dart';
+import 'package:samay/core/models/event.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/services/event_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
@@ -154,7 +155,6 @@ void main() {
 
       // The returned handle carries the generated ids for the QR flow.
       expect(created['id'], eventPayload['id']);
-      expect(created['invite_token'], eventPayload['invite_token']);
     });
 
     test('a pool-less event disables the dynamic QR flag', () async {
@@ -218,8 +218,8 @@ void main() {
       final events = MockQueryBuilder();
       when(() => client.from('events')).thenAnswer((_) => events);
       final rows = ResolvingBuilder<PostgrestList>([
-        {'id': 'e-1', 'name': 'A', 'starts_at': '2026-08-01T00:00:00Z'},
-        {'id': 'e-2', 'name': 'B', 'starts_at': '2026-09-01T00:00:00Z'},
+        {'id': 'e-1', 'name': 'A', 'type': 'juerga', 'status': 'upcoming', 'starts_at': '2026-08-01T00:00:00Z', 'ends_at': '2026-08-01T03:00:00Z'},
+        {'id': 'e-2', 'name': 'B', 'type': 'juerga', 'status': 'upcoming', 'starts_at': '2026-09-01T00:00:00Z', 'ends_at': '2026-09-01T03:00:00Z'},
       ]);
       when(() => events.select()).thenAnswer((_) => rows);
 
@@ -267,12 +267,16 @@ void main() {
         (_) => ResolvingBuilder<PostgrestList>({
           'id': 'e-1',
           'name': 'Fiesta',
+          'type': 'juerga',
+          'status': 'upcoming',
+          'starts_at': '2026-09-01T20:00:00Z',
+          'ends_at': '2026-09-01T23:00:00Z',
         }),
       );
 
       final event = await service().getEvent('e-1');
 
-      expect(event['name'], 'Fiesta');
+      expect(event.name, 'Fiesta');
     });
 
     test('propagates a not-found PostgrestException', () async {

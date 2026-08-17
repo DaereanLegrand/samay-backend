@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/samay-app/samay/internal/db"
+	"github.com/samay-app/samay/internal/validate"
 	"github.com/spf13/viper"
 )
 
@@ -72,11 +73,11 @@ func TestUsersListMissingEnvReturnsError(t *testing.T) {
 
 func TestParseUUID(t *testing.T) {
 	valid := "12345678-1234-1234-1234-123456789012"
-	if err := parseUUID(valid); err != nil {
+	if err := validate.ParseUUID(valid); err != nil {
 		t.Errorf("expected valid UUID to pass, got: %v", err)
 	}
 	for _, bad := range []string{"", "xyz", "12345678", "12345678-1234-1234-1234-12345678901Z", "12345678-1234-1234-1234-1234567890123", "12345678 1234-1234-1234-123456789012"} {
-		if err := parseUUID(bad); err == nil {
+		if err := validate.ParseUUID(bad); err == nil {
 			t.Errorf("expected %q to be rejected", bad)
 		}
 	}

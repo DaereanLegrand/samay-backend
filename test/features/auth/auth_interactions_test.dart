@@ -376,7 +376,7 @@ void main() {
 
       await tester.enterText(find.byType(TextField), 'a@b.com');
       await tester.tap(find.widgetWithText(TextButton, 'Enviar enlace'));
-      // LUXE v2: the aurora + display pulses keep pumpAndSettle pumping past
+      // LUXE v2: looping display animations keep pumpAndSettle pumping past
       // the snackbar's 4s auto-dismiss — pump the async send and the snackbar
       // entrance deterministically instead.
       await tester.pump();

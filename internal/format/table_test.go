@@ -122,7 +122,7 @@ func TestOutput_JSONFlagTrue_RendersJSON(t *testing.T) {
 	tableCalled := false
 
 	out := captureStdout(func() {
-		Output(data, true, func(d interface{}) ([]string, [][]string) {
+		Output(data, true, func(d any) ([]string, [][]string) {
 			tableCalled = true
 			return nil, nil
 		})
@@ -142,7 +142,7 @@ func TestOutput_JSONFlagFalse_CallsTableBuilder(t *testing.T) {
 	tableCalled := false
 
 	captureStdout(func() {
-		Output(data, false, func(d interface{}) ([]string, [][]string) {
+		Output(data, false, func(d any) ([]string, [][]string) {
 			tableCalled = true
 			return []string{"Key", "Value"}, [][]string{{"a", "1"}}
 		})

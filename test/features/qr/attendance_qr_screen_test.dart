@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:samay/core/models/event.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/event_service.dart';
 import 'package:samay/core/theme/app_theme.dart';
@@ -28,49 +29,40 @@ class MockEventService extends Mock implements EventService {}
 /// seconds elapse between the fake's `starts_at` and the first frame).
 class _FakeUpcomingEventNotifier extends EventDetailNotifier {
   @override
-  Future<Map<String, dynamic>> build(String arg) async => {
-        'id': _eventId,
-        'name': 'Rave en el garaje',
-        'status': 'upcoming',
-        'starts_at': DateTime.now()
-            .add(const Duration(hours: 2, minutes: 3))
-            .toIso8601String(),
-        'ends_at': DateTime.now()
-            .add(const Duration(hours: 5))
-            .toIso8601String(),
-      };
+  Future<Event> build(String arg) async => Event(
+        id: _eventId,
+        name: 'Rave en el garaje',
+        type: 'juerga',
+        status: 'upcoming',
+        startsAt: DateTime.now().add(const Duration(hours: 2, minutes: 3)),
+        endsAt: DateTime.now().add(const Duration(hours: 5)),
+      );
 }
 
 class _FakeEndedEventNotifier extends EventDetailNotifier {
   @override
-  Future<Map<String, dynamic>> build(String arg) async => {
-        'id': _eventId,
-        'name': 'Rave en el garaje',
-        'status': 'ended',
-        'starts_at': DateTime.now()
-            .subtract(const Duration(hours: 3))
-            .toIso8601String(),
-        'ends_at': DateTime.now()
-            .subtract(const Duration(hours: 1))
-            .toIso8601String(),
-      };
+  Future<Event> build(String arg) async => Event(
+        id: _eventId,
+        name: 'Rave en el garaje',
+        type: 'juerga',
+        status: 'ended',
+        startsAt: DateTime.now().subtract(const Duration(hours: 3)),
+        endsAt: DateTime.now().subtract(const Duration(hours: 1)),
+      );
 }
 
 /// Event already inside the activation window (starts in 10 min → activation
 /// 20 min ago) — a null token here means "server pending", not pre-activation.
 class _FakeWindowOpenEventNotifier extends EventDetailNotifier {
   @override
-  Future<Map<String, dynamic>> build(String arg) async => {
-        'id': _eventId,
-        'name': 'Rave en el garaje',
-        'status': 'upcoming',
-        'starts_at': DateTime.now()
-            .add(const Duration(minutes: 10))
-            .toIso8601String(),
-        'ends_at': DateTime.now()
-            .add(const Duration(hours: 3))
-            .toIso8601String(),
-      };
+  Future<Event> build(String arg) async => Event(
+        id: _eventId,
+        name: 'Rave en el garaje',
+        type: 'juerga',
+        status: 'upcoming',
+        startsAt: DateTime.now().add(const Duration(minutes: 10)),
+        endsAt: DateTime.now().add(const Duration(hours: 3)),
+      );
 }
 
 Map<String, dynamic> _token(String value, {Duration expiresIn = const Duration(seconds: 15)}) =>

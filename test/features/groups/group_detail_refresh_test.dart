@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/models/group.dart';
+import 'package:samay/core/models/group_member.dart';
 import 'package:samay/core/theme/app_theme.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/features/groups/screens/group_detail_screen.dart';
@@ -27,17 +29,17 @@ import '../../support/fake_supabase_http.dart' as support;
 const _groupId = '33333333-3333-3333-3333-333333333333';
 const _myUserId = '11111111-1111-1111-1111-111111111111';
 
-Map<String, dynamic> _member(String id, String username) => {
-      'id': 'gm-$id',
-      'group_id': _groupId,
-      'user_id': id,
-      'role': 'member',
-      'status': 'active',
-      'joined_at': '2026-08-01T00:00:00Z',
-      'users': {'username': username},
-    };
+GroupMember _member(String id, String username) => GroupMember(
+      id: 'gm-$id',
+      groupId: _groupId,
+      userId: id,
+      role: 'member',
+      status: 'active',
+      joinedAt: DateTime(2026),
+      users: {'username': username},
+    );
 
-List<Map<String, dynamic>> _fourMembers() => [
+List<GroupMember> _fourMembers() => [
       _member('11111111-1111-1111-1111-111111111111', 'tester1'),
       _member('22222222-2222-2222-2222-222222222222', 'tester2'),
       _member('33333333-4444-4444-4444-444444444444', 'tester3'),
@@ -50,25 +52,28 @@ List<Map<String, dynamic>> _fourMembers() => [
 class _MutableGroupMembersNotifier extends GroupMembersNotifier {
   _MutableGroupMembersNotifier(this.members);
 
-  List<Map<String, dynamic>> members;
+  List<GroupMember> members;
   int builds = 0;
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<GroupMember>> build(String arg) async {
     builds++;
     return members;
   }
 }
 
 class _StubGroupDetailNotifier extends GroupDetailNotifier {
+  final Group? _data;
+  _StubGroupDetailNotifier({Group? data}) : _data = data;
+
   @override
-  Future<Map<String, dynamic>?> build(String arg) async => {
-        'id': _groupId,
-        'name': 'Disco Crew',
-        'group_shards': 100,
-        'size_tier': 'micro',
-        'rank_bracket': 'b0_20',
-      };
+  Future<Group?> build(String arg) async => _data ?? const Group(
+        id: _groupId,
+        name: 'Disco Crew',
+        groupShards: 100,
+        sizeTier: 'micro',
+        rankBracket: 'b0_20',
+      );
 }
 
 class _StubContributionsNotifier extends GroupContributionsNotifier {
@@ -77,9 +82,20 @@ class _StubContributionsNotifier extends GroupContributionsNotifier {
       const GroupContributionsData(contributors: [], myContribution: 0);
 }
 
-class _StubMyMembershipNotifier extends MyMembershipNotifier {
+class _StubGroupMembersNotifier extends GroupMembersNotifier {
+  final List<GroupMember> data;
+  _StubGroupMembersNotifier({this.data = const []});
+
   @override
-  Future<Map<String, dynamic>?> build(String arg) async => {
+  Future<List<GroupMember>> build(String arg) async => data;
+}
+
+class _StubMyMembershipNotifier extends MyMembershipNotifier {
+  final Map<String, dynamic>? _data;
+  _StubMyMembershipNotifier({Map<String, dynamic>? data}) : _data = data;
+
+  @override
+  Future<Map<String, dynamic>?> build(String arg) async => _data ?? {
         'id': 'm-1',
         'group_id': _groupId,
         'user_id': _myUserId,
@@ -91,6 +107,28 @@ class _StubMyMembershipNotifier extends MyMembershipNotifier {
 class _StubGroupChatIdNotifier extends GroupChatIdNotifier {
   @override
   Future<String?> build(String arg) async => null;
+}
+
+/// Combined provider stub for the group detail screen (M5).
+class _StubGroupDetailCombinedNotifier extends GroupDetailCombinedNotifier {
+  final GroupDetailData _data;
+  _StubGroupDetailCombinedNotifier(this._data);
+
+  @override
+  Future<GroupDetailData> build(String arg) async => _data;
+}
+
+/// MUTABLE combined provider stub: mirrors the members-list mutation pattern
+/// so the screen's refresh/re-mount tests work (M5).
+class _MutableGroupDetailCombinedNotifier extends GroupDetailCombinedNotifier {
+  _MutableGroupDetailCombinedNotifier(this._data);
+
+  GroupDetailData _data;
+
+  set data(GroupDetailData value) => _data = value;
+
+  @override
+  Future<GroupDetailData> build(String arg) async => _data;
 }
 
 void main() {
@@ -107,23 +145,56 @@ void main() {
         ),
       );
 
-  ProviderContainer containerWith(_MutableGroupMembersNotifier membersNotifier) {
+  ({ProviderContainer container, _MutableGroupDetailCombinedNotifier combined})
+  containerWith({
+    List<GroupMember> members = const [],
+  }) {
+    final group = const Group(
+      id: _groupId,
+      name: 'Disco Crew',
+      groupShards: 100,
+      sizeTier: 'micro',
+      rankBracket: 'b0_20',
+    );
+    final contributions =
+        const GroupContributionsData(contributors: [], myContribution: 0);
+    final membership = {
+      'id': 'm-1',
+      'group_id': _groupId,
+      'user_id': _myUserId,
+      'role': 'promotor',
+      'status': 'active',
+    };
+    final combinedNotifier = _MutableGroupDetailCombinedNotifier(
+      GroupDetailData(
+        group: group,
+        members: members,
+        contributions: contributions,
+        membership: membership,
+      ),
+    );
     final container = ProviderContainer(overrides: [
-      groupDetailProvider.overrideWith(_StubGroupDetailNotifier.new),
-      groupMembersProvider.overrideWith(() => membersNotifier),
+      groupDetailProvider.overrideWith(
+        () => _StubGroupDetailNotifier(data: group),
+      ),
+      groupMembersProvider.overrideWith(
+        () => _StubGroupMembersNotifier(data: members),
+      ),
       contributionsProvider.overrideWith(_StubContributionsNotifier.new),
-      myMembershipProvider.overrideWith(_StubMyMembershipNotifier.new),
+      myMembershipProvider.overrideWith(
+        () => _StubMyMembershipNotifier(data: membership),
+      ),
       groupChatIdProvider.overrideWith(_StubGroupChatIdNotifier.new),
+      groupDetailCombinedProvider.overrideWith(() => combinedNotifier),
     ]);
     addTearDown(container.dispose);
-    return container;
+    return (container: container, combined: combinedNotifier);
   }
 
   testWidgets('re-mounting the group detail refetches the members list — a '
       'member who joined on another device appears without restart or pull '
       '(the iPhone stuck-at-4 class)', (tester) async {
-    final membersNotifier = _MutableGroupMembersNotifier(_fourMembers());
-    final container = containerWith(membersNotifier);
+    final (:container, :combined) = containerWith(members: _fourMembers());
     await tester.pumpWidget(app(container));
     await tester.pumpAndSettle();
 
@@ -131,10 +202,29 @@ void main() {
     expect(find.text('4 / 14 miembros'), findsOneWidget);
 
     // The remote side changed while the screen was closed: tester5 joined.
-    membersNotifier.members = [
+    final newMembers = [
       ..._fourMembers(),
       _member('77777777-8888-8888-8888-888888888888', 'tester5'),
     ];
+    combined.data = GroupDetailData(
+      group: const Group(
+        id: _groupId,
+        name: 'Disco Crew',
+        groupShards: 100,
+        sizeTier: 'micro',
+        rankBracket: 'b0_20',
+      ),
+      members: newMembers,
+      contributions:
+          const GroupContributionsData(contributors: [], myContribution: 0),
+      membership: {
+        'id': 'm-1',
+        'group_id': _groupId,
+        'user_id': _myUserId,
+        'role': 'promotor',
+        'status': 'active',
+      },
+    );
 
     // Re-mount the screen (navigate away and back).
     await tester.pumpWidget(const SizedBox());
@@ -153,8 +243,7 @@ void main() {
 
   testWidgets('pull-to-refresh on the Miembros tab refetches the members '
       'list', (tester) async {
-    final membersNotifier = _MutableGroupMembersNotifier(_fourMembers());
-    final container = containerWith(membersNotifier);
+    final (:container, :combined) = containerWith(members: _fourMembers());
     await tester.pumpWidget(app(container));
     await tester.pumpAndSettle();
 
@@ -163,10 +252,29 @@ void main() {
     expect(find.text('tester4'), findsOneWidget);
 
     // tester5 joined on another device since the last fetch.
-    membersNotifier.members = [
+    final newMembers = [
       ..._fourMembers(),
       _member('77777777-8888-8888-8888-888888888888', 'tester5'),
     ];
+    combined.data = GroupDetailData(
+      group: const Group(
+        id: _groupId,
+        name: 'Disco Crew',
+        groupShards: 100,
+        sizeTier: 'micro',
+        rankBracket: 'b0_20',
+      ),
+      members: newMembers,
+      contributions:
+          const GroupContributionsData(contributors: [], myContribution: 0),
+      membership: {
+        'id': 'm-1',
+        'group_id': _groupId,
+        'user_id': _myUserId,
+        'role': 'promotor',
+        'status': 'active',
+      },
+    );
 
     // Pull down on the members list.
     await tester.fling(find.byType(ListView), const Offset(0, 300), 1000);

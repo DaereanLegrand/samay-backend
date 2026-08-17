@@ -93,8 +93,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'other@samay.test');
       await tester.pump();
       await tester.tap(find.widgetWithText(TextButton, 'Eliminar cuenta'));
-      // LUXE v2 (XL-08): the gold VAurora's 10s ambient drift keeps frames
-      // scheduled — `pumpAndSettle` would advance the clock past the
+      // LUXE v2 (XL-08): `pumpAndSettle` would advance the clock past the
       // snackbar's 4s auto-dismiss. Bounded pump: entrance done, snackbar up.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));

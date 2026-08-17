@@ -9,6 +9,8 @@ import 'package:samay/core/models/user_profile.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/repositories/chat_repository.dart';
+
+import '../../support/stub_auth_notifier.dart';
 import 'package:samay/core/repositories/friends_repository.dart';
 import 'package:samay/core/repositories/repository_providers.dart';
 import 'package:samay/core/services/chat_service.dart';
@@ -17,6 +19,7 @@ import 'package:samay/core/services/storage_service.dart';
 import 'package:samay/features/chat/providers/chat_providers.dart';
 import 'package:samay/features/chat/screens/chat_screen.dart';
 import 'package:samay/features/chat/widgets/chat_thread_view.dart';
+import 'package:samay/core/models/group_member.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/shared/widgets/state_views.dart';
 import 'package:samay/shared/widgets/v_thinking_dots.dart';
@@ -26,11 +29,6 @@ import 'package:samay/l10n/app_localizations.dart';
 const _chatId = '33333333-3333-3333-3333-333333333333';
 const _userId = '11111111-1111-1111-1111-111111111111';
 const _peerId = '22222222-2222-2222-2222-222222222222';
-
-class _StubAuthNotifier extends AuthNotifier {
-  @override
-  Future<AuthState> build() async => const AuthState(user: {'id': _userId});
-}
 
 class _FakeChatMessagesNotifier extends ChatMessagesNotifier {
   final List<Map<String, dynamic>> data;
@@ -91,12 +89,12 @@ class _MockFriendsRepository extends Mock implements FriendsRepository {}
 /// Group-members stub for the ChatThreadView sender-label tests: returns
 /// [members] as-is (rows carry `users.username` like the real RPC).
 class _StubGroupMembersNotifier extends GroupMembersNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<GroupMember> data;
 
   _StubGroupMembersNotifier(this.data);
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+  Future<List<GroupMember>> build(String arg) async => data;
 }
 
 Map<String, dynamic> _message(
@@ -119,12 +117,14 @@ Map<String, dynamic> _message(
 
 /// A member row of the group-members stub (the thread's sender labels and
 /// the read-by-all roster derive from these).
-Map<String, dynamic> _member(String id, String username) => {
-      'user_id': id,
-      'role': 'member',
-      'status': 'active',
-      'users': {'username': username},
-    };
+GroupMember _member(String id, String username) => GroupMember(
+  id: 'gm-$id',
+  groupId: '',
+  userId: id,
+  role: 'member',
+  joinedAt: DateTime(2026),
+  users: {'username': username},
+);
 
 Future<ProviderContainer> _pump(
   WidgetTester tester,
@@ -137,24 +137,32 @@ Future<ProviderContainer> _pump(
   HiveService? hive,
   bool settle = true,
   String? groupId,
-  List<Map<String, dynamic>> members = const [],
+  List<GroupMember> members = const [],
   FriendsRepository? friends,
 }) async {
   final chatService = service ?? _MockChatService();
   final channel = _MockRealtimeChannel();
   when(() => chatService.subscribeToMessages(any(), any())).thenReturn(channel);
-  when(() => chatService.subscribeToMessageReads(any(), any())).thenReturn(channel);
-  when(() => chatService.subscribeToMessageDeletes(any(), any())).thenReturn(channel);
-  when(() => chatService.subscribeToGroupMessageReads(any(), any())).thenReturn(channel);
+  when(
+    () => chatService.subscribeToMessageReads(any(), any()),
+  ).thenReturn(channel);
+  when(
+    () => chatService.subscribeToMessageDeletes(any(), any()),
+  ).thenReturn(channel);
+  when(
+    () => chatService.subscribeToGroupMessageReads(any(), any()),
+  ).thenReturn(channel);
   // Default stub only when the caller did not supply a service — a custom
   // service's own `peerNeedsRekey` stub must win (the §7.5 notice test).
   if (service == null) {
-    when(() => chatService.peerNeedsRekey(any())).thenAnswer((_) async => false);
+    when(
+      () => chatService.peerNeedsRekey(any()),
+    ).thenAnswer((_) async => false);
   }
   when(() => channel.unsubscribe()).thenAnswer((_) => Future.value('ok'));
   final container = ProviderContainer(
     overrides: [
-      authStateProvider.overrideWith(_StubAuthNotifier.new),
+      authStateProvider.overrideWith(() => StubAuthNotifier()),
       chatMessagesProvider.overrideWith(
         () =>
             notifier ??
@@ -175,8 +183,7 @@ Future<ProviderContainer> _pump(
         groupMembersProvider.overrideWith(
           () => _StubGroupMembersNotifier(members),
         ),
-      if (friends != null)
-        friendsRepositoryProvider.overrideWithValue(friends),
+      if (friends != null) friendsRepositoryProvider.overrideWithValue(friends),
       if (hive != null) hiveServiceProvider.overrideWithValue(hive),
     ],
   );
@@ -228,15 +235,19 @@ void main() {
   testWidgets('app bar shows the PEER USERNAME from the inbox (not "Chat")', (
     tester,
   ) async {
-    await _pump(tester, const [], inbox: [
-      const ChatInboxItem(
-        chatId: _chatId,
-        type: 'direct',
-        peerId: _peerId,
-        peerUsername: 'alice',
-        unreadCount: 2,
-      ),
-    ]);
+    await _pump(
+      tester,
+      const [],
+      inbox: [
+        const ChatInboxItem(
+          chatId: _chatId,
+          type: 'direct',
+          peerId: _peerId,
+          peerUsername: 'alice',
+          unreadCount: 2,
+        ),
+      ],
+    );
 
     expect(find.text('alice'), findsOneWidget);
     expect(find.text('Chat'), findsNothing);
@@ -251,20 +262,16 @@ void main() {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
-    String at(int hour) => (DateTime(
-          today.year,
-          today.month,
-          today.day,
-          hour,
-        ))
-            .toIso8601String();
+    String at(int hour) =>
+        (DateTime(today.year, today.month, today.day, hour)).toIso8601String();
     await _pump(tester, [
-      _message('m-1', 'ayer', sender: 'other')..['created_at'] = DateTime(
-              yesterday.year,
-              yesterday.month,
-              yesterday.day,
-              10,
-            ).toIso8601String(),
+      _message('m-1', 'ayer', sender: 'other')
+        ..['created_at'] = DateTime(
+          yesterday.year,
+          yesterday.month,
+          yesterday.day,
+          10,
+        ).toIso8601String(),
       _message('m-2', 'hoy', sender: 'other')..['created_at'] = at(10),
       _message('m-3', 'tambien hoy', sender: 'other')..['created_at'] = at(11),
     ]);
@@ -375,39 +382,57 @@ void main() {
     const me = '11111111-1111-1111-1111-111111111111';
     const bob = '22222222-2222-2222-2222-222222222222';
     const carol = '55555555-5555-5555-5555-555555555555';
-    final members = [_member(me, 'tester1'), _member(bob, 'tester2'), _member(carol, 'tester3')];
+    final members = [
+      _member(me, 'tester1'),
+      _member(bob, 'tester2'),
+      _member(carol, 'tester3'),
+    ];
 
     // Only bob read → grey double check (2 other members matter).
     await _pump(
       tester,
       [
-        _message('m-2', 'responde', reads: [
-          {'user_id': bob, 'read_at': '2026-08-01T00:05:00Z'},
-        ]),
+        _message(
+          'm-2',
+          'responde',
+          reads: [
+            {'user_id': bob, 'read_at': '2026-08-01T00:05:00Z'},
+          ],
+        ),
       ],
       groupId: 'group-1',
       members: members,
     );
     var icon = tester.widget<Icon>(find.byIcon(Icons.done_all));
-    expect(icon.color, AppColors.statusGrey,
-        reason: '1 of 2 other members read → grey, never blue');
+    expect(
+      icon.color,
+      AppColors.statusGrey,
+      reason: '1 of 2 other members read → grey, never blue',
+    );
     expect(find.byIcon(Icons.check), findsNothing);
 
     // Both bob AND carol read → BLUE (all other members).
     await _pump(
       tester,
       [
-        _message('m-2', 'responde', reads: [
-          {'user_id': bob, 'read_at': '2026-08-01T00:05:00Z'},
-          {'user_id': carol, 'read_at': '2026-08-01T00:06:00Z'},
-        ]),
+        _message(
+          'm-2',
+          'responde',
+          reads: [
+            {'user_id': bob, 'read_at': '2026-08-01T00:05:00Z'},
+            {'user_id': carol, 'read_at': '2026-08-01T00:06:00Z'},
+          ],
+        ),
       ],
       groupId: 'group-1',
       members: members,
     );
     icon = tester.widget<Icon>(find.byIcon(Icons.done_all));
-    expect(icon.color, AppColors.statusRead,
-        reason: 'every other member read → blue');
+    expect(
+      icon.color,
+      AppColors.statusRead,
+      reason: 'every other member read → blue',
+    );
   });
 
   testWidgets('GROUP: an unknown roster never claims all-read — the grey '
@@ -415,10 +440,16 @@ void main() {
     await _pump(
       tester,
       [
-        _message('m-2', 'responde', reads: [
-          {'user_id': '22222222-2222-2222-2222-222222222222',
-            'read_at': '2026-08-01T00:05:00Z'},
-        ]),
+        _message(
+          'm-2',
+          'responde',
+          reads: [
+            {
+              'user_id': '22222222-2222-2222-2222-222222222222',
+              'read_at': '2026-08-01T00:05:00Z',
+            },
+          ],
+        ),
       ],
       groupId: 'group-1',
       // members: const [] — the stale/empty-members class (the iPhone
@@ -426,8 +457,11 @@ void main() {
     );
 
     final icon = tester.widget<Icon>(find.byIcon(Icons.done_all));
-    expect(icon.color, AppColors.statusGrey,
-        reason: 'with no roster the thread must not claim all-read');
+    expect(
+      icon.color,
+      AppColors.statusGrey,
+      reason: 'with no roster the thread must not claim all-read',
+    );
   });
 
   testWidgets('long-press on an OWN message shows the message-info action '
@@ -443,9 +477,13 @@ void main() {
     await _pump(
       tester,
       [
-        _message('m-2', 'hola', reads: [
-          {'user_id': bob, 'read_at': '2026-08-01T00:05:00Z'},
-        ]),
+        _message(
+          'm-2',
+          'hola',
+          reads: [
+            {'user_id': bob, 'read_at': '2026-08-01T00:05:00Z'},
+          ],
+        ),
       ],
       groupId: 'group-1',
       members: members,
@@ -461,22 +499,20 @@ void main() {
     // The sheet: sent time + the per-member read count with names.
     expect(find.textContaining('Enviado'), findsOneWidget);
     expect(find.text('Leído por 1 de 2'), findsOneWidget);
-    expect(find.text('tester2'), findsOneWidget,
-        reason: "the reader's username resolves from the members list");
+    expect(
+      find.text('tester2'),
+      findsOneWidget,
+      reason: "the reader's username resolves from the members list",
+    );
   });
 
   testWidgets('long-press on a PEER message offers NO message-info action '
       '(status is only available for own messages)', (tester) async {
     await _pump(
       tester,
-      [
-        _message('m-1', 'hola del otro', sender: _peerId),
-      ],
+      [_message('m-1', 'hola del otro', sender: _peerId)],
       groupId: 'group-1',
-      members: [
-        _member(_userId, 'tester1'),
-        _member(_peerId, 'tester2'),
-      ],
+      members: [_member(_userId, 'tester1'), _member(_peerId, 'tester2')],
     );
 
     await tester.longPress(find.text('hola del otro'));
@@ -624,10 +660,7 @@ void main() {
     await _pump(tester, const []);
 
     final button = tester.widget<TextButton>(
-      find.ancestor(
-        of: find.text('Enviar'),
-        matching: find.byType(TextButton),
-      ),
+      find.ancestor(of: find.text('Enviar'), matching: find.byType(TextButton)),
     );
     final bg = button.style?.backgroundColor;
     expect(bg, isNotNull);
@@ -675,12 +708,14 @@ void main() {
         offset: any(named: 'offset'),
       ),
     ).thenAnswer((_) async => const []);
-    when(() => repo.sendMessage(_chatId, any(), any())).thenAnswer(
-      (_) async => gate.future,
-    );
+    when(
+      () => repo.sendMessage(_chatId, any(), any()),
+    ).thenAnswer((_) async => gate.future);
     when(() => repo.subscribe(any(), any())).thenReturn(channel);
     when(() => repo.subscribeToMessageReads(any(), any())).thenReturn(channel);
-    when(() => repo.subscribeToMessageDeletes(any(), any())).thenReturn(channel);
+    when(
+      () => repo.subscribeToMessageDeletes(any(), any()),
+    ).thenReturn(channel);
     when(() => repo.peerNeedsRekey(any())).thenAnswer((_) async => false);
     when(() => repo.markChatRead(any())).thenAnswer((_) async {});
     when(() => repo.markMessagesRead(any())).thenAnswer((_) async {});
@@ -689,7 +724,7 @@ void main() {
 
     final container = ProviderContainer(
       overrides: [
-        authStateProvider.overrideWith(_StubAuthNotifier.new),
+        authStateProvider.overrideWith(() => StubAuthNotifier()),
         chatE2eeRepositoryProvider.overrideWithValue(repo),
         realtimeServiceProvider.overrideWithValue(_MockRealtimeService()),
       ],
@@ -795,20 +830,15 @@ void main() {
   testWidgets('long-press on an OWN message within 5 minutes offers BOTH '
       'delete options (delete-for-everyone + delete-for-me)', (tester) async {
     final service = _MockChatService();
-    when(() => service.deleteMessageForEveryone(any()))
-        .thenAnswer((_) async => MessageDeleteOutcome.deleted);
-    when(() => service.deleteMessageForMe(any(), any())).thenAnswer((_) async {});
-    await _pump(
-      tester,
-      [
-        _message(
-          'm-1',
-          'hola',
-          sentAt: DateTime.now().toUtc().toIso8601String(),
-        ),
-      ],
-      service: service,
-    );
+    when(
+      () => service.deleteMessageForEveryone(any()),
+    ).thenAnswer((_) async => MessageDeleteOutcome.deleted);
+    when(
+      () => service.deleteMessageForMe(any(), any()),
+    ).thenAnswer((_) async {});
+    await _pump(tester, [
+      _message('m-1', 'hola', sentAt: DateTime.now().toUtc().toIso8601String()),
+    ], service: service);
 
     await tester.longPress(find.text('hola'));
     await tester.pumpAndSettle();
@@ -823,7 +853,10 @@ void main() {
       _message(
         'm-1',
         'hola',
-        sentAt: DateTime.now().toUtc().subtract(const Duration(minutes: 10)).toIso8601String(),
+        sentAt: DateTime.now()
+            .toUtc()
+            .subtract(const Duration(minutes: 10))
+            .toIso8601String(),
       ),
     ]);
 
@@ -834,8 +867,9 @@ void main() {
     expect(find.text('Eliminar para mí'), findsOneWidget);
   });
 
-  testWidgets('long-press on a PEER message offers ONLY delete-for-me',
-      (tester) async {
+  testWidgets('long-press on a PEER message offers ONLY delete-for-me', (
+    tester,
+  ) async {
     await _pump(tester, [
       _message(
         'm-1',
@@ -855,20 +889,15 @@ void main() {
   testWidgets('delete-for-everyone removes the bubble and the too-old verdict '
       'shows the snackbar', (tester) async {
     final service = _MockChatService();
-    when(() => service.deleteMessageForEveryone('m-1'))
-        .thenAnswer((_) async => MessageDeleteOutcome.tooOld);
-    when(() => service.deleteMessageForMe(any(), any())).thenAnswer((_) async {});
-    await _pump(
-      tester,
-      [
-        _message(
-          'm-1',
-          'hola',
-          sentAt: DateTime.now().toUtc().toIso8601String(),
-        ),
-      ],
-      service: service,
-    );
+    when(
+      () => service.deleteMessageForEveryone('m-1'),
+    ).thenAnswer((_) async => MessageDeleteOutcome.tooOld);
+    when(
+      () => service.deleteMessageForMe(any(), any()),
+    ).thenAnswer((_) async {});
+    await _pump(tester, [
+      _message('m-1', 'hola', sentAt: DateTime.now().toUtc().toIso8601String()),
+    ], service: service);
 
     // too-old verdict → the snackbar explains the 5-minute window.
     await tester.longPress(find.text('hola'));
@@ -876,13 +905,16 @@ void main() {
     await tester.tap(find.text('Eliminar para todos'));
     await tester.pumpAndSettle();
     expect(
-      find.text('Solo puedes eliminar mensajes enviados hace menos de 5 minutos'),
+      find.text(
+        'Solo puedes eliminar mensajes enviados hace menos de 5 minutos',
+      ),
       findsOneWidget,
     );
 
     // deleted verdict → the row leaves the thread.
-    when(() => service.deleteMessageForEveryone('m-1'))
-        .thenAnswer((_) async => MessageDeleteOutcome.deleted);
+    when(
+      () => service.deleteMessageForEveryone('m-1'),
+    ).thenAnswer((_) async => MessageDeleteOutcome.deleted);
     await tester.longPress(find.text('hola'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Eliminar para todos'));
@@ -890,15 +922,16 @@ void main() {
     expect(find.text('hola'), findsNothing);
   });
 
-  testWidgets('delete-for-me removes the bubble on this device only',
-      (tester) async {
+  testWidgets('delete-for-me removes the bubble on this device only', (
+    tester,
+  ) async {
     final service = _MockChatService();
-    when(() => service.deleteMessageForMe(any(), any())).thenAnswer((_) async {});
-    await _pump(
-      tester,
-      [_message('m-1', 'hola', sentAt: DateTime.now().toUtc().toIso8601String())],
-      service: service,
-    );
+    when(
+      () => service.deleteMessageForMe(any(), any()),
+    ).thenAnswer((_) async {});
+    await _pump(tester, [
+      _message('m-1', 'hola', sentAt: DateTime.now().toUtc().toIso8601String()),
+    ], service: service);
 
     await tester.longPress(find.text('hola'));
     await tester.pumpAndSettle();
@@ -909,19 +942,14 @@ void main() {
     verify(() => service.deleteMessageForMe(_chatId, 'm-1')).called(1);
   });
 
-  testWidgets('peer-reinstall notice shows ONCE per peer (E2EE §7.5)',
-      (tester) async {
+  testWidgets('peer-reinstall notice shows ONCE per peer (E2EE §7.5)', (
+    tester,
+  ) async {
     final service = _MockChatService();
     when(() => service.peerNeedsRekey(any())).thenAnswer((_) async => true);
     final hive = _RecordingHiveService();
 
-    await _pump(
-      tester,
-      const [],
-      service: service,
-      hive: hive,
-      settle: false,
-    );
+    await _pump(tester, const [], service: service, hive: hive, settle: false);
     // Drive the snackbar's entrance animation explicitly (settle:false —
     // the pending 4s dismissal timer would otherwise make pumpAndSettle
     // advance past the snackbar's lifetime).
@@ -932,13 +960,17 @@ void main() {
       find.text('El otro usuario reinstaló la app o cambió de dispositivo'),
       findsOneWidget,
     );
-    expect(
-      hive.config.containsKey('reinstall_notice_seen_$_chatId'),
-      isTrue,
-    );
+    expect(hive.config.containsKey('reinstall_notice_seen_$_chatId'), isTrue);
 
     // A SECOND open (fresh screen, flag already persisted) → no notice.
-    final hive2 = _RecordingHiveService({'reinstall_notice_seen_$_chatId': '1'});
+    // Advance past the first snackbar's 4s lifetime so its entry animation
+    // completes and it is dismissed — the second open starts from a cleared
+    // tree.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    final hive2 = _RecordingHiveService({
+      'reinstall_notice_seen_$_chatId': '1',
+    });
     final service2 = _MockChatService();
     when(() => service2.peerNeedsRekey(any())).thenAnswer((_) async => true);
     await _pump(tester, const [], service: service2, hive: hive2);
@@ -950,13 +982,15 @@ void main() {
 
   testWidgets('GROUP thread: peer bubbles show the sender username from '
       'groupMembersProvider; own bubbles do not (D4a)', (tester) async {
-    await _pump(tester, [
-      _message('m-1', 'hola a todos', sender: _peerId),
-      _message('m-2', 'yo tambien'),
-    ], groupId: 'group-9', members: [
-      {'user_id': _peerId, 'users': {'username': 'lucas'}},
-      {'user_id': _userId, 'users': {'username': 'yo'}},
-    ]);
+    await _pump(
+      tester,
+      [
+        _message('m-1', 'hola a todos', sender: _peerId),
+        _message('m-2', 'yo tambien'),
+      ],
+      groupId: 'group-9',
+      members: [_member(_peerId, 'lucas'), _member(_userId, 'yo')],
+    );
 
     // The peer bubble renders the sender's username as a small label.
     expect(
@@ -990,9 +1024,18 @@ void main() {
 
   testWidgets('GROUP thread: an unknown sender falls back to a short uid '
       'prefix instead of crashing (D4a)', (tester) async {
-    await _pump(tester, [
-      _message('m-1', 'quien soy', sender: '99999999-9999-9999-9999-999999999999'),
-    ], groupId: 'group-9', members: const []);
+    await _pump(
+      tester,
+      [
+        _message(
+          'm-1',
+          'quien soy',
+          sender: '99999999-9999-9999-9999-999999999999',
+        ),
+      ],
+      groupId: 'group-9',
+      members: const [],
+    );
 
     expect(
       find.text('99999999'),
@@ -1010,13 +1053,16 @@ void main() {
     const senderId = 'e5b725d6-0000-0000-0000-000000000001';
     final friends = _MockFriendsRepository();
     final gate = Completer<UserProfile?>();
-    when(
-      () => friends.getUserProfile(senderId),
-    ).thenAnswer((_) => gate.future);
+    when(() => friends.getUserProfile(senderId)).thenAnswer((_) => gate.future);
 
-    await _pump(tester, [
-      _message('m-1', 'hola a todos', sender: senderId),
-    ], groupId: 'group-9', members: const [], friends: friends, settle: false);
+    await _pump(
+      tester,
+      [_message('m-1', 'hola a todos', sender: senderId)],
+      groupId: 'group-9',
+      members: const [],
+      friends: friends,
+      settle: false,
+    );
     await tester.pump();
 
     // While the profile lookup is in flight the pending uid-prefix fallback
@@ -1047,15 +1093,20 @@ void main() {
     const senderId = 'e5b725d6-0000-0000-0000-000000000001';
     final friends = _MockFriendsRepository();
     final gate = Completer<UserProfile?>();
-    when(
-      () => friends.getUserProfile(senderId),
-    ).thenAnswer((_) => gate.future);
+    when(() => friends.getUserProfile(senderId)).thenAnswer((_) => gate.future);
 
-    await _pump(tester, [
-      _message('m-1', 'primero', sender: senderId),
-      _message('m-2', 'segundo', sender: senderId),
-      _message('m-3', 'tercero', sender: senderId),
-    ], groupId: 'group-9', members: const [], friends: friends, settle: false);
+    await _pump(
+      tester,
+      [
+        _message('m-1', 'primero', sender: senderId),
+        _message('m-2', 'segundo', sender: senderId),
+        _message('m-3', 'tercero', sender: senderId),
+      ],
+      groupId: 'group-9',
+      members: const [],
+      friends: friends,
+      settle: false,
+    );
     await tester.pump();
 
     gate.complete(const UserProfile(id: senderId, username: 'tester4'));
@@ -1072,7 +1123,7 @@ void main() {
 
 class _RecordingHiveService implements HiveService {
   _RecordingHiveService([Map<String, String>? initial])
-      : config = {...?initial};
+    : config = {...?initial};
 
   final Map<String, String> config;
 

@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
+import 'package:samay/core/models/event.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/event_service.dart';
@@ -691,9 +692,9 @@ void main() {
         );
 
         await tester.tap(find.widgetWithText(VButton, 'Crear evento'));
-        // No pumpAndSettle here: the aurora drift keeps frames scheduled for
-        // ~10s, which would fire the snackbar's 4s auto-dismiss timer before
-        // the assertion. Explicit short pumps land on the visible snackbar.
+        // No pumpAndSettle here: pumpAndSettle would advance the fake clock
+        // past the snackbar's 4s auto-dismiss timer before the assertion.
+        // Explicit short pumps land on the visible snackbar.
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
 

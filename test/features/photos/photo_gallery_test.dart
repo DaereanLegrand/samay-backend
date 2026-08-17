@@ -48,15 +48,14 @@ Map<String, dynamic> _photoRow(
   };
 }
 
-Map<String, dynamic> _event({DateTime? endsAt}) => {
-      'id': _eventId,
-      'name': 'Rave en el garaje',
-      'type': 'juerga',
-      'status': 'live',
-      'starts_at': DateTime(2026, 8, 9, 20).toIso8601String(),
-      'ends_at':
-          (endsAt ?? DateTime(2030, 1, 1)).toIso8601String(),
-    };
+Event _event({DateTime? endsAt}) => Event(
+      id: _eventId,
+      name: 'Rave en el garaje',
+      type: 'juerga',
+      status: 'live',
+      startsAt: DateTime(2026, 8, 9, 20),
+      endsAt: endsAt ?? DateTime(2030, 1, 1),
+    );
 
 /// Solid-color PNG (header-valid, tiny) for the upload flow: it passes
 /// [ImageProcessor.compressBytes] unchanged (below the skip threshold).
@@ -180,11 +179,11 @@ class _FakeEventService implements EventService {
       throw UnimplementedError();
 
   @override
-  Future<List<Map<String, dynamic>>> listEvents([String? status, String? type]) =>
+  Future<List<Event>> listEvents([String? status, String? type]) =>
       throw UnimplementedError();
 
   @override
-  Future<Map<String, dynamic>> getEvent(String id) =>
+  Future<Event> getEvent(String id) =>
       throw UnimplementedError();
 
   @override
@@ -254,7 +253,7 @@ class _FakeEventDetailNotifier extends EventDetailNotifier {
   final DateTime? endsAt;
 
   @override
-  Future<Map<String, dynamic>> build(String arg) async => _event(
+  Future<Event> build(String arg) async => _event(
         endsAt: endsAt,
       );
 }
@@ -689,9 +688,9 @@ void main() {
       );
 
       await tester.tap(find.byKey(const ValueKey('photos-upload-button')));
-      // Bounded pumps, not pumpAndSettle: the screen's VAurora drift keeps
-      // frames scheduled for ~10s of fake time, which would run the snackbar
-      // through its full 4s lifecycle and dismiss it (LUXE restyle, XL-13).
+      // Bounded pumps, not pumpAndSettle: the fake clock must not advance
+      // past pending timers, which would run the snackbar through its full
+      // 4s lifecycle and dismiss it (LUXE restyle, XL-13).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -717,7 +716,7 @@ void main() {
       );
 
       await tester.tap(find.byKey(const ValueKey('photos-upload-button')));
-      // Bounded pumps — see the upload-success test above (VAurora drift vs
+      // Bounded pumps — see the upload-success test above (pending timers vs
       // the 4s snackbar lifecycle under pumpAndSettle).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));

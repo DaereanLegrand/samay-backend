@@ -27,11 +27,11 @@ echo "Running migrations against $DB_URL..."
 
 for f in migrations/*.sql; do
   echo "  Applying $(basename "$f")..."
-  psql "$DB_URL" -f "$f"
+  psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$f"
 done
 
 echo "Applying seed data (idempotent)..."
-psql "$DB_URL" -f seed.sql
+psql "$DB_URL" -v ON_ERROR_STOP=1 -f seed.sql
 
 if [ "$SEED_DEV" = "1" ]; then
   echo "Applying dev/demo seed data (SEED_DEV=1)..."

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:samay/core/models/user_profile.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/providers/user_provider.dart';
@@ -9,19 +10,30 @@ import 'package:samay/core/services/ban_service.dart';
 
 /// currentUserProvider tests (I-44, TST-03/H-16): the provider mirrors the
 /// authenticated user from the auth state through AuthService.
-const _user = {'id': '11111111-1111-1111-1111-111111111111', 'email': 'a@b.com'};
+const _userId = '11111111-1111-1111-1111-111111111111';
+
+UserProfile _profile(String id, String username) => UserProfile.fromJson({
+      'id': id,
+      'username': username,
+      'avatar_url': null,
+    });
 
 class _FakeAuthService extends Mock implements AuthService {}
 
 class _FakeBanService extends Mock implements BanService {}
 
-/// AuthService stub pinned to [user] (or null): no auth events, profile
-/// probe fails closed, `getCurrentUser` replays the pinned value.
-AuthService _serviceWithUser(Map<String, dynamic>? user) {
+/// AuthService stub pinned to [profile] (or null): no auth events, profile
+/// probe fails closed, `getCurrentUserProfile` replays the pinned value.
+AuthService _serviceWithProfile(UserProfile? profile) {
   final service = _FakeAuthService();
   when(() => service.onAuthStateChange).thenAnswer((_) => const Stream.empty());
   when(() => service.userHasProfile(any())).thenAnswer((_) async => true);
-  when(() => service.getCurrentUser()).thenReturn(user);
+  // _resolveInitialState calls getCurrentUser() to boot auth state — return
+  // a minimal map so AuthState.authenticated becomes true.
+  when(() => service.getCurrentUser()).thenReturn(
+    profile != null ? {'id': profile.id, 'email': 'a@b.com'} : null,
+  );
+  when(() => service.getCurrentUserProfile()).thenAnswer((_) async => profile);
   return service;
 }
 
@@ -46,7 +58,7 @@ ProviderContainer _newContainer(AuthService service) {
 void main() {
   group('currentUserProvider', () {
     test('resolves to null while unauthenticated', () async {
-      final container = _newContainer(_serviceWithUser(null));
+      final container = _newContainer(_serviceWithProfile(null));
 
       final user = await container.read(currentUserProvider.future);
 
@@ -54,7 +66,8 @@ void main() {
     });
 
     test('resolves to the authenticated user', () async {
-      final service = _serviceWithUser(_user);
+      final profile = _profile(_userId, 'ana');
+      final service = _serviceWithProfile(profile);
       final container = _newContainer(service);
       // Settle the auth state first: currentUserProvider reads it via
       // `ref.watch`, so its first build while auth is still loading resolves
@@ -63,9 +76,7 @@ void main() {
 
       final user = await container.read(currentUserProvider.future);
 
-      expect(user, _user);
-      // Once by the auth-state probe, once by currentUserProvider itself.
-      verify(() => service.getCurrentUser()).called(2);
+      expect(user, profile);
     });
   });
 }

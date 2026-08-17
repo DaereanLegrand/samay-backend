@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/models/event.dart';
+import 'package:samay/core/models/group.dart';
+import 'package:samay/core/models/user_profile.dart';
+import 'package:samay/core/models/group_member.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/chat_service.dart';
@@ -82,23 +85,20 @@ class _StubProfileGroupsNotifier extends profile.ProfileGroupsNotifier {
 
 class _StubMyGroupsNotifier extends groups.MyGroupsNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build() async => const [
-        {
-          'id': 'g1',
-          'name': 'Fiesta Club',
-          'cover_url': null,
-          'my_role': 'promotor',
-          'group_shards': 42,
-          'rank_bracket': 'b0_20',
-        },
-        {
-          'id': 'g2',
-          'name': 'Brunch del domingo',
-          'cover_url': null,
-          'my_role': 'member',
-          'group_shards': 7,
-          'rank_bracket': null,
-        },
+  Future<List<Group>> build() async => const [
+        Group(
+          id: 'g1',
+          name: 'Fiesta Club',
+          groupShards: 42,
+          myRole: 'promotor',
+          rankBracket: 'b0_20',
+        ),
+        Group(
+          id: 'g2',
+          name: 'Brunch del domingo',
+          groupShards: 7,
+          myRole: 'member',
+        ),
       ];
 }
 
@@ -115,26 +115,27 @@ class _StubGroupInvitesNotifier extends groups.GroupInvitesNotifier {
 
 class _StubGroupDetailNotifier extends groups.GroupDetailNotifier {
   @override
-  Future<Map<String, dynamic>?> build(String arg) async => {
-        'id': arg,
-        'name': 'Fiesta Club Disco Nights',
-        'cover_url': null,
-        'description': 'La mejor fiesta de la ciudad con luces disco.',
-        'size_tier': 'large',
-        'rank_bracket': 'b0_20',
-        'group_shards': 42,
-        'frozen_at': null,
-      };
+  Future<Group?> build(String arg) async => Group(
+        id: arg,
+        name: 'Fiesta Club Disco Nights',
+        description: 'La mejor fiesta de la ciudad con luces disco.',
+        sizeTier: 'large',
+        rankBracket: 'b0_20',
+        groupShards: 42,
+      );
 }
 
 class _StubGroupMembersNotifier extends groups.GroupMembersNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => const [
-        {
-          'user_id': '11111111-1111-1111-1111-111111111111',
-          'role': 'promotor',
-          'users': {'username': 'dana'},
-        },
+  Future<List<GroupMember>> build(String arg) async => [
+        GroupMember(
+          id: 'gm-1',
+          groupId: '',
+          userId: '11111111-1111-1111-1111-111111111111',
+          role: 'promotor',
+          joinedAt: DateTime(2026),
+          users: const {'username': 'dana'},
+        ),
       ];
 }
 
@@ -146,9 +147,9 @@ class _StubContributionsNotifier extends groups.GroupContributionsNotifier {
 
 class _StubFriendsListNotifier extends FriendsListNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build() async => const [
-        {'id': 'u1', 'username': 'dana', 'avatar_url': null},
-        {'id': 'u2', 'username': 'leo', 'avatar_url': null},
+  Future<List<UserProfile>> build() async => const [
+        UserProfile(id: 'u1', username: 'dana'),
+        UserProfile(id: 'u2', username: 'leo'),
       ];
 }
 

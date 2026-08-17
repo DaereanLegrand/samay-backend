@@ -34,7 +34,7 @@ func GetGroupShardLedger(ctx context.Context, client *db.DBClient, groupID strin
 }
 
 func RecalculateRanks(ctx context.Context, client *db.DBClient, tier string) error {
-	params := map[string]interface{}{}
+	params := map[string]any{}
 	if tier != "" {
 		params["p_tier"] = tier
 	}

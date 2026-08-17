@@ -6,6 +6,7 @@ import (
 	"github.com/samay-app/samay/internal/db"
 	"github.com/samay-app/samay/internal/format"
 	"github.com/samay-app/samay/internal/ops"
+	"github.com/samay-app/samay/internal/validate"
 	"github.com/spf13/cobra"
 )
 
@@ -22,13 +23,13 @@ var groupsListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tier, _ := cmd.Flags().GetString("tier")
 		if tier != "" {
-			if err := oneOf(tier, "micro", "small", "medium", "large"); err != nil {
+			if err := validate.OneOf(tier, "micro", "small", "medium", "large"); err != nil {
 				return err
 			}
 		}
 		bracket, _ := cmd.Flags().GetString("bracket")
 		if bracket != "" {
-			if err := oneOf(bracket, "b0_20", "b20_40", "b40_60", "b60_80", "b80_90", "b90_100"); err != nil {
+			if err := validate.OneOf(bracket, "b0_20", "b20_40", "b40_60", "b60_80", "b80_90", "b90_100"); err != nil {
 				return err
 			}
 		}
@@ -85,7 +86,7 @@ func init() {
 	groupsCmd.AddCommand(groupsListCmd, groupsGetCmd, groupsMembersCmd)
 }
 
-func groupsTableBuilder(data interface{}) ([]string, [][]string) {
+func groupsTableBuilder(data any) ([]string, [][]string) {
 	groups := data.([]db.Group)
 	headers := []string{"ID", "NAME", "SIZE_TIER", "BRACKET", "SHARDS", "CREATED_AT"}
 	rows := make([][]string, 0, len(groups))
@@ -102,7 +103,7 @@ func groupsTableBuilder(data interface{}) ([]string, [][]string) {
 	return headers, rows
 }
 
-func groupMembersTableBuilder(data interface{}) ([]string, [][]string) {
+func groupMembersTableBuilder(data any) ([]string, [][]string) {
 	members := data.([]db.GroupMember)
 	headers := []string{"ID", "USER_ID", "ROLE", "STATUS", "JOINED_AT"}
 	rows := make([][]string, 0, len(members))

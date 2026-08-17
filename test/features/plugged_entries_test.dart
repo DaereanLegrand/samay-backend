@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:samay/core/models/event.dart';
 import 'package:samay/core/models/event_photo.dart';
 import 'package:samay/core/models/group.dart';
+import 'package:samay/core/models/group_member.dart';
 import 'package:samay/core/models/user_profile.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
@@ -25,6 +27,7 @@ import 'package:samay/features/profile/screens/public_profile_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 
 import '../support/fake_supabase_http.dart' as support;
+import '../support/stub_auth_notifier.dart';
 
 /// Plugged-UI entry tests (2026-08-13): every screen that previously had no
 /// button wiring now navigates to its real route —
@@ -42,11 +45,11 @@ class _MockGroupsRepository extends Mock implements GroupsRepository {}
 class _MockChatService extends Mock implements ChatService {}
 
 class _StubEventDetailNotifier extends EventDetailNotifier {
-  final Map<String, dynamic> data;
+  final Event data;
   _StubEventDetailNotifier(this.data);
 
   @override
-  Future<Map<String, dynamic>> build(String arg) async => data;
+  Future<Event> build(String arg) async => data;
 }
 
 class _StubEventPromotoresNotifier extends EventPromotoresNotifier {
@@ -66,22 +69,30 @@ class _StubMyEventInviteNotifier extends MyEventInviteNotifier {
 }
 
 class _StubGroupDetailNotifier extends GroupDetailNotifier {
-  final Map<String, dynamic>? data;
+  final Group? data;
   _StubGroupDetailNotifier(this.data);
 
   @override
-  Future<Map<String, dynamic>?> build(String arg) async => data;
+  Future<Group?> build(String arg) async => data;
 }
 
 class _StubGroupMembersNotifier extends GroupMembersNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => const [];
+  Future<List<GroupMember>> build(String arg) async => const [];
 }
 
 class _StubContributionsNotifier extends GroupContributionsNotifier {
   @override
   Future<GroupContributionsData> build(String arg) async =>
       const GroupContributionsData(contributors: [], myContribution: 0);
+}
+
+class _StubGroupDetailCombinedNotifier extends GroupDetailCombinedNotifier {
+  final GroupDetailData _data;
+  _StubGroupDetailCombinedNotifier(this._data);
+
+  @override
+  Future<GroupDetailData> build(String arg) async => _data;
 }
 
 class _StubUploadPhotoNotifier extends PhotoUploadNotifier {
@@ -94,25 +105,15 @@ class _StubEventPhotosNotifier extends EventPhotosNotifier {
   Future<List<EventPhoto>> build(String arg) async => const [];
 }
 
-class _StubAuthNotifier extends AuthNotifier {
-  @override
-  Future<AuthState> build() async => const AuthState(
-    authenticated: true,
-    hasProfile: true,
-    user: {'id': _promotorId},
-  );
-}
-
-Map<String, dynamic> _event({String status = 'upcoming'}) => {
-  'id': _eventId,
-  'name': 'Rave en el garaje',
-  'type': 'juerga',
-  'status': status,
-  'group_id': null,
-  'location_name': 'Av. Los Aromos 123',
-  'starts_at': DateTime(2026, 9, 15, 22).toUtc().toIso8601String(),
-  'ends_at': DateTime(2026, 9, 16, 2).toUtc().toIso8601String(),
-};
+Event _event({String status = 'upcoming'}) => Event(
+  id: _eventId,
+  name: 'Rave en el garaje',
+  type: 'juerga',
+  status: status,
+  locationName: 'Av. Los Aromos 123',
+  startsAt: DateTime(2026, 9, 15, 22),
+  endsAt: DateTime(2026, 9, 16, 2),
+);
 
 List<Map<String, dynamic>> _promotores({bool asPromotor = false}) => [
   {
@@ -321,7 +322,11 @@ void main() {
     }) async {
       final container = ProviderContainer(
         overrides: [
-          authStateProvider.overrideWith(() => _StubAuthNotifier()),
+          authStateProvider.overrideWith(() => StubAuthNotifier(
+                authenticated: true,
+                hasProfile: true,
+                userId: _promotorId,
+              )),
           eventDetailProvider.overrideWith(
             () => _StubEventDetailNotifier(_event(status: status)),
           ),
@@ -471,16 +476,33 @@ void main() {
         overrides: [
           groupDetailProvider.overrideWith(
             () => _StubGroupDetailNotifier(
-              {
-                'id': _groupId,
-                'name': 'Disco Crew',
-                'group_shards': 100,
-              },
+              const Group(
+                id: _groupId,
+                name: 'Disco Crew',
+                groupShards: 100,
+              ),
             ),
           ),
           groupMembersProvider.overrideWith(_StubGroupMembersNotifier.new),
           contributionsProvider.overrideWith(
             _StubContributionsNotifier.new,
+          ),
+          groupDetailCombinedProvider.overrideWith(
+            () => _StubGroupDetailCombinedNotifier(
+              const GroupDetailData(
+                group: Group(
+                  id: _groupId,
+                  name: 'Disco Crew',
+                  groupShards: 100,
+                ),
+                members: [],
+                contributions: GroupContributionsData(
+                  contributors: [],
+                  myContribution: 0,
+                ),
+                membership: null,
+              ),
+            ),
           ),
         ],
       );

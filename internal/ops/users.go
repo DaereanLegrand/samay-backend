@@ -52,7 +52,7 @@ func GetUser(ctx context.Context, client *db.DBClient, userID string) (*UserDeta
 		return nil, fmt.Errorf("unmarshal user: %w", err)
 	}
 	if len(users) == 0 {
-		return nil, fmt.Errorf("user not found: %s", userID)
+		return nil, fmt.Errorf("user not found: %s: %w", userID, ErrNotFound)
 	}
 
 	var ledger []db.ShardLedgerEntry
@@ -81,7 +81,7 @@ func GetUser(ctx context.Context, client *db.DBClient, userID string) (*UserDeta
 }
 
 func BanUser(ctx context.Context, client *db.DBClient, userID, reason, adminUserID string) error {
-	_, err := client.Update(ctx, "users", "id=eq."+userID, map[string]interface{}{
+	_, err := client.Update(ctx, "users", "id=eq."+userID, map[string]any{
 		"banned_at":  "now()",
 		"ban_reason": reason,
 	})
@@ -102,7 +102,7 @@ func BanUser(ctx context.Context, client *db.DBClient, userID, reason, adminUser
 }
 
 func UnbanUser(ctx context.Context, client *db.DBClient, userID, adminUserID string) error {
-	_, err := client.Update(ctx, "users", "id=eq."+userID, map[string]interface{}{
+	_, err := client.Update(ctx, "users", "id=eq."+userID, map[string]any{
 		"banned_at":  nil,
 		"ban_reason": nil,
 	})
@@ -118,7 +118,7 @@ func UnbanUser(ctx context.Context, client *db.DBClient, userID, adminUserID str
 }
 
 func GrantShards(ctx context.Context, client *db.DBClient, userID string, amount int, reason, adminUserID string) error {
-	_, err := client.RPC(ctx, "grant_shards", map[string]interface{}{
+	_, err := client.RPC(ctx, "grant_shards", map[string]any{
 		"p_user_id": userID,
 		"p_amount":  amount,
 		"p_reason":  reason,
@@ -126,7 +126,7 @@ func GrantShards(ctx context.Context, client *db.DBClient, userID string, amount
 	if err != nil {
 		return fmt.Errorf("grant shards: %w", err)
 	}
-	details, err := json.Marshal(map[string]interface{}{"amount": amount, "reason": reason})
+	details, err := json.Marshal(map[string]any{"amount": amount, "reason": reason})
 	if err != nil {
 		return fmt.Errorf("grant shards: marshal audit details: %w", err)
 	}
@@ -140,7 +140,7 @@ func GrantShards(ctx context.Context, client *db.DBClient, userID string, amount
 }
 
 func GrantPreshards(ctx context.Context, client *db.DBClient, userID string, amount int, reason, adminUserID string) error {
-	_, err := client.RPC(ctx, "grant_preshards", map[string]interface{}{
+	_, err := client.RPC(ctx, "grant_preshards", map[string]any{
 		"p_user_id": userID,
 		"p_amount":  amount,
 		"p_reason":  reason,
@@ -148,7 +148,7 @@ func GrantPreshards(ctx context.Context, client *db.DBClient, userID string, amo
 	if err != nil {
 		return fmt.Errorf("grant preshards: %w", err)
 	}
-	details, err := json.Marshal(map[string]interface{}{"amount": amount, "reason": reason})
+	details, err := json.Marshal(map[string]any{"amount": amount, "reason": reason})
 	if err != nil {
 		return fmt.Errorf("grant preshards: marshal audit details: %w", err)
 	}
@@ -163,9 +163,9 @@ func GrantPreshards(ctx context.Context, client *db.DBClient, userID string, amo
 
 func SoftDeleteUser(ctx context.Context, client *db.DBClient, userID, adminUserID string) error {
 	if len(userID) < 8 {
-		return fmt.Errorf("soft delete user: invalid user id %q", userID)
+		return fmt.Errorf("soft delete user: invalid user id %q: %w", userID, ErrInvalid)
 	}
-	_, err := client.Update(ctx, "users", "id=eq."+userID, map[string]interface{}{
+	_, err := client.Update(ctx, "users", "id=eq."+userID, map[string]any{
 		"deleted_at": "now()",
 		"username":   "deleted_user_" + userID[:8],
 		"avatar_url": nil,

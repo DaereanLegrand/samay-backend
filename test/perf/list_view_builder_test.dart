@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/models/group.dart';
+import 'package:samay/core/models/group_member.dart';
 import 'package:samay/features/groups/screens/group_detail_screen.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
@@ -68,23 +70,29 @@ const _userId2 = '22222222-2222-2222-2222-222222222222';
 
 class _FakeGroupDetail extends GroupDetailNotifier {
   @override
-  Future<Map<String, dynamic>?> build(String arg) async =>
-      {'id': _groupId, 'name': 'Disco Crew', 'group_shards': 100};
+  Future<Group?> build(String arg) async =>
+      const Group(id: _groupId, name: 'Disco Crew', groupShards: 100);
 }
 
 class _FakeGroupMembers extends GroupMembersNotifier {
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => [
-        {
-          'user_id': _userId1,
-          'role': 'promotor',
-          'users': {'username': 'ana'},
-        },
-        {
-          'user_id': _userId2,
-          'role': 'member',
-          'users': {'username': 'lucas'},
-        },
+  Future<List<GroupMember>> build(String arg) async => [
+        GroupMember(
+          id: 'gm-1',
+          groupId: _groupId,
+          userId: _userId1,
+          role: 'promotor',
+          joinedAt: DateTime(2026),
+          users: const {'username': 'ana'},
+        ),
+        GroupMember(
+          id: 'gm-2',
+          groupId: _groupId,
+          userId: _userId2,
+          role: 'member',
+          joinedAt: DateTime(2026),
+          users: const {'username': 'lucas'},
+        ),
       ];
 }
 
@@ -100,6 +108,46 @@ class _FakeContributions extends GroupContributionsNotifier {
           },
         ],
         myContribution: 0,
+      );
+}
+
+class _FakeGroupDetailCombined extends GroupDetailCombinedNotifier {
+  @override
+  Future<GroupDetailData> build(String arg) async => GroupDetailData(
+        group: const Group(
+          id: _groupId,
+          name: 'Disco Crew',
+          groupShards: 100,
+        ),
+        members: [
+          GroupMember(
+            id: 'gm-1',
+            groupId: _groupId,
+            userId: _userId1,
+            role: 'promotor',
+            joinedAt: DateTime(2026),
+            users: const {'username': 'ana'},
+          ),
+          GroupMember(
+            id: 'gm-2',
+            groupId: _groupId,
+            userId: _userId2,
+            role: 'member',
+            joinedAt: DateTime(2026),
+            users: const {'username': 'lucas'},
+          ),
+        ],
+        contributions: const GroupContributionsData(
+          contributors: [
+            {
+              'user_id': _userId1,
+              'shards_contributed': 50,
+              'users': {'username': 'ana'},
+            },
+          ],
+          myContribution: 0,
+        ),
+        membership: null,
       );
 }
 
@@ -152,6 +200,7 @@ void main() {
         groupDetailProvider.overrideWith(_FakeGroupDetail.new),
         groupMembersProvider.overrideWith(_FakeGroupMembers.new),
         contributionsProvider.overrideWith(_FakeContributions.new),
+        groupDetailCombinedProvider.overrideWith(_FakeGroupDetailCombined.new),
       ]);
       addTearDown(container.dispose);
 

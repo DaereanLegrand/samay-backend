@@ -175,7 +175,7 @@ if [ "$CODE" = "204" ]; then ok "B marks the group chat read (204)"; else nok "B
 
 # B's own message (MSG_G2) must NOT be marked; A's message (MSG_G1) must; the
 # distribution row (MSG_DIST) must NEVER be marked (control row).
-ROWS=$(svc_get "message_reads?select=message_id,user_id&order=message_id")
+ROWS=$(svc_get "message_reads?message_id=in.($MSG_G1,$MSG_G2,$MSG_DIST,$MSG_D1)&select=message_id,user_id&order=message_id")
 if echo "$ROWS" | grep -q '"message_id":"'$(echo $MSG_G1 | tr 'A-F' 'a-f')'"' \
    || echo "$ROWS" | grep -q '"message_id":"'$MSG_G1'"'; then
   ok "message_reads contains a row for A's message"
@@ -198,7 +198,7 @@ fi
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$SUPABASE_URL/rest/v1/rpc/mark_group_messages_read" \
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOK_B" \
   -H "Content-Type: application/json" -d "{\"p_chat_id\":\"$CHAT_GROUP\"}")
-COUNT2=$(svc_get "message_reads?select=message_id" | grep -o '"message_id"' | wc -l | tr -d ' ')
+COUNT2=$(svc_get "message_reads?message_id=in.($MSG_G1,$MSG_G2,$MSG_DIST,$MSG_D1)&select=message_id" | grep -o '"message_id"' | wc -l | tr -d ' ')
 if [ "$COUNT2" = "1" ]; then
   ok "marking twice is idempotent (still 1 receipt)"
 else
@@ -216,7 +216,7 @@ CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$SUPABASE_URL/rest/v1/mes
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOK_B" \
   -H "Content-Type: application/json" -H "Prefer: return=minimal" \
   -d "{\"message_id\":\"$MSG_G2\",\"user_id\":\"$UUID_B\"}")
-COUNT_SELF=$(svc_get "message_reads?select=message_id" | grep -o '"message_id"' | wc -l | tr -d ' ')
+COUNT_SELF=$(svc_get "message_reads?message_id=in.($MSG_G1,$MSG_G2,$MSG_DIST,$MSG_D1)&select=message_id" | grep -o '"message_id"' | wc -l | tr -d ' ')
 if [ "$COUNT_SELF" = "1" ]; then
   ok "self-stamping a receipt on one's OWN message is rejected (count stays 1)"
 else

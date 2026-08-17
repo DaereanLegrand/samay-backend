@@ -31,7 +31,7 @@ import '../../support/fake_config_provider.dart';
 class _FakeEventService implements EventService {
   _FakeEventService(this.rows, {this.error, this.gate});
 
-  final List<Map<String, dynamic>> rows;
+  final List<Event> rows;
   Object? error;
 
   /// When set, [listEvents] awaits it before resolving — tests hold the
@@ -52,7 +52,7 @@ class _FakeEventService implements EventService {
       throw UnimplementedError();
 
   @override
-  Future<Map<String, dynamic>> getEvent(String id) =>
+  Future<Event> getEvent(String id) =>
       throw UnimplementedError();
 
   @override
@@ -75,7 +75,7 @@ class _FakeEventService implements EventService {
       throw UnimplementedError();
 
   @override
-  Future<List<Map<String, dynamic>>> listEvents([
+  Future<List<Event>> listEvents([
     String? status,
     String? type,
   ]) async {
@@ -107,7 +107,7 @@ class _FakeEventService implements EventService {
       throw UnimplementedError();
 }
 
-Map<String, dynamic> _eventRow(
+Event _eventRow(
   String id, {
   String name = 'Fiesta',
   String type = 'juerga',
@@ -119,20 +119,18 @@ Map<String, dynamic> _eventRow(
   bool featured = false,
 }) {
   final start = startsAt ?? DateTime(2026, 9, 15, 22);
-  return {
-    'id': id,
-    'name': name,
-    'type': type,
-    'status': 'upcoming',
-    'group_id': groupId,
-    'location_name': locationName,
-    'cover_url': coverUrl,
-    'featured': featured,
-    'starts_at': start.toUtc().toIso8601String(),
-    'ends_at': (endsAt ?? start.add(const Duration(hours: 4)))
-        .toUtc()
-        .toIso8601String(),
-  };
+  return Event(
+    id: id,
+    name: name,
+    type: type,
+    status: 'upcoming',
+    groupId: groupId,
+    locationName: locationName,
+    coverUrl: coverUrl,
+    featured: featured,
+    startsAt: start,
+    endsAt: endsAt ?? start.add(const Duration(hours: 4)),
+  );
 }
 
 ProviderContainer _container(

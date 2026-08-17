@@ -53,7 +53,7 @@ func GetEvent(ctx context.Context, client *db.DBClient, eventID string) (*EventD
 		return nil, fmt.Errorf("unmarshal event: %w", err)
 	}
 	if len(events) == 0 {
-		return nil, fmt.Errorf("event not found: %s", eventID)
+		return nil, fmt.Errorf("event not found: %s: %w", eventID, ErrNotFound)
 	}
 
 	var promotores []db.EventPromotor
@@ -73,14 +73,14 @@ func GetEvent(ctx context.Context, client *db.DBClient, eventID string) (*EventD
 }
 
 func FeatureEvent(ctx context.Context, client *db.DBClient, eventID string, expiresAt time.Time, adminUserID string) error {
-	_, err := client.Update(ctx, "events", "id=eq."+eventID, map[string]interface{}{
+	_, err := client.Update(ctx, "events", "id=eq."+eventID, map[string]any{
 		"featured":       true,
 		"featured_until": expiresAt.Format(time.RFC3339),
 	})
 	if err != nil {
 		return fmt.Errorf("feature event: %w", err)
 	}
-	if _, err := client.Update(ctx, "feature_requests", "event_id=eq."+eventID+"&status=eq.pending", map[string]interface{}{
+	if _, err := client.Update(ctx, "feature_requests", "event_id=eq."+eventID+"&status=eq.pending", map[string]any{
 		"status":         "approved",
 		"featured_until": expiresAt.Format(time.RFC3339),
 	}); err != nil {
@@ -100,7 +100,7 @@ func FeatureEvent(ctx context.Context, client *db.DBClient, eventID string, expi
 }
 
 func UnfeatureEvent(ctx context.Context, client *db.DBClient, eventID, adminUserID string) error {
-	_, err := client.Update(ctx, "events", "id=eq."+eventID, map[string]interface{}{
+	_, err := client.Update(ctx, "events", "id=eq."+eventID, map[string]any{
 		"featured":       false,
 		"featured_until": nil,
 	})
@@ -116,7 +116,7 @@ func UnfeatureEvent(ctx context.Context, client *db.DBClient, eventID, adminUser
 }
 
 func RejectFeatureEvent(ctx context.Context, client *db.DBClient, eventID, adminUserID string) error {
-	_, err := client.Update(ctx, "feature_requests", "event_id=eq."+eventID+"&status=eq.pending", map[string]interface{}{
+	_, err := client.Update(ctx, "feature_requests", "event_id=eq."+eventID+"&status=eq.pending", map[string]any{
 		"status": "rejected",
 	})
 	if err != nil {
@@ -141,7 +141,7 @@ func CancelEvent(ctx context.Context, client *db.DBClient, eventID, reason, admi
 		return fmt.Errorf("cancel event: unmarshal: %w", err)
 	}
 	if len(events) == 0 {
-		return fmt.Errorf("cancel event: not found: %s", eventID)
+		return fmt.Errorf("cancel event: not found: %s: %w", eventID, ErrNotFound)
 	}
 
 	if events[0].Status == "cancelled" {
@@ -167,7 +167,7 @@ func CancelEvent(ctx context.Context, client *db.DBClient, eventID, reason, admi
 		if p.PreshardsContributed <= 0 {
 			continue
 		}
-		if _, err := client.Insert(ctx, "preshard_ledger", map[string]interface{}{
+		if _, err := client.Insert(ctx, "preshard_ledger", map[string]any{
 			"user_id":      p.UserID,
 			"delta":        p.PreshardsContributed,
 			"reason":       "event_pool_returned",
@@ -177,7 +177,7 @@ func CancelEvent(ctx context.Context, client *db.DBClient, eventID, reason, admi
 		}
 	}
 
-	_, err = client.Update(ctx, "events", "id=eq."+eventID, map[string]interface{}{
+	_, err = client.Update(ctx, "events", "id=eq."+eventID, map[string]any{
 		"status":                "cancelled",
 		"preshards_pool":        0,
 		"preshards_distributed": true,
@@ -186,7 +186,7 @@ func CancelEvent(ctx context.Context, client *db.DBClient, eventID, reason, admi
 		return errors.Join(fmt.Errorf("cancel event: update: %w", err), refundErr)
 	}
 
-	details, err := json.Marshal(map[string]interface{}{
+	details, err := json.Marshal(map[string]any{
 		"reason":            reason,
 		"preshard_returned": true,
 	})
@@ -203,13 +203,13 @@ func CancelEvent(ctx context.Context, client *db.DBClient, eventID, reason, admi
 }
 
 func DistributeShards(ctx context.Context, client *db.DBClient, eventID, adminUserID string) error {
-	body, err := client.RPC(ctx, "distribute_shards", map[string]interface{}{
+	body, err := client.RPC(ctx, "distribute_shards", map[string]any{
 		"p_event_id": eventID,
 	})
 	if err != nil {
 		return fmt.Errorf("distribute shards: %w", err)
 	}
-	var result interface{}
+	var result any
 	if err := json.Unmarshal(body, &result); err != nil {
 		// The RPC succeeded; the body only feeds the audit trail. Record the
 		// raw body so the response is not lost, and surface the parse

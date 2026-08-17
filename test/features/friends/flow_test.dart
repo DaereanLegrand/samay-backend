@@ -4,6 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:samay/core/models/friend_request_summary.dart';
+import 'package:samay/core/models/group.dart';
+import 'package:samay/core/models/group_member.dart';
+import 'package:samay/core/models/user_profile.dart';
+import 'package:samay/core/models/user_search_result.dart';
 import 'package:samay/core/repositories/friends_repository.dart';
 import 'package:samay/core/repositories/groups_repository.dart';
 import 'package:samay/core/repositories/repository_providers.dart';
@@ -33,11 +38,16 @@ const _userId1 = '11111111-1111-1111-1111-111111111111';
 const _userId2 = '22222222-2222-2222-2222-222222222222';
 const _groupId1 = '33333333-3333-3333-3333-333333333333';
 
-Map<String, dynamic> _user(String id, String username) => {
-  'id': id,
-  'username': username,
-  'avatar_url': null,
-};
+UserProfile _user(String id, String username) => UserProfile(
+  id: id,
+  username: username,
+  avatarUrl: null,
+);
+
+UserSearchResult _searchResult(String id, String username) => UserSearchResult(
+  id: id,
+  username: username,
+);
 
 class _MockFriendsRepository extends Mock implements FriendsRepository {}
 
@@ -47,14 +57,14 @@ class _MockGroupsRepository extends Mock implements GroupsRepository {}
 class _CountingFriendsListNotifier extends FriendsListNotifier {
   _CountingFriendsListNotifier(this.data);
 
-  final List<Map<String, dynamic>> data;
+  final List<UserProfile> data;
   int builds = 0;
 
   @override
   Duration get refreshThrottle => Duration.zero;
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<UserProfile>> build() async {
     builds++;
     return data;
   }
@@ -127,39 +137,39 @@ class _LiveFriendRequestsNotifier extends FriendRequestsNotifier {
 class _CountingBlockedUsersNotifier extends BlockedUsersNotifier {
   _CountingBlockedUsersNotifier(this.data);
 
-  final List<Map<String, dynamic>> data;
+  final List<UserProfile> data;
   int builds = 0;
 
   @override
   Duration get refreshThrottle => Duration.zero;
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<UserProfile>> build() async {
     builds++;
     return data;
   }
 }
 
 class _StubMyGroupsNotifier extends MyGroupsNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<Group> data;
   _StubMyGroupsNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build() async => data;
+  Future<List<Group>> build() async => data;
 }
 
 /// Counting my-groups variant — the groups-list reload assertion (R13).
 class _CountingMyGroupsNotifier extends MyGroupsNotifier {
   _CountingMyGroupsNotifier(this.data);
 
-  final List<Map<String, dynamic>> data;
+  final List<Group> data;
   int builds = 0;
 
   @override
   Duration get refreshThrottle => Duration.zero;
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<Group>> build() async {
     builds++;
     return data;
   }
@@ -170,14 +180,14 @@ class _CountingMyGroupsNotifier extends MyGroupsNotifier {
 class _CountingGroupMembersNotifier extends GroupMembersNotifier {
   _CountingGroupMembersNotifier(this.data);
 
-  final List<Map<String, dynamic>> data;
+  final List<GroupMember> data;
   int builds = 0;
 
   @override
   Duration get refreshThrottle => Duration.zero;
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<GroupMember>> build(String arg) async {
     builds++;
     return data;
   }
@@ -187,14 +197,14 @@ class _CountingGroupMembersNotifier extends GroupMembersNotifier {
 class _CountingGroupDetailNotifier extends GroupDetailNotifier {
   _CountingGroupDetailNotifier(this.data);
 
-  final Map<String, dynamic>? data;
+  final Group? data;
   int builds = 0;
 
   @override
   Duration get refreshThrottle => Duration.zero;
 
   @override
-  Future<Map<String, dynamic>?> build(String arg) async {
+  Future<Group?> build(String arg) async {
     builds++;
     return data;
   }
@@ -215,11 +225,11 @@ class _CountingContributionsNotifier extends GroupContributionsNotifier {
 }
 
 class _StubSearchResultsNotifier extends SearchResultsNotifier {
-  final List<Map<String, dynamic>> data;
+  final List<UserSearchResult> data;
   _StubSearchResultsNotifier({this.data = const []});
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async => data;
+  Future<List<UserSearchResult>> build(String arg) async => data;
 }
 
 /// Counting search-results variant — the post-accept reload assertion
@@ -227,14 +237,14 @@ class _StubSearchResultsNotifier extends SearchResultsNotifier {
 class _CountingSearchResultsNotifier extends SearchResultsNotifier {
   _CountingSearchResultsNotifier(this.data);
 
-  final List<Map<String, dynamic>> data;
+  final List<UserSearchResult> data;
   int builds = 0;
 
   @override
   Duration get refreshThrottle => Duration.zero;
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<UserSearchResult>> build(String arg) async {
     builds++;
     return data;
   }
@@ -242,8 +252,8 @@ class _CountingSearchResultsNotifier extends SearchResultsNotifier {
 
 const _twoReceived = FriendRequestsData(
   requests: [
-    {'type': 'received', 'friendship_id': 'f1', 'user_id': _userId1},
-    {'type': 'received', 'friendship_id': 'f2', 'user_id': _userId2},
+    FriendRequestSummary(type: 'received', friendshipId: 'f1', userId: _userId1),
+    FriendRequestSummary(type: 'received', friendshipId: 'f2', userId: _userId2),
   ],
   names: {_userId1: 'ana', _userId2: 'lucas'},
 );
@@ -389,11 +399,11 @@ void main() {
               () => _StubFriendRequestsNotifier(
                 data: const FriendRequestsData(
                   requests: [
-                    {
-                      'type': 'sent',
-                      'friendship_id': 'f9',
-                      'user_id': _userId1,
-                    },
+                    FriendRequestSummary(
+                      type: 'sent',
+                      friendshipId: 'f9',
+                      userId: _userId1,
+                    ),
                   ],
                   names: {_userId1: 'ana'},
                 ),
@@ -506,21 +516,21 @@ void main() {
               () => _StubFriendRequestsNotifier(
                 data: const FriendRequestsData(
                   requests: [
-                    {
-                      'type': 'received',
-                      'friendship_id': 'f1',
-                      'user_id': _userId1,
-                    },
-                    {
-                      'type': 'received',
-                      'friendship_id': 'f2',
-                      'user_id': _userId2,
-                    },
-                    {
-                      'type': 'sent',
-                      'friendship_id': 'f3',
-                      'user_id': _userId1,
-                    },
+                    FriendRequestSummary(
+                      type: 'received',
+                      friendshipId: 'f1',
+                      userId: _userId1,
+                    ),
+                    FriendRequestSummary(
+                      type: 'received',
+                      friendshipId: 'f2',
+                      userId: _userId2,
+                    ),
+                    FriendRequestSummary(
+                      type: 'sent',
+                      friendshipId: 'f3',
+                      userId: _userId1,
+                    ),
                   ],
                   names: {_userId1: 'ana', _userId2: 'lucas'},
                 ),
@@ -594,11 +604,11 @@ void main() {
               () => _StubFriendRequestsNotifier(
                 data: const FriendRequestsData(
                   requests: [
-                    {
-                      'type': 'received',
-                      'friendship_id': 'f1',
-                      'user_id': _userId1,
-                    },
+                    FriendRequestSummary(
+                      type: 'received',
+                      friendshipId: 'f1',
+                      userId: _userId1,
+                    ),
                   ],
                   names: {_userId1: 'ana'},
                 ),
@@ -664,8 +674,16 @@ void main() {
       final requests = _LiveFriendRequestsNotifier(
         const FriendRequestsData(
           requests: [
-            {'type': 'received', 'friendship_id': 'f1', 'user_id': _userId1},
-            {'type': 'received', 'friendship_id': 'f2', 'user_id': _userId2},
+            FriendRequestSummary(
+              type: 'received',
+              friendshipId: 'f1',
+              userId: _userId1,
+            ),
+            FriendRequestSummary(
+              type: 'received',
+              friendshipId: 'f2',
+              userId: _userId2,
+            ),
           ],
           names: {_userId1: 'ana', _userId2: 'lucas'},
         ),
@@ -695,7 +713,11 @@ void main() {
       // badge must re-derive 1.
       requests.data = const FriendRequestsData(
         requests: [
-          {'type': 'received', 'friendship_id': 'f1', 'user_id': _userId1},
+          FriendRequestSummary(
+            type: 'received',
+            friendshipId: 'f1',
+            userId: _userId1,
+          ),
         ],
         names: {_userId1: 'ana'},
       );
@@ -762,7 +784,11 @@ void main() {
       final requests = _CountingFriendRequestsNotifier(
         const FriendRequestsData(
           requests: [
-            {'type': 'received', 'friendship_id': 'f1', 'user_id': _userId1},
+            FriendRequestSummary(
+              type: 'received',
+              friendshipId: 'f1',
+              userId: _userId1,
+            ),
           ],
           names: {_userId1: 'ana'},
         ),
@@ -890,12 +916,12 @@ void main() {
 
     testWidgets('my-groups list drag reloads the provider', (tester) async {
       final groups = _CountingMyGroupsNotifier([
-        {
-          'id': _groupId1,
-          'name': 'Disco Crew',
-          'group_shards': 100,
-          'my_role': 'member',
-        },
+        const Group(
+          id: _groupId1,
+          name: 'Disco Crew',
+          groupShards: 100,
+          myRole: 'member',
+        ),
       ]);
       await tester.pumpWidget(
         _wrap(
@@ -976,7 +1002,7 @@ void main() {
           const SearchScreen(),
           overrides: [
             searchResultsProvider.overrideWith(
-              () => _StubSearchResultsNotifier(data: [_user(_userId1, 'ana')]),
+              () => _StubSearchResultsNotifier(data: [_searchResult(_userId1, 'ana')]),
             ),
           ],
         ),
@@ -1005,7 +1031,7 @@ void main() {
           const SearchScreen(),
           overrides: [
             searchResultsProvider.overrideWith(
-              () => _StubSearchResultsNotifier(data: [_user(_userId1, 'ana')]),
+              () => _StubSearchResultsNotifier(data: [_searchResult(_userId1, 'ana')]),
             ),
           ],
         ),
@@ -1037,7 +1063,7 @@ void main() {
           const SearchScreen(),
           overrides: [
             searchResultsProvider.overrideWith(
-              () => _StubSearchResultsNotifier(data: [_user(_userId1, 'ana')]),
+              () => _StubSearchResultsNotifier(data: [_searchResult(_userId1, 'ana')]),
             ),
             friendsRepositoryProvider.overrideWithValue(friends),
           ],
@@ -1080,7 +1106,7 @@ void main() {
           const SearchScreen(),
           overrides: [
             searchResultsProvider.overrideWith(
-              () => _StubSearchResultsNotifier(data: [_user(_userId1, 'ana')]),
+              () => _StubSearchResultsNotifier(data: [_searchResult(_userId1, 'ana')]),
             ),
             friendsRepositoryProvider.overrideWithValue(friends),
           ],
@@ -1092,9 +1118,9 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Agregar'));
-      // LUXE note: bounded pumps, NOT pumpAndSettle — the screen's VAurora
-      // drift advances the fake clock past the snackbar's 4s auto-dismiss
-      // under pumpAndSettle (XL-10 MISTAKE XL-10-B).
+      // Bounded pumps, NOT pumpAndSettle — pumpAndSettle would advance the
+      // fake clock past the snackbar's 4s auto-dismiss (XL-10 MISTAKE
+      // XL-10-B).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
@@ -1146,12 +1172,13 @@ void main() {
       when(() => friends.acceptFriendRequest('f7')).thenAnswer((_) async {});
 
       final results = _CountingSearchResultsNotifier([
-        {
-          ..._user(_userId1, 'ana'),
-          'friendship_status': 'pending',
-          'friendship_id': 'f7',
-          'friendship_direction': 'received',
-        },
+        const UserSearchResult(
+          id: _userId1,
+          username: 'ana',
+          friendshipStatus: 'pending',
+          friendshipId: 'f7',
+          friendshipDirection: 'received',
+        ),
       ]);
       final requests = _CountingFriendRequestsNotifier(
         const FriendRequestsData(requests: [], names: {}),
@@ -1199,9 +1226,8 @@ void main() {
       expect(find.text('Solicitado'), findsNothing);
 
       await tester.tap(find.text('Aceptar'));
-      // LUXE note: bounded pumps, NOT pumpAndSettle — the screen's VAurora
-      // drift advances the fake clock past the snackbar's auto-dismiss
-      // under pumpAndSettle (XL-10 MISTAKE block).
+      // Bounded pumps, NOT pumpAndSettle — pumpAndSettle would advance the
+      // fake clock past the snackbar's auto-dismiss (XL-10 MISTAKE block).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
@@ -1241,12 +1267,13 @@ void main() {
             searchResultsProvider.overrideWith(
               () => _StubSearchResultsNotifier(
                 data: [
-                  {
-                    ..._user(_userId1, 'ana'),
-                    'friendship_status': 'pending',
-                    'friendship_id': 'f8',
-                    'friendship_direction': 'sent',
-                  },
+                  const UserSearchResult(
+                    id: _userId1,
+                    username: 'ana',
+                    friendshipStatus: 'pending',
+                    friendshipId: 'f8',
+                    friendshipDirection: 'sent',
+                  ),
                 ],
               ),
             ),
@@ -1415,13 +1442,13 @@ void main() {
       final groups = _MockGroupsRepository();
       when(() => groups.declineInvite('m1')).thenAnswer((_) async {});
       final myGroups = _CountingMyGroupsNotifier(const [
-        {
-          'id': _groupId1,
-          'name': 'Disco Crew',
-          'group_shards': 100,
-          'my_role': 'member',
-          'my_status': 'invited',
-        },
+        Group(
+          id: _groupId1,
+          name: 'Disco Crew',
+          groupShards: 100,
+          myRole: 'member',
+          myStatus: 'invited',
+        ),
       ]);
       await tester.pumpWidget(
         pumpWithGroupsWatcher([

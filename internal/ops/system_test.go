@@ -75,7 +75,7 @@ func TestGetSystemStats_CountsEvents(t *testing.T) {
 	}
 }
 
-type statRow map[string]interface{}
+type statRow map[string]any
 
 type statsFixture struct {
 	users    []statRow

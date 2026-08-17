@@ -36,6 +36,7 @@ func jsonStub(body string) http.HandlerFunc {
 func newTestRouter(t *testing.T, handler http.HandlerFunc) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
+	initConfig()
 	dbClient = stubDBClient(t, handler)
 	return newRouter()
 }
@@ -58,9 +59,9 @@ func assertStatus(t *testing.T, w *httptest.ResponseRecorder, want int) {
 	}
 }
 
-func decodeJSON(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{} {
+func decodeJSON(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
-	var body map[string]interface{}
+	var body map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("expected JSON object body, got: %q", w.Body.String())
 	}

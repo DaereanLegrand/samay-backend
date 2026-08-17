@@ -7,6 +7,7 @@ import (
 	"github.com/samay-app/samay/internal/db"
 	"github.com/samay-app/samay/internal/format"
 	"github.com/samay-app/samay/internal/ops"
+	"github.com/samay-app/samay/internal/validate"
 	"github.com/spf13/cobra"
 )
 
@@ -23,7 +24,7 @@ var shardsRecalculateRanksCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tier, _ := cmd.Flags().GetString("tier")
 		if tier != "" {
-			if err := oneOf(tier, "micro", "small", "medium", "large"); err != nil {
+			if err := validate.OneOf(tier, "micro", "small", "medium", "large"); err != nil {
 				return err
 			}
 		}
@@ -103,7 +104,7 @@ func init() {
 	)
 }
 
-func shardLedgerTableBuilder(data interface{}) ([]string, [][]string) {
+func shardLedgerTableBuilder(data any) ([]string, [][]string) {
 	entries := data.([]db.ShardLedgerEntry)
 	headers := []string{"ID", "DELTA", "REASON", "REFERENCE", "CREATED_AT"}
 	rows := make([][]string, 0, len(entries))
@@ -119,7 +120,7 @@ func shardLedgerTableBuilder(data interface{}) ([]string, [][]string) {
 	return headers, rows
 }
 
-func groupShardLedgerTableBuilder(data interface{}) ([]string, [][]string) {
+func groupShardLedgerTableBuilder(data any) ([]string, [][]string) {
 	entries := data.([]db.GroupShardContribution)
 	headers := []string{"ID", "USER_ID", "SHARDS", "CONTRIBUTED_AT", "EXPIRES_AT"}
 	rows := make([][]string, 0, len(entries))

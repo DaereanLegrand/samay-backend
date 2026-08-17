@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:samay/core/models/event.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
@@ -30,7 +31,7 @@ const _coPromotorId = '33333333-3333-3333-3333-333333333333';
 final _startsAt = DateTime.now().add(const Duration(days: 30));
 final _endsAt = _startsAt.add(const Duration(hours: 5));
 
-Map<String, dynamic> _event({
+Event _event({
   String status = 'upcoming',
   String type = 'juerga',
   int pool = 500,
@@ -40,31 +41,23 @@ Map<String, dynamic> _event({
   String? groupId,
   DateTime? startsAt,
   DateTime? endsAt,
-}) => {
-  'id': _eventId,
-  'name': 'Rave en el garaje',
-  'description': 'La mejor fiesta del barrio',
-  'type': type,
-  'status': status,
-  'created_by_user_id': _promotorId,
-  'group_id': groupId,
-  'location_name': 'Av. Los Aromos 123',
-  'location_lat': -12.05,
-  'location_lng': -77.04,
-  'starts_at': (startsAt ?? _startsAt).toIso8601String(),
-  'ends_at': (endsAt ?? _endsAt).toIso8601String(),
-  'join_mode': 'open',
-  'preshards_pool': pool,
-  'preshards_distributed': false,
-  'preshards_cap_per_user': cap,
-  'preshards_remainder_action': remainder,
-  'dynamic_qr_enabled': pool > 0,
-  'invite_token': 'invite-token',
-  'cover_url': coverUrl,
-  'featured': false,
-  'created_at': DateTime(2026, 5, 10).toIso8601String(),
-  'updated_at': DateTime(2026, 5, 10).toIso8601String(),
-};
+}) => Event(
+  id: _eventId,
+  name: 'Rave en el garaje',
+  description: 'La mejor fiesta del barrio',
+  type: type,
+  status: status,
+  createdByUserId: _promotorId,
+  groupId: groupId,
+  locationName: 'Av. Los Aromos 123',
+  joinMode: 'open',
+  preshardsPool: pool,
+  preshardsCapPerUser: cap,
+  preshardsRemainderAction: remainder,
+  coverUrl: coverUrl,
+  startsAt: startsAt ?? _startsAt,
+  endsAt: endsAt ?? _endsAt,
+);
 
 List<Map<String, dynamic>> _promotores() => [
   {
@@ -97,17 +90,25 @@ class _FakeAuthNotifier extends AuthNotifier {
 }
 
 class _FakeEventDetailNotifier extends EventDetailNotifier {
-  final Map<String, dynamic> data;
+  final Event data;
   final Object? error;
   final Future<void>? gate;
   _FakeEventDetailNotifier({required this.data, this.error, this.gate});
 
   @override
-  Future<Map<String, dynamic>> build(String arg) async {
+  Duration get refreshThrottle => Duration.zero;
+
+  @override
+  Future<Event> build(String arg) async {
     if (gate != null) await gate;
     if (error != null) throw error!;
     return data;
   }
+}
+
+class _NoThrottleEventDetailNotifier extends EventDetailNotifier {
+  @override
+  Duration get refreshThrottle => Duration.zero;
 }
 
 class _FakeEventPromotoresNotifier extends EventPromotoresNotifier {
@@ -240,8 +241,8 @@ void main() {
 
       final data = await container.read(eventDetailProvider(_eventId).future);
 
-      expect(data['id'], _eventId);
-      expect(data['name'], 'Rave en el garaje');
+      expect(data.id, _eventId);
+      expect(data.name, 'Rave en el garaje');
       verify(() => service.getEvent(_eventId)).called(1);
     });
 
@@ -275,7 +276,12 @@ void main() {
       final service = _MockEventService();
       when(() => service.getEvent(_eventId)).thenAnswer((_) async => _event());
       final container = ProviderContainer(
-        overrides: [eventServiceProvider.overrideWithValue(service)],
+        overrides: [
+          eventServiceProvider.overrideWithValue(service),
+          eventDetailProvider.overrideWith(
+            () => _NoThrottleEventDetailNotifier(),
+          ),
+        ],
       );
       addTearDown(container.dispose);
 
@@ -291,7 +297,12 @@ void main() {
       when(() => service.getEvent(_eventId)).thenAnswer((_) async => _event());
       when(() => service.updateEvent(any(), any())).thenAnswer((_) async {});
       final container = ProviderContainer(
-        overrides: [eventServiceProvider.overrideWithValue(service)],
+        overrides: [
+          eventServiceProvider.overrideWithValue(service),
+          eventDetailProvider.overrideWith(
+            () => _NoThrottleEventDetailNotifier(),
+          ),
+        ],
       );
       addTearDown(container.dispose);
 
@@ -559,9 +570,9 @@ void main() {
         verifyNever(() => service.updateEvent(any(), any()));
 
         // Confirming sets the status and refreshes the detail. The snackbar
-        // assertion below must NOT pumpAndSettle: the aurora drift keeps
-        // frames scheduled for ~10s and would fire the snackbar's 4s
-        // auto-dismiss timer first. Explicit pumps land on the visible bar.
+        // assertion below must NOT pumpAndSettle: pumpAndSettle would run
+        // the snackbar's 4s auto-dismiss timer past its lifetime first.
+        // Explicit pumps land on the visible bar.
         await tester.tap(find.text('Cancelar evento'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('S\u00ed, cancelar'));

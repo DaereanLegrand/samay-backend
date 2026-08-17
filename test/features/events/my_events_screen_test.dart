@@ -9,6 +9,7 @@ import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/event_service.dart';
 import 'package:samay/features/events/logic/event_formatters.dart';
+import 'package:samay/features/events/providers/events_providers.dart';
 import 'package:samay/features/events/screens/my_events_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
@@ -23,7 +24,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 class _FakeEventService implements EventService {
   _FakeEventService(this.rows, {this.error, this.gate});
 
-  final List<Map<String, dynamic>> rows;
+  final List<Event> rows;
   Object? error;
 
   /// When set, [listEvents] awaits it before resolving — tests hold the
@@ -44,7 +45,7 @@ class _FakeEventService implements EventService {
       throw UnimplementedError();
 
   @override
-  Future<Map<String, dynamic>> getEvent(String id) =>
+  Future<Event> getEvent(String id) =>
       throw UnimplementedError();
 
   @override
@@ -67,7 +68,7 @@ class _FakeEventService implements EventService {
       throw UnimplementedError();
 
   @override
-  Future<List<Map<String, dynamic>>> listEvents([
+  Future<List<Event>> listEvents([
     String? status,
     String? type,
   ]) async {
@@ -99,7 +100,12 @@ class _FakeEventService implements EventService {
       throw UnimplementedError();
 }
 
-Map<String, dynamic> _eventRow(
+class _NoThrottleMyEventsNotifier extends MyEventsNotifier {
+  @override
+  Duration get refreshThrottle => Duration.zero;
+}
+
+Event _eventRow(
   String id, {
   String name = 'Rave en el garaje',
   String type = 'juerga',
@@ -111,24 +117,25 @@ Map<String, dynamic> _eventRow(
   DateTime? endsAt,
 }) {
   final start = startsAt ?? DateTime(2026, 9, 15, 21);
-  return {
-    'id': id,
-    'name': name,
-    'type': type,
-    'status': status,
-    'group_id': groupId,
-    'location_name': locationName,
-    'cover_url': coverUrl,
-    'starts_at': start.toUtc().toIso8601String(),
-    'ends_at': (endsAt ?? start.add(const Duration(hours: 4)))
-        .toUtc()
-        .toIso8601String(),
-  };
+  return Event(
+    id: id,
+    name: name,
+    type: type,
+    status: status,
+    groupId: groupId,
+    locationName: locationName,
+    coverUrl: coverUrl,
+    startsAt: start,
+    endsAt: endsAt ?? start.add(const Duration(hours: 4)),
+  );
 }
 
 ProviderContainer _container(_FakeEventService service, {GoRouter? router}) {
   final container = ProviderContainer(
-    overrides: [eventServiceProvider.overrideWithValue(service)],
+    overrides: [
+      eventServiceProvider.overrideWithValue(service),
+      myEventsProvider.overrideWith(() => _NoThrottleMyEventsNotifier()),
+    ],
   );
   addTearDown(container.dispose);
   return container;

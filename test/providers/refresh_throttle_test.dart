@@ -1,5 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:samay/core/models/group.dart';
+import 'package:samay/core/models/group_member.dart';
+import 'package:samay/core/models/user_profile.dart';
+import 'package:samay/core/models/user_search_result.dart';
 import 'package:samay/features/friends/providers/friends_providers.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/features/profile/providers/profile_providers.dart' as profile;
@@ -40,7 +44,7 @@ class _CountingMyGroups extends MyGroupsNotifier {
   Duration get refreshThrottle => _window;
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<Group>> build() async {
     builds++;
     markFetched();
     return const [];
@@ -54,7 +58,7 @@ class _CountingGroupDetail extends GroupDetailNotifier {
   Duration get refreshThrottle => _window;
 
   @override
-  Future<Map<String, dynamic>?> build(String arg) async {
+  Future<Group?> build(String arg) async {
     builds++;
     markFetched();
     return null;
@@ -68,7 +72,7 @@ class _CountingGroupMembers extends GroupMembersNotifier {
   Duration get refreshThrottle => _window;
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<GroupMember>> build(String arg) async {
     builds++;
     markFetched();
     return const [];
@@ -110,7 +114,7 @@ class _CountingLeaderboard extends LeaderboardNotifier {
   Duration get refreshThrottle => _window;
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<LeaderboardEntry>> build(String arg) async {
     builds++;
     markFetched();
     return const [];
@@ -124,7 +128,7 @@ class _CountingFriendsList extends FriendsListNotifier {
   Duration get refreshThrottle => _window;
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<UserProfile>> build() async {
     builds++;
     markFetched();
     return const [];
@@ -152,7 +156,7 @@ class _CountingBlockedUsers extends BlockedUsersNotifier {
   Duration get refreshThrottle => _window;
 
   @override
-  Future<List<Map<String, dynamic>>> build() async {
+  Future<List<UserProfile>> build() async {
     builds++;
     markFetched();
     return const [];
@@ -166,7 +170,7 @@ class _CountingSearchResults extends SearchResultsNotifier {
   Duration get refreshThrottle => _window;
 
   @override
-  Future<List<Map<String, dynamic>>> build(String arg) async {
+  Future<List<UserSearchResult>> build(String arg) async {
     builds++;
     markFetched();
     return const [];

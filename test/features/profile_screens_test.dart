@@ -18,7 +18,7 @@ import 'package:samay/features/profile/providers/profile_providers.dart';
 import 'package:samay/features/profile/screens/profile_screen.dart';
 import 'package:samay/features/profile/screens/public_profile_screen.dart';
 import 'package:samay/features/profile/screens/settings_screen.dart';
-import 'package:samay/features/profile/widgets/profile_avatar.dart';
+import 'package:samay/shared/widgets/profile_avatar.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
 import 'package:samay/shared/widgets/skeletons.dart';
@@ -736,8 +736,8 @@ void main() {
         verify(
           () => moderation.reportContent('user', 'test-id', 'Spam'),
         ).called(1);
-        // LUXE: bounded pumps — the aurora drift would advance the fake
-        // clock past the snackbar's auto-dismiss.
+        // LUXE: bounded pumps — pumpAndSettle would advance the fake clock
+        // past the snackbar's auto-dismiss.
         await tester.pump(const Duration(milliseconds: 400));
         expect(
           find.text('Gracias por reportar. Lo revisaremos pronto.'),

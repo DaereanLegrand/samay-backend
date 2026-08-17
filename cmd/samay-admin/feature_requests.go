@@ -6,6 +6,7 @@ import (
 	"github.com/samay-app/samay/internal/db"
 	"github.com/samay-app/samay/internal/format"
 	"github.com/samay-app/samay/internal/ops"
+	"github.com/samay-app/samay/internal/validate"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +23,7 @@ var featureRequestsListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		status, _ := cmd.Flags().GetString("status")
 		if status != "" {
-			if err := oneOf(status, "pending", "approved", "rejected"); err != nil {
+			if err := validate.OneOf(status, "pending", "approved", "rejected"); err != nil {
 				return err
 			}
 		}
@@ -42,7 +43,7 @@ func init() {
 	featureRequestsCmd.AddCommand(featureRequestsListCmd)
 }
 
-func featureRequestsTableBuilder(data interface{}) ([]string, [][]string) {
+func featureRequestsTableBuilder(data any) ([]string, [][]string) {
 	requests := data.([]db.FeatureRequest)
 	headers := []string{"ID", "EVENT_ID", "REQUESTER", "DURATION_DAYS", "STATUS", "CREATED_AT"}
 	rows := make([][]string, 0, len(requests))
