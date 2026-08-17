@@ -18,7 +18,6 @@ import 'package:samay/features/chat/providers/chat_providers.dart';
 import 'package:samay/features/chat/screens/chat_screen.dart';
 import 'package:samay/features/chat/widgets/chat_thread_view.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
-import 'package:samay/shared/widgets/glass/v_glass.dart';
 import 'package:samay/shared/widgets/state_views.dart';
 import 'package:samay/shared/widgets/v_thinking_dots.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
@@ -285,6 +284,68 @@ void main() {
     expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNWidgets(2));
   });
 
+  testWidgets('own bubble: the delivery checks sit at the RIGHT of the hour '
+      '(same footer row — never below it)', (tester) async {
+    await _pump(tester, [
+      _message('m-2', 'responde', readAt: '2026-08-01T00:05:00Z'),
+    ]);
+
+    expect(find.byIcon(Icons.done_all), findsOneWidget);
+    final rowsWithStatus = find.ancestor(
+      of: find.byIcon(Icons.done_all),
+      matching: find.byType(Row),
+    );
+    var hourOnSameRow = false;
+    for (final element in rowsWithStatus.evaluate()) {
+      if (find
+          .descendant(
+            of: find.byWidget(element.widget),
+            matching: find.textContaining(RegExp(r'^\d{2}:\d{2}$')),
+          )
+          .evaluate()
+          .isNotEmpty) {
+        hourOnSameRow = true;
+        break;
+      }
+    }
+    expect(
+      hourOnSameRow,
+      isTrue,
+      reason:
+          'the read/sent checks share the hour\'s footer row (checks at its '
+          'right side) — a check below the hour is a regression',
+    );
+  });
+
+  testWidgets('peer bubble: the hour stays at the BOTTOM-RIGHT — its Column '
+      'is right-aligned, even for a compact (shrink-wrapped) bubble', (
+    tester,
+  ) async {
+    await _pump(tester, [_message('m-1', 'hola', sender: 'other')]);
+
+    final timeText = find.textContaining(RegExp(r'^\d{2}:\d{2}$'));
+    expect(timeText, findsOneWidget);
+    final colsWithTime = find.ancestor(
+      of: timeText,
+      matching: find.byType(Column),
+    );
+    var rightAligned = false;
+    for (final element in colsWithTime.evaluate()) {
+      final col = element.widget as Column;
+      if (col.crossAxisAlignment == CrossAxisAlignment.end) {
+        rightAligned = true;
+        break;
+      }
+    }
+    expect(
+      rightAligned,
+      isTrue,
+      reason:
+          'the hour sits at the bottom-right of peer bubbles — a bottom-'
+          'left hour (start-aligned column) is a regression',
+    );
+  });
+
   testWidgets('own messages show a double grey check (received) — not read', (
     tester,
   ) async {
@@ -477,7 +538,7 @@ void main() {
   });
 
   testWidgets('bubbles are WHITE — own = solid white fill + black text, '
-      'peer = white glass, radius 16, max width 320', (tester) async {
+      'peer = white glass, radius 8, max width 320', (tester) async {
     await _pump(tester, [
       _message('m-1', 'hola', sender: 'other'),
       _message('m-2', 'responde'),
@@ -489,8 +550,8 @@ void main() {
     final ownDecoration = own.decoration as BoxDecoration;
     expect(
       ownDecoration.borderRadius,
-      const BorderRadius.all(Radius.circular(16)),
-      reason: 'bubbles stay liquid (radius 16)',
+      const BorderRadius.all(Radius.circular(8)),
+      reason: 'bubbles stay liquid (radius 8)',
     );
     expect(
       ownDecoration.color,
@@ -507,18 +568,29 @@ void main() {
       reason: 'black text on the white fill (21:1 AA)',
     );
 
-    final peer = tester.widget<VGlass>(
+    final peer = tester.widget<DecoratedBox>(
       find.byKey(const ValueKey('chatBubblePeer-m-1')),
     );
+    final peerDecoration = peer.decoration as BoxDecoration;
     expect(
-      peer.gradient,
-      isNull,
-      reason: 'peer bubbles are white-only glass',
+      peerDecoration.borderRadius,
+      const BorderRadius.all(Radius.circular(8)),
+      reason: 'peer bubbles share the liquid 8 corner',
     );
+    expect(peerDecoration.gradient, isNotNull);
+    final gradient = peerDecoration.gradient as LinearGradient;
     expect(
-      peer.radius,
-      const BorderRadius.all(Radius.circular(16)),
-      reason: 'peer bubbles share the liquid 16 corner',
+      gradient.colors,
+      [AppColors.muted, AppColors.border],
+      reason:
+          'peer bubbles render a muted → border grey gradient, no border '
+          'ring, no glass layers on top of the text',
+    );
+    expect(peerDecoration.color, isNull);
+    expect(
+      peerDecoration.boxShadow,
+      isNotNull,
+      reason: 'peer bubbles have a per-user colored shadow',
     );
 
     for (final key in const ['chatBubbleOwn-m-2', 'chatBubblePeer-m-1']) {
@@ -532,6 +604,18 @@ void main() {
         box.constraints.maxWidth,
         320,
         reason: 'bubbles cap at 320 px — the thread is the visual center',
+      );
+      // The CONSTRAINT caps at 320, but the RENDERED bubble must shrink to
+      // its content — a short message ('hola'/'responde') is never a full
+      // 320px-wide bubble.
+      final rendered = tester.getSize(find.byKey(ValueKey(key)));
+      expect(
+        rendered.width,
+        lessThan(320),
+        reason:
+            'short messages shrink-wrap; only long content reaches the '
+            '320px cap (the sender-name Align used to pin every group '
+            'bubble at max width)',
       );
     }
   });
@@ -889,6 +973,19 @@ void main() {
     expect(find.text('yo'), findsNothing);
     // The 1:1 bubble chrome (time clock) survives in the group thread too.
     expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNWidgets(2));
+    // The sender label must NOT stretch the bubble: a short group message
+    // renders a compact bubble (the pre-fix `Align` wrapper expanded to the
+    // full 320px and pinned EVERY group peer bubble at max width).
+    final groupBubble = tester.getSize(
+      find.byKey(const ValueKey('chatBubblePeer-m-1')),
+    );
+    expect(
+      groupBubble.width,
+      lessThan(320),
+      reason:
+          'the sender name shrink-wraps (capped at 200px) — a short group '
+          'message is never a full-width bubble',
+    );
   });
 
   testWidgets('GROUP thread: an unknown sender falls back to a short uid '
