@@ -13,6 +13,7 @@ import '../support/resolving_builder.dart';
 const _userId = '11111111-1111-1111-1111-111111111111';
 const _memberId = '22222222-2222-2222-2222-222222222222';
 const _groupId = '33333333-3333-3333-3333-333333333333';
+const _avatarUrl = 'https://cdn.example/avatars/$_memberId/123.png';
 
 User _currentUser() => User.fromJson({'id': _userId, 'email': 'a@b.com'})!;
 
@@ -268,7 +269,8 @@ void main() {
       expect(await service().getGroup(_groupId), isNull);
     });
 
-    test('getGroupMembers selects active members with usernames', () async {
+    test('getGroupMembers selects active members with usernames + avatars',
+        () async {
       final members = MockQueryBuilder();
       when(() => client.from('group_members')).thenAnswer((_) => members);
       final rows = ResolvingBuilder<PostgrestList>([
@@ -277,7 +279,7 @@ void main() {
           'user_id': _memberId,
           'role': 'promotor',
           'status': 'active',
-          'users': {'username': 'dana'},
+          'users': {'username': 'dana', 'avatar_url': _avatarUrl},
         },
       ]);
       when(() => members.select(any())).thenAnswer((_) => rows);
@@ -285,7 +287,10 @@ void main() {
       final result = await service().getGroupMembers(_groupId);
 
       expect(result, hasLength(1));
-      expect(result.single['users'], {'username': 'dana'});
+      expect(result.single['users'], {
+        'username': 'dana',
+        'avatar_url': _avatarUrl,
+      });
       expect(rows.filters, contains(
         const RecordedFilter('group_id', _groupId),
       ));
@@ -298,9 +303,13 @@ void main() {
       // through the security-barrier `user_search_view` (the raw `users`
       // join is own-row-only under RLS, so co-members' usernames were
       // silently dropped from the member list).
+      //
+      // Avatar (2026-08-17): the join must carry `avatar_url` too — the
+      // member-list screens render the co-member's photo, and the view
+      // exposes it (20260815000001_user_view_bio.sql).
       verify(() => members.select(
         'id, group_id, user_id, role, joined_at, status, '
-        'users:user_search_view!inner(username)',
+        'users:user_search_view!inner(username, avatar_url)',
       )).called(1);
     });
 

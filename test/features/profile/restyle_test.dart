@@ -17,12 +17,13 @@ import 'package:samay/features/profile/screens/profile_screen.dart';
 import 'package:samay/features/profile/screens/public_profile_screen.dart';
 import 'package:samay/features/profile/screens/settings_screen.dart';
 import 'package:samay/shared/widgets/profile_avatar.dart';
+import 'package:samay/shared/widgets/v_display_text.dart';
 import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/v_network_image.dart';
 import 'package:samay/shared/widgets/glass/v_glass.dart';
 import 'package:samay/shared/widgets/skeletons.dart';
 import 'package:samay/shared/widgets/state_views.dart';
 import 'package:samay/shared/widgets/v_button.dart';
-import 'package:samay/shared/widgets/v_display_text.dart';
 import 'package:samay/shared/widgets/v_shard_icon.dart';
 import '../../support/fake_supabase_http.dart' as support;
 
@@ -99,8 +100,11 @@ Widget _wrap(Widget child, {List<Override> overrides = const []}) {
   );
 }
 
-List<Override> _profileOverrides({List<Map<String, dynamic>>? groups}) {
-  final profileFetcher = _StubProfileFetcher(() async => _profile());
+List<Override> _profileOverrides({
+  List<Map<String, dynamic>>? groups,
+  Map<String, dynamic>? profile,
+}) {
+  final profileFetcher = _StubProfileFetcher(() async => profile ?? _profile());
   final groupsFetcher = _StubGroupsFetcher(() async => groups ?? const []);
   return [
     myProfileProvider.overrideWith(() => _StubProfileNotifier(profileFetcher)),
@@ -151,6 +155,30 @@ void main() {
       );
       expect(initials.style?.color, AppColors.white);
       expect(initials.style?.fontSize, 24);
+    });
+
+    testWidgets('hero avatar renders the uploaded photo when the profile '
+        'carries avatar_url', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const ProfileScreen(),
+          overrides: _profileOverrides(
+            profile: {
+              ..._profile(),
+              'avatar_url': 'https://cdn.example/avatars/dana.png',
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ProfileAvatar), findsOneWidget);
+      expect(
+        find.byType(VNetworkImage),
+        findsOneWidget,
+        reason: 'the hero must show the stored photo, not the initials '
+            '(2026-08-17)',
+      );
     });
 
     testWidgets('username hero renders as gold VDisplayText (uppercase, '
@@ -628,6 +656,42 @@ void main() {
 
       final bio = tester.widget<Text>(find.text('hola mundo'));
       expect(bio.style?.color, AppColors.mutedStrong);
+    });
+
+    testWidgets('hero avatar renders the member photo when the profile '
+        'carries avatar_url', (tester) async {
+      final friends = _FakeFriendsRepository();
+      when(() => friends.getUserProfile(_userId)).thenAnswer(
+        (_) async => const UserProfile(
+          id: _userId,
+          username: 'dana',
+          bio: 'hola mundo',
+          avatarUrl: 'https://cdn.example/avatars/dana.png',
+        ),
+      );
+      when(
+        () => friends.getFriendshipDetail(_userId),
+      ).thenAnswer((_) async => null);
+      when(
+        () => friends.getBlockStatus(_userId),
+      ).thenAnswer((_) async => false);
+
+      await tester.pumpWidget(
+        _wrap(
+          const PublicProfileScreen(userId: _userId),
+          overrides: [friendsRepositoryProvider.overrideWithValue(friends)],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ProfileAvatar), findsOneWidget);
+      expect(
+        find.byType(VNetworkImage),
+        findsOneWidget,
+        reason:
+            'the public-profile hero must show the photo, not the initials '
+            '(2026-08-17)',
+      );
     });
 
     testWidgets('shared-groups placeholder renders mutedStrong (§5.9)', (

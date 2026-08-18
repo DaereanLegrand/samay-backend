@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -47,6 +50,123 @@ Future<void> pumpWithNetwork(
     });
   });
   await tester.pumpAndSettle();
+}
+
+/// Recording wrapper around the shared [TestNetworkHttpClient] harness: every
+/// request is surfaced with the headers the http layer actually SET on it, so
+/// a widget test can assert that the `apikey` key-auth header was (or was not)
+/// sent for a storage URL. Everything else (per-URL success/broken/hanging
+/// responses) is delegated to the real test client.
+class RecordingNetworkHttpClient implements HttpClient {
+  final _inner = TestNetworkHttpClient();
+  RecordingNetworkHttpRequest? _lastRequest;
+
+  Map<String, List<String>>? get lastCapturedHeaders =>
+      _lastRequest?.capturedHeaders;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async =>
+      _record(await _inner.getUrl(url));
+
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri url) async =>
+      _record(await _inner.openUrl(method, url));
+
+  @override
+  Future<HttpClientRequest> get(String host, int port, String path) async =>
+      _record(await _inner.get(host, port, path));
+
+  @override
+  Future<HttpClientRequest> open(
+    String method,
+    String host,
+    int port,
+    String path,
+  ) async =>
+      _record(await _inner.open(method, host, port, path));
+
+  RecordingNetworkHttpRequest _record(HttpClientRequest request) {
+    final wrapped = RecordingNetworkHttpRequest(request as TestNetworkHttpRequest);
+    _lastRequest = wrapped;
+    return wrapped;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class RecordingNetworkHttpRequest implements HttpClientRequest {
+  final TestNetworkHttpRequest _inner;
+  final RecordingNetworkHttpHeaders _headers;
+
+  RecordingNetworkHttpRequest(this._inner)
+      : _headers = RecordingNetworkHttpHeaders(_inner.headers);
+
+  Map<String, List<String>> get capturedHeaders => _headers.captured;
+
+  @override
+  HttpHeaders get headers => _headers;
+
+  @override
+  Uri get uri => _inner.uri;
+
+  @override
+  String get method => _inner.method;
+
+  @override
+  Future<void> addStream(Stream<List<int>> stream) => _inner.addStream(stream);
+
+  @override
+  Future<HttpClientResponse> close() => _inner.close();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class RecordingNetworkHttpHeaders implements HttpHeaders {
+  final HttpHeaders _inner;
+  final Map<String, List<String>> captured = {};
+
+  RecordingNetworkHttpHeaders(this._inner);
+
+  @override
+  void add(String name, Object value, {bool preserveHeaderCase = false}) {
+    _inner.add(name, value, preserveHeaderCase: preserveHeaderCase);
+    captured.putIfAbsent(name.toLowerCase(), () => []).add(value.toString());
+  }
+
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {
+    _inner.set(name, value, preserveHeaderCase: preserveHeaderCase);
+    captured[name.toLowerCase()] = [value.toString()];
+  }
+
+  @override
+  void forEach(void Function(String name, List<String> values) action) {
+    _inner.forEach(action);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// Pumps until [condition] holds, giving the real async HTTP/file/decode work
+/// inside the [HttpOverrides] zone real time to complete (same approach as the
+/// disk-cache test — immune to CI load, never a fixed-sleep race).
+Future<void> pumpUntil(
+  WidgetTester tester,
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 20),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    if (condition()) return;
+  }
+  fail('Timed out after $timeout waiting for the image to settle');
 }
 
 void main() {
@@ -203,6 +323,101 @@ void main() {
       expect(widget.fit, BoxFit.cover);
       expect(widget.borderRadius, isNull);
       expect(widget.fadeInDuration, SamayDurations.standard);
+    });
+
+    testWidgets(
+      'sends the apikey header and renders the image when httpHeaders is provided',
+      (tester) async {
+        late RecordingNetworkHttpClient recordingClient;
+        await tester.runAsync(() {
+          return HttpOverrides.runZoned(
+            () async {
+              final cacheManager = newCacheManager('k12');
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: VNetworkImage(
+                    imageUrl: kTestSuccessUrl,
+                    cacheManager: cacheManager,
+                    httpHeaders: const {'apikey': 'anon-123'},
+                  ),
+                ),
+              );
+            },
+            createHttpClient: (_) =>
+                recordingClient = RecordingNetworkHttpClient(),
+          );
+        });
+
+        await pumpUntil(tester, () {
+          return find.byType(RawImage).evaluate().isNotEmpty;
+        });
+
+        expect(recordingClient.lastCapturedHeaders?['apikey'], ['anon-123']);
+        expect(find.byIcon(Icons.broken_image_outlined), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'adds no apikey header by default for non-storage URLs (empty test key)',
+      (tester) async {
+        late RecordingNetworkHttpClient recordingClient;
+        await tester.runAsync(() {
+          return HttpOverrides.runZoned(
+            () async {
+              final cacheManager = newCacheManager('k13');
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: VNetworkImage(
+                    imageUrl: kTestSuccessUrl,
+                    cacheManager: cacheManager,
+                  ),
+                ),
+              );
+            },
+            createHttpClient: (_) =>
+                recordingClient = RecordingNetworkHttpClient(),
+          );
+        });
+
+        await pumpUntil(tester, () {
+          return find.byType(RawImage).evaluate().isNotEmpty;
+        });
+
+        expect(recordingClient.lastCapturedHeaders?['apikey'], isNull);
+        expect(find.byIcon(Icons.broken_image_outlined), findsNothing);
+      },
+    );
+  });
+
+  group('storageHeadersFor', () {
+    test('adds the apikey header for storage URLs with a non-empty key', () {
+      expect(
+        VNetworkImage.storageHeadersFor(
+          'https://x.example/storage/v1/object/public/groups/a.png',
+          'anon-123',
+        ),
+        {'apikey': 'anon-123'},
+      );
+    });
+
+    test('returns null for non-storage URLs', () {
+      expect(
+        VNetworkImage.storageHeadersFor(
+          'https://x.example/other/a.png',
+          'anon-123',
+        ),
+        isNull,
+      );
+    });
+
+    test('returns null when the apiKey is empty', () {
+      expect(
+        VNetworkImage.storageHeadersFor(
+          'https://x.example/storage/v1/object/public/groups/a.png',
+          '',
+        ),
+        isNull,
+      );
     });
   });
 }

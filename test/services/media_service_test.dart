@@ -172,13 +172,13 @@ void main() {
 
       final url = await service.uploadUserAvatar('user-1', input);
 
-      expect(url, startsWith('https://cdn.example/avatars/avatars/user-1/'));
+      expect(url, startsWith('https://cdn.example/avatars/user-1/'));
       final captured = verify(
         () => fileApi.uploadBinary(captureAny(), captureAny()),
       ).captured;
       final path = captured[0] as String;
       final uploadedBytes = captured[1] as Uint8List;
-      expect(path, startsWith('avatars/user-1/'));
+      expect(path, startsWith('user-1/'));
       expect(
         path,
         endsWith('.png'),
@@ -211,7 +211,7 @@ void main() {
       final input = await _solidPng(640, 480);
       final url = await service.uploadUserAvatar('user-1', input);
 
-      expect(url, startsWith('https://cdn.example/avatars/avatars/user-1/'));
+      expect(url, startsWith('https://cdn.example/avatars/user-1/'));
       expect(url, endsWith('.png'));
     });
 
@@ -222,13 +222,13 @@ void main() {
       final capturedA = verify(
         () => fileApi.uploadBinary(captureAny(), captureAny()),
       ).captured;
-      expect(capturedA[0], startsWith('avatars/user-A/'));
+      expect(capturedA[0], startsWith('user-A/'));
 
       await service.uploadUserAvatar('user-B', input);
       final capturedB = verify(
         () => fileApi.uploadBinary(captureAny(), captureAny()),
       ).captured;
-      expect(capturedB[0], startsWith('avatars/user-B/'));
+      expect(capturedB[0], startsWith('user-B/'));
     });
   });
 

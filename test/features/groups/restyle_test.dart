@@ -24,6 +24,7 @@ import 'package:samay/features/groups/screens/invite_screen.dart';
 import 'package:samay/features/groups/screens/leaderboard_screen.dart';
 import 'package:samay/features/groups/screens/my_groups_screen.dart';
 import 'package:samay/shared/widgets/profile_avatar.dart';
+import 'package:samay/shared/widgets/v_network_image.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/glass/v_gradient_border.dart';
 import 'package:samay/shared/widgets/glass/v_glass.dart';
@@ -555,7 +556,10 @@ void main() {
                 userId: _userId1,
                 role: 'promotor',
                 joinedAt: DateTime(2026),
-                users: const {'username': 'ana'},
+                users: const {
+                  'username': 'ana',
+                  'avatar_url': 'https://cdn.example/avatars/ana.png',
+                },
               ),
               GroupMember(
                 id: 'gm-2',
@@ -575,6 +579,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ProfileAvatar), findsNWidgets(2));
+      expect(
+        find.byType(VNetworkImage),
+        findsOneWidget,
+        reason:
+            'the members tab renders the co-member photo when the users '
+            'join carries avatar_url (2026-08-17)',
+      );
       expect(find.text('PROMOTOR'), findsOneWidget);
       expect(find.text('MEMBER'), findsOneWidget);
       // Scoped to the members list: the detail body no longer owns a
@@ -1070,6 +1081,54 @@ void main() {
         reason: '2 rows → 1 hairline separator',
       );
       expect(_dividerColor(tester), AppColors.hairline);
+    });
+
+    testWidgets('member rows render the remote photo when the users join '
+        'carries avatar_url', (tester) async {
+      final repo = _MockGroupsRepository();
+      when(() => repo.getGroupMembers(_groupId)).thenAnswer(
+        (_) async => [
+          GroupMember.fromJson({
+            'id': 'm1',
+            'group_id': _groupId,
+            'user_id': _userId1,
+            'role': 'promotor',
+            'joined_at': '2026-01-01T00:00:00Z',
+            'users': {
+              'username': 'ana',
+              'avatar_url': 'https://cdn.example/avatars/ana.png',
+            },
+          }),
+          GroupMember.fromJson({
+            'id': 'm2',
+            'group_id': _groupId,
+            'user_id': _userId2,
+            'role': 'member',
+            'joined_at': '2026-01-01T00:00:00Z',
+            'users': {
+              'username': 'lucas',
+              'avatar_url': null,
+            },
+          }),
+        ],
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          const GroupMembersScreen(groupId: _groupId),
+          overrides: [groupsRepositoryProvider.overrideWithValue(repo)],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ProfileAvatar), findsNWidgets(2));
+      expect(
+        find.byType(VNetworkImage),
+        findsOneWidget,
+        reason:
+            'avatar_url rides the user_search_view join into the row photo '
+            '(2026-08-17)',
+      );
     });
   });
 }

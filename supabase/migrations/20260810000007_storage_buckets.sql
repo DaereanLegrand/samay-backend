@@ -114,7 +114,7 @@ CREATE POLICY storage_objects_events_select_access
 -- 2.3 Own-row INSERT — authenticated uploads into the three app buckets.
 --     owner_id is written by storage-api from the JWT sub. Avatars add the
 --     SECU spec path-prefix rule: the first path segment must be the caller's
---     own user id (MediaService uploadUserAvatar writes avatars/<userId>/…).
+--     own user id (MediaService uploadUserAvatar writes <userId>/…).
 DROP POLICY IF EXISTS storage_objects_insert_own ON storage.objects;
 CREATE POLICY storage_objects_insert_own
     ON storage.objects FOR INSERT TO authenticated

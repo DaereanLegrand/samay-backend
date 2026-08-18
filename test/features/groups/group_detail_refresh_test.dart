@@ -46,22 +46,6 @@ List<GroupMember> _fourMembers() => [
       _member('55555555-6666-6666-6666-666666666666', 'tester4'),
     ];
 
-/// MUTABLE members stub: [members] can be swapped between builds so a
-/// remote membership change (someone joined on another device) can be
-/// simulated after the first mount.
-class _MutableGroupMembersNotifier extends GroupMembersNotifier {
-  _MutableGroupMembersNotifier(this.members);
-
-  List<GroupMember> members;
-  int builds = 0;
-
-  @override
-  Future<List<GroupMember>> build(String arg) async {
-    builds++;
-    return members;
-  }
-}
-
 class _StubGroupDetailNotifier extends GroupDetailNotifier {
   final Group? _data;
   _StubGroupDetailNotifier({Group? data}) : _data = data;
@@ -107,15 +91,6 @@ class _StubMyMembershipNotifier extends MyMembershipNotifier {
 class _StubGroupChatIdNotifier extends GroupChatIdNotifier {
   @override
   Future<String?> build(String arg) async => null;
-}
-
-/// Combined provider stub for the group detail screen (M5).
-class _StubGroupDetailCombinedNotifier extends GroupDetailCombinedNotifier {
-  final GroupDetailData _data;
-  _StubGroupDetailCombinedNotifier(this._data);
-
-  @override
-  Future<GroupDetailData> build(String arg) async => _data;
 }
 
 /// MUTABLE combined provider stub: mirrors the members-list mutation pattern

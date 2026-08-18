@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -8,8 +6,6 @@ import 'package:samay/core/deep_links/deep_link_handler.dart';
 import 'package:samay/core/router/route_paths.dart';
 
 class _MockGoRouter extends Mock implements GoRouter {}
-
-class _MockNavigatorKey extends Mock implements GlobalKey<NavigatorState> {}
 
 void main() {
   late DeepLinkHandler handler;

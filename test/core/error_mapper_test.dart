@@ -13,14 +13,14 @@ void main() {
     test('returns the same instance for every AppError subtype', () {
       final errors = <AppError>[
         NetworkError(),
-        UnauthorizedError(),
-        ServerError(),
-        ServerError('detalle'),
+        const UnauthorizedError(),
+        const ServerError(),
+        const ServerError('detalle'),
         ValidationError('campo', 'problema'),
         PermissionError(),
         RateLimitError(),
-        NotFoundError(),
-        NotFoundError('grupo'),
+        const NotFoundError(),
+        const NotFoundError('grupo'),
       ];
       for (final error in errors) {
         expect(error.toAppError(), same(error), reason: '$error');
@@ -32,12 +32,12 @@ void main() {
     test('every AppError subtype reports its exact stable code', () {
       final codes = <String, AppError>{
         'NETWORK_ERROR': NetworkError(),
-        'AUTH_UNAUTHORIZED': UnauthorizedError(),
-        'SERVER_ERROR': ServerError(),
+        'AUTH_UNAUTHORIZED': const UnauthorizedError(),
+        'SERVER_ERROR': const ServerError(),
         'VALIDATION_ERROR': ValidationError('campo', 'problema'),
         'PERMISSION_DENIED': PermissionError(),
         'RATE_LIMITED': RateLimitError(),
-        'NOT_FOUND': NotFoundError(),
+        'NOT_FOUND': const NotFoundError(),
         'NOT_CONFIGURED': NotConfiguredError(),
       };
       for (final entry in codes.entries) {
@@ -278,6 +278,77 @@ void main() {
     });
   });
 
+  group('StorageException mappings', () {
+    test('AccessDenied (upload RLS denial, 400) → PermissionError', () {
+      final error = const StorageException(
+        'new row violates row-level security policy',
+        statusCode: '400',
+        error: 'AccessDenied',
+      ).toAppError();
+      expect(error, isA<PermissionError>());
+      expect(error.message, 'No tienes permiso para realizar esta acción.');
+    });
+
+    test('InvalidKey (403) → PermissionError', () {
+      final error = const StorageException(
+        'The request has invalid credentials',
+        statusCode: '403',
+        error: 'InvalidKey',
+      ).toAppError();
+      expect(error, isA<PermissionError>());
+      expect(error.message, 'No tienes permiso para realizar esta acción.');
+    });
+
+    test('statusCode 42501 (Postgres RLS code surfaced by storage) → '
+        'PermissionError', () {
+      expect(
+        const StorageException(
+          'new row violates row-level security policy',
+          statusCode: '42501',
+        ).toAppError(),
+        isA<PermissionError>(),
+      );
+    });
+
+    test('JWT-expired (401) → UnauthorizedError', () {
+      final error = const StorageException(
+        'JWT token has expired',
+        statusCode: '401',
+        error: 'InvalidJWT',
+      ).toAppError();
+      expect(error, isA<UnauthorizedError>());
+      expect(error.message, 'Sesión expirada. Inicia sesión de nuevo.');
+    });
+
+    test('ObjectNotFound (404) → NotFoundError', () {
+      final error = const StorageException(
+        'The resource was not found',
+        statusCode: '404',
+        error: 'ObjectNotFound',
+      ).toAppError();
+      expect(error, isA<NotFoundError>());
+    });
+
+    test('generic failure (500) → ServerError preserving the storage message',
+        () {
+      final error = const StorageException(
+        'Internal server error while processing upload',
+        statusCode: '500',
+      ).toAppError();
+      expect(error, isA<ServerError>());
+      final server = error as ServerError;
+      expect(server.detail, 'Internal server error while processing upload');
+      expect(server.message, 'Internal server error while processing upload');
+      expect(server.message, isNot(_genericServerMessage));
+    });
+
+    test('no statusCode/error → ServerError preserving the message', () {
+      final error = const StorageException('Upload aborted by user').toAppError();
+      expect(error, isA<ServerError>());
+      expect((error as ServerError).detail, 'Upload aborted by user');
+    });
+  });
+
   group('FormatException', () {
     test('→ ValidationError(data, Formato inválido)', () {
       final error = const FormatException('bad format').toAppError();
@@ -392,8 +463,8 @@ void main() {
 
   group('original field (logging)', () {
     test('ServerError defaults to a null original', () {
-      expect(ServerError().original, isNull);
-      expect(ServerError('detail').original, isNull);
+      expect(const ServerError().original, isNull);
+      expect(const ServerError('detail').original, isNull);
     });
 
     test('ServerError carries the original when provided', () {

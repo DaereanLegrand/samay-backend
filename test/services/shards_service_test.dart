@@ -12,6 +12,7 @@ import '../support/resolving_builder.dart';
 /// and leaderboard reads, plus error propagation.
 const _userId = '11111111-1111-1111-1111-111111111111';
 const _groupId = '33333333-3333-3333-3333-333333333333';
+const _avatarUrl = 'https://cdn.example/avatars/dana.png';
 const _cosmeticId = '55555555-5555-5555-5555-555555555555';
 
 User _currentUser() => User.fromJson({'id': _userId, 'email': 'a@b.com'})!;
@@ -171,7 +172,7 @@ void main() {
           'id': 'c-1',
           'user_id': _userId,
           'shards_contributed': 50,
-          'users': {'username': 'dana'},
+          'users': {'username': 'dana', 'avatar_url': _avatarUrl},
         },
       ]);
       when(() => table.select(any())).thenAnswer((_) => rows);
@@ -179,7 +180,10 @@ void main() {
       final result = await service().getGroupContributions(_groupId);
 
       expect(result, hasLength(1));
-      expect(result.single['users'], {'username': 'dana'});
+      expect(result.single['users'], {
+        'username': 'dana',
+        'avatar_url': _avatarUrl,
+      });
       expect(
         rows.filters,
         contains(const RecordedFilter('group_id', _groupId)),

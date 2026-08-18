@@ -57,7 +57,7 @@ void main() {
 
     test('never retries NotFoundError or PermissionError', () async {
       for (final error in [
-        NotFoundError('grupo'),
+        const NotFoundError('grupo'),
         PermissionError(),
       ]) {
         var attempts = 0;

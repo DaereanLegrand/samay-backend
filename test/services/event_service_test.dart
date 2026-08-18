@@ -1,7 +1,6 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/errors/app_error.dart';
-import 'package:samay/core/models/event.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/services/event_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;

@@ -9,7 +9,6 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
-import 'package:samay/core/models/event.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/event_service.dart';

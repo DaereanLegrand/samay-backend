@@ -193,6 +193,12 @@ Future<_GroupDetailHarness> _pumpGroupDetail(
         builder: (_, state) =>
             GroupDetailScreen(groupId: state.pathParameters['groupId']!),
       ),
+      GoRoute(
+        path: '/user/:userId',
+        builder: (_, state) => Scaffold(
+          body: Text('PROFILE-${state.pathParameters['userId']}'),
+        ),
+      ),
     ],
   );
   await tester.pumpWidget(
@@ -207,6 +213,51 @@ Future<_GroupDetailHarness> _pumpGroupDetail(
     ),
   );
   router.push(RoutePaths.groupDetail(_groupId));
+  await tester.pumpAndSettle();
+  return _GroupDetailHarness(container, router);
+}
+
+/// Pumps GroupMembersScreen as a pushed route over a `/home` parent with the
+/// `/user/:userId` route registered, so member-row navigation to the public
+/// profile can be asserted against the real router stack.
+Future<_GroupDetailHarness> _pumpGroupMembers(
+  WidgetTester tester,
+  List<Override> overrides,
+) async {
+  final container = ProviderContainer(overrides: overrides);
+  addTearDown(container.dispose);
+  final router = GoRouter(
+    initialLocation: '/home',
+    routes: [
+      GoRoute(
+        path: '/home',
+        builder: (_, _) => const Scaffold(body: Text('home-marker')),
+      ),
+      GoRoute(
+        path: RoutePaths.groupMembers(':groupId'),
+        builder: (_, state) =>
+            GroupMembersScreen(groupId: state.pathParameters['groupId']!),
+      ),
+      GoRoute(
+        path: '/user/:userId',
+        builder: (_, state) => Scaffold(
+          body: Text('PROFILE-${state.pathParameters['userId']}'),
+        ),
+      ),
+    ],
+  );
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(
+        locale: const Locale('es'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        routerConfig: router,
+      ),
+    ),
+  );
+  router.push(RoutePaths.groupMembers(_groupId));
   await tester.pumpAndSettle();
   return _GroupDetailHarness(container, router);
 }
@@ -368,7 +419,9 @@ void main() {
       await tester.pumpWidget(membersScreen(tester, groups: groups));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('lucas'));
+      // Row tap navigates to the profile now; the trailing ellipsis (only on
+      // admin-tappable rows) opens the manage sheet (2026-08-17).
+      await tester.tap(find.byIcon(Icons.more_horiz).at(0));
       await tester.pumpAndSettle();
 
       expect(
@@ -390,7 +443,7 @@ void main() {
       Navigator.of(tester.element(find.text('Hacer co-promotor'))).pop();
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('marta'));
+      await tester.tap(find.byIcon(Icons.more_horiz).at(1));
       await tester.pumpAndSettle();
       expect(
         find.text('Hacer miembro'),
@@ -399,7 +452,8 @@ void main() {
       );
     });
 
-    testWidgets('non-admin (member) rows never open the sheet', (tester) async {
+    testWidgets('non-admin (member) rows render no administer affordance',
+        (tester) async {
       final groups = _MockGroupsRepository();
       when(
         () => groups.getGroupMembers(_groupId),
@@ -407,13 +461,10 @@ void main() {
       await tester.pumpWidget(membersScreen(tester, groups: groups));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('lucas'), warnIfMissed: false);
-      await tester.pumpAndSettle();
-
       expect(
-        find.text('Hacer co-promotor'),
+        find.byIcon(Icons.more_horiz),
         findsNothing,
-        reason: 'non-admins see no member actions (R17)',
+        reason: 'non-admins see no member actions affordance (R17)',
       );
       expect(find.byType(BottomSheet), findsNothing);
     });
@@ -430,7 +481,7 @@ void main() {
       await tester.pumpWidget(membersScreen(tester, groups: groups));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('lucas'));
+      await tester.tap(find.byIcon(Icons.more_horiz).at(0));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Expulsar del grupo'));
       await tester.pumpAndSettle();
@@ -470,7 +521,7 @@ void main() {
       await tester.pumpWidget(membersScreen(tester, groups: groups));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('lucas'));
+      await tester.tap(find.byIcon(Icons.more_horiz).at(0));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Hacer co-promotor'));
       await tester.pumpAndSettle();
@@ -492,7 +543,7 @@ void main() {
       await tester.pumpWidget(membersScreen(tester, groups: groups));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('lucas'));
+      await tester.tap(find.byIcon(Icons.more_horiz).at(0));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Expulsar del grupo'));
       await tester.pumpAndSettle();
@@ -546,13 +597,75 @@ void main() {
 
       await tester.tap(find.text('Miembros'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('lucas'));
+      await tester.tap(find.byIcon(Icons.more_horiz).at(0));
       await tester.pumpAndSettle();
 
       expect(
         find.text('Expulsar del grupo'),
         findsOneWidget,
         reason: 'the detail members tab honors the sheet too (R17)',
+      );
+    });
+
+    testWidgets('a plain member-row tap (standalone screen) navigates to the '
+        'member public profile', (tester) async {
+      final groups = _MockGroupsRepository();
+      when(
+        () => groups.getGroupMembers(_groupId),
+      ).thenAnswer((_) async => membersWithMe('member'));
+      await _pumpGroupMembers(tester, [
+        groupsRepositoryProvider.overrideWithValue(groups),
+      ]);
+
+      // Row tap is the navigation affordance — no ellipsis for non-admins,
+      // no sheet.
+      await tester.tap(find.text('lucas'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('PROFILE-$_userId2'),
+        findsOneWidget,
+        reason: 'tapping a member row opens that member public profile',
+      );
+      expect(find.byType(BottomSheet), findsNothing);
+    });
+
+    testWidgets('a plain member-row tap (detail members tab) navigates to the '
+        'member public profile', (tester) async {
+      await _pumpGroupDetail(
+        tester,
+        _loadedGroupDetailOverrides(
+          members: [
+            GroupMember(
+              id: 'gm-1',
+              groupId: _groupId,
+              userId: _myUserId,
+              role: 'promotor',
+              joinedAt: DateTime(2026),
+              users: const {'username': 'yo'},
+            ),
+            GroupMember(
+              id: 'gm-2',
+              groupId: _groupId,
+              userId: _userId2,
+              role: 'member',
+              joinedAt: DateTime(2026),
+              users: const {'username': 'lucas'},
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Miembros'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('lucas'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('PROFILE-$_userId2'),
+        findsOneWidget,
+        reason: 'tapping a member row in the members tab opens their profile',
       );
     });
   });

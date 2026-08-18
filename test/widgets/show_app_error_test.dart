@@ -25,7 +25,7 @@ void main() {
         );
         await tester.pump();
         expect(find.byType(SnackBar), findsOneWidget);
-        expect(find.text(ServerError().message), findsOneWidget);
+        expect(find.text(const ServerError().message), findsOneWidget);
         expect(
           find.textContaining('boom'),
           findsNothing,
@@ -56,7 +56,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsOneWidget);
-      expect(find.text(ServerError().message), findsOneWidget);
+      expect(find.text(const ServerError().message), findsOneWidget);
       expect(find.textContaining('blocking'), findsNothing);
       expect(find.byType(SnackBar), findsNothing);
       await tester.tap(find.text('OK'));
@@ -92,13 +92,13 @@ void main() {
       await tester.pumpWidget(_app());
       final future = showAppError(
         tester.element(find.byType(Scaffold)),
-        UnauthorizedError(),
+        const UnauthorizedError(),
         blocking: true,
       );
       await tester.pumpAndSettle();
       expect(find.textContaining('AUTH_UNAUTHORIZED'), findsOneWidget);
       expect(find.text('Código de error: AUTH_UNAUTHORIZED'), findsOneWidget);
-      expect(find.text(UnauthorizedError().message), findsOneWidget);
+      expect(find.text(const UnauthorizedError().message), findsOneWidget);
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
       await future;
@@ -108,12 +108,12 @@ void main() {
       await tester.pumpWidget(_app());
       await showAppError(
         tester.element(find.byType(Scaffold)),
-        UnauthorizedError(),
+        const UnauthorizedError(),
       );
       await tester.pump();
       expect(find.textContaining('AUTH_UNAUTHORIZED'), findsOneWidget);
       expect(find.text('Código de error: AUTH_UNAUTHORIZED'), findsOneWidget);
-      expect(find.text(UnauthorizedError().message), findsOneWidget);
+      expect(find.text(const UnauthorizedError().message), findsOneWidget);
     });
   });
 
@@ -128,7 +128,7 @@ void main() {
       );
       await tester.pump();
       expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(ServerError().message), findsOneWidget);
+      expect(find.text(const ServerError().message), findsOneWidget);
       expect(find.textContaining('snack'), findsNothing);
       expect(find.byType(AlertDialog), findsNothing);
     });
