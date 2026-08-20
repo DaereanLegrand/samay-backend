@@ -126,6 +126,27 @@ GroupMember _member(String id, String username) => GroupMember(
   users: {'username': username},
 );
 
+/// A thread long enough to overflow the test viewport: [count] messages
+/// with strictly increasing `created_at` (one per minute) so the thread
+/// order and the tail are deterministic (ids alone sort lexicographically).
+List<Map<String, dynamic>> _thread(int count, {String sender = _peerId}) => [
+  for (var i = 1; i <= count; i++)
+    _message('m-$i', 'mensaje $i', sender: sender)
+      ..['created_at'] = DateTime.utc(2026, 8, 1, 0, i).toIso8601String(),
+];
+
+/// The scroll position of the thread's [ListView] — the ONLY scrollable in
+/// the message area (the composer's [TextField] nests its own, excluded by
+/// scoping the finder to the [ListView] subtree).
+ScrollPosition _threadPosition(WidgetTester tester) => tester
+    .state<ScrollableState>(
+      find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(Scrollable),
+      ),
+    )
+    .position;
+
 Future<ProviderContainer> _pump(
   WidgetTester tester,
   List<Map<String, dynamic>> messages, {
@@ -229,7 +250,7 @@ void main() {
     expect(find.text('responde'), findsOneWidget);
     expect(find.text('Chat'), findsOneWidget); // app bar fallback title
     expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('Enviar'), findsOneWidget);
+    expect(find.byKey(const ValueKey('chatSendButton')), findsOneWidget);
   });
 
   testWidgets('app bar shows the PEER USERNAME from the inbox (not "Chat")', (
@@ -528,7 +549,7 @@ void main() {
     final container = await _pump(tester, const []);
 
     await tester.enterText(find.byType(TextField), '  nuevo mensaje  ');
-    await tester.tap(find.text('Enviar'));
+    await tester.tap(find.byKey(const ValueKey('chatSendButton')));
     await tester.pump();
 
     final notifier =
@@ -546,7 +567,7 @@ void main() {
     final container = await _pump(tester, const []);
 
     await tester.enterText(find.byType(TextField), '   ');
-    await tester.tap(find.text('Enviar'));
+    await tester.tap(find.byKey(const ValueKey('chatSendButton')));
     await tester.pump();
 
     final notifier =
@@ -656,15 +677,19 @@ void main() {
     }
   });
 
-  testWidgets('send button is flat white (no peach gradient)', (tester) async {
+  testWidgets('send button is a flat white circle with an up arrow (no peach '
+      'gradient)', (tester) async {
     await _pump(tester, const []);
 
-    final button = tester.widget<TextButton>(
-      find.ancestor(of: find.text('Enviar'), matching: find.byType(TextButton)),
+    expect(find.byIcon(Icons.arrow_upward), findsOneWidget);
+    final circle = tester.widget<Material>(
+      find.descendant(
+        of: find.byKey(const ValueKey('chatSendButton')),
+        matching: find.byType(Material),
+      ),
     );
-    final bg = button.style?.backgroundColor;
-    expect(bg, isNotNull);
-    expect(bg!.resolve({}), AppColors.white);
+    expect(circle.shape, isA<CircleBorder>());
+    expect(circle.color, AppColors.white);
   });
 
   testWidgets('send button shows VThinkingDots while a message is in flight', (
@@ -675,23 +700,23 @@ void main() {
     await _pump(tester, const [], notifier: notifier);
 
     await tester.enterText(find.byType(TextField), 'en camino');
-    await tester.tap(find.text('Enviar'));
+    await tester.tap(find.byKey(const ValueKey('chatSendButton')));
     await tester.pump();
 
     expect(
       find.byType(VThinkingDots),
       findsOneWidget,
       reason:
-          'the send button pulses thinking dots instead of the label while '
-          'the send is in flight',
+          'the circular send button pulses thinking dots instead of the '
+          'arrow while the send is in flight',
     );
-    expect(find.text('Enviar'), findsNothing);
+    expect(find.byIcon(Icons.arrow_upward), findsNothing);
 
     gate.complete();
     await tester.pump();
 
     expect(find.byType(VThinkingDots), findsNothing);
-    expect(find.text('Enviar'), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_upward), findsOneWidget);
     expect(notifier.sent, ['en camino']);
   });
 
@@ -744,7 +769,7 @@ void main() {
     await tester.pump();
 
     await tester.enterText(find.byType(TextField), 'en el aire');
-    await tester.tap(find.text('Enviar'));
+    await tester.tap(find.byKey(const ValueKey('chatSendButton')));
     await tester.pump();
 
     // The optimistic bubble + the WhatsApp "sent" single grey check.
@@ -774,9 +799,10 @@ void main() {
     expect(empty.title, 'No hay mensajes todavía');
     expect(empty.description, isNull);
     expect(empty.actionLabel, isNull);
-    // The composer row (glass input + send) is the only other chrome.
+    // The composer row (borderless input + circular send) is the only other
+    // chrome.
     expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('Enviar'), findsOneWidget);
+    expect(find.byKey(const ValueKey('chatSendButton')), findsOneWidget);
   });
 
   testWidgets('shows the load-older button only when hasMore is true', (
@@ -1118,6 +1144,172 @@ void main() {
       reason: 'every bubble of the same sender shows the resolved username',
     );
     verify(() => friends.getUserProfile(senderId)).called(1);
+  });
+
+  group('thread auto-scroll (B-chat-autoscroll)', () {
+    testWidgets('first successful load scrolls to the NEWEST message', (
+      tester,
+    ) async {
+      await _pump(tester, _thread(25));
+
+      final position = _threadPosition(tester);
+      expect(
+        position.pixels,
+        moreOrLessEquals(position.maxScrollExtent, epsilon: 1),
+        reason:
+            'a thread must OPEN at the newest message — the first data '
+            'frame scrolls to the bottom',
+      );
+      expect(position.pixels, greaterThan(0), reason: 'the thread overflows');
+    });
+
+    testWidgets('a new message arriving WHILE AT THE BOTTOM auto-scrolls the '
+        'thread to it', (tester) async {
+      final container = await _pump(tester, _thread(25));
+      expect(_threadPosition(tester).pixels, greaterThan(0));
+
+      final notifier =
+          container.read(chatMessagesProvider(_chatId).notifier)
+              as _FakeChatMessagesNotifier;
+      notifier.addMessage(
+        _message('m-26', 'nuevo mensaje')
+          ..['created_at'] = DateTime.utc(2026, 8, 1, 0, 26).toIso8601String(),
+      );
+      await tester.pumpAndSettle();
+
+      final position = _threadPosition(tester);
+      expect(
+        position.pixels,
+        moreOrLessEquals(position.maxScrollExtent, epsilon: 1),
+        reason:
+            'the reader is at the newest message → the arrival must bring '
+            'the new bubble into view (scroll to the new max extent)',
+      );
+      expect(
+        find.text('nuevo mensaje'),
+        findsOneWidget,
+        reason:
+            'the new bubble is laid out and visible only because the thread '
+            'scrolled to it',
+      );
+    });
+
+    testWidgets('a new message arriving WHILE SCROLLED UP leaves the viewport '
+        'untouched (no yank)', (tester) async {
+      final container = await _pump(tester, _thread(25));
+
+      await tester.drag(find.byType(ListView), const Offset(0, 300));
+      await tester.pumpAndSettle();
+      final position = _threadPosition(tester);
+      final offsetBefore = position.pixels;
+      expect(
+        offsetBefore,
+        lessThan(position.maxScrollExtent - 60),
+        reason: 'the drag must land clearly away from the bottom',
+      );
+
+      final notifier =
+          container.read(chatMessagesProvider(_chatId).notifier)
+              as _FakeChatMessagesNotifier;
+      notifier.addMessage(
+        _message('m-26', 'no mover')
+          ..['created_at'] = DateTime.utc(2026, 8, 1, 0, 26).toIso8601String(),
+      );
+      await tester.pumpAndSettle();
+
+      final after = _threadPosition(tester);
+      expect(
+        after.pixels,
+        moreOrLessEquals(offsetBefore, epsilon: 1),
+        reason:
+            'a reader scrolled up is reading history — the arrival must NOT '
+            'move the viewport',
+      );
+      expect(
+        after.pixels,
+        lessThan(after.maxScrollExtent - 60),
+        reason:
+            'the thread must still be away from the bottom after the '
+            'arrival',
+      );
+    });
+
+    testWidgets('SENDING while at the bottom scrolls to the newest message '
+        '(optimistic row and confirm)', (tester) async {
+      final repo = _MockChatRepository();
+      var sent = '';
+      final committed = _thread(25);
+      final channel = _MockRealtimeChannel();
+      when(() => channel.unsubscribe()).thenAnswer((_) => Future.value('ok'));
+      when(
+        () => repo.loadMessages(
+          _chatId,
+          limit: any(named: 'limit'),
+          offset: any(named: 'offset'),
+        ),
+      ).thenAnswer((_) async {
+        if (sent.isNotEmpty) {
+          committed.add(
+            _message('m-26', sent)
+              ..['created_at'] = DateTime.now().toUtc().toIso8601String(),
+          );
+        }
+        return List.of(committed);
+      });
+      when(() => repo.sendMessage(_chatId, any(), any())).thenAnswer((
+        inv,
+      ) async {
+        sent = inv.positionalArguments[1] as String;
+      });
+      when(() => repo.subscribe(any(), any())).thenReturn(channel);
+      when(
+        () => repo.subscribeToMessageReads(any(), any()),
+      ).thenReturn(channel);
+      when(
+        () => repo.subscribeToMessageDeletes(any(), any()),
+      ).thenReturn(channel);
+      when(() => repo.peerNeedsRekey(any())).thenAnswer((_) async => false);
+      when(() => repo.markChatRead(any())).thenAnswer((_) async {});
+      when(() => repo.markMessagesRead(any())).thenAnswer((_) async {});
+      when(() => repo.getReadReceiptsEnabled()).thenAnswer((_) async => true);
+      when(() => repo.fetchInbox()).thenAnswer((_) async => []);
+
+      final container = ProviderContainer(
+        overrides: [
+          authStateProvider.overrideWith(() => StubAuthNotifier()),
+          chatE2eeRepositoryProvider.overrideWithValue(repo),
+          realtimeServiceProvider.overrideWithValue(_MockRealtimeService()),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            locale: Locale('es'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: ChatScreen(chatId: _chatId),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(_threadPosition(tester).pixels, greaterThan(0));
+
+      await tester.enterText(find.byType(TextField), 'lo envie');
+      await tester.tap(find.byKey(const ValueKey('chatSendButton')));
+      await tester.pumpAndSettle();
+
+      final position = _threadPosition(tester);
+      expect(
+        position.pixels,
+        moreOrLessEquals(position.maxScrollExtent, epsilon: 1),
+        reason:
+            'sending while at the bottom must keep the newest message in '
+            'view (optimistic row + the confirmed row)',
+      );
+      expect(find.text('lo envie'), findsOneWidget);
+    });
   });
 }
 

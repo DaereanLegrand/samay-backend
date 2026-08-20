@@ -433,14 +433,14 @@ void main() {
       );
     });
 
-    testWidgets('the recovery form rides the VInput underline (VInput '
+    testWidgets('the recovery form rides the VInput placeholder (VInput '
         'errorText for auth errors)', (tester) async {
       final notifier = _RecordingAuthNotifier();
       await _pump(tester, const ForgotPasswordScreen(), notifier);
       await tester.pumpAndSettle();
 
       final field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.decoration?.labelText, 'Correo electrónico');
+      expect(field.decoration?.hintText, 'Correo electrónico');
     });
   });
 

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/design_tokens/app_gradients.dart';
-import 'package:samay/shared/widgets/glass/v_gradient_border.dart';
 import 'package:samay/shared/widgets/v_button.dart';
 
 void main() {
@@ -112,10 +111,6 @@ void main() {
             ),
           ),
         );
-        final ring = tester.widget<VGradientBorder>(
-          find.byType(VGradientBorder),
-        );
-        expect(ring.gradient.colors, AppGradients.violet.colors);
         final style = tester.widget<TextButton>(find.byType(TextButton)).style;
         expect(style?.backgroundColor?.resolve({}), Colors.transparent);
         expect(style?.foregroundColor?.resolve({}), AppColors.white);
@@ -218,24 +213,6 @@ void main() {
         );
       });
 
-      testWidgets('gradient param overrides the family (e.g. cyan)', (
-        tester,
-      ) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: VButton.glowAccent(
-              onPressed: () {},
-              gradient: AppGradients.cyan,
-              child: const Text('Cyan'),
-            ),
-          ),
-        );
-        final ring = tester.widget<VGradientBorder>(
-          find.byType(VGradientBorder),
-        );
-        expect(ring.gradient.colors, AppGradients.cyan.colors);
-      });
-
       testWidgets('loading on a filled gradient keeps a black spinner '
           '(contrast with the fill)', (tester) async {
         await tester.pumpWidget(
@@ -266,10 +243,6 @@ void main() {
             ),
           ),
         );
-        final ring = tester.widget<VGradientBorder>(
-          find.byType(VGradientBorder),
-        );
-        expect(ring.gradient.colors, [AppColors.muted, AppColors.muted]);
         final style = tester.widget<TextButton>(find.byType(TextButton)).style;
         expect(
           style?.foregroundColor?.resolve({WidgetState.disabled}),
@@ -290,10 +263,6 @@ void main() {
             ),
           ),
         );
-        final ring = tester.widget<VGradientBorder>(
-          find.byType(VGradientBorder),
-        );
-        expect(ring.gradient.colors, AppGradients.mint.colors);
         final fill = tester.widget<DecoratedBox>(
           find.byKey(const ValueKey('vButtonGradientFill')),
         );
@@ -316,10 +285,6 @@ void main() {
             ),
           ),
         );
-        final ring = tester.widget<VGradientBorder>(
-          find.byType(VGradientBorder),
-        );
-        expect(ring.gradient.colors, AppGradients.gold.colors);
         expect(find.byKey(const ValueKey('vButtonGradientFill')), findsNothing);
         final style = tester.widget<TextButton>(find.byType(TextButton)).style;
         expect(style?.foregroundColor?.resolve({}), AppColors.white);

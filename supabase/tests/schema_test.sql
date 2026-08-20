@@ -2,7 +2,7 @@
 -- Covers all migrations through 20260817000006 (group read receipts).
 BEGIN;
 
-SELECT plan(494);
+SELECT plan(504);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -402,6 +402,35 @@ SELECT function_privs_are('public', 'mark_messages_read', ARRAY['uuid']::name[],
 SELECT function_privs_are('public', 'mark_messages_read', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
     'mark_messages_read is authenticated-EXECUTABLE');
 
+-- 28c: global user ranking (migration 20260818000002) — profile_public + get_user_ranking
+SELECT has_column('users', 'profile_public',
+    'users has the profile_public privacy flag (migration 20260818000002)');
+SELECT col_type_is('users', 'profile_public', 'boolean',
+    'profile_public is boolean');
+SELECT col_not_null('users', 'profile_public',
+    'profile_public is NOT NULL — every account starts private');
+SELECT col_default_is('users', 'profile_public', 'false',
+    'profile_public defaults false — anonymous until the user opts in');
+SELECT has_function('get_user_ranking', ARRAY['integer'],
+    'get_user_ranking(p_limit integer) exists (SECURITY DEFINER RPC, migration 20260818000002)');
+SELECT is_definer('public', 'get_user_ranking', ARRAY['integer'],
+    'get_user_ranking is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'get_user_ranking'),
+    'get_user_ranking sets search_path = '''' (migration 20260818000002)'
+);
+SELECT function_privs_are('public', 'get_user_ranking', ARRAY['integer']::name[], 'public', ARRAY[]::name[],
+    'get_user_ranking is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'get_user_ranking', ARRAY['integer']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'get_user_ranking is authenticated-EXECUTABLE');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%deleted_at IS NULL%'
+      AND pg_get_functiondef(p.oid) LIKE '%ORDER BY u.personal_shards DESC%'
+     FROM pg_proc p WHERE proname = 'get_user_ranking'),
+    'get_user_ranking excludes deleted users and orders by personal_shards DESC (20260818000002)'
+);
+
 -- 28c: message deletion (migration 20260815000006) — 5-min delete_for_everyone
 --      + undecryptable cleanup + audit trail
 SELECT has_table('deleted_messages',
@@ -522,15 +551,16 @@ SELECT policies_are('processed_webhooks', ARRAY[
 -- single source of truth (SUP-04). Applied post-migration via config.toml
 -- [db.seed] / reset.sh / migrate.sh. Post-reset state is unchanged except for
 -- app.search_debounce_ms which I-33 added to seed.sql (read by invite/search
--- screens, PERF-05/L-24) → count is 38.
+-- screens, PERF-05/L-24) and ranking.anonymize_names which C-social added for
+-- the global user-ranking censor (20260818000002) → count is 39.
 -- ============================================================
 SELECT ok(
     (SELECT count(*) = 1 FROM admin_users),
     'admin_users has 1 seed row (system admin, from seed.sql)'
 );
 SELECT ok(
-    (SELECT count(*) = 38 FROM app_config),
-    'app_config has 38 seed rows (37 original + app.search_debounce_ms, from seed.sql)'
+    (SELECT count(*) = 39 FROM app_config),
+    'app_config has 39 seed rows (37 original + app.search_debounce_ms + ranking.anonymize_names, from seed.sql)'
 );
 
 -- ============================================================

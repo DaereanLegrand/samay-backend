@@ -275,7 +275,7 @@ void main() {
         ],
       );
 
-      for (final label in ['Feed', 'Grupos', 'Eventos', 'Notis', 'Perfil']) {
+      for (final label in ['Feed', 'Social', 'Eventos', 'Notis', 'Perfil']) {
         expect(
           find.descendant(
             of: find.byType(BottomNavigationBar),

@@ -50,5 +50,6 @@ INSERT INTO app_config (key, value, description, default_value) VALUES
     ('security.max_concurrent_event_invites', '50', 'Max pending invites per user', '50'),
     ('security.max_qr_token_rotations', '20', 'Max rotations per user per event', '20'),
     ('security.max_failed_qr_validations', '5', 'Max failed attempts per token', '5'),
-    ('app.search_debounce_ms', '300', 'Debounce delay (ms) for search/invite screens (PERF-05/L-24; fallback 300 in lib)', '300')
+    ('app.search_debounce_ms', '300', 'Debounce delay (ms) for search/invite screens (PERF-05/L-24; fallback 300 in lib)', '300'),
+    ('ranking.anonymize_names', 'true', 'Censor user names on the public ranking unless the profile is public', 'true')
 ON CONFLICT (key) DO NOTHING;

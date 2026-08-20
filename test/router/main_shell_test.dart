@@ -203,7 +203,7 @@ void main() {
     test('keeps labels identical to the original shell', () {
       expect(mainShellTabs.map((t) => t.label).toList(), [
         'Feed',
-        'Grupos',
+        'Social',
         'Eventos',
         'Notis',
         'Perfil',

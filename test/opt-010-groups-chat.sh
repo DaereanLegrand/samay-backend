@@ -345,22 +345,24 @@ else
 fi
 
 # =========================================================================
-h1 "11) Inbox: last_message_recipient_id rides along (0004/F5)"
+h1 "11) Inbox preview skips distribution rows (0004/F5 + 0005 preview filter)"
 # ---------------------------------------------------------------------------
 # Re-activate B (kicked in check 6) so the inbox row exists again; the newest
 # message in the chat is the DIST_MSG distribution row from section 10
-# (recipient_id = B) — the inbox preview must carry that targeting so the
-# client can skip non-targets without a decrypt attempt.
+# (recipient_id = B). Since 20260818000001 the preview is the last REAL
+# content message (recipient_id IS NULL) — a control envelope as preview was
+# meaningless/undecryptable for non-targets — so the preview must be MSG_A
+# with last_message_recipient_id NULL, not the distribution row.
 # =========================================================================
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_B\",\"role\":\"member\",\"status\":\"active\"}" > /dev/null
 inbox_b=$(curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/get_chat_inbox" \
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_B" \
   -H "Content-Type: application/json" -d '{}')
-if echo "$inbox_b" | grep -q "\"last_message_recipient_id\":\"$UUID_B\"" \
-   && echo "$inbox_b" | grep -q "\"last_message_id\":\"$DIST_MSG\""; then
-  ok "Inbox returns last_message_recipient_id = B for the distribution row"
+if echo "$inbox_b" | grep -q "\"last_message_id\":\"$MSG_A\"" \
+   && echo "$inbox_b" | grep -q "\"last_message_recipient_id\":null"; then
+  ok "Inbox preview is the last content message (MSG_A), recipient_id NULL"
 else
-  nok "Inbox last_message_recipient_id missing: $(echo "$inbox_b" | grep -o '"last_message_recipient_id":[^,]*\|"last_message_id":[^,]*' | head -2)"
+  nok "Inbox preview wrong: $(echo "$inbox_b" | grep -o '"last_message_recipient_id":[^,]*\|"last_message_id":[^,]*' | head -2)"
 fi
 
 # =========================================================================
@@ -442,6 +444,87 @@ SQL
   fi
 else
   nok "psql not available — cannot verify the cap behavior"
+fi
+
+# =========================================================================
+h1 "14) Inbox unread_count ignores sender-key distribution rows (0005)"
+# ---------------------------------------------------------------------------
+# get_chat_inbox previously counted EVERY row from others newer than the
+# watermark toward unread_count — including sender-key DISTRIBUTION rows and
+# KEY-REQUEST rows (recipient_id IS NOT NULL, the same class F7 exempts from
+# the message-cap rolling window). Control rows have no user-visible message,
+# so they must not inflate the badge. A marks read (both watermark = now),
+# then inserts ONE real content row + ONE distribution row (recipient_id = B);
+# B must see unread_count 1 (content ONLY), A must see 0 (own messages).
+# =========================================================================
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$SUPABASE_URL/rest/v1/rpc/mark_chat_read" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -d "{\"p_chat_id\":\"$CHAT_GROUP\"}")
+code2=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$SUPABASE_URL/rest/v1/rpc/mark_chat_read" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_B" \
+  -H "Content-Type: application/json" -d "{\"p_chat_id\":\"$CHAT_GROUP\"}")
+if [ "$code" = "204" ] && [ "$code2" = "204" ]; then
+  ok "A + B reset their read watermark via mark_chat_read (204)"
+else
+  nok "Watermark reset failed: A=$code B=$code2"
+fi
+
+MSG_NEW="66666666-6666-6666-6666-666666666634"
+DIST_NEW="66666666-6666-6666-6666-666666666635"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$SUPABASE_URL/rest/v1/messages" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -H "Prefer: return=minimal" \
+  -d "{\"id\":\"$MSG_NEW\",\"chat_id\":\"$CHAT_GROUP\",\"sender_id\":\"$UUID_A\",\"content\":\"$ENV_A\"}")
+code3=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$SUPABASE_URL/rest/v1/messages" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -H "Prefer: return=minimal" \
+  -d "{\"id\":\"$DIST_NEW\",\"chat_id\":\"$CHAT_GROUP\",\"sender_id\":\"$UUID_A\",\"content\":\"$ENV_A\",\"recipient_id\":\"$UUID_B\"}")
+if [ "$code" = "201" ] && [ "$code3" = "201" ]; then
+  ok "A inserts one content row + one distribution row after the watermark (201)"
+else
+  nok "Insert failed: content=$code distribution=$code3"
+fi
+
+chat_unread() {
+  local t=$1 cid=$2
+  curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/get_chat_inbox" \
+    -H "apikey: $ANON_KEY" -H "Authorization: Bearer $t" \
+    -H "Content-Type: application/json" -d '{}' \
+    | grep -o "\"chat_id\":\"$cid\"[^}]*\"unread_count\":[0-9]*" \
+    | grep -o '"unread_count":[0-9]*' | cut -d: -f2
+}
+
+uc_b=$(chat_unread "$TOKEN_B" "$CHAT_GROUP")
+if [ "$uc_b" = "1" ]; then
+  ok "B's unread_count is 1 (content row ONLY — distribution row excluded)"
+else
+  nok "B's unread_count is $uc_b (expected 1 — distribution row must NOT count)"
+fi
+
+uc_a=$(chat_unread "$TOKEN_A" "$CHAT_GROUP")
+if [ "$uc_a" = "0" ]; then
+  ok "A's unread_count is 0 (own messages are sender-excluded)"
+else
+  nok "A's unread_count is $uc_a (expected 0 — own messages excluded)"
+fi
+
+preview=$(curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/get_chat_inbox" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_B" \
+  -H "Content-Type: application/json" -d '{}')
+if echo "$preview" | grep -q "\"last_message_id\":\"$MSG_NEW\""; then
+  ok "B's inbox preview is the last REAL content message (not the distribution row)"
+else
+  nok "Inbox preview is not the last content message: $(echo "$preview" | grep -o '"last_message_id":[^,]*' | head -1)"
+fi
+
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$SUPABASE_URL/rest/v1/rpc/mark_chat_read" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_B" \
+  -H "Content-Type: application/json" -d "{\"p_chat_id\":\"$CHAT_GROUP\"}")
+uc_b2=$(chat_unread "$TOKEN_B" "$CHAT_GROUP")
+if [ "$code" = "204" ] && [ "$uc_b2" = "0" ]; then
+  ok "After mark_chat_read B's unread_count drops to 0"
+else
+  nok "mark_chat_read→0 failed: http=$code unread=$uc_b2"
 fi
 
 # =========================================================================

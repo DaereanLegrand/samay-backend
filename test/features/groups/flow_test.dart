@@ -856,7 +856,7 @@ void main() {
         findsOneWidget,
         reason: 'the group thread renders its empty state (chatEmpty)',
       );
-      expect(find.text('Enviar'), findsOneWidget);
+      expect(find.byKey(const ValueKey('chatSendButton')), findsOneWidget);
     });
   });
 

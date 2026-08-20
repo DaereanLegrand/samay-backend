@@ -12,8 +12,8 @@ import 'package:samay/core/services/event_service.dart';
 import 'package:samay/core/theme/app_theme.dart';
 import 'package:samay/features/feed/screens/feed_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/glass/glass.dart';
 import 'package:samay/shared/widgets/v_badge.dart';
+import 'package:samay/shared/widgets/v_card.dart';
 import 'package:samay/shared/widgets/v_chip.dart';
 import 'package:samay/shared/widgets/v_display_text.dart';
 import 'package:samay/shared/widgets/v_disco_divider.dart';
@@ -40,13 +40,12 @@ import '../../support/fake_config_provider.dart';
 ///    α0.5** accent (LUXE feed tint — never pink, never violet): header →
 ///    content always when events exist, plus featured → list when both
 ///    sections exist.
-/// 4. The featured card is liquid glass ([VGlass], sharp, cyan ring +
-///    soft glow) and its badge is the `VBadge.accent` **cyan family**
+/// 4. The featured card is a sharp [Container] (surface fill, hairline
+///    border, radius-0) and its badge is the `VBadge.accent` **cyan family**
 ///    variant ('DESTACADO' — NO PINK MAINS directive).
-/// 5. Event cards are sharp hairline [VGlassCard]s (cyan ring, no glow —
-///    glow is reserved for the featured carousel) with [VNetworkImage]
-///    covers, default [VBadge] type badges (§5.5) and `mutedStrong`
-///    metadata (§2.4).
+/// 5. Event cards are sharp hairline [VCard]s (surface fill, hairline
+///    border, radius-0) with [VNetworkImage] covers, default [VBadge] type
+///    badges (§5.5) and `mutedStrong` metadata (§2.4).
 /// 6. Radius chips are `VChip.accent` in the cyan family (vivid cyan
 ///    border/label; vivid fill when selected — the chip row of the LUXE
 ///    feed).
@@ -252,9 +251,10 @@ void main() {
     });
   });
 
-  group('Featured card — cyan liquid glass + cyan accent badge (LUXE)', () {
-    testWidgets('the featured card is sharp VGlass with the cyan ring and '
-        'the soft pastel glow (the event of the night)', (tester) async {
+  group('Featured card — sharp surface Container + cyan accent badge (LUXE)',
+      () {
+    testWidgets('the featured card is a sharp Container with the surface '
+        'fill, hairline border and radius-0', (tester) async {
       await _pumpScreen(
         tester,
         _FakeEventService([
@@ -262,20 +262,26 @@ void main() {
         ]),
       );
 
-      final glass = tester.widget<VGlass>(
+      final container = tester.widget<Container>(
         find.ancestor(
           of: find.text('Tono Destacado'),
-          matching: find.byType(VGlass),
+          matching: find.byType(Container),
         ),
       );
-      expect(glass.gradient, AppGradients.cyan);
+      final decoration = container.decoration as BoxDecoration;
       expect(
-        glass.glowAlpha,
-        0.18,
-        reason: 'soft pastel glow on the featured card (LUXE §"soft glow")',
+        decoration.color,
+        AppColors.surface,
+        reason: 'surface #0A0A0A fill over black (the feed family)',
       );
       expect(
-        glass.radius,
+        decoration.border,
+        Border.all(color: AppColors.hairline),
+        reason: 'hairline #1A1A1A border — depth decoration, never the '
+            'only interactivity cue',
+      );
+      expect(
+        decoration.borderRadius,
         BorderRadius.zero,
         reason: 'sharp brutalist geometry — LUXE cards are radius-0',
       );
@@ -309,11 +315,9 @@ void main() {
     });
   });
 
-  group('Event cards — hairline VGlassCard + §5.5 type badge', () {
-    testWidgets('cards are sharp hairline VGlassCard with the cyan ring, '
-        'VNetworkImage covers and the default VBadge type badge', (
-      tester,
-    ) async {
+  group('Event cards — hairline VCard + §5.5 type badge', () {
+    testWidgets('cards are sharp hairline VCard with VNetworkImage covers '
+        'and the default VBadge type badge', (tester) async {
       await _pumpScreen(
         tester,
         _FakeEventService([
@@ -325,15 +329,9 @@ void main() {
         ]),
       );
 
-      final glassCard = tester.widget<VGlassCard>(find.byType(VGlassCard));
-      expect(glassCard.gradient, AppGradients.cyan);
-      expect(
-        glassCard.glowAlpha,
-        0,
-        reason:
-            'hairline list cards — the glow is reserved for the featured '
-            'carousel (LUXE "sharp, hairline")',
-      );
+      // The card is now a sharp hairline VCard (the feed family): surface
+      // fill + hairline border + radius-0, no glass/glow.
+      expect(find.byType(VCard), findsOneWidget);
 
       expect(find.byType(VNetworkImage), findsOneWidget);
 

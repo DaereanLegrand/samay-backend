@@ -190,33 +190,19 @@ void main() {
         expect(shape.borderRadius, AppRadius.sharp);
       });
 
-      test('input: radius-16 liquid-glass field, no underline, label always '
-          'above (LUXE #7), §5.2 colors', () {
+      test('input: borderless and backgroundless — no border, no fill, '
+          'placeholder-only (user override 2026-08-18)', () {
         final theme = SamayTheme.dark;
         final input = theme.inputDecorationTheme;
-        expect(input.filled, isTrue);
-        expect(input.fillColor, AppColors.surfaceAlt.withValues(alpha: 0.5));
-        expect(input.floatingLabelBehavior, FloatingLabelBehavior.always);
-        expect(input.labelStyle?.color, AppColors.mutedStrong);
+        expect(input.filled, isFalse);
+        expect(input.fillColor, isNull);
+        expect(input.floatingLabelBehavior, FloatingLabelBehavior.never);
+        expect(input.border, InputBorder.none);
+        expect(input.enabledBorder, InputBorder.none);
+        expect(input.focusedBorder, InputBorder.none);
+        expect(input.errorBorder, InputBorder.none);
+        expect(input.focusedErrorBorder, InputBorder.none);
         expect(input.hintStyle?.color, AppColors.muted);
-        final enabled = input.enabledBorder! as OutlineInputBorder;
-        expect(enabled.borderRadius, BorderRadius.circular(16));
-        expect(
-          enabled.borderSide.color,
-          AppColors.white.withValues(alpha: 0.25),
-        );
-        expect(enabled.borderSide.width, 1);
-        final focused = input.focusedBorder! as OutlineInputBorder;
-        expect(
-          focused.borderSide.color,
-          AppColors.white.withValues(alpha: 0.8),
-        );
-        expect(focused.borderSide.width, 1.5);
-        final error = input.errorBorder! as OutlineInputBorder;
-        expect(
-          error.borderSide.color,
-          AppColors.glowPink.withValues(alpha: 0.8),
-        );
         expect(input.errorStyle?.color, AppColors.error);
       });
 

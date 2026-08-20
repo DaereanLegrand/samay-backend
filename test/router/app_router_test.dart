@@ -42,7 +42,8 @@ import 'package:samay/features/groups/screens/group_detail_screen.dart';
 import 'package:samay/features/groups/screens/group_members_screen.dart';
 import 'package:samay/features/groups/screens/invite_screen.dart';
 import 'package:samay/features/groups/screens/leaderboard_screen.dart';
-import 'package:samay/features/groups/screens/my_groups_screen.dart';
+import 'package:samay/features/social/screens/social_screen.dart';
+import 'package:samay/features/social/screens/user_ranking_screen.dart';
 import 'package:samay/features/minigames/providers/minigames_providers.dart';
 import 'package:samay/features/minigames/screens/minigames_screen.dart';
 import 'package:samay/features/notifications/screens/notification_center_screen.dart';
@@ -447,12 +448,13 @@ void main() {
     group('RoutePaths coherence', () {
       for (final (path, widget) in [
         (RoutePaths.mainFeed, FeedScreen),
-        (RoutePaths.mainGroups, MyGroupsScreen),
+        (RoutePaths.mainGroups, SocialScreen),
         (RoutePaths.mainEvents, MyEventsScreen),
         (RoutePaths.mainNotifications, NotificationCenterScreen),
         (RoutePaths.mainProfile, ProfileScreen),
         (RoutePaths.groupCreate, CreateGroupScreen),
         (RoutePaths.groupsLeaderboard, LeaderboardScreen),
+        (RoutePaths.userRanking, UserRankingScreen),
         (RoutePaths.userSearch, SearchScreen),
         (RoutePaths.friendsRequests, RequestsScreen),
         (RoutePaths.friendsList, FriendsListScreen),
@@ -838,7 +840,7 @@ void main() {
         await tester.pump();
 
         expect(
-          find.byType(MyGroupsScreen),
+          find.byType(SocialScreen),
           findsOneWidget,
           reason: 'the incoming tab is already present after one frame',
         );
@@ -853,7 +855,7 @@ void main() {
             // page-transition wrappers — empty under NoTransitionPage.
             of: find.byWidget(shellNavigator(tester)),
             matching: find.ancestor(
-              of: find.byType(MyGroupsScreen),
+              of: find.byType(SocialScreen),
               matching: find.byWidgetPredicate(
                 (w) => w is SlideTransition || w is ScaleTransition,
               ),

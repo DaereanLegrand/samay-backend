@@ -20,7 +20,7 @@ import 'package:samay/shared/widgets/profile_avatar.dart';
 import 'package:samay/shared/widgets/v_display_text.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_network_image.dart';
-import 'package:samay/shared/widgets/glass/v_glass.dart';
+import 'package:samay/shared/widgets/v_card.dart';
 import 'package:samay/shared/widgets/skeletons.dart';
 import 'package:samay/shared/widgets/state_views.dart';
 import 'package:samay/shared/widgets/v_button.dart';
@@ -216,22 +216,34 @@ void main() {
       );
     });
 
-    testWidgets('balance card is a gold VGlassCard with the gold lg shard '
-        'icon and token text', (tester) async {
+    testWidgets('balance card is a VCard with the gold lg shard icon and '
+        'token text', (tester) async {
       await tester.pumpWidget(
         _wrap(const ProfileScreen(), overrides: _profileOverrides()),
       );
       await tester.pumpAndSettle();
 
-      expect(find.byType(VGlassCard), findsOneWidget);
-      final glass = tester.widget<VGlassCard>(find.byType(VGlassCard));
+      expect(find.byType(VCard), findsOneWidget);
+      final container = tester.widget<Container>(
+        find
+            .descendant(
+              of: find.byType(VCard),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      final decoration = container.decoration as BoxDecoration;
       expect(
-        glass.gradient?.colors,
-        AppGradients.watered(AppGradients.gold.colors, mix: 0.4),
-        reason:
-            'XL-17 (12_profile: cluttered, saturated) — the balance ring '
-            'rides the watered gold run; the vivid end survives only in the '
-            'hero shader and the diamond',
+        decoration.color,
+        AppColors.surface,
+        reason: '§5.3 — the card rides the surface fill over black',
+      );
+      expect(
+        decoration.border,
+        const Border.symmetric(
+          horizontal: BorderSide(color: AppColors.hairline),
+        ),
+        reason: '§5.3 — the card wears the horizontal hairline border',
       );
       final shard = tester.widget<VShardIcon>(find.byType(VShardIcon));
       expect(
@@ -248,7 +260,7 @@ void main() {
       expect(find.text('3 preshards'), findsOneWidget);
       expect(
         find.descendant(
-          of: find.byType(VGlassCard),
+          of: find.byType(VCard),
           matching: find.byIcon(Icons.chevron_right),
         ),
         findsOneWidget,
@@ -319,7 +331,7 @@ void main() {
       expect(find.byIcon(Icons.camera_alt), findsOneWidget);
     });
 
-    testWidgets('bio field keeps the token VInput (mutedStrong label)', (
+    testWidgets('bio field keeps the token VInput (mutedStrong placeholder)', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -328,7 +340,8 @@ void main() {
       await tester.pumpAndSettle();
 
       final field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.decoration?.labelStyle?.color, AppColors.mutedStrong);
+      expect(field.decoration?.hintText, isNotNull);
+      expect(field.decoration?.hintStyle?.color, AppColors.mutedStrong);
     });
   });
 
@@ -442,7 +455,7 @@ void main() {
       expect(account.style?.fontSize, 12);
     });
 
-    testWidgets('rows group into two VGlassCard sections; the danger pair '
+    testWidgets('rows group into two VCard sections; the danger pair '
         'closes the account card; the version footer stays outside', (
       tester,
     ) async {
@@ -451,16 +464,16 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.byType(VGlassCard),
+        find.byType(VCard),
         findsNWidgets(3),
         reason:
-            'R6 — appearance + chat + account groups, now liquid glass '
+            'R6 — appearance + chat + account groups, now flat cards '
             '(LUXE v2; the chat group holds the read-receipts switch, '
             '2026-08-15)',
       );
       expect(
         find.descendant(
-          of: find.byType(VGlassCard).first,
+          of: find.byType(VCard).first,
           matching: find.byType(SegmentedButton<ThemeMode>),
         ),
         findsOneWidget,
@@ -468,14 +481,14 @@ void main() {
       );
       expect(
         find.descendant(
-          of: find.byType(VGlassCard).at(1),
+          of: find.byType(VCard).at(1),
           matching: find.text('Confirmaciones de lectura'),
         ),
         findsOneWidget,
         reason: 'the read-receipts privacy switch lives in the chat card',
       );
 
-      final accountCard = find.byType(VGlassCard).last;
+      final accountCard = find.byType(VCard).last;
       expect(
         find.descendant(
           of: accountCard,
@@ -492,7 +505,7 @@ void main() {
       );
       expect(
         find.descendant(
-          of: find.byType(VGlassCard),
+          of: find.byType(VCard),
           matching: find.text('Samay v1.0.0'),
         ),
         findsNothing,

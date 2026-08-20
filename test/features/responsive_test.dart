@@ -29,7 +29,6 @@ import 'package:samay/features/friends/screens/friends_list_screen.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart'
     as groups;
 import 'package:samay/features/groups/screens/group_detail_screen.dart';
-import 'package:samay/features/groups/screens/my_groups_screen.dart';
 import 'package:samay/features/profile/providers/profile_providers.dart'
     as profile;
 import 'package:samay/features/profile/screens/delete_account_screen.dart';
@@ -83,35 +82,7 @@ class _StubProfileGroupsNotifier extends profile.ProfileGroupsNotifier {
       ];
 }
 
-class _StubMyGroupsNotifier extends groups.MyGroupsNotifier {
-  @override
-  Future<List<Group>> build() async => const [
-        Group(
-          id: 'g1',
-          name: 'Fiesta Club',
-          groupShards: 42,
-          myRole: 'promotor',
-          rankBracket: 'b0_20',
-        ),
-        Group(
-          id: 'g2',
-          name: 'Brunch del domingo',
-          groupShards: 7,
-          myRole: 'member',
-        ),
-      ];
-}
 
-class _StubFriendRequestsNotifier extends FriendRequestsNotifier {
-  @override
-  Future<FriendRequestsData> build() async =>
-      const FriendRequestsData(requests: [], names: {});
-}
-
-class _StubGroupInvitesNotifier extends groups.GroupInvitesNotifier {
-  @override
-  Future<List<Map<String, dynamic>>> build() async => const [];
-}
 
 class _StubGroupDetailNotifier extends groups.GroupDetailNotifier {
   @override
@@ -367,18 +338,6 @@ void main() {
   });
 
   group('groups feature at 1.5x on 320×568 (§7.3)', () {
-    testWidgets('my_groups renders without overflow (badged request rows + '
-        'ranked tiles)', (tester) async {
-      await _pump(tester, const MyGroupsScreen(), overrides: [
-        groups.myGroupsProvider.overrideWith(_StubMyGroupsNotifier.new),
-        friendRequestsProvider.overrideWith(
-          _StubFriendRequestsNotifier.new,
-        ),
-        groups.groupInvitesProvider.overrideWith(_StubGroupInvitesNotifier.new),
-      ]);
-      expect(tester.takeException(), isNull);
-    });
-
     testWidgets('group_detail renders without overflow (hero header + CTA '
         'row)', (tester) async {
       await _pump(

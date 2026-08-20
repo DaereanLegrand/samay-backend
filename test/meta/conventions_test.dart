@@ -238,6 +238,8 @@ void main() {
       "RoutePaths.donateToGroup(':groupId')",
       "RoutePaths.inviteToGroup(':groupId')",
       'RoutePaths.groupsLeaderboard',
+      // social: global user ranking (C-social 2026-08-18 — live, reads-only)
+      'RoutePaths.userRanking',
       // friends + public profiles: live features
       'RoutePaths.userSearch',
       "RoutePaths.userProfile(':userId')",

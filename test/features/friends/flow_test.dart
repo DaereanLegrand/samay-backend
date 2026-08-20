@@ -18,8 +18,8 @@ import 'package:samay/features/friends/screens/friends_list_screen.dart';
 import 'package:samay/features/friends/screens/requests_screen.dart';
 import 'package:samay/features/friends/screens/search_screen.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
-import 'package:samay/features/groups/screens/my_groups_screen.dart';
 import 'package:samay/features/profile/screens/public_profile_screen.dart';
+import 'package:samay/features/social/screens/amigos_tab_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_count_badge.dart';
 
@@ -148,14 +148,6 @@ class _CountingBlockedUsersNotifier extends BlockedUsersNotifier {
     builds++;
     return data;
   }
-}
-
-class _StubMyGroupsNotifier extends MyGroupsNotifier {
-  final List<Group> data;
-  _StubMyGroupsNotifier({this.data = const []});
-
-  @override
-  Future<List<Group>> build() async => data;
 }
 
 /// Counting my-groups variant — the groups-list reload assertion (R13).
@@ -593,13 +585,15 @@ void main() {
       );
     });
 
-    testWidgets('the my-groups Solicitudes button carries the total pending '
+    testWidgets('the Amigos-tab Solicitudes entry carries the total pending '
         'count (received + invites)', (tester) async {
       await tester.pumpWidget(
         _wrap(
-          const MyGroupsScreen(),
+          const Scaffold(body: AmigosTab()),
           overrides: [
-            myGroupsProvider.overrideWith(_StubMyGroupsNotifier.new),
+            friendsListProvider.overrideWith(
+              () => _CountingFriendsListNotifier(const []),
+            ),
             friendRequestsProvider.overrideWith(
               () => _StubFriendRequestsNotifier(
                 data: const FriendRequestsData(
@@ -630,12 +624,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final badge = tester.widget<VCountBadge>(
-        find.descendant(
-          of: find.widgetWithText(TextButton, 'Solicitudes'),
-          matching: find.byType(VCountBadge),
-        ),
-      );
+      final badge = tester.widget<VCountBadge>(find.byType(VCountBadge));
       expect(
         badge.count,
         2,
@@ -643,13 +632,15 @@ void main() {
       );
     });
 
-    testWidgets('the my-groups Solicitudes button badge hides with zero '
+    testWidgets('the Amigos-tab Solicitudes entry badge hides with zero '
         'pending', (tester) async {
       await tester.pumpWidget(
         _wrap(
-          const MyGroupsScreen(),
+          const Scaffold(body: AmigosTab()),
           overrides: [
-            myGroupsProvider.overrideWith(_StubMyGroupsNotifier.new),
+            friendsListProvider.overrideWith(
+              () => _CountingFriendsListNotifier(const []),
+            ),
             friendRequestsProvider.overrideWith(
               _StubFriendRequestsNotifier.new,
             ),
@@ -660,10 +651,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.descendant(
-          of: find.widgetWithText(TextButton, 'Solicitudes'),
-          matching: find.byType(VCountBadge),
-        ),
+        find.byType(VCountBadge),
         findsNothing,
         reason: 'no pending requests/invites → the entry badge is hidden',
       );
@@ -914,64 +902,6 @@ void main() {
       );
     });
 
-    testWidgets('my-groups list drag reloads the provider', (tester) async {
-      final groups = _CountingMyGroupsNotifier([
-        const Group(
-          id: _groupId1,
-          name: 'Disco Crew',
-          groupShards: 100,
-          myRole: 'member',
-        ),
-      ]);
-      await tester.pumpWidget(
-        _wrap(
-          const MyGroupsScreen(),
-          overrides: [
-            myGroupsProvider.overrideWith(() => groups),
-            friendRequestsProvider.overrideWith(
-              _StubFriendRequestsNotifier.new,
-            ),
-            groupInvitesProvider.overrideWith(_StubGroupInvitesNotifier.new),
-          ],
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(groups.builds, 1);
-
-      await dragToRefresh(tester, find.byType(ListView));
-      expect(
-        groups.builds,
-        2,
-        reason: 'the groups list must reload on pull (R13)',
-      );
-    });
-
-    testWidgets('my-groups EMPTY state is still pull-to-refreshable', (
-      tester,
-    ) async {
-      final groups = _CountingMyGroupsNotifier(const []);
-      await tester.pumpWidget(
-        _wrap(
-          const MyGroupsScreen(),
-          overrides: [
-            myGroupsProvider.overrideWith(() => groups),
-            friendRequestsProvider.overrideWith(
-              _StubFriendRequestsNotifier.new,
-            ),
-            groupInvitesProvider.overrideWith(_StubGroupInvitesNotifier.new),
-          ],
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('No perteneces a ningún grupo'), findsOneWidget);
-
-      await dragToRefresh(tester, find.byType(SingleChildScrollView));
-      expect(
-        groups.builds,
-        2,
-        reason: 'the empty groups state must remain refreshable (R13)',
-      );
-    });
   });
 
   group('R14 — search autofocus + min-chars hint', () {
