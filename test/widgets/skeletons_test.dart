@@ -4,7 +4,7 @@ import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/shared/widgets/skeletons.dart';
 import 'package:samay/shared/widgets/v_shimmer.dart';
 
-/// Skeleton screen tests (U-22, DISCO-DESIGN-SYSTEM §5.8/§6.3/§7.5):
+/// Skeleton screen tests (U-22, DESIGN.md §5.8/§6.3/§7.5):
 /// every skeleton is a const-constructible `VShimmer` composition of
 /// `surfaceAlt #111111` sharp-corner boxes (no color, gray only), static
 /// gray blocks under `disableAnimations` (no mask, no ticker).

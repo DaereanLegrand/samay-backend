@@ -28,7 +28,7 @@ import '../../support/fake_supabase_http.dart' as support;
 /// U-16 friends/groups FLOW ledger tests (R11-R15, 2026-08-11).
 ///
 /// Pins the Juega-flow-alignment changes from U-13 §5.3 (the ledger in
-/// `docs/history/phase-04-ui/2026-08-11_U16-friends-groups-flow.md`):
+/// the friends/groups flow-alignment pass):
 /// per-row request spinners (R11), count badges (R12), pull-to-refresh
 /// including empty states (R13), search autofocus + min-chars hint (R14) and
 /// the mutual-friend dialog (R15). R16/R17 (groups) live in

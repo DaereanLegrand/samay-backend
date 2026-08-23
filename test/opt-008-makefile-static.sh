@@ -51,7 +51,7 @@
 # M-28 (2026-08-10) added §7: the iOS platform contract —
 #   - Info.plist carries the privacy usage descriptions (I-28: camera + photo
 #     library; M-28: photo-library ADD for the future save-to-gallery),
-#   - minimum iOS is 16.0 per samay_mvp_spec.md §Tech stack — enforced in
+#   - minimum iOS is 16.0 (product requirement) — enforced in
 #     BOTH the pbxproj (IPHONEOS_DEPLOYMENT_TARGET, 3 configs) and the
 #     Podfile (platform :ios '16.0'); a mismatch breaks the build,
 #   - the Podfile post_install enables the I-28 permission_handler macros
@@ -564,7 +564,7 @@ fi
 # ── 8. Non-product platform contract (M-29) ──────────────────────────────────
 # web/macos/linux/windows are Flutter-scaffold dirs kept for tooling (removing
 # them breaks `flutter create .`-style workflows) — the app ships iOS+Android
-# only (samay_mvp_spec.md §1). This section pins their product naming +
+# only (product scope: iOS+Android). This section pins their product naming +
 # hygiene so the dirs stay consistent and documented without ever becoming
 # products.
 echo ""

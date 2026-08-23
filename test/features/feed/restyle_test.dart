@@ -22,7 +22,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 import '../../support/fake_config_provider.dart';
 
-/// Feed-restyle ledger tests (LUXE v2, XL-07 — ORCHESTRATION-LUXE.md).
+/// Feed-restyle ledger tests (LUXE v2, XL-07 — the LUXE restyle pass (historical)).
 ///
 /// The feed is **restyled, not redesigned**: the provider/behavior contract
 /// and the interaction tests of `feed_test.dart` stay the authoritative

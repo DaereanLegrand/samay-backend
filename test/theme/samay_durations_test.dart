@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/theme/samay_durations.dart';
 
 /// Contract tests for the motion-duration tokens
-/// (DISCO-DESIGN-SYSTEM.md §4.5 — the source of truth, owned by U-18).
+/// (DESIGN.md §4.5 — the source of truth, owned by U-18).
 ///
 /// Screens and shared widgets must take their durations from here; never
 /// hardcode ms values in features (U-06's `_shimmerSweep` local const was
@@ -24,7 +24,7 @@ void main() {
       expect(SamayDurations.motionCycleRest, const Duration(milliseconds: 300));
     });
 
-    test('LUXE v2 motion tokens match the ORCHESTRATION-LUXE spec (XL-04)',
+    test('LUXE v2 motion tokens match the the LUXE restyle pass (historical) spec (XL-04)',
         () {
       expect(SamayDurations.glowPulse, const Duration(milliseconds: 3800));
       expect(SamayDurations.auroraDrift, const Duration(milliseconds: 10000));

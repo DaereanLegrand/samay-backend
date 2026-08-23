@@ -4,7 +4,7 @@ import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/design_tokens/app_typography.dart';
 
 /// Contract tests for the typography token layer
-/// (DISCO-DESIGN-SYSTEM.md §3.3 type-scale table + §3.4 glow stacks).
+/// (DESIGN.md §3.3 type-scale table + §3.4 glow stacks).
 ///
 /// The §3.3 table is the authoritative contract: every role's family, size,
 /// weight, letter-spacing and height are asserted table-driven. §3.4 defines

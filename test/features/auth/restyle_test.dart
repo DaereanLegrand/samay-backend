@@ -23,8 +23,8 @@ import 'package:samay/shared/widgets/v_button.dart';
 import 'package:samay/shared/widgets/v_disco_divider.dart';
 import 'package:samay/shared/widgets/v_display_text.dart';
 
-/// Auth-restyle ledger tests (U-07, DISCO-DESIGN-SYSTEM §3.2/§3.3/§5.1/§5.2,
-/// LUXE v2 ORCHESTRATION-LUXE.md "Gradient family → screen map").
+/// Auth-restyle ledger tests (U-07, DESIGN.md §3.2/§3.3/§5.1/§5.2,
+/// LUXE v2 the LUXE restyle pass (historical) "Gradient family → screen map").
 ///
 /// Each test pins a *deliberate visual change* from the U-07 ledger + the
 /// LUXE v2 overhaul — the auth screens are restyled, not redesigned, so the

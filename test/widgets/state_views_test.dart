@@ -33,7 +33,7 @@ void main() {
       expect(find.byType(Text), findsNothing);
     });
 
-    testWidgets('spinner is white per DISCO-DESIGN-SYSTEM §5.8', (
+    testWidgets('spinner is white per DESIGN.md §5.8', (
       tester,
     ) async {
       await tester.pumpWidget(_wrap(const VLoadingView()));

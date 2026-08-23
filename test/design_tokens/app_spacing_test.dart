@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_spacing.dart';
 
 void main() {
-  group('AppSpacing scale (DISCO-DESIGN-SYSTEM.md §4.1)', () {
+  group('AppSpacing scale (DESIGN.md §4.1)', () {
     test('the 8-step scale matches the documented values', () {
       expect(AppSpacing.none, 0);
       expect(AppSpacing.xs, 4);

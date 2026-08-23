@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_radius.dart';
 
-/// Contract tests for the radius tokens (DISCO-DESIGN-SYSTEM.md §4.2).
+/// Contract tests for the radius tokens (DESIGN.md §4.2).
 ///
 /// The design is SHARP: every UI component radius is `0`; the doc's
 /// xs/sm/md/lg scale values exist only for table parity and are marked

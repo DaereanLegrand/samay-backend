@@ -25,7 +25,7 @@ List<Color> _fieldsOf(SamayThemeExtension e) => [
 ];
 
 void main() {
-  group('AppColors palette (DISCO-DESIGN-SYSTEM.md §2)', () {
+  group('AppColors palette (DESIGN.md §2)', () {
     test('every neutral token exists with the exact documented hex', () {
       expect(AppColors.discoBlack, const Color(0xFF000000));
       expect(AppColors.surface, const Color(0xFF0A0A0A));
@@ -52,7 +52,7 @@ void main() {
     });
 
     test('the palette is complete — every §2 row of the design doc is present, '
-        'plus the LUXE pastel tokens (ORCHESTRATION-LUXE)', () {
+        'plus the LUXE pastel tokens (the LUXE restyle pass (historical))', () {
       const expected = <String, Color>{
         'discoBlack': Color(0xFF000000),
         'surface': Color(0xFF0A0A0A),
@@ -179,7 +179,7 @@ void main() {
     });
   });
 
-  group('LUXE pastel + vivid tokens (ORCHESTRATION-LUXE §"Foundation API '
+  group('LUXE pastel + vivid tokens (the LUXE restyle pass (historical) §"Foundation API '
       'contract")', () {
     test('every pastel token exists with the exact documented hex', () {
       expect(AppColors.pastelRose, const Color(0xFFFF8CBE));

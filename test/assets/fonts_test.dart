@@ -9,7 +9,7 @@ import 'package:yaml/yaml.dart';
 /// DEP-10 / L-19).
 ///
 /// The theme sets `fontFamily: 'Inter'` and the design system
-/// (DISCO-DESIGN-SYSTEM.md §3) requires a second display family
+/// (DESIGN.md §3) requires a second display family
 /// ('Playfair Display'). Both must be declared in `pubspec.yaml` under
 /// `flutter: fonts:` and their asset files must actually exist and be
 /// non-trivial — otherwise devices fall back silently to system fonts.
@@ -71,7 +71,7 @@ void main() {
       expect(
         assets.any((a) => a['style'] == 'italic'),
         isTrue,
-        reason: 'DISCO-DESIGN-SYSTEM.md §3.2 requires Playfair Display '
+        reason: 'DESIGN.md §3.2 requires Playfair Display '
             'italic 700 for display titles — an italic asset must exist.',
       );
     });

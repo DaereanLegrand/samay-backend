@@ -27,7 +27,7 @@ import 'package:samay/shared/widgets/v_button.dart';
 import 'package:samay/shared/widgets/v_shard_icon.dart';
 import '../../support/fake_supabase_http.dart' as support;
 
-/// Profile-screens LUXE v2 restyle ledger tests (XL-08, ORCHESTRATION-LUXE
+/// Profile-screens LUXE v2 restyle ledger tests (XL-08, the LUXE restyle pass (historical)
 /// "Gradient family → screen map": profile/settings/edit/delete/public all
 /// own the **gold** family — NO PINK MAINS).
 ///

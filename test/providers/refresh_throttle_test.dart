@@ -11,7 +11,7 @@ import 'package:samay/features/profile/providers/profile_providers.dart' as prof
 /// U-17 R20 ledger tests (2026-08-11): the 15s refetch throttle on the
 /// shell-tab providers' `refresh()` paths (Juega's `lastFetchedAt` guard,
 /// U-13 §5.4). The ledger lives in
-/// `docs/history/phase-04-ui/2026-08-11_U17-shell-flow.md`.
+/// the shell-flow work that introduced the throttled refresh.
 ///
 /// Every notifier in the three R20 files (groups/friends/profile providers)
 /// must skip `refresh()` while the last fetch is younger than the throttle

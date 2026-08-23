@@ -4,14 +4,14 @@ import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/design_tokens/app_gradients.dart';
 
 /// Contract tests for the LUXE pastel-gradient token layer
-/// (ORCHESTRATION-LUXE.md §"Gradient family → screen map" +
+/// (the LUXE restyle pass (historical) §"Gradient family → screen map" +
 /// §"Foundation API contract (XL-01 implements EXACTLY this)").
 ///
 /// Every family is a 3-stop `pastel → mid → vivid` run ("watered down with
 /// white"), the `familyOf` map mirrors the doc table 1:1, and the glow/text
 /// helpers are the primitives the glass/button components compose.
 void main() {
-  // ── Doc table (ORCHESTRATION-LUXE.md, verbatim) ────────────────────────
+  // ── Doc table (the LUXE restyle pass (historical), verbatim) ────────────────────────
   const roseColors = <Color>[
     Color(0xFFFF8CBE),
     Color(0xFFFF8AC2),
@@ -51,7 +51,7 @@ void main() {
     ('peach', AppGradients.peach, peachColors),
   ];
 
-  group('AppGradient families (ORCHESTRATION-LUXE family map)', () {
+  group('AppGradient families (the LUXE restyle pass (historical) family map)', () {
     for (final (name, gradient, expected) in families) {
       test('$name carries its name, exact 3 pastel→vivid stops', () {
         expect(gradient.name, name, reason: '$name family name');

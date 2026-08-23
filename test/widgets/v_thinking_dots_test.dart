@@ -4,7 +4,7 @@ import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/theme/samay_durations.dart';
 import 'package:samay/shared/widgets/v_thinking_dots.dart';
 
-/// LUXE v2 AI-thinking indicator tests (ORCHESTRATION-LUXE.md — owned by
+/// LUXE v2 AI-thinking indicator tests (the LUXE restyle pass (historical) — owned by
 /// XL-04): 3 staggered dots, α0.4↔1.0 easeInOut, reduce-motion → static
 /// full alpha, on the [VBreathingGlow] idle-safe engine.
 Widget _wrap(Widget child, {bool reduced = false}) {

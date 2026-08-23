@@ -26,10 +26,9 @@ import 'package:samay/shared/widgets/v_count_badge.dart';
 
 import '../../support/fake_supabase_http.dart' as support;
 
-/// Friends screens LUXE v2 restyle ledger tests (XL-09, phase-04-luxe).
+/// Friends screens restyle pinning tests.
 ///
-/// Pins the ORCHESTRATION-LUXE restyle applied screen-by-screen (the ledger
-/// in `docs/history/phase-04-luxe/2026-08-12_XL-09-friends.md`): mint
+/// Pins the violet-family gradient restyle applied screen-by-screen:
 /// family everywhere (NO PINK MAINS),
 /// sharp [VGlassCard] hairline tiles instead of dividers, mint accents ONLY
 /// on active elements (accept buttons, pending badges), cyan presence dots
@@ -263,7 +262,7 @@ void main() {
       expect(
         decoration.color,
         AppColors.surface,
-        reason: 'the tile fill is the surface (DISCO-DESIGN-SYSTEM §5.3)',
+        reason: 'the tile fill is the surface (DESIGN.md §5.3)',
       );
       expect(
         (decoration.border as Border).top.color,

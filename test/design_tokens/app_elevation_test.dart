@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
 import 'package:samay/core/design_tokens/app_elevation.dart';
 
-/// Contract tests for the elevation tokens (DISCO-DESIGN-SYSTEM.md §4.3).
+/// Contract tests for the elevation tokens (DESIGN.md §4.3).
 ///
 /// The design is FLAT: no drop shadows on boxes; `none` and `card` are
 /// empty. The only shadows are the two brand glow stacks (`glowPink`,

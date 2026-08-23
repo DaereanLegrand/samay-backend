@@ -23,20 +23,19 @@ void main() {
 
   String read(String path) => File('$root/$path').readAsStringSync();
 
-  final supabaseMigration =
-      read('supabase/migrations/20260809000005_qr_validate_rpc.sql');
+  final supabaseMigration = read('supabase/migrations/060_events/02_qr.sql');
   final testingMigration =
-      read('supabase-testing/migrations/20260809000005_qr_validate_rpc.sql');
+      read('supabase-testing/migrations/060_events/02_qr.sql');
   final supabaseSchema = read('supabase/tests/schema_test.sql');
   final testingSchema = read('supabase-testing/tests/schema_test.sql');
 
-  group('validate_qr_token RPC migration (20260809000005)', () {
+  group('validate_qr_token RPC migration (060_events/02_qr.sql)', () {
     test('exists in both the supabase/ and supabase-testing/ stacks', () {
       expect(supabaseMigration, isNotEmpty,
-          reason: 'supabase/migrations/20260809000005_qr_validate_rpc.sql '
+          reason: 'supabase/migrations/060_events/02_qr.sql '
               'is missing or empty');
       expect(testingMigration, isNotEmpty,
-          reason: 'supabase-testing/migrations/20260809000005_qr_validate_rpc.sql '
+          reason: 'supabase-testing/migrations/060_events/02_qr.sql '
               'is missing or empty');
     });
 
@@ -46,9 +45,9 @@ void main() {
               '(I-02 parity convention)');
     });
 
-    test('is SECURITY DEFINER with SET search_path = \'\' (I-31 pattern)', () {
+    test('is SECURITY DEFINER with SET search_path TO \'\' (I-31 pattern)', () {
       expect(supabaseMigration, contains('SECURITY DEFINER'));
-      expect(supabaseMigration, contains("SET search_path = ''"));
+      expect(supabaseMigration, contains("SET search_path TO ''"));
       expect(supabaseMigration, contains('public.validate_qr_token'),
           reason: 'function must be created with a fully-qualified name');
     });
@@ -85,18 +84,23 @@ void main() {
       expect(
         supabaseMigration,
         contains(
-          'REVOKE ALL ON FUNCTION public.validate_qr_token(uuid, text) FROM PUBLIC',
+          'REVOKE ALL ON FUNCTION public.validate_qr_token'
+          '(p_event_id uuid, p_token text) FROM PUBLIC',
         ),
       );
       expect(
         supabaseMigration,
         contains(
-          'GRANT EXECUTE ON FUNCTION public.validate_qr_token(uuid, text) TO authenticated',
+          'GRANT ALL ON FUNCTION public.validate_qr_token'
+          '(p_event_id uuid, p_token text) TO authenticated',
         ),
       );
       expect(
         supabaseMigration,
-        isNot(contains('TO anon')),
+        isNot(contains(
+          'FUNCTION public.validate_qr_token(p_event_id uuid, p_token text)'
+          ' TO anon',
+        )),
         reason: 'anon must never execute the validator',
       );
     });

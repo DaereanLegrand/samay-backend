@@ -39,7 +39,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 import '../support/fake_supabase_http.dart' as support;
 
-/// Responsive layout smoke (U-19, DISCO-DESIGN-SYSTEM §7.3).
+/// Responsive layout smoke (U-19, DESIGN.md §7.3).
 ///
 /// Every key screen is pumped at **text scale 1.5 on a 320×568 logical
 /// viewport** (the smallest mainstream phone; the Ahem test font renders

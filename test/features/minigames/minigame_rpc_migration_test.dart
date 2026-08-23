@@ -5,17 +5,15 @@ import 'package:flutter_test/flutter_test.dart';
 /// Static verification of the minigame server-side contract (I-63, GMCR/GWAG
 /// foundation):
 ///
-/// 1. The `create_minigame_session` RPC migration exists in BOTH stacks
-///    (`supabase/` + `supabase-testing/` mirror, per AGENT-RULES §2 / the
-///    I-02 parity convention) with the required hardening: SECURITY DEFINER,
-///    `SET search_path = ''`, group-membership gate via the I-32
-///    `is_group_member` helper, atomic wager deduction + `shard_ledger`
-///    (`minigame_wager`) + session insert, PUBLIC EXECUTE revoked,
-///    authenticated-only EXECUTE grant.
-/// 2. The `join_minigame_session` / `finish_minigame_session` RPC migration
-///    (20260813000001, R4) exists in BOTH stacks with the same hardening —
-///    the I-77/S-03 server RPC gap closure.
-/// 3. The pgTAP suites (`schema_test.sql` in both stacks) stay
+/// 1. The `create_minigame_session`, `join_minigame_session` and
+///    `finish_minigame_session` RPCs live in BOTH stacks
+///    (`supabase/migrations/100_minigames/sessions.sql` + the
+///    `supabase-testing/` mirror, per the I-02 parity convention) with the
+///    required hardening: SECURITY DEFINER, `SET search_path = ''`,
+///    group-membership gate via the I-32 `is_group_member` helper, atomic
+///    wager deduction + `shard_ledger` (`minigame_wager`) + session insert,
+///    PUBLIC EXECUTE revoked, authenticated-only EXECUTE grant.
+/// 2. The pgTAP suites (`schema_test.sql` in both stacks) stay
 ///    self-consistent: `plan(N)` equals the actual number of assertion
 ///    statements in the file, and both files carry the Sections that assert
 ///    the RPCs (Section 45 + Section 49).
@@ -24,35 +22,44 @@ void main() {
 
   String read(String path) => File('$root/$path').readAsStringSync();
 
+  /// The pg_dump baseline puts every RPC of a domain in one file; this
+  /// slices one `CREATE FUNCTION public.<name>` body (up to the next
+  /// function or EOF) so per-RPC negative assertions stay scoped.
+  String functionSlice(String content, String functionName) {
+    final start = content.indexOf('CREATE FUNCTION public.$functionName');
+    expect(start, isNot(-1), reason: '$functionName must exist');
+    final next = content.indexOf(
+      'CREATE FUNCTION public.',
+      start + 'CREATE FUNCTION public.'.length,
+    );
+    return content.substring(start, next == -1 ? content.length : next);
+  }
+
   final supabaseMigration = read(
-    'supabase/migrations/20260809000006_minigame_rpc.sql',
+    'supabase/migrations/100_minigames/sessions.sql',
   );
   final testingMigration = read(
-    'supabase-testing/migrations/20260809000006_minigame_rpc.sql',
+    'supabase-testing/migrations/100_minigames/sessions.sql',
   );
-  final supabaseJoinFinishMigration = read(
-    'supabase/migrations/20260813000001_minigame_join_finish_rpc.sql',
-  );
-  final testingJoinFinishMigration = read(
-    'supabase-testing/migrations/20260813000001_minigame_join_finish_rpc.sql',
-  );
+  final supabaseJoinFinishMigration = supabaseMigration;
+  final testingJoinFinishMigration = testingMigration;
   final supabaseSchema = read('supabase/tests/schema_test.sql');
   final testingSchema = read('supabase-testing/tests/schema_test.sql');
 
-  group('create_minigame_session RPC migration (20260809000006)', () {
+  group('create_minigame_session RPC migration (100_minigames)', () {
     test('exists in both the supabase/ and supabase-testing/ stacks', () {
       expect(
         supabaseMigration,
         isNotEmpty,
         reason:
-            'supabase/migrations/20260809000006_minigame_rpc.sql '
+            'supabase/migrations/100_minigames/sessions.sql '
             'is missing or empty',
       );
       expect(
         testingMigration,
         isNotEmpty,
         reason:
-            'supabase-testing/migrations/20260809000006_minigame_rpc.sql '
+            'supabase-testing/migrations/100_minigames/sessions.sql '
             'is missing or empty',
       );
     });
@@ -67,9 +74,9 @@ void main() {
       );
     });
 
-    test('is SECURITY DEFINER with SET search_path = \'\' (I-31 pattern)', () {
+    test('is SECURITY DEFINER with SET search_path TO \'\' (I-31 pattern)', () {
       expect(supabaseMigration, contains('SECURITY DEFINER'));
-      expect(supabaseMigration, contains("SET search_path = ''"));
+      expect(supabaseMigration, contains("SET search_path TO ''"));
       expect(
         supabaseMigration,
         contains('public.create_minigame_session'),
@@ -225,55 +232,64 @@ void main() {
         supabaseMigration,
         contains(
           'REVOKE ALL ON FUNCTION public.create_minigame_session'
-          '(uuid, text, integer) FROM PUBLIC',
+          '(p_group_id uuid, p_game_type text, p_wager integer) FROM PUBLIC',
         ),
       );
       expect(
         supabaseMigration,
         contains(
-          'GRANT EXECUTE ON FUNCTION public.create_minigame_session'
-          '(uuid, text, integer) TO authenticated',
+          'GRANT ALL ON FUNCTION public.create_minigame_session'
+          '(p_group_id uuid, p_game_type text, p_wager integer) TO authenticated',
         ),
       );
       expect(
         supabaseMigration,
-        isNot(contains('TO anon')),
+        isNot(contains(
+          'FUNCTION public.create_minigame_session'
+          '(p_group_id uuid, p_game_type text, p_wager integer) TO anon',
+        )),
         reason: 'anon must never create minigame sessions',
       );
     });
 
-    test('keeps the winner-settlement RPC out of scope (documented gap)', () {
-      // The migration implements only the create-side escrow (deduct +
+    test('keeps the winner-settlement RPC out of create_minigame_session '
+        '(documented gap)', () {
+      // The create RPC implements only the create-side escrow (deduct +
       // minigame_wager ledger + session). Winner settlement (minigame_win
-      // ledger + escrow credit) and draw refunds (minigame_refund) are the
-      // documented server RPC gap — handoff I-77/S-03.
-      expect(
+      // ledger + escrow credit) and draw refunds (minigame_refund) live in
+      // finish_minigame_session — assert the create function's own body
+      // slice stays credit-free.
+      final createBody = functionSlice(
         supabaseMigration,
+        'create_minigame_session',
+      );
+      expect(
+        createBody,
         isNot(contains('personal_shards = personal_shards +')),
         reason: 'no escrow-credit path (minigame_win) may exist in scope',
       );
       expect(
-        supabaseMigration,
+        createBody,
         isNot(contains('winner_id')),
         reason: 'no winner-resolution write may exist in scope',
       );
     });
   });
 
-  group('join/finish minigame session RPC migration (20260813000001)', () {
+  group('join/finish minigame session RPC migration (100_minigames)', () {
     test('exists in both the supabase/ and supabase-testing/ stacks', () {
       expect(
         supabaseJoinFinishMigration,
         isNotEmpty,
         reason:
-            'supabase/migrations/20260813000001_minigame_join_finish_rpc.sql '
+            'supabase/migrations/100_minigames/sessions.sql '
             'is missing or empty',
       );
       expect(
         testingJoinFinishMigration,
         isNotEmpty,
         reason:
-            'supabase-testing/migrations/20260813000001_minigame_join_finish_rpc.sql '
+            'supabase-testing/migrations/100_minigames/sessions.sql '
             'is missing or empty',
       );
     });
@@ -288,7 +304,7 @@ void main() {
       );
     });
 
-    test('both RPCs are SECURITY DEFINER with SET search_path = \'\' '
+    test('both RPCs are SECURITY DEFINER with SET search_path TO \'\' '
         '(I-31 pattern)', () {
       for (final fn in const [
         'join_minigame_session',
@@ -301,7 +317,10 @@ void main() {
         );
       }
       expect(supabaseJoinFinishMigration, contains('SECURITY DEFINER'));
-      expect(supabaseJoinFinishMigration, contains("SET search_path = ''"));
+      expect(
+        supabaseJoinFinishMigration,
+        contains("SET search_path TO ''"),
+      );
     });
 
     test('join_minigame_session gates on the session + is_group_member', () {
@@ -427,32 +446,43 @@ void main() {
       expect(
         supabaseJoinFinishMigration,
         contains(
-          'REVOKE ALL ON FUNCTION public.join_minigame_session(uuid) FROM PUBLIC',
+          'REVOKE ALL ON FUNCTION public.join_minigame_session'
+          '(p_session_id uuid) FROM PUBLIC',
         ),
       );
       expect(
         supabaseJoinFinishMigration,
         contains(
-          'GRANT EXECUTE ON FUNCTION public.join_minigame_session(uuid) TO authenticated',
+          'GRANT ALL ON FUNCTION public.join_minigame_session'
+          '(p_session_id uuid) TO authenticated',
         ),
       );
       expect(
         supabaseJoinFinishMigration,
         contains(
-          'REVOKE ALL ON FUNCTION public.finish_minigame_session(uuid, uuid, integer) FROM PUBLIC',
+          'REVOKE ALL ON FUNCTION public.finish_minigame_session'
+          '(p_session_id uuid, p_winner_id uuid, p_place integer) FROM PUBLIC',
         ),
       );
       expect(
         supabaseJoinFinishMigration,
         contains(
-          'GRANT EXECUTE ON FUNCTION public.finish_minigame_session(uuid, uuid, integer) TO authenticated',
+          'GRANT ALL ON FUNCTION public.finish_minigame_session'
+          '(p_session_id uuid, p_winner_id uuid, p_place integer)'
+          ' TO authenticated',
         ),
       );
-      expect(
-        supabaseJoinFinishMigration,
-        isNot(contains('TO anon')),
-        reason: 'anon must never join or finish minigame sessions',
-      );
+      for (final fn in const [
+        'join_minigame_session(p_session_id uuid)',
+        'finish_minigame_session(p_session_id uuid, p_winner_id uuid,'
+            ' p_place integer)',
+      ]) {
+        expect(
+          supabaseJoinFinishMigration,
+          isNot(contains('FUNCTION public.$fn TO anon')),
+          reason: 'anon must never join or finish minigame sessions ($fn)',
+        );
+      }
     });
 
     test('records no result row (no minigame_results table in the schema)', () {

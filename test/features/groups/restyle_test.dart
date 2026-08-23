@@ -37,10 +37,9 @@ import 'package:samay/shared/widgets/v_shard_icon.dart';
 
 import '../../support/fake_supabase_http.dart' as support;
 
-/// Groups-screens LUXE restyle ledger tests (XL-10, phase-04-luxe).
+/// Groups-screens restyle pinning tests.
 ///
-/// Pins the LUXE v2 violet-family restyle applied screen-by-screen (the
-/// ledger in `docs/history/phase-04-luxe/2026-08-12_XL-10-groups.md`):
+/// Pins the violet-family restyle applied screen-by-screen:
 /// glass tiles (VGlassCard) everywhere rows
 /// render, the group-name detail hero + leaderboard podium in violet
 /// `VDisplayText` (Playfair MAYUS), the glowAccent CTAs carrying the violet

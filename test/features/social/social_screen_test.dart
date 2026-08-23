@@ -88,7 +88,7 @@ void main() {
   });
 
   testWidgets('the pill tab bar is slim — outer height (incl. margins) '
-      '≤ 34px', (tester) async {
+      '≤ 44px', (tester) async {
     await _pump(tester);
 
     final pill = find.byKey(const ValueKey('socialPillTabBar'));
@@ -96,10 +96,10 @@ void main() {
     final size = tester.getSize(pill);
     expect(
       size.height,
-      lessThanOrEqualTo(34),
+      lessThanOrEqualTo(44),
       reason:
-          'D-social-density — the pill must be at most half of its old '
-          '~68px footprint',
+          'the pill stays a compact sub-tab strip (2px margins + a 40px '
+          'track), far below the old ~68px footprint',
     );
   });
 

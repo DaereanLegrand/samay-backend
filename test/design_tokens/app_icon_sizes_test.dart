@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_icon_sizes.dart';
 
-/// Contract tests for the icon-size tokens (DISCO-DESIGN-SYSTEM.md §4.4).
+/// Contract tests for the icon-size tokens (DESIGN.md §4.4).
 void main() {
   group('AppIconSizes scale (doc §4.4)', () {
     test('the scale matches the documented values', () {

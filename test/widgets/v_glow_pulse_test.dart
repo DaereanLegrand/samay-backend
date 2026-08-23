@@ -4,7 +4,7 @@ import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/theme/samay_durations.dart';
 import 'package:samay/shared/widgets/v_glow_pulse.dart';
 
-/// LUXE v2 motion tests (ORCHESTRATION-LUXE.md — owned by XL-04): the
+/// LUXE v2 motion tests (the LUXE restyle pass (historical) — owned by XL-04): the
 /// pulsing glow wrapper follows the [VBreathingGlow] idle-safe engine
 /// contract — pulse by default, static under reduce-motion, and a static
 /// settle between cycles so every `pumpAndSettle`-based test lands.

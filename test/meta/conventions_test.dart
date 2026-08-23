@@ -855,4 +855,60 @@ void main() {
       },
     );
   });
+
+  // Guard added with the 2026-08 docs separation: the historical record trees
+  // (`docs/history` old logs, `docs/to-fix`, `docs/audit`) and the deprecated
+  // DISCO/DISCO-LUXE design docs were deleted. No tracked file may reference
+  // them again — history lives in git, current state lives in the living docs.
+  group('deleted-record-trees guard', () {
+    test('no tracked file references deleted trees or DISCO-LUXE', () {
+      final banned = RegExp(
+        r'docs/(to-fix|audit)/|PHASE-INVENTORY|GATE-REPORT|'
+        r'ORCHESTRATION-LUXE|DISCO-LUXE|DISCO-DESIGN-SYSTEM',
+      );
+      // Files that legitimately mention the banned names to enforce this very
+      // rule or document the deletion decision:
+      const allowlist = <String>{
+        'docs/process/FILE-OWNERSHIP.md',
+        'test/meta/conventions_test.dart',
+        '.opencode/agents/docs-verifier.md',
+      };
+
+      final offenders = <String>[];
+      final tracked = Process.runSync('git', [
+        'ls-files',
+        '--',
+        '*.md',
+        '*.dart',
+        '*.sh',
+        '*.yaml',
+        '*.yml',
+        '*.json',
+        '*.sql',
+        '*.go',
+        '*.rb',
+        '*.py',
+        'Makefile',
+      ]);
+      for (final line in (tracked.stdout as String).split('\n')) {
+        if (line.isEmpty || allowlist.contains(line)) continue;
+        final file = File('$root/$line');
+        if (!file.existsSync()) continue;
+        final lines = file.readAsLinesSync();
+        for (var i = 0; i < lines.length; i++) {
+          if (banned.hasMatch(lines[i])) {
+            offenders.add('$line:${i + 1}');
+            break;
+          }
+        }
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            'deleted doc trees must stay deleted — found references at: '
+            '${offenders.join(', ')}',
+      );
+    });
+  });
 }

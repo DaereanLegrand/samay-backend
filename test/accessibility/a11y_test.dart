@@ -40,7 +40,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 import '../support/fake_supabase_http.dart' as support;
 
-/// U-26 accessibility semantic suite — DISCO-DESIGN-SYSTEM.md §7 contract.
+/// U-26 accessibility semantic suite — DESIGN.md §7 contract.
 ///
 /// Scope (per SC):
 /// * **1.4.3** — the §2.4 muted-text rule: tab labels (informational text)

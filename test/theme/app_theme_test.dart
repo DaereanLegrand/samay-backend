@@ -173,7 +173,7 @@ void main() {
       expect(navTheme.showSelectedLabels, isFalse);
     });
 
-    group('component themes (U-04 — DISCO-DESIGN-SYSTEM §2/§4.2/§5)', () {
+    group('component themes (U-04 — DESIGN.md §2/§4.2/§5)', () {
       test('snackBar: surface fill, white content, sharp', () {
         final theme = SamayTheme.dark;
         expect(theme.snackBarTheme.backgroundColor, AppColors.surface);
