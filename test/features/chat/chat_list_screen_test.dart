@@ -9,6 +9,7 @@ import 'package:samay/core/services/realtime_service.dart';
 import 'package:samay/features/chat/providers/chat_providers.dart';
 import 'package:samay/features/chat/screens/chat_list_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
+import 'package:samay/shared/widgets/v_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 class _MockChatRepository extends Mock implements ChatRepository {}
@@ -70,12 +71,14 @@ void main() {
     String username = 'bob',
     int unread = 0,
     String senderId = 'peer-1',
+    String? peerAvatarUrl,
   }) =>
       {
         'chat_id': chatId,
         'type': type,
         'peer_id': peer,
         'peer_username': username,
+        'peer_avatar_url': peerAvatarUrl,
         'last_message_id': 'm-1',
         'last_message_sender_id': senderId,
         'last_message_content': 'SME2.envelope',
@@ -98,6 +101,19 @@ void main() {
     expect(find.text('bob'), findsOneWidget);
     expect(find.text('hola bob'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
+  });
+
+  testWidgets('a direct row with peerAvatarUrl renders VNetworkImage and '
+      'skips the initial-letter fallback', (tester) async {
+    await pump(tester, rows: [
+      row(username: 'bob', peerAvatarUrl: 'https://cdn.example.com/a.png'),
+    ]);
+
+    // The real avatar (from Storage) is rendered instead of the peer initial.
+    expect(find.byType(VNetworkImage), findsOneWidget);
+    expect(find.byIcon(Icons.group), findsNothing);
+    // No initial-letter text ('B') is produced when an avatar URL is present.
+    expect(find.text('B'), findsNothing);
   });
 
   testWidgets('a GROUP-type row renders the group icon avatar + the group '
