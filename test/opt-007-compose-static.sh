@@ -48,7 +48,8 @@
 #      GLOBAL_S3_FORCE_PATH_STYLE/AWS_* that storage-api v1.60.4 actually
 #      reads — no dead AWS_ENDPOINT/AWS_DEFAULT_REGION vars, minio-data
 #      volume), s3 overrides identical across stacks after testing-token
-#      normalization, and the mailpit override (testing-only) pins its image
+#      normalization, and the mailpit service (testing-only, merged INTO the
+#      testing base compose since 2026-08-22) pins its image
 #      and wires auth SMTP to mailpit:1025; when docker is available the
 #      merged `docker compose config` output is asserted to contain each
 #      override's key vars.
@@ -72,8 +73,8 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 BASE=("$REPO/supabase/docker-compose.yml" "$REPO/supabase-testing/docker-compose.yml")
 PG17=("$REPO/supabase/docker-compose.pg17.yml" "$REPO/supabase-testing/docker-compose.pg17.yml")
 S3=("$REPO/supabase/docker-compose.s3.yml" "$REPO/supabase-testing/docker-compose.s3.yml")
-MAILPIT="$REPO/supabase-testing/docker-compose.mailpit.yml"
-ALL_FILES=("${BASE[@]}" "${PG17[@]}" "${S3[@]}" "$MAILPIT")
+MAILPIT="$REPO/supabase-testing/docker-compose.yml"
+ALL_FILES=("${BASE[@]}" "${PG17[@]}" "${S3[@]}")
 
 FAILURES=0
 fail() { echo "  ❌ $*"; FAILURES=$((FAILURES + 1)); }
@@ -256,7 +257,7 @@ for req in \
   "$REPO/supabase-testing/docker-compose.yml|\${KONG_HTTP_PORT:-54386}:8000" \
   "$REPO/supabase-testing/docker-compose.yml|\${KONG_HTTPS_PORT:-54443}:8443" \
   "$REPO/supabase-testing/docker-compose.yml|\${STUDIO_PORT:-54381}:3000" \
-  "$REPO/supabase-testing/docker-compose.mailpit.yml|\${MAILPIT_PORT:-54384}:8025"; do
+  "$REPO/supabase-testing/docker-compose.yml|\${MAILPIT_PORT:-54384}:8025"; do
   file="${req%%|*}"; port="${req#*|}"
   if grep -Fq "\"$port\"" "$file"; then
     pass "$(basename "$file") has \"$port\""
@@ -280,8 +281,8 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
   run_cfg "$REPO/supabase-testing" && pass "testing default (.env COMPOSE_FILE)" || fail "testing default parse FAILED"
   run_cfg "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.pg17.yml && pass "testing base+pg17" || fail "testing base+pg17 parse FAILED"
   run_cfg "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.s3.yml && pass "testing base+s3" || fail "testing base+s3 parse FAILED"
-  run_cfg "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.mailpit.yml && pass "testing base+mailpit" || fail "testing base+mailpit parse FAILED"
-  run_cfg "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.s3.yml -f docker-compose.mailpit.yml && pass "testing base+pg17+s3+mailpit" || fail "testing base+pg17+s3+mailpit parse FAILED"
+  run_cfg "$REPO/supabase-testing" -f docker-compose.yml && pass "testing base (mailpit included since 2026-08-22)" || fail "testing base parse FAILED"
+  run_cfg "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.s3.yml && pass "testing base+pg17+s3" || fail "testing base+pg17+s3 parse FAILED"
 else
   echo "  (docker not available — parse gate skipped)"
 fi
@@ -499,8 +500,9 @@ fi
 # Byte-for-byte behavioral parity between the two stacks. The ONLY permitted
 # differences are testing identity tokens (container prefixes `samay-testing-`,
 # the prose stack name `Samay Testing`, per-stack domains/buckets/SMTP values,
-# and the mailpit-only override) — SELFHOSTING.md §6 rows 6-14 document the
-# table. Everything else must be byte-identical or the gate fails.
+# and the testing-only mailpit service in the base compose — merged in
+# 2026-08-22, formerly its own overlay) — SELFHOSTING.md §6 rows 6-14 document
+# the table. Everything else must be byte-identical or the gate fails.
 echo ""
 echo "━━━ 9. supabase/ vs supabase-testing/ parity (M-10) ━━━"
 
@@ -562,17 +564,20 @@ done
 
 # 9.6 Whole-tree diff allowlist: `diff -rq` may list ONLY the documented
 #     intentional differences (per-stack .env keys, domains/buckets/SMTP in
-#     compose + volumes configs, identity tokens in scripts, mailpit-only
-#     override). Any other line = an undocumented parity gap = FAIL.
+#     compose + volumes configs, identity tokens in scripts; the mailpit
+#     overlay FILE is gone — merged into the testing base 2026-08-22).
 PARITY_ALLOW=$(cat <<'EOF'
 Files supabase/.env and supabase-testing/.env differ
 Files supabase/.env.local and supabase-testing/.env.local differ
-Only in supabase-testing: docker-compose.mailpit.yml
 # postgresql.conf is a RUNTIME artifact (generated at container boot into the
 # bind; gitignored) — it exists in whichever stack has booted, so its presence
 # may legitimately differ between runs. Both stacks carry it once booted.
 Only in supabase/volumes/db: postgresql.conf
 Only in supabase-testing/volumes/db: postgresql.conf
+# volumes/storage is a RUNTIME artifact too (bind-mount target auto-created by
+# docker on first stack boot; gitignored) — whichever stacks have booted carry it.
+Only in supabase/volumes: storage
+Only in supabase-testing/volumes: storage
 Files supabase/docker-compose.s3.yml and supabase-testing/docker-compose.s3.yml differ
 Files supabase/docker-compose.yml and supabase-testing/docker-compose.yml differ
 Files supabase/migrate.sh and supabase-testing/migrate.sh differ
@@ -667,8 +672,9 @@ else
   fail "s3 overrides SEMANTIC DRIFT: $(diff <(sed 's/samay-testing-/samay-/g' "${S3[0]}") <(sed 's/samay-testing-/samay-/g' "${S3[1]}") | head -6 | tr '\n' ';')"
 fi
 
-# 10.4 mailpit (testing-only): pinned image, approved UI port, auth SMTP
-#     wiring to the dev sink, SMTP 1025 NOT host-published.
+# 10.4 mailpit (testing-only, IN BASE since 2026-08-22): pinned image,
+#     approved UI port, auth SMTP wiring to the dev sink, SMTP 1025 NOT
+#     host-published. $MAILPIT points at the testing BASE compose.
 mp="$(block_of "$MAILPIT" mailpit)"
 a="$(block_of "$MAILPIT" auth)"
 printf '%s' "$mp" | grep -q 'image: axllent/mailpit:v1.30.7' && pass "mailpit image pinned to v1.30.7 (no :latest)" || fail "mailpit image NOT pinned to v1.30.7"
@@ -678,10 +684,18 @@ if printf '%s' "$mp" | grep -Eq '"[0-9]+:1025"|1025:1025'; then
 else
   pass "mailpit SMTP 1025 not host-published (internal only)"
 fi
-printf '%s' "$a" | grep -q 'GOTRUE_SMTP_HOST: mailpit' && pass "mailpit override wires auth SMTP host -> mailpit" || fail "mailpit override MISSING GOTRUE_SMTP_HOST: mailpit"
-printf '%s' "$a" | grep -q 'GOTRUE_SMTP_PORT: 1025' && pass "mailpit override wires auth SMTP port -> 1025" || fail "mailpit override MISSING GOTRUE_SMTP_PORT: 1025"
-printf '%s' "$a" | grep -q 'GOTRUE_SMTP_USER: ""' && pass "mailpit override SMTP user empty (no-auth sink)" || fail "mailpit override SMTP user not empty"
-printf '%s' "$a" | grep -q 'condition: service_started' && pass "mailpit override auth depends_on mailpit: service_started" || fail "mailpit override MISSING auth depends_on mailpit"
+printf '%s' "$a" | grep -q 'GOTRUE_SMTP_HOST: mailpit' && pass "testing base wires auth SMTP host -> mailpit" || fail "testing base MISSING GOTRUE_SMTP_HOST: mailpit"
+printf '%s' "$a" | grep -q 'GOTRUE_SMTP_PORT: 1025' && pass "testing base wires auth SMTP port -> 1025" || fail "testing base MISSING GOTRUE_SMTP_PORT: 1025"
+printf '%s' "$a" | grep -q 'GOTRUE_SMTP_USER: ""' && pass "testing base SMTP user empty (no-auth sink)" || fail "testing base SMTP user not empty"
+printf '%s' "$a" | grep -q 'condition: service_started' && pass "testing base auth depends_on mailpit: service_started" || fail "testing base MISSING auth depends_on mailpit"
+# The mailpit SERVICE must exist in the testing BASE (2026-08-22 merge) and
+# must NOT exist in the prod base (DKR-02: prod SMTPs to the real sender).
+grep -Eq '^  mailpit:$' "${BASE[1]}" && pass "mailpit service present in testing base compose" || fail "mailpit service MISSING from testing base compose"
+if grep -Eq '^  mailpit:$' "${BASE[0]}"; then
+  fail "mailpit service must NOT be in the prod base compose (DKR-02)"
+else
+  pass "prod base compose has no mailpit (testing-only, DKR-02)"
+fi
 
 # 10.5 Merged-config assertions (docker only): the MERGED `docker compose
 #     config` output must carry each override's key vars — proof the override
@@ -728,7 +742,7 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
     "ENABLE_IMAGE_TRANSFORMATION: \"true\"" \
     "container_name: samay-functions" \
     "container_name: samay-imgproxy"
-  merged_has "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.s3.yml -f docker-compose.mailpit.yml -- \
+  merged_has "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.s3.yml -- \
     "image: axllent/mailpit:v1.30.7" \
     "GOTRUE_SMTP_HOST: mailpit" \
     "GOTRUE_SMTP_PORT: \"?1025\"?\$" \
