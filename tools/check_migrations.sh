@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 # =============================================================================
-# check_migrations.sh — migration hygiene gate (MKE-07 CI parity, agent M-15).
+# check_migrations.sh — migration hygiene gate (rewritten by MSQ-01, 2026-08-22
+# for the feature-organized baseline tree; replaces the M-15 timestamp-era
+# checks. Probed by test/opt-008-makefile-static.sh §3.)
 #
-# Replaces the old inline grep in the `migrate-check` Makefile target. The
-# logic lives in a script so the static gate (test/opt-008-makefile-static.sh)
-# can RED-probe it against a scratch git repo. Static checks — no DB, no
-# docker:
+# Static checks — no DB, no docker:
 #
 #   1. No UNTRACKED migration files in EITHER stack (supabase/migrations AND
 #      supabase-testing/migrations) — migrations must be committed before
-#      migrate.sh applies them (M-10 stack-parity contract).
-#   2. The latest migration matches between the two stacks AND the file COUNT
-#      matches (the stacks must stay in step — M-10 parity).
-#   3. No migration carries a YYYYMMDD timestamp dated AFTER today (UTC) —
-#      future-dated = typo or unshipped change; sanity gate. The timestamp
-#      convention is <UTC 14-digit date><sequence>_<snake_case>.sql, e.g.
-#      20260810000007_storage_buckets.sql.
-#   4. Every migration filename conforms to that 14-digit convention
-#      (^[0-9]{14}_[a-zA-Z0-9_]+\.sql$).
+#      apply_migrations.sh runs them (M-10 stack-parity contract).
+#   2. STACK PARITY: the sorted relative file list of both migration trees
+#      must be IDENTICAL (same files, same dirs, same order inputs).
+#   3. FILENAME CONVENTION: every migration lives at
+#         migrations/<NNN_domain>/<name>.sql
+#      where <NNN_domain> = ^[0-9]{3}_[a-z0-9_]+$ (three-digit ordering
+#      prefix + snake_case domain) and <name> = ^[a-z0-9_]+\.sql$.
+#      Files named *_privileged.sql run in the superuser tier (see
+#      tools/apply_migrations.sh); the suffix is plain naming, not syntax.
+#
+# The old YYYYMMDDHHMMSS timestamp convention and future-date check were
+# retired with the 49-file pile they policed (MSQ-01 squash).
 #
 # Usage: tools/check_migrations.sh [repo_root]   # default: repo root (this file's parent)
 # Exit 0 = all checks pass, 1 = violations found, 2 = not a git repo.
@@ -26,13 +28,12 @@ set -uo pipefail
 
 ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 STACKS=("supabase/migrations" "supabase-testing/migrations")
-TODAY="$(date -u +%Y%m%d)"
 FAILURES=0
 fail() { echo "  ❌ $*"; FAILURES=$((FAILURES + 1)); }
 pass() { echo "  ✅ $*"; }
 
 echo "═══════════════════════════════════════════════════════════════"
-echo "  M-15 — migration hygiene (both stacks)"
+echo "  MSQ-01 — migration hygiene (both stacks)"
 echo "═══════════════════════════════════════════════════════════════"
 
 if [ ! -d "$ROOT/.git" ]; then
@@ -48,67 +49,49 @@ if [ -z "$UNTRACKED" ]; then
   pass "no untracked files in either migration stack"
 else
   printf '%s\n' "$UNTRACKED" | sed 's/^/      /'
-  fail "UNTRACKED migration file(s) — commit them before migrate.sh applies them"
+  fail "UNTRACKED migration file(s) — commit them before apply_migrations.sh runs them"
 fi
 
-# ── 2. Latest-migration + count parity between stacks ────────────────────────
+# ── 2. Stack parity: identical sorted relative file lists ────────────────────
 echo ""
-echo "━━━ 2. Latest migration + count parity (M-10) ━━━"
-LATEST_A="$(ls "$ROOT/${STACKS[0]}" 2>/dev/null | grep -E '\.sql$' | sort | tail -1)"
-LATEST_B="$(ls "$ROOT/${STACKS[1]}" 2>/dev/null | grep -E '\.sql$' | sort | tail -1)"
-COUNT_A="$(ls "$ROOT/${STACKS[0]}" 2>/dev/null | grep -cE '\.sql$')"
-COUNT_B="$(ls "$ROOT/${STACKS[1]}" 2>/dev/null | grep -cE '\.sql$')"
-if [ "$LATEST_A" = "$LATEST_B" ]; then
-  pass "latest migration identical in both stacks: $LATEST_A"
+echo "━━━ 2. Stack parity (identical file lists) ━━━"
+list_stack() {
+  (cd "$ROOT/$1" && find . -type f -name '*.sql' | LC_ALL=C sort)
+}
+COUNT_A="$(list_stack "${STACKS[0]}" | grep -c . || true)"
+COUNT_B="$(list_stack "${STACKS[1]}" | grep -c . || true)"
+if diff <(list_stack "${STACKS[0]}") <(list_stack "${STACKS[1]}") >/dev/null 2>&1; then
+  pass "file lists identical ($COUNT_A files per stack)"
 else
-  fail "latest migration differs — ${STACKS[0]}: $LATEST_A vs ${STACKS[1]}: $LATEST_B"
-fi
-if [ "$COUNT_A" -eq "$COUNT_B" ]; then
-  pass "migration count identical ($COUNT_A)"
-else
-  fail "count differs — ${STACKS[0]}: $COUNT_A vs ${STACKS[1]}: $COUNT_B"
+  fail "stack parity differs — supabase($COUNT_A) vs supabase-testing($COUNT_B):" \
+       "$(diff <(list_stack "${STACKS[0]}") <(list_stack "${STACKS[1]}") | head -6 | tr '\n' ' ')"
 fi
 
-# ── 3. No future-dated timestamps ────────────────────────────────────────────
+# ── 3. Filename convention ────────────────────────────────────────────────────
 echo ""
-echo "━━━ 3. No future-dated migration timestamps (today: $TODAY UTC) ━━━"
-FUTURE=""
-for STACK in "${STACKS[@]}"; do
-  for F in "$ROOT/$STACK"/*.sql; do
-    [ -e "$F" ] || continue
-    BASE="$(basename "$F")"
-    STAMP="${BASE%%_*}"
-    case "$STAMP" in
-      ''|*[!0-9]*) continue ;;   # format check below reports it
-    esac
-    DATE="${STAMP:0:8}"          # first 8 digits = the YYYYMMDD date part
-    if [ "$((10#$DATE))" -gt "$((10#$TODAY))" ]; then
-      FUTURE="$FUTURE $BASE"
-    fi
-  done
-done
-if [ -z "$FUTURE" ]; then
-  pass "no migration dated after today"
-else
-  fail "future-dated migration(s):$FUTURE"
-fi
-
-# ── 4. Filename convention (YYYYMMDDHHMMSS_name.sql) ─────────────────────────
-echo ""
-echo "━━━ 4. Migration filename convention (14-digit timestamp) ━━━"
+echo "━━━ 3. Layout convention (<NNN_domain>/<name>.sql) ━━━"
 BAD=""
+DUP_PREFIXES=""
 for STACK in "${STACKS[@]}"; do
-  for F in "$ROOT/$STACK"/*.sql; do
-    [ -e "$F" ] || continue
-    if ! [[ "$(basename "$F")" =~ ^[0-9]{14}_[a-zA-Z0-9_]+\.sql$ ]]; then
-      BAD="$BAD $(basename "$F")"
+  while IFS= read -r REL; do
+    REL="${REL#./}"
+    if ! [[ "$REL" =~ ^[0-9]{3}_[a-z0-9_]+/[a-z0-9_]+\.sql$ ]]; then
+      BAD="$BAD $STACK/$REL"
     fi
-  done
+  done < <(list_stack "$STACK")
+  # Duplicate numeric dir prefixes make apply ordering ambiguous
+  DUP="$(list_stack "$STACK" | sed 's|^\./||;s|/[^/]*$||' | sort -u | uniq -d)"
+  [ -n "$DUP" ] && DUP_PREFIXES="$DUP_PREFIXES [$STACK: $(echo $DUP | tr '\n' ' ')]"
 done
 if [ -z "$BAD" ]; then
-  pass "all files match YYYYMMDDHHMMSS_name.sql"
+  pass "all paths match <NNN_domain>/<name>.sql"
 else
-  fail "non-conforming filename(s):$BAD"
+  fail "non-conforming path(s):$BAD"
+fi
+if [ -z "$DUP_PREFIXES" ]; then
+  pass "no duplicate ordering prefixes"
+else
+  fail "duplicate dir prefix(es):$DUP_PREFIXES"
 fi
 
 echo ""

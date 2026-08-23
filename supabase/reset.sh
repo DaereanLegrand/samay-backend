@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Samay — Reset self-hosted Supabase (destroy data, re-create)
-# SEED_DEV=1 additionally applies seed-dev.sql (DEMO data, agent I-75) after
-# the production seed. Off by default — the production seed stays clean:
-#   SEED_DEV=1 bash reset.sh
+# Samay — Reset self-hosted Supabase (destroy data, re-create): baseline
+# migrations + REQUIRED seed-config.sql. Result = fully functional schema +
+# app config with ZERO user/test data (user directive 2026-08-23).
+# Test data is explicit only: `make supabase-seed-test`.
 cd "$(dirname "$0")"
-
-SEED_DEV="${SEED_DEV:-0}"
 
 echo "WARNING: This will destroy all data in the Samay Supabase database!"
 read -rp "Type 'reset' to confirm: " confirm
@@ -28,18 +26,11 @@ docker volume rm "${PROJECT}_db-data" "${PROJECT}_minio-data" 2>/dev/null || tru
 echo "Starting fresh stack..."
 docker compose up -d --wait
 
-echo "Running migrations..."
-for f in migrations/*.sql; do
-  echo "  Applying $(basename "$f")..."
-  PGPASSWORD=postgres psql -h localhost -p 54382 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
-done
+export PGPASSWORD="${PGPASSWORD:-postgres}"
+DB_URL="postgres://postgres:postgres@localhost:${POSTGRES_PORT:-54382}/postgres"
+bash ../tools/apply_migrations.sh "$(basename "$(pwd)")"
 
-echo "Applying seed data..."
-PGPASSWORD=postgres psql -h localhost -p 54382 -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed.sql
-
-if [ "$SEED_DEV" = "1" ]; then
-  echo "Applying dev/demo seed data (SEED_DEV=1)..."
-  PGPASSWORD=postgres psql -h localhost -p 54382 -U postgres -d postgres -f seed-dev.sql
-fi
+echo "Applying required seed-config.sql (idempotent, no user data)..."
+psql "$DB_URL" -v ON_ERROR_STOP=1 -f seed-config.sql
 
 echo "Samay Supabase has been reset."

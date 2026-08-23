@@ -26,12 +26,34 @@ set -uo pipefail
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
-ANON_KEY="${ANON_KEY:-eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJyb2xlIjogImFub24iLCAiaXNzIjogInN1cGFiYXNlIiwgImlhdCI6IDE3ODY0ODU4OTMsICJleHAiOiAxODE4MDIxODkzfQ.YR0NRqrTGXY6JibsjhLEkC7EE1T83b887bCqaZd834Y}"
+
+# MSQ-01: auto-load the RUNNING stack's real keys (Kong key-auth compares
+# literal key strings — the hardcoded dev defaults go stale the moment a
+# stack .env rotates them, which silently broke service_role fixtures).
+# Precedence: explicit env > supabase-testing/.env > supabase/.env > defaults.
+load_stack_key() { # load_stack_key <ENV_NAME> <fallback-default>
+  local name="$1" fallback="$2" val=""
+  if [ -n "${!name:-}" ]; then echo "${!name}"; return; fi
+  for f in "$ROOT_DIR/supabase-testing/.env" "$ROOT_DIR/supabase/.env"; do
+    if [ -r "$f" ]; then
+      val="$(grep -E "^${name}=" "$f" | head -1 | cut -d= -f2- | tr -d '"' | tr -d ' ')"
+      [ -n "$val" ] && { echo "$val"; return; }
+    fi
+  done
+  echo "$fallback"
+}
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+CLASSIC_ANON="eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJyb2xlIjogImFub24iLCAiaXNzIjogInN1cGFiYXNlIiwgImlhdCI6IDE3ODY0ODU4OTMsICJleHAiOiAxODE4MDIxODkzfQ.YR0NRqrTGXY6JibsjhLEkC7EE1T83b887bCqaZd834Y"
+CLASSIC_SERVICE="eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwgImlzcyI6ICJzdXBhYmFzZSIsICJpYXQiOiAxNzg2NDg1ODkzLCAiZXhwIjogMTgxODAyMTg5M30.MmYGQ6z0OW7MvKkoYaWLpDBN1AkNdElvpF_DqX7baWM"
+export ANON_KEY="$(load_stack_key SUPABASE_ANON_KEY "$CLASSIC_ANON")"
+export SERVICE_KEY="$(load_stack_key SUPABASE_SERVICE_ROLE_KEY "$CLASSIC_SERVICE")"
+unset ROOT_DIR
 
 PASS=0
 FAIL=0
 TOTAL=0
 FAILED_TESTS=""
+
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"

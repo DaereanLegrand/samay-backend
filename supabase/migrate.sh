@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Samay — Run database migrations against self-hosted Supabase
-# SEED_DEV=1 additionally applies seed-dev.sql (DEMO data, agent I-75) after
-# the production seed. Off by default — the production seed stays clean:
-#   SEED_DEV=1 bash migrate.sh
+# Samay — Run the baseline migrations + required config against self-hosted
+# Supabase (MSQ-01: feature-organized tree via tools/apply_migrations.sh,
+# then seed-config.sql).
+#
+# USER DIRECTIVE (2026-08-23): seed-config.sql is FUNDAMENTAL app config and
+# is applied AUTOMATICALLY here. It contains NO user data. Test data is a
+# separate explicit step: `make supabase-seed-test` — never automatic.
 cd "$(dirname "$0")"
 
 # Load only simple KEY=VAL lines from .env — never `source` it whole (values
@@ -21,21 +24,12 @@ if [ -r .env ]; then
 fi
 
 DB_URL="${DB_URL:-postgres://postgres:postgres@localhost:54382/postgres}"
-SEED_DEV="${SEED_DEV:-0}"
 
-echo "Running migrations against $DB_URL..."
+echo "Running baseline migrations against $DB_URL..."
+bash ../tools/apply_migrations.sh "$(basename "$(pwd)")"
 
-for f in migrations/*.sql; do
-  echo "  Applying $(basename "$f")..."
-  psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$f"
-done
-
-echo "Applying seed data (idempotent)..."
-psql "$DB_URL" -v ON_ERROR_STOP=1 -f seed.sql
-
-if [ "$SEED_DEV" = "1" ]; then
-  echo "Applying dev/demo seed data (SEED_DEV=1)..."
-  psql "$DB_URL" -f seed-dev.sql
-fi
+echo "Applying required seed-config.sql (idempotent, no user data)..."
+PGPASSWORD="${PGPASSWORD:-postgres}" psql "$DB_URL" -v ON_ERROR_STOP=1 \
+  -f seed-config.sql
 
 echo "Migrations complete."

@@ -47,8 +47,10 @@ auth_get() {
 
 auth_post() {
   local t=$1; shift
+  # Prefer: return=representation — callers parse the inserted row's id
   curl -s -X POST "$SUPABASE_URL/rest/v1/$1" -H "apikey: $ANON_KEY" \
-    -H "Authorization: Bearer $t" -H "Content-Type: application/json" -d "$2"
+    -H "Authorization: Bearer $t" -H "Content-Type: application/json" \
+    -H "Prefer: return=representation" -d "$2"
 }
 
 auth_patch() {
@@ -124,7 +126,7 @@ for pair in "UUID_A:EMAIL_A" "UUID_B:EMAIL_B" "UUID_C:EMAIL_C"; do
 done
 
 # Insert user rows into public.users
-for pair in "UUID_A:user_a" "UUID_B:user_b" "UUID_C:user_c"; do
+for pair in "UUID_A:user_opt012_a" "UUID_B:user_opt012_b" "UUID_C:user_opt012_c"; do
   uid_var="${pair%%:*}"
   uname="${pair##*:}"
   uid="${!uid_var}"

@@ -109,7 +109,8 @@ flutter-analyze define-env secrets-check tunnel-android tunnel-waydroid ios-sign
 supabase-start supabase-stop supabase-status supabase-reset \
 supabase-docker-start supabase-docker-stop supabase-docker-status supabase-docker-reset \
 supabase-db-test supabase-backend-tests supabase-stack-check \
-supabase-seed-dev \
+supabase-seed-config \
+supabase-seed-test \
 supabase-testing-start supabase-testing-stop supabase-testing-status supabase-testing-reset \
 migrate-check \
 ios-beta ios-release android-alpha android-release \
@@ -317,9 +318,11 @@ trap 'rm -rf "$SCRATCH"' EXIT
 # SCRATCH index INTO the hook's temp index, clobbering the commit snapshot
 # and breaking every later `git ls-files` check in this script.
 env -u GIT_INDEX_FILE git init -q "$SCRATCH"
-mkdir -p "$SCRATCH/supabase/migrations" "$SCRATCH/supabase-testing/migrations"
-printf '%s\n' "-- placeholder schema --" > "$SCRATCH/supabase/migrations/20260101000001_dummy.sql"
-cp "$SCRATCH/supabase/migrations/20260101000001_dummy.sql" "$SCRATCH/supabase-testing/migrations/"
+# MSQ-01 baseline layout: migrations/<NNN_domain>/<file>.sql (feature dirs,
+# numeric ordering prefixes). Fixtures mirror the real tree shape.
+mkdir -p "$SCRATCH/supabase/migrations/010_infra" "$SCRATCH/supabase-testing/migrations/010_infra"
+printf '%s\n' "-- placeholder schema --" > "$SCRATCH/supabase/migrations/010_infra/01_extensions.sql"
+cp "$SCRATCH/supabase/migrations/010_infra/01_extensions.sql" "$SCRATCH/supabase-testing/migrations/010_infra/"
 env -u GIT_INDEX_FILE git -C "$SCRATCH" add -A
 env -u GIT_INDEX_FILE git -C "$SCRATCH" -c user.email=t@t -c user.name=t commit -q -m init
 
@@ -331,25 +334,38 @@ else
 fi
 
 # RED #1: planted UNTRACKED migration → exit 1 + UNTRACKED message
-printf '%s\n' "-- planted --" > "$SCRATCH/supabase/migrations/20261231000000_planted.sql"
+printf '%s\n' "-- planted --" > "$SCRATCH/supabase/migrations/010_infra/planted.sql"
 OUT="$(env -u GIT_INDEX_FILE bash "$REPO/tools/check_migrations.sh" "$SCRATCH" 2>&1)"
 if [ $? -eq 1 ] && printf '%s' "$OUT" | grep -q "UNTRACKED"; then
   pass "RED: planted untracked migration flagged (exit 1, UNTRACKED)"
 else
   fail "RED: planted untracked migration was NOT flagged"
 fi
-rm "$SCRATCH/supabase/migrations/20261231000000_planted.sql"
+rm "$SCRATCH/supabase/migrations/010_infra/planted.sql"
 
-# RED #2: planted future-dated migration (both stacks) → exit 1 + future message
-printf '%s\n' "-- future --" > "$SCRATCH/supabase/migrations/20990101000000_future.sql"
-cp "$SCRATCH/supabase/migrations/20990101000000_future.sql" "$SCRATCH/supabase-testing/migrations/"
+# RED #2: parity break — committed file in ONE stack only → exit 1 + parity msg
+mkdir -p "$SCRATCH/supabase/migrations/020_core"
+printf '%s\n' "-- one-sided --" > "$SCRATCH/supabase/migrations/020_core/01_enums.sql"
 env -u GIT_INDEX_FILE git -C "$SCRATCH" add -A
-env -u GIT_INDEX_FILE git -C "$SCRATCH" -c user.email=t@t -c user.name=t commit -q -m future
+env -u GIT_INDEX_FILE git -C "$SCRATCH" -c user.email=t@t -c user.name=t commit -q -m oneside
 OUT="$(env -u GIT_INDEX_FILE bash "$REPO/tools/check_migrations.sh" "$SCRATCH" 2>&1)"
-if [ $? -eq 1 ] && printf '%s' "$OUT" | grep -q "future"; then
-  pass "RED: planted future-dated migration flagged (exit 1, future-dated)"
+if [ $? -eq 1 ] && printf '%s' "$OUT" | grep -qi "parity\|differs"; then
+  pass "RED: stack parity break flagged (exit 1, parity/differs)"
 else
-  fail "RED: planted future-dated migration was NOT flagged"
+  fail "RED: stack parity break was NOT flagged"
+fi
+env -u GIT_INDEX_FILE git -C "$SCRATCH" rm -qf supabase/migrations/020_core/01_enums.sql
+
+# RED #3: filename-convention violation — loose file outside NNN_domain dir
+printf '%s\n' "-- loose --" > "$SCRATCH/supabase/migrations/loose_file.sql"
+cp "$SCRATCH/supabase/migrations/loose_file.sql" "$SCRATCH/supabase-testing/migrations/"
+env -u GIT_INDEX_FILE git -C "$SCRATCH" add -A
+env -u GIT_INDEX_FILE git -C "$SCRATCH" -c user.email=t@t -c user.name=t commit -q -m loose
+OUT="$(env -u GIT_INDEX_FILE bash "$REPO/tools/check_migrations.sh" "$SCRATCH" 2>&1)"
+if [ $? -eq 1 ] && printf '%s' "$OUT" | grep -qi "convention"; then
+  pass "RED: non-conforming filename flagged (exit 1, convention)"
+else
+  fail "RED: non-conforming filename was NOT flagged"
 fi
 rm -rf "$SCRATCH"
 trap - EXIT

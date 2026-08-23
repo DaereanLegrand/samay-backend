@@ -34,7 +34,7 @@
 #      the wrapper (M-03).
 #   9. Stack parity (M-10): supabase/ vs supabase-testing/ are byte-for-byte
 #      behaviorally identical — migration count + per-file byte identity,
-#      seed.sql/seed-dev.sql byte identity, config.toml identity after
+#      seed-config.sql/seed-test.sql byte identity, config.toml identity after
 #      testing-token normalization, script normalized diffs (container
 #      prefixes `samay-testing-` + prose stack name `Samay Testing` are the
 #      ONLY permitted script differences; any other line = semantic drift),
@@ -521,7 +521,7 @@ else
 fi
 
 # 9.2 Seed files byte-identical
-for s in seed.sql seed-dev.sql; do
+for s in seed-config.sql seed-test.sql; do
   if cmp -s "$REPO/supabase/$s" "$REPO/supabase-testing/$s"; then
     pass "$s byte-identical"
   else

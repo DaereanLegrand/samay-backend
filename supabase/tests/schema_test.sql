@@ -1,5 +1,6 @@
 -- Samay Schema pgTAP Tests — Comprehensive
--- Covers all migrations through 20260817000006 (group read receipts).
+-- Covers the MSQ-01 baseline tree (feature-organized migrations; squash of
+-- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
 SELECT plan(504);
@@ -554,13 +555,16 @@ SELECT policies_are('processed_webhooks', ARRAY[
 -- screens, PERF-05/L-24) and ranking.anonymize_names which C-social added for
 -- the global user-ranking censor (20260818000002) → count is 39.
 -- ============================================================
+-- MSQ-01 contract (user directive 2026-08-23): init/reset apply migrations
+-- PLUS required seed-config.sql automatically (fundamental app config,
+-- zero user data). Test data is explicit-only (`make supabase-seed-test`).
 SELECT ok(
     (SELECT count(*) = 1 FROM admin_users),
-    'admin_users has 1 seed row (system admin, from seed.sql)'
+    'admin_users has the system admin row (from auto-applied seed-config)'
 );
 SELECT ok(
     (SELECT count(*) = 39 FROM app_config),
-    'app_config has 39 seed rows (37 original + app.search_debounce_ms + ranking.anonymize_names, from seed.sql)'
+    'app_config has 39 tuning rows (from auto-applied seed-config)'
 );
 
 -- ============================================================
@@ -569,8 +573,8 @@ SELECT ok(
 SELECT has_column('admin_users', 'display_name',
     'admin_users retains display_name (only dropped from users)');
 SELECT ok(
-    (SELECT display_name IS NOT NULL FROM admin_users LIMIT 1),
-    'Seed admin has a non-null display_name'
+    (SELECT count(*) = 0 FROM users),
+    'users table empty after init/reset (zero USER data; test data is explicit only)'
 );
 
 -- ============================================================
