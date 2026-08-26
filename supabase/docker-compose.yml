@@ -44,7 +44,7 @@ services:
       KONG_DATABASE: off
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,rate-limiting
       KONG_LOG_LEVEL: warn
       KONG_NGINX_WORKER_PROCESSES: 2
       KONG_PROXY_LISTEN: 0.0.0.0:8000

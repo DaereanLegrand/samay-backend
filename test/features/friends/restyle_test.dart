@@ -369,7 +369,7 @@ void main() {
           ],
         ),
       );
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await _pumpSettle(tester);
 
@@ -404,7 +404,7 @@ void main() {
           ],
         ),
       );
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await _pumpSettle(tester);
 
@@ -466,7 +466,7 @@ void main() {
           ],
         ),
       );
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await _pumpSettle(tester);
 
@@ -487,7 +487,7 @@ void main() {
           ],
         ),
       );
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pump();
       expect(find.byType(VLoadingView), findsOneWidget);
@@ -502,7 +502,7 @@ void main() {
           ],
         ),
       );
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await _pumpSettle(tester);
 

@@ -458,7 +458,7 @@ void main() {
           ),
         ),
       ]);
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
       expect(find.text('@ana'), findsOneWidget);
@@ -481,14 +481,14 @@ void main() {
       ]);
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 
       expect(recording.queries, [
-        'an',
+        'analia',
       ], reason: 'intermediate keystrokes must not fire a query');
     });
 
@@ -497,7 +497,7 @@ void main() {
       await _pump(tester, const SearchScreen(), [
         searchResultsProvider.overrideWith(_ErrorSearchResultsNotifier.new),
       ]);
-      await tester.enterText(find.byType(TextField), 'ana');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 

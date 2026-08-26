@@ -925,7 +925,7 @@ void main() {
       );
     });
 
-    testWidgets('queries shorter than 2 chars show the min-chars hint instead '
+    testWidgets('queries shorter than 5 chars show the min-chars hint instead '
         'of results', (tester) async {
       await tester.pumpWidget(
         _wrap(
@@ -944,18 +944,18 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.text('Escribe al menos 2 caracteres para buscar'),
+        find.text('Escribe al menos 5 caracteres para buscar'),
         findsOneWidget,
-        reason: 'a 1-char query shows the min-2 hint (R14)',
+        reason: 'a 1-char query shows the min-5 hint (R14)',
       );
       expect(
         find.text('@ana'),
         findsNothing,
-        reason: 'no results for a sub-2-char query',
+        reason: 'no results for a sub-5-char query',
       );
     });
 
-    testWidgets('queries of 2+ chars render results', (tester) async {
+    testWidgets('queries of 5+ chars render results', (tester) async {
       await tester.pumpWidget(
         _wrap(
           const SearchScreen(),
@@ -968,13 +968,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 
       expect(find.text('@ana'), findsOneWidget);
       expect(
-        find.text('Escribe al menos 2 caracteres para buscar'),
+        find.text('Escribe al menos 5 caracteres para buscar'),
         findsNothing,
       );
     });
@@ -1000,7 +1000,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 
@@ -1043,7 +1043,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 
@@ -1143,7 +1143,7 @@ void main() {
           ),
         ),
       );
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 
@@ -1211,7 +1211,7 @@ void main() {
           ],
         ),
       );
-      await tester.enterText(find.byType(TextField), 'an');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 

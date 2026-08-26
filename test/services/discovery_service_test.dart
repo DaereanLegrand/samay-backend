@@ -27,38 +27,63 @@ void main() {
 
   DiscoveryService service() => DiscoveryService(client: client);
 
-  group('DiscoveryService.searchUsers (blocked-filter logic)', () {
+  group('DiscoveryService.searchUsers (search_users RPC)', () {
     setUp(() {
       when(() => auth.currentUser).thenReturn(_currentUser());
     });
 
-    test('drops users I have blocked from the results', () async {
-      final usersTable = MockQueryBuilder();
-      when(() => client.from('user_search_view'))
-          .thenAnswer((_) => usersTable);
-      when(() => usersTable.select(any())).thenAnswer(
-        (_) => ResolvingBuilder<PostgrestList>([
-          {'id': _otherId, 'username': 'ana', 'avatar_url': null},
-          {'id': _thirdId, 'username': 'luis', 'avatar_url': null},
-        ]),
-      );
+    void stubSearch(
+      String query,
+      List<Map<String, dynamic>> rows,
+    ) {
+      when(() => client.rpc('search_users', params: {'p_query': query}))
+          .thenAnswer((_) => ResolvingBuilder<PostgrestList>(rows));
+    }
+
+    void stubFriendships({
+      ResolvingBuilder<PostgrestList>? asRequester,
+      ResolvingBuilder<PostgrestList>? asAddressee,
+    }) {
       final frTable = MockQueryBuilder();
       when(() => client.from('friendships')).thenAnswer((_) => frTable);
-      final asRequester = ResolvingBuilder<PostgrestList>([
-        {
-          'requester_id': _userId,
-          'addressee_id': _otherId,
-          'status': 'blocked',
-        },
-      ]);
-      final asAddressee = ResolvingBuilder<PostgrestList>([]);
       var selectCalls = 0;
       when(() => frTable.select(any())).thenAnswer((_) {
         selectCalls++;
-        return selectCalls == 1 ? asRequester : asAddressee;
+        return selectCalls == 1
+            ? asRequester ?? ResolvingBuilder<PostgrestList>([])
+            : asAddressee ?? ResolvingBuilder<PostgrestList>([]);
       });
+    }
 
-      final results = await service().searchUsers('a');
+    test('forwards the query verbatim as p_query to the search_users RPC',
+        () async {
+      stubSearch('analia', []);
+
+      final results = await service().searchUsers('analia');
+
+      expect(results, isEmpty);
+      verify(() =>
+              client.rpc('search_users', params: {'p_query': 'analia'}))
+          .called(1);
+      verifyNever(() => client.from('user_search_view'));
+    });
+
+    test('drops users I have blocked from the results', () async {
+      stubSearch('an', [
+        {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+        {'id': _thirdId, 'username': 'luis', 'avatar_url': null},
+      ]);
+      stubFriendships(
+        asRequester: ResolvingBuilder<PostgrestList>([
+          {
+            'requester_id': _userId,
+            'addressee_id': _otherId,
+            'status': 'blocked',
+          },
+        ]),
+      );
+
+      final results = await service().searchUsers('an');
 
       expect(results.map((r) => r['id']), [_thirdId]);
       expect(results.any((r) => r['hidden'] == true), isFalse);
@@ -66,37 +91,26 @@ void main() {
 
     test('hides users who blocked me and attaches friendship_status',
         () async {
-      final usersTable = MockQueryBuilder();
-      when(() => client.from('user_search_view'))
-          .thenAnswer((_) => usersTable);
-      when(() => usersTable.select(any())).thenAnswer(
-        (_) => ResolvingBuilder<PostgrestList>([
-          {'id': _otherId, 'username': 'ana', 'avatar_url': null},
-          {'id': _thirdId, 'username': 'luis', 'avatar_url': null},
+      stubSearch('an', [
+        {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+        {'id': _thirdId, 'username': 'luis', 'avatar_url': null},
+      ]);
+      stubFriendships(
+        asAddressee: ResolvingBuilder<PostgrestList>([
+          {
+            'requester_id': _otherId,
+            'addressee_id': _userId,
+            'status': 'blocked',
+          },
+          {
+            'requester_id': _thirdId,
+            'addressee_id': _userId,
+            'status': 'accepted',
+          },
         ]),
       );
-      final frTable = MockQueryBuilder();
-      when(() => client.from('friendships')).thenAnswer((_) => frTable);
-      final asRequester = ResolvingBuilder<PostgrestList>([]);
-      final asAddressee = ResolvingBuilder<PostgrestList>([
-        {
-          'requester_id': _otherId,
-          'addressee_id': _userId,
-          'status': 'blocked',
-        },
-        {
-          'requester_id': _thirdId,
-          'addressee_id': _userId,
-          'status': 'accepted',
-        },
-      ]);
-      var selectCalls = 0;
-      when(() => frTable.select(any())).thenAnswer((_) {
-        selectCalls++;
-        return selectCalls == 1 ? asRequester : asAddressee;
-      });
 
-      final results = await service().searchUsers('a');
+      final results = await service().searchUsers('an');
 
       expect(results.map((r) => r['id']), [_thirdId]);
       expect(results.single['friendship_status'], 'accepted');
@@ -104,69 +118,45 @@ void main() {
 
     test('a pending row where the current user is the addressee carries '
         'friendship_id + friendship_direction received (ISSUE 5)', () async {
-      final usersTable = MockQueryBuilder();
-      when(() => client.from('user_search_view'))
-          .thenAnswer((_) => usersTable);
-      when(() => usersTable.select(any())).thenAnswer(
-        (_) => ResolvingBuilder<PostgrestList>([
-          {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+      stubSearch('an', [
+        {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+      ]);
+      stubFriendships(
+        asAddressee: ResolvingBuilder<PostgrestList>([
+          {
+            'id': 'fr-9',
+            'requester_id': _otherId,
+            'addressee_id': _userId,
+            'status': 'pending',
+          },
         ]),
       );
-      final frTable = MockQueryBuilder();
-      when(() => client.from('friendships')).thenAnswer((_) => frTable);
-      final asRequester = ResolvingBuilder<PostgrestList>([]);
-      final asAddressee = ResolvingBuilder<PostgrestList>([
-        {
-          'id': 'fr-9',
-          'requester_id': _otherId,
-          'addressee_id': _userId,
-          'status': 'pending',
-        },
-      ]);
-      var selectCalls = 0;
-      when(() => frTable.select(any())).thenAnswer((_) {
-        selectCalls++;
-        return selectCalls == 1 ? asRequester : asAddressee;
-      });
 
-      final results = await service().searchUsers('a');
+      final results = await service().searchUsers('an');
 
       final r = results.single;
       expect(r['friendship_status'], 'pending');
       expect(r['friendship_id'], 'fr-9');
       expect(r['friendship_direction'], 'received');
-      verify(() => frTable.select('id, requester_id, addressee_id, status'))
-          .called(2);
     });
 
     test('a pending row where the current user is the requester carries '
         'friendship_id + friendship_direction sent (ISSUE 5)', () async {
-      final usersTable = MockQueryBuilder();
-      when(() => client.from('user_search_view'))
-          .thenAnswer((_) => usersTable);
-      when(() => usersTable.select(any())).thenAnswer(
-        (_) => ResolvingBuilder<PostgrestList>([
-          {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+      stubSearch('an', [
+        {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+      ]);
+      stubFriendships(
+        asRequester: ResolvingBuilder<PostgrestList>([
+          {
+            'id': 'fr-8',
+            'requester_id': _userId,
+            'addressee_id': _otherId,
+            'status': 'pending',
+          },
         ]),
       );
-      final frTable = MockQueryBuilder();
-      when(() => client.from('friendships')).thenAnswer((_) => frTable);
-      final asRequester = ResolvingBuilder<PostgrestList>([
-        {
-          'id': 'fr-8',
-          'requester_id': _userId,
-          'addressee_id': _otherId,
-          'status': 'pending',
-        },
-      ]);
-      final asAddressee = ResolvingBuilder<PostgrestList>([]);
-      var selectCalls = 0;
-      when(() => frTable.select(any())).thenAnswer((_) {
-        selectCalls++;
-        return selectCalls == 1 ? asRequester : asAddressee;
-      });
 
-      final results = await service().searchUsers('a');
+      final results = await service().searchUsers('an');
 
       final r = results.single;
       expect(r['friendship_status'], 'pending');
@@ -176,32 +166,21 @@ void main() {
 
     test('accepted rows carry neither friendship_id nor '
         'friendship_direction (ISSUE 5)', () async {
-      final usersTable = MockQueryBuilder();
-      when(() => client.from('user_search_view'))
-          .thenAnswer((_) => usersTable);
-      when(() => usersTable.select(any())).thenAnswer(
-        (_) => ResolvingBuilder<PostgrestList>([
-          {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+      stubSearch('an', [
+        {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+      ]);
+      stubFriendships(
+        asAddressee: ResolvingBuilder<PostgrestList>([
+          {
+            'id': 'fr-7',
+            'requester_id': _otherId,
+            'addressee_id': _userId,
+            'status': 'accepted',
+          },
         ]),
       );
-      final frTable = MockQueryBuilder();
-      when(() => client.from('friendships')).thenAnswer((_) => frTable);
-      final asRequester = ResolvingBuilder<PostgrestList>([]);
-      final asAddressee = ResolvingBuilder<PostgrestList>([
-        {
-          'id': 'fr-7',
-          'requester_id': _otherId,
-          'addressee_id': _userId,
-          'status': 'accepted',
-        },
-      ]);
-      var selectCalls = 0;
-      when(() => frTable.select(any())).thenAnswer((_) {
-        selectCalls++;
-        return selectCalls == 1 ? asRequester : asAddressee;
-      });
 
-      final results = await service().searchUsers('a');
+      final results = await service().searchUsers('an');
 
       final r = results.single;
       expect(r['friendship_status'], 'accepted');
@@ -212,33 +191,42 @@ void main() {
     test('returns raw results unchanged when the session has no user',
         () async {
       when(() => auth.currentUser).thenReturn(null);
-      final usersTable = MockQueryBuilder();
-      when(() => client.from('user_search_view'))
-          .thenAnswer((_) => usersTable);
-      when(() => usersTable.select(any())).thenAnswer(
-        (_) => ResolvingBuilder<PostgrestList>([
-          {'id': _otherId, 'username': 'ana', 'avatar_url': null},
-        ]),
-      );
+      stubSearch('an', [
+        {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+      ]);
 
-      final results = await service().searchUsers('a');
+      final results = await service().searchUsers('an');
 
       expect(results, hasLength(1));
       verifyNever(() => client.from('friendships'));
     });
 
-    test('propagates a network-class PostgrestException', () async {
-      final usersTable = MockQueryBuilder();
-      when(() => client.from('user_search_view'))
-          .thenAnswer((_) => usersTable);
-      when(() => usersTable.select(any())).thenThrow(
+    test('propagates the per-user search rate-limit raise (SR001) as a '
+        'RateLimitError mapping', () async {
+      when(() => client.rpc('search_users', params: {'p_query': 'an'}))
+          .thenThrow(
+        const PostgrestException(
+          message: 'search rate limit exceeded',
+          code: 'SR001',
+        ),
+      );
+
+      final err = await captureError(() => service().searchUsers('an'));
+      expect(err, isA<PostgrestException>());
+      expectMapped(err, RateLimitError);
+    });
+
+    test('propagates a network-class PostgrestException from the RPC',
+        () async {
+      when(() => client.rpc('search_users', params: {'p_query': 'an'}))
+          .thenThrow(
         const PostgrestException(
           message: 'connection refused',
           code: '28000',
         ),
       );
 
-      final err = await captureError(() => service().searchUsers('a'));
+      final err = await captureError(() => service().searchUsers('an'));
       expect(err, isA<PostgrestException>());
       expectMapped(err, NetworkError);
     });

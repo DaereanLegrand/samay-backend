@@ -225,6 +225,25 @@ void main() {
       );
     });
 
+    test('SR001 (search_users per-user limiter) → RateLimitError', () {
+      final error = const PostgrestException(
+        message: 'search rate limit exceeded',
+        code: 'SR001',
+      ).toAppError();
+      expect(error, isA<RateLimitError>());
+      expect(error.message, 'Demasiadas solicitudes. Espera un momento.');
+    });
+
+    test('HTTP 429 from the Kong route limiter (code falls back to the '
+        'status string) → RateLimitError', () {
+      final error = const PostgrestException(
+        message: 'API rate limit exceeded',
+        code: '429',
+      ).toAppError();
+      expect(error, isA<RateLimitError>());
+      expect(error.message, 'Demasiadas solicitudes. Espera un momento.');
+    });
+
     test('P0001 → ServerError carrying the server detail', () {
       final error = const PostgrestException(
         message: 'division by zero',

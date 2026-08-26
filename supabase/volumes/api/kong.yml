@@ -23,6 +23,20 @@ services:
       - name: rest-v1-all
         paths:
           - /rest/v1/
+      # SEARCH abuse guard (OWASP API4): coarse per-IP flood limit on the
+      # user-search path. The precise per-user 60/min quota lives in the
+      # search_users() RPC (migration 130_search); limit_by=ip because every
+      # app user shares the anon apikey consumer (consumer bucketing would
+      # aggregate all users into one counter).
+      - name: rest-v1-user-search
+        paths:
+          - /rest/v1/user_search_view
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 120
+              policy: local
+              limit_by: ip
     plugins:
       - name: cors
       - name: key-auth
