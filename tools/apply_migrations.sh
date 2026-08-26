@@ -40,11 +40,37 @@ case "$STACK" in
   *)                 DB_CONTAINER="${DB_CONTAINER:?DB_CONTAINER required for $STACK}" ;;
 esac
 
+# Storage-schema readiness gate. The storage schema (buckets/objects tables +
+# RLS) is NOT created by the db image's initdb — storage-api creates it at its
+# own startup (M-12: the postgres image ships a MINIMAL storage schema; the
+# tenant migrations live in the storage-api service). A fresh volume therefore
+# has no `storage.buckets` until storage-api has bootstrapped, and the
+# *_privileged.sql tier (950_storage/storage_buckets_privileged.sql) inserts
+# bucket rows + attaches RLS policies to it. So wait for the table before the
+# privileged tier runs — otherwise a fresh reset dies with PGRST-adjacent
+# `relation "storage.buckets" does not exist`. Uses the same db container the
+# privileged tier execs into; `docker exec` is the only client with the
+# storage-role-owned schema visible.
+wait_for_storage_schema() {
+  echo "  Waiting for storage-api schema (storage.buckets)..."
+  for i in $(seq 1 60); do
+    if docker exec -i "$DB_CONTAINER" psql -U supabase_admin -d postgres -tAc \
+        "SELECT to_regclass('storage.buckets') IS NOT NULL" </dev/null 2>/dev/null | grep -q 't'; then
+      echo "  storage.buckets present."
+      return 0
+    fi
+    sleep 2
+  done
+  echo "  ERROR: storage.buckets still absent after 120s — is the storage-api container up?" >&2
+  return 1
+}
+
 APPLIED=0
 while IFS= read -r f; do
   echo "  Applying ${f#migrations/}..."
   case "$f" in
     *_privileged.sql)
+      wait_for_storage_schema
       docker exec -i "$DB_CONTAINER" psql -U supabase_admin -d postgres \
         -v ON_ERROR_STOP=1 -q < "$f" ;;
     *)
