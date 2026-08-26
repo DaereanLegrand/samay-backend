@@ -357,24 +357,36 @@ fi
 # =========================================================================
 h1 "TEST I — server-managed column guards (20260811000001)"
 
-# I1: authenticated mass-assignment on users.personal_shards is rejected
+# I1 (UPDATED 2026-08-25, profile-RPC lockdown): clients lost table UPDATE
+# entirely — mass-assignment now dies at the PRIVILEGE layer (42501
+# permission denied) before the trigger is even reached. Both layers reject;
+# the privilege one is authoritative.
 resp=$(curl -s -X PATCH "$SUPABASE_URL/rest/v1/users?id=eq.$UUID_A" \
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
   -H "Content-Type: application/json" -d '{"personal_shards": 999999}')
-if echo "$resp" | grep -q "protected columns"; then
-  ok "users.personal_shards mass-assignment rejected by assert_safe_user_update trigger"
+if echo "$resp" | grep -qE "permission denied|protected columns"; then
+  ok "users.personal_shards mass-assignment rejected (table privilege / trigger)"
 else
   nok "users.personal_shards mass-assignment NOT rejected! Response: $(echo "$resp" | head -c 120)"
 fi
 
-# I2: same-row legit update (user-owned column) still works
+# I2 (UPDATED 2026-08-25): direct bio PATCH is DENIED; the legit path is the
+# update_my_profile RPC.
 resp=$(curl -s -X PATCH "$SUPABASE_URL/rest/v1/users?id=eq.$UUID_A" \
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
   -H "Content-Type: application/json" -H "Prefer: return=minimal" -d '{"bio":"guard-probe"}')
-if [ -z "$resp" ]; then
-  ok "users.bio UPDATE still works for the owner (user-owned column)"
+if echo "$resp" | grep -qi "permission denied"; then
+  ok "users.bio direct PATCH denied for the owner (RPC-mediated writes only)"
 else
-  nok "users.bio UPDATE failed: $(echo "$resp" | head -c 120)"
+  nok "users.bio direct PATCH NOT denied: $(echo "$resp" | head -c 120)"
+fi
+resp=$(curl -s -w "\n%{http_code}" -X POST "$SUPABASE_URL/rest/v1/rpc/update_my_profile" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -d '{"p_bio":"guard-probe","p_date_of_birth":null}')
+if [ "$(echo "$resp" | tail -1)" = "204" ]; then
+  ok "users.bio update via update_my_profile RPC works"
+else
+  nok "update_my_profile RPC failed: $(echo "$resp" | head -c 160)"
 fi
 
 # I3: authenticated cannot set groups.group_shards (rank fraud) on own group

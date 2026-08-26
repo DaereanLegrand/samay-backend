@@ -107,27 +107,24 @@ void main() {
   });
 
   group('UserService.updateAvatarUrl (PRFL avatar flow — I-36)', () {
-    late MockQueryBuilder table;
-
-    setUp(() {
-      table = MockQueryBuilder();
-      when(() => client.from('users')).thenAnswer((_) => table);
-    });
-
-    test('updates users.avatar_url for the given user id', () async {
-      final update = ResolvingBuilder<dynamic>(null);
-      when(() => table.update(any())).thenAnswer((_) => update);
+    test('delegates to the set_avatar_url RPC — no direct table write',
+        () async {
+      when(() => client.rpc('set_avatar_url', params: any(named: 'params')))
+          .thenAnswer((_) => ResolvingBuilder<dynamic>(null));
 
       await service().updateAvatarUrl(_userId, _avatarUrl);
 
-      verify(() => table.update({'avatar_url': _avatarUrl})).called(1);
-      expect(update.filters.single.column, 'id');
-      expect(update.filters.single.value, _userId);
+      final params = verify(
+        () => client.rpc('set_avatar_url', params: captureAny(named: 'params')),
+      ).captured.single as Map;
+      expect(params['p_avatar_url'], _avatarUrl);
+      verifyNever(() => client.from('users'));
     });
 
-    test('surfaces update failures to the caller', () async {
-      when(() => table.update(any()))
-          .thenThrow(StateError('update rejected'));
+    test('surfaces RPC failures to the caller', () async {
+      when(
+        () => client.rpc('set_avatar_url', params: any(named: 'params')),
+      ).thenThrow(StateError('update rejected'));
 
       expect(
         () => service().updateAvatarUrl(_userId, _avatarUrl),
@@ -137,17 +134,23 @@ void main() {
   });
 
   group('UserService.updateBio', () {
-    test('updates users.bio scoped to the user id', () async {
-      final table = MockQueryBuilder();
-      when(() => client.from('users')).thenAnswer((_) => table);
-      final update = ResolvingBuilder<dynamic>(null);
-      when(() => table.update(any())).thenAnswer((_) => update);
+    test('delegates to the update_my_profile RPC — no direct table write',
+        () async {
+      when(
+        () => client.rpc('update_my_profile', params: any(named: 'params')),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
 
       await service().updateBio(_userId, 'nueva bio');
 
-      verify(() => table.update({'bio': 'nueva bio'})).called(1);
-      expect(update.filters.single.column, 'id');
-      expect(update.filters.single.value, _userId);
+      final params = verify(
+        () => client.rpc(
+          'update_my_profile',
+          params: captureAny(named: 'params'),
+        ),
+      ).captured.single as Map;
+      expect(params['p_bio'], 'nueva bio');
+      expect(params.containsKey('p_date_of_birth'), isFalse);
+      verifyNever(() => client.from('users'));
     });
   });
 
@@ -182,19 +185,23 @@ void main() {
   });
 
   group('UserService.setDiscoveryOptIn (PFND opt-in — I-60)', () {
-    test('updates users.discovery_opt_in scoped to the current user',
+    test('delegates to the set_discovery_opt_in RPC — no direct table write',
         () async {
       when(() => auth.currentUser).thenReturn(_currentUser());
-      final table = MockQueryBuilder();
-      when(() => client.from('users')).thenAnswer((_) => table);
-      final update = ResolvingBuilder<dynamic>(null);
-      when(() => table.update(any())).thenAnswer((_) => update);
+      when(
+        () => client.rpc('set_discovery_opt_in', params: any(named: 'params')),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
 
       await service().setDiscoveryOptIn(true);
 
-      verify(() => table.update({'discovery_opt_in': true})).called(1);
-      expect(update.filters.single.column, 'id');
-      expect(update.filters.single.value, _userId);
+      final params = verify(
+        () => client.rpc(
+          'set_discovery_opt_in',
+          params: captureAny(named: 'params'),
+        ),
+      ).captured.single as Map;
+      expect(params['p_value'], isTrue);
+      verifyNever(() => client.from('users'));
     });
   });
 

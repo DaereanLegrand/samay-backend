@@ -72,6 +72,32 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: users users_username_shape; Type: CONSTRAINT; Schema: public; Owner: -
+--
+-- Server-side mirror of the client username policy (2026-08-25 profile-RPC
+-- lockdown): NFKC-stable, no whitespace/@, no Unicode control/format chars,
+-- 5..64 code points (code points ≈ graphemes for ASCII; 64 never false-
+-- rejects the client's 20-grapheme emoji handles). Tombstones are exempt —
+-- soft-delete renames to 'deleted_user_<uuid>'. Defense in depth for
+-- PRIVILEGED writers (Go admin CLI, service_role); clients cannot write the
+-- table directly at all anymore (see the REVOKE block below).
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_username_shape CHECK (
+        deleted_at IS NOT NULL
+        OR username IS NULL
+        OR (
+            char_length(username) >= 5
+            AND char_length(username) <= 64
+            AND username !~ '[[:space:]@]'
+            AND username !~ E'[\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF]'
+            AND username = normalize(username, NFKC)
+        )
+    );
+
+
+--
 
 -- Name: idx_users_deleted_at; Type: INDEX; Schema: public; Owner: -
 --
@@ -150,6 +176,321 @@ $$;
 
 
 --
+
+--
+-- Name: sanitize_free_text(text, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.sanitize_free_text(p_raw text, p_max_length integer) RETURNS text
+    LANGUAGE plpgsql IMMUTABLE
+    SET search_path TO ''
+    AS $$
+BEGIN
+    -- Mirror of InputSanitizer.sanitize for free text: strip Unicode
+    -- control/format characters, trim, and enforce a code-point ceiling.
+    -- Returns NULL for NULL input.
+    IF p_raw IS NULL THEN
+        RETURN NULL;
+    END IF;
+    p_raw := btrim(regexp_replace(
+        p_raw,
+        E'[\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF]',
+        '',
+        'g'
+    ));
+    IF char_length(p_raw) > p_max_length THEN
+        RAISE EXCEPTION 'El texto no puede superar % caracteres.', p_max_length USING ERRCODE = 'P0001';
+    END IF;
+    RETURN p_raw;
+END;
+$$;
+
+
+--
+-- Name: sanitize_username(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.sanitize_username(p_raw text) RETURNS text
+    LANGUAGE plpgsql IMMUTABLE
+    SET search_path TO ''
+    AS $$
+BEGIN
+    -- Mirror of InputSanitizer.sanitizeUsername: NFKC-normalize, strip
+    -- control/format characters, trim, remove whitespace and '@' handles.
+    IF p_raw IS NULL THEN
+        RETURN NULL;
+    END IF;
+    RETURN regexp_replace(
+        btrim(regexp_replace(
+            normalize(p_raw, NFKC),
+            E'[\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF]',
+            '',
+            'g'
+        )),
+        '[[:space:]@]',
+        '',
+        'g'
+    );
+END;
+$$;
+
+
+--
+-- Name: assert_username_shape(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.assert_username_shape(p_value text) RETURNS void
+    LANGUAGE plpgsql IMMUTABLE
+    SET search_path TO ''
+    AS $$
+BEGIN
+    IF p_value IS NULL OR p_value = '' THEN
+        RAISE EXCEPTION 'El nombre de usuario es obligatorio.' USING ERRCODE = 'P0001';
+    END IF;
+    IF char_length(p_value) < 5 THEN
+        RAISE EXCEPTION 'Debe tener al menos 5 caracteres.' USING ERRCODE = 'P0001';
+    END IF;
+    IF char_length(p_value) > 64 THEN
+        RAISE EXCEPTION 'El nombre de usuario es demasiado largo.' USING ERRCODE = 'P0001';
+    END IF;
+    IF p_value ~ '[[:space:]@]' THEN
+        RAISE EXCEPTION 'El nombre de usuario no puede contener espacios ni @.' USING ERRCODE = 'P0001';
+    END IF;
+    IF normalize(p_value, NFKC) IS DISTINCT FROM p_value THEN
+        RAISE EXCEPTION 'El nombre de usuario no es válido.' USING ERRCODE = 'P0001';
+    END IF;
+END;
+$$;
+
+
+--
+-- Name: assert_date_of_birth(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.assert_date_of_birth(p_dob date) RETURNS void
+    LANGUAGE plpgsql IMMUTABLE
+    SET search_path TO ''
+    AS $$
+BEGIN
+    IF p_dob IS NULL THEN
+        RAISE EXCEPTION 'La fecha de nacimiento es obligatoria.' USING ERRCODE = 'P0001';
+    END IF;
+    IF p_dob > CURRENT_DATE - INTERVAL '18 years' THEN
+        RAISE EXCEPTION 'Debes tener 18 años para usar Samay.' USING ERRCODE = 'P0001';
+    END IF;
+    IF p_dob < DATE '1900-01-01' THEN
+        RAISE EXCEPTION 'La fecha de nacimiento no es válida.' USING ERRCODE = 'P0001';
+    END IF;
+END;
+$$;
+
+
+--
+-- Name: create_my_profile(text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.create_my_profile(p_username text, p_date_of_birth date) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+DECLARE
+    v_uid uuid;
+    v_username text;
+    v_shards integer;
+BEGIN
+    v_uid := auth.uid();
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION 'No autenticado.' USING ERRCODE = 'P0001';
+    END IF;
+
+    v_username := public.sanitize_username(p_username);
+    PERFORM public.assert_username_shape(v_username);
+    PERFORM public.assert_date_of_birth(p_date_of_birth);
+
+    IF EXISTS (SELECT 1 FROM public.users WHERE id = v_uid) THEN
+        RAISE EXCEPTION 'Tu perfil ya existe.' USING ERRCODE = 'P0001';
+    END IF;
+
+    SELECT COALESCE(value::integer, 0) INTO v_shards
+    FROM public.app_config WHERE key = 'economy.user_signup_shards';
+
+    INSERT INTO public.users (
+        id, username, avatar_url, date_of_birth, bio,
+        banned_at, ban_reason, deleted_at,
+        personal_shards, preshards, subscription_tier, subscription_expires_at,
+        interest_tags, discovery_opt_in, read_receipts_enabled, profile_public,
+        created_at, updated_at
+    ) VALUES (
+        v_uid, v_username, NULL, p_date_of_birth, NULL,
+        NULL, NULL, NULL,
+        COALESCE(v_shards, 0), 0, 'free', NULL,
+        '{}', false, true, false,
+        now(), now()
+    );
+
+    INSERT INTO public.shard_ledger (user_id, delta, reason, reference_id, created_at)
+    VALUES (v_uid, COALESCE(v_shards, 0), 'admin_grant', NULL, now());
+END;
+$$;
+
+
+--
+-- Name: update_my_profile(text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.update_my_profile(p_bio text, p_date_of_birth date) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+DECLARE
+    v_uid uuid;
+    v_existing_dob date;
+    v_bio text;
+BEGIN
+    v_uid := auth.uid();
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION 'No autenticado.' USING ERRCODE = 'P0001';
+    END IF;
+
+    -- username is IMMUTABLE after creation (product contract) — there is no
+    -- parameter for it on purpose.
+    IF p_bio IS NULL AND p_date_of_birth IS NULL THEN
+        RETURN;
+    END IF;
+
+    IF p_bio IS NOT NULL THEN
+        IF p_bio = '' THEN
+            v_bio := NULL;
+        ELSE
+            v_bio := public.sanitize_free_text(p_bio, 160);
+            IF v_bio = '' THEN
+                v_bio := NULL;
+            END IF;
+        END IF;
+    END IF;
+
+    IF p_date_of_birth IS NOT NULL THEN
+        SELECT date_of_birth INTO v_existing_dob
+        FROM public.users WHERE id = v_uid;
+        IF v_existing_dob IS NOT NULL AND p_date_of_birth <> v_existing_dob THEN
+            RAISE EXCEPTION 'La fecha de nacimiento no puede modificarse.' USING ERRCODE = 'P0001';
+        END IF;
+        PERFORM public.assert_date_of_birth(p_date_of_birth);
+    END IF;
+
+    UPDATE public.users SET
+        bio = CASE WHEN p_bio IS NULL THEN bio ELSE v_bio END,
+        date_of_birth = CASE WHEN p_date_of_birth IS NULL THEN date_of_birth ELSE p_date_of_birth END
+    WHERE id = v_uid;
+END;
+$$;
+
+
+--
+-- Name: delete_my_account(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.delete_my_account() RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+DECLARE
+    v_uid uuid;
+BEGIN
+    v_uid := auth.uid();
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION 'No autenticado.' USING ERRCODE = 'P0001';
+    END IF;
+
+    UPDATE public.users SET
+        deleted_at = now(),
+        username = 'deleted_user_' || v_uid::text,
+        avatar_url = NULL,
+        bio = NULL
+    WHERE id = v_uid AND deleted_at IS NULL;
+END;
+$$;
+
+
+--
+-- Name: set_avatar_url(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_avatar_url(p_avatar_url text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+DECLARE
+    v_uid uuid;
+    v_url text;
+BEGIN
+    v_uid := auth.uid();
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION 'No autenticado.' USING ERRCODE = 'P0001';
+    END IF;
+    IF p_avatar_url IS NULL THEN
+        UPDATE public.users SET avatar_url = NULL WHERE id = v_uid;
+        RETURN;
+    END IF;
+    v_url := btrim(p_avatar_url);
+    IF char_length(v_url) > 2048 OR v_url !~ '^https://[^[:space:]]+$' THEN
+        RAISE EXCEPTION 'La URL del avatar no es válida.' USING ERRCODE = 'P0001';
+    END IF;
+    UPDATE public.users SET avatar_url = v_url WHERE id = v_uid;
+END;
+$$;
+
+
+--
+-- Name: set_discovery_opt_in(boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_discovery_opt_in(p_value boolean) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'No autenticado.' USING ERRCODE = 'P0001';
+    END IF;
+    UPDATE public.users SET discovery_opt_in = p_value WHERE id = auth.uid();
+END;
+$$;
+
+
+--
+-- Name: set_read_receipts_enabled(boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_read_receipts_enabled(p_value boolean) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'No autenticado.' USING ERRCODE = 'P0001';
+    END IF;
+    UPDATE public.users SET read_receipts_enabled = p_value WHERE id = auth.uid();
+END;
+$$;
+
+
+--
+-- Name: set_profile_public(boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_profile_public(p_value boolean) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'No autenticado.' USING ERRCODE = 'P0001';
+    END IF;
+    UPDATE public.users SET profile_public = p_value WHERE id = auth.uid();
+END;
+$$;
+
 
 -- Name: check_signup_email(text); Type: FUNCTION; Schema: public; Owner: -
 --
@@ -338,9 +679,98 @@ GRANT ALL ON FUNCTION public.upsert_signup_tracker(p_email text, p_profile_creat
 -- Name: TABLE users; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.users TO anon;
-GRANT ALL ON TABLE public.users TO authenticated;
+-- Profile-RPC lockdown (2026-08-25): clients hold NO write privilege on
+-- public.users — every mutation goes through the SECURITY DEFINER RPC family
+-- defined above (create_my_profile / update_my_profile / delete_my_account /
+-- set_*). service_role keeps full access (Go admin CLI, pg_cron, seeds).
+REVOKE ALL ON TABLE public.users FROM anon;
+REVOKE ALL ON TABLE public.users FROM authenticated;
+GRANT SELECT ON TABLE public.users TO authenticated;
 GRANT ALL ON TABLE public.users TO service_role;
+
+--
+-- Name: FUNCTION sanitize_free_text(text, integer); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.sanitize_free_text(p_raw text, p_max_length integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.sanitize_free_text(p_raw text, p_max_length integer) TO service_role;
+
+--
+-- Name: FUNCTION sanitize_username(text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.sanitize_username(p_raw text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.sanitize_username(p_raw text) TO service_role;
+
+--
+-- Name: FUNCTION assert_username_shape(text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.assert_username_shape(p_value text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.assert_username_shape(p_value text) TO service_role;
+
+--
+-- Name: FUNCTION assert_date_of_birth(date); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.assert_date_of_birth(p_dob date) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.assert_date_of_birth(p_dob date) TO service_role;
+
+--
+-- Name: FUNCTION create_my_profile(text, date); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.create_my_profile(p_username text, p_date_of_birth date) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.create_my_profile(p_username text, p_date_of_birth date) TO authenticated;
+GRANT ALL ON FUNCTION public.create_my_profile(p_username text, p_date_of_birth date) TO service_role;
+
+--
+-- Name: FUNCTION update_my_profile(text, date); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.update_my_profile(p_bio text, p_date_of_birth date) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.update_my_profile(p_bio text, p_date_of_birth date) TO authenticated;
+GRANT ALL ON FUNCTION public.update_my_profile(p_bio text, p_date_of_birth date) TO service_role;
+
+--
+-- Name: FUNCTION delete_my_account(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.delete_my_account() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.delete_my_account() TO authenticated;
+GRANT ALL ON FUNCTION public.delete_my_account() TO service_role;
+
+--
+-- Name: FUNCTION set_avatar_url(text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.set_avatar_url(p_avatar_url text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.set_avatar_url(p_avatar_url text) TO authenticated;
+GRANT ALL ON FUNCTION public.set_avatar_url(p_avatar_url text) TO service_role;
+
+--
+-- Name: FUNCTION set_discovery_opt_in(boolean); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.set_discovery_opt_in(p_value boolean) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.set_discovery_opt_in(p_value boolean) TO authenticated;
+GRANT ALL ON FUNCTION public.set_discovery_opt_in(p_value boolean) TO service_role;
+
+--
+-- Name: FUNCTION set_read_receipts_enabled(boolean); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.set_read_receipts_enabled(p_value boolean) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.set_read_receipts_enabled(p_value boolean) TO authenticated;
+GRANT ALL ON FUNCTION public.set_read_receipts_enabled(p_value boolean) TO service_role;
+
+--
+-- Name: FUNCTION set_profile_public(boolean); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.set_profile_public(p_value boolean) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.set_profile_public(p_value boolean) TO authenticated;
+GRANT ALL ON FUNCTION public.set_profile_public(p_value boolean) TO service_role;
 
 
 --

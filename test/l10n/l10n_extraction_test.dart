@@ -68,6 +68,11 @@ const _dataAllowlist = <String>{
   'La contraseña debe tener al menos 8 caracteres y contener un número.',
   // password-policy message (I-46 — BuildContext-free constant in
   // lib/features/auth/password_policy.dart, same rationale as error strings)
+  'El nombre de usuario es obligatorio.',
+  'Debe tener al menos \$usernameMinLength caracteres.',
+  // username-policy messages (2026-08-24 fake-OTP-error fix —
+  // BuildContext-free constants in lib/features/auth/logic/
+  // username_policy.dart, same rationale as error strings / password_policy)
 };
 
 /// Common Spanish stopwords that no user-facing literal may contain once

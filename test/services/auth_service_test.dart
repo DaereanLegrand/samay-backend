@@ -151,22 +151,17 @@ void main() {
   });
 
   group('AuthService.softDeleteUser', () {
-    test('nulls out the profile and stamps deleted_at', () async {
+    test('delegates to the delete_my_account RPC — no direct table write',
+        () async {
       when(() => auth.currentUser).thenReturn(_currentUser());
-      final users = MockQueryBuilder();
-      when(() => client.from('users')).thenAnswer((_) => users);
-      final update = ResolvingBuilder<dynamic>(null);
-      when(() => users.update(any())).thenAnswer((_) => update);
+      when(
+        () => client.rpc('delete_my_account'),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
 
       await service().softDeleteUser();
 
-      final payload =
-          verify(() => users.update(captureAny())).captured.single as Map;
-      expect(payload['deleted_at'], isNotEmpty);
-      expect(payload['username'], 'deleted_user_$_userId');
-      expect(payload['avatar_url'], isNull);
-      expect(payload['bio'], isNull);
-      expect(update.filters.single.value, _userId);
+      verify(() => client.rpc('delete_my_account')).called(1);
+      verifyNever(() => client.from('users'));
     });
 
     test('throws without an authenticated session', () async {
@@ -178,19 +173,15 @@ void main() {
 
   group('AuthService.createUserProfile', () {
     test(
-      'inserts the users row with the config grant + ledger + tracker',
+      'delegates to the create_my_profile RPC + tracker(true) — '
+      'no direct table writes, no client-side ledger',
       () async {
         when(() => auth.currentUser).thenReturn(_currentUser());
-        when(() => config.getSignupShardGrant()).thenAnswer((_) async => 256);
-        final users = MockQueryBuilder();
-        final ledger = MockQueryBuilder();
-        when(() => client.from('users')).thenAnswer((_) => users);
-        when(() => client.from('shard_ledger')).thenAnswer((_) => ledger);
         when(
-          () => users.insert(any()),
-        ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
-        when(
-          () => ledger.insert(any()),
+          () => client.rpc(
+            'create_my_profile',
+            params: any(named: 'params'),
+          ),
         ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
         when(
           () =>
@@ -199,31 +190,24 @@ void main() {
 
         await service().createUserProfile(
           username: '  Dana  ',
-          avatarUrl: 'https://cdn.example/a.png',
           dateOfBirth: '2000-01-01',
         );
 
-        final userPayload =
-            verify(() => users.insert(captureAny())).captured.single as Map;
-        expect(userPayload['id'], _userId);
-        expect(
-          userPayload['username'],
-          'Dana',
-          reason: 'username goes through InputSanitizer.sanitizeUsername',
-        );
-        expect(userPayload['avatar_url'], 'https://cdn.example/a.png');
-        expect(userPayload['date_of_birth'], '2000-01-01');
-        expect(userPayload['personal_shards'], 256);
-        expect(userPayload['preshards'], 0);
-        expect(userPayload['subscription_tier'], 'free');
-        expect(userPayload['banned_at'], isNull);
-        expect(userPayload['deleted_at'], isNull);
+        final profileParams =
+            verify(
+              () => client.rpc(
+                'create_my_profile',
+                params: captureAny(named: 'params'),
+              ),
+            ).captured.single as Map;
+        // The username is sanitized CLIENT-side before the RPC (defense in
+        // depth — the RPC sanitizes + validates again server-side).
+        expect(profileParams['p_username'], 'Dana');
+        expect(profileParams['p_date_of_birth'], '2000-01-01');
 
-        final ledgerPayload =
-            verify(() => ledger.insert(captureAny())).captured.single as Map;
-        expect(ledgerPayload['user_id'], _userId);
-        expect(ledgerPayload['delta'], 256);
-        expect(ledgerPayload['reason'], 'admin_grant');
+        verifyNever(() => client.from('users'));
+        verifyNever(() => client.from('shard_ledger'));
+        verifyNever(() => config.getSignupShardGrant());
 
         verify(
           () => client.rpc(
@@ -237,12 +221,12 @@ void main() {
       },
     );
 
-    test('propagates a duplicate-username PostgrestException', () async {
+    test('propagates a duplicate-username PostgrestException from the RPC',
+        () async {
       when(() => auth.currentUser).thenReturn(_currentUser());
-      when(() => config.getSignupShardGrant()).thenAnswer((_) async => 256);
-      final users = MockQueryBuilder();
-      when(() => client.from('users')).thenAnswer((_) => users);
-      when(() => users.insert(any())).thenThrow(
+      when(
+        () => client.rpc('create_my_profile', params: any(named: 'params')),
+      ).thenThrow(
         const PostgrestException(
           message:
               'duplicate key value violates unique constraint "users_username_key"',
@@ -255,6 +239,13 @@ void main() {
       );
       expect(err, isA<PostgrestException>());
       expectMapped(err, ValidationError);
+    });
+
+    test('throws without an authenticated session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+
+      expect(() => service().createUserProfile(username: 'dana'),
+          throwsA(isA<Exception>()));
     });
   });
 

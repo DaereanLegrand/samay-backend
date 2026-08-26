@@ -562,7 +562,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), 'dana');
+      // 'sofia' satisfies the username policy (min 5 graphemes) so the save
+      // reaches createProfile, whose failure surfaces as the field error.
+      await tester.enterText(find.byType(TextField), 'sofia');
       await tester.tap(find.widgetWithText(TextButton, 'Guardar'));
       await tester.pumpAndSettle();
 

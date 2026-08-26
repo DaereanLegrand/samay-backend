@@ -63,16 +63,25 @@ void main() {
       when(() => users.select(any())).thenAnswer(
         (_) => ResolvingBuilder<PostgrestList>({'discovery_opt_in': false}),
       );
-      final update = ResolvingBuilder<dynamic>(null);
-      when(() => users.update(any())).thenAnswer((_) => update);
+      // Profile-RPC lockdown (2026-08-25): the toggle goes through the
+      // set_discovery_opt_in RPC — no direct table write.
+      when(
+        () => client.rpc('set_discovery_opt_in', params: any(named: 'params')),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>(null));
 
       final container = _container(service(), discovery: discoveryService());
       expect(await container.read(discoveryOptInProvider.future), isFalse);
 
       await container.read(discoveryOptInProvider.notifier).setOptIn(true);
 
-      verify(() => users.update({'discovery_opt_in': true})).called(1);
-      expect(update.filters.single.value, _userId);
+      final params = verify(
+        () => client.rpc(
+          'set_discovery_opt_in',
+          params: captureAny(named: 'params'),
+        ),
+      ).captured.single as Map;
+      expect(params['p_value'], isTrue);
+      verifyNever(() => users.update(any()));
       expect(container.read(discoveryOptInProvider).valueOrNull, isTrue);
     });
 
@@ -82,7 +91,9 @@ void main() {
       when(() => users.select(any())).thenAnswer(
         (_) => ResolvingBuilder<PostgrestList>({'discovery_opt_in': false}),
       );
-      when(() => users.update(any())).thenThrow(
+      when(
+        () => client.rpc('set_discovery_opt_in', params: any(named: 'params')),
+      ).thenThrow(
         const PostgrestException(
           message: 'permission denied for table users',
           code: '42501',

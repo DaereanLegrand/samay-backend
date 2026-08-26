@@ -311,11 +311,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), '  dana  ');
+      // 'sofia' satisfies the username policy (min 5 graphemes) so the save
+      // path reaches createProfile.
+      await tester.enterText(find.byType(TextField), '  sofia  ');
       await tester.tap(find.widgetWithText(TextButton, 'Guardar'));
       await tester.pumpAndSettle();
 
-      expect(notifier.createProfileCalls, [('dana', '2000-01-15')]);
+      expect(notifier.createProfileCalls, [('sofia', '2000-01-15')]);
       expect(find.text('main-feed-marker'), findsOneWidget);
     });
   });
