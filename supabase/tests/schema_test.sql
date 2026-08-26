@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(504);
+SELECT plan(617);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -1127,13 +1127,16 @@ SELECT ok(
 SELECT col_default_is('users', 'discovery_opt_in', 'false',
     'users.discovery_opt_in defaults to false (discovery OFF by default)');
 
--- 43b: user-owned columns keep UPDATE for authenticated
+-- 43b: user-owned columns moved behind RPCs (2026-08-25 profile-RPC
+-- lockdown): clients lost table/column UPDATE entirely — discovery_opt_in is
+-- mutated through set_discovery_opt_in(), interest_tags has no client setter
+-- (no writers exist). The UPDATE-able pins from the PFND era are inverted.
 SELECT ok(
-    has_column_privilege('authenticated', 'public.users', 'interest_tags', 'UPDATE'),
-    'users.interest_tags is UPDATE-able by authenticated (user-owned, PFND)');
+    NOT has_column_privilege('authenticated', 'public.users', 'interest_tags', 'UPDATE'),
+    'users.interest_tags is NOT UPDATE-able by authenticated (RPC lockdown 2026-08-25)');
 SELECT ok(
-    has_column_privilege('authenticated', 'public.users', 'discovery_opt_in', 'UPDATE'),
-    'users.discovery_opt_in is UPDATE-able by authenticated (user-owned, PFND)');
+    NOT has_column_privilege('authenticated', 'public.users', 'discovery_opt_in', 'UPDATE'),
+    'users.discovery_opt_in is NOT UPDATE-able by authenticated (mutated via set_discovery_opt_in)');
 
 -- 43c: discovery_view
 SELECT has_view('discovery_view',
@@ -2018,6 +2021,502 @@ SELECT function_privs_are('public', 'mark_group_messages_read', ARRAY['uuid']::n
     'mark_group_messages_read is not PUBLIC-EXECUTABLE');
 SELECT function_privs_are('public', 'mark_group_messages_read', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
     'mark_group_messages_read is authenticated-EXECUTABLE');
+
+-- ============================================================
+-- SECTION 60: users profile-RPC lockdown (baseline 020_core/02_users.sql,
+-- 2026-08-25 directive: clients may NEVER write the table directly).
+--   50a. users_username_shape CHECK (name-anchored) + NFKC clause.
+--   50b. Helper functions exist: sanitize_free_text / sanitize_username /
+--        assert_username_shape / assert_date_of_birth.
+--   50c. The 7 client-facing RPCs (create_my_profile, update_my_profile,
+--        delete_my_account, set_avatar_url, set_discovery_opt_in,
+--        set_read_receipts_enabled, set_profile_public): SECURITY DEFINER +
+--        empty search_path + PUBLIC-revoked + authenticated-EXECUTABLE.
+--   50d. Table privilege lockdown: anon/authenticated hold NO INSERT/UPDATE;
+--        authenticated keeps SELECT; service_role keeps everything.
+--   50e. Behavioral matrix under authenticated-style JWT claims: happy
+--        create (defaults + shard_ledger grant), duplicate, username policy
+--        raises, DOB rules (required/adult/set-once), bio set/clear/cap,
+--        tombstone rename + re-create block, CHECK rejects raw writes even
+--        from privileged roles, direct client writes denied (42501).
+-- ============================================================
+
+-- 60a: constraint
+SELECT ok(
+    (SELECT count(*) = 1 FROM pg_constraint
+     WHERE conrelid = 'public.users'::regclass
+       AND conname = 'users_username_shape'
+       AND contype = 'c'),
+    'users.users_username_shape CHECK exists (profile-RPC lockdown)'
+);
+SELECT ok(
+    (SELECT pg_get_constraintdef(oid) ~* 'normalize\(.*NFKC'
+     FROM pg_constraint
+     WHERE conrelid = 'public.users'::regclass
+       AND conname = 'users_username_shape'),
+    'users_username_shape enforces NFKC stability'
+);
+
+-- 60b: helpers
+SELECT has_function('sanitize_free_text', ARRAY['text', 'integer'],
+    'sanitize_free_text(p_raw, p_max_length) exists');
+SELECT has_function('sanitize_username', ARRAY['text'],
+    'sanitize_username(p_raw) exists');
+SELECT has_function('assert_username_shape', ARRAY['text'],
+    'assert_username_shape(p_value) exists');
+SELECT has_function('assert_date_of_birth', ARRAY['date'],
+    'assert_date_of_birth(p_dob) exists');
+
+-- 60c: the RPC family
+SELECT has_function('create_my_profile', ARRAY['text', 'date'],
+    'create_my_profile(p_username, p_date_of_birth) exists');
+SELECT has_function('update_my_profile', ARRAY['text', 'date'],
+    'update_my_profile(p_bio, p_date_of_birth) exists');
+SELECT has_function('delete_my_account', ARRAY[]::name[],
+    'delete_my_account() exists');
+SELECT has_function('set_avatar_url', ARRAY['text'],
+    'set_avatar_url(p_avatar_url) exists');
+SELECT has_function('set_discovery_opt_in', ARRAY['boolean'],
+    'set_discovery_opt_in(p_value) exists');
+SELECT has_function('set_read_receipts_enabled', ARRAY['boolean'],
+    'set_read_receipts_enabled(p_value) exists');
+SELECT has_function('set_profile_public', ARRAY['boolean'],
+    'set_profile_public(p_value) exists');
+
+SELECT is_definer('public', 'create_my_profile', ARRAY['text', 'date'],
+    'create_my_profile is SECURITY DEFINER');
+SELECT is_definer('public', 'update_my_profile', ARRAY['text', 'date'],
+    'update_my_profile is SECURITY DEFINER');
+SELECT is_definer('public', 'delete_my_account', ARRAY[]::name[],
+    'delete_my_account is SECURITY DEFINER');
+SELECT is_definer('public', 'set_avatar_url', ARRAY['text'],
+    'set_avatar_url is SECURITY DEFINER');
+SELECT is_definer('public', 'set_discovery_opt_in', ARRAY['boolean'],
+    'set_discovery_opt_in is SECURITY DEFINER');
+SELECT is_definer('public', 'set_read_receipts_enabled', ARRAY['boolean'],
+    'set_read_receipts_enabled is SECURITY DEFINER');
+SELECT is_definer('public', 'set_profile_public', ARRAY['boolean'],
+    'set_profile_public is SECURITY DEFINER');
+
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'create_my_profile'),
+    'create_my_profile sets search_path = empty');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'update_my_profile'),
+    'update_my_profile sets search_path = empty');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'delete_my_account'),
+    'delete_my_account sets search_path = empty');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'set_avatar_url'),
+    'set_avatar_url sets search_path = empty');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'set_discovery_opt_in'),
+    'set_discovery_opt_in sets search_path = empty');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'set_read_receipts_enabled'),
+    'set_read_receipts_enabled sets search_path = empty');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'set_profile_public'),
+    'set_profile_public sets search_path = empty');
+
+SELECT function_privs_are('public', 'create_my_profile', ARRAY['text','date']::name[], 'public', ARRAY[]::name[],
+    'create_my_profile is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'update_my_profile', ARRAY['text','date']::name[], 'public', ARRAY[]::name[],
+    'update_my_profile is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'delete_my_account', ARRAY[]::name[], 'public', ARRAY[]::name[],
+    'delete_my_account is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'set_avatar_url', ARRAY['text']::name[], 'public', ARRAY[]::name[],
+    'set_avatar_url is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'set_discovery_opt_in', ARRAY['boolean']::name[], 'public', ARRAY[]::name[],
+    'set_discovery_opt_in is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'set_read_receipts_enabled', ARRAY['boolean']::name[], 'public', ARRAY[]::name[],
+    'set_read_receipts_enabled is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'set_profile_public', ARRAY['boolean']::name[], 'public', ARRAY[]::name[],
+    'set_profile_public is not PUBLIC-EXECUTABLE');
+
+SELECT function_privs_are('public', 'create_my_profile', ARRAY['text','date']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'create_my_profile is authenticated-EXECUTABLE');
+SELECT function_privs_are('public', 'update_my_profile', ARRAY['text','date']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'update_my_profile is authenticated-EXECUTABLE');
+SELECT function_privs_are('public', 'delete_my_account', ARRAY[]::name[], 'authenticated', ARRAY['EXECUTE'],
+    'delete_my_account is authenticated-EXECUTABLE');
+SELECT function_privs_are('public', 'set_avatar_url', ARRAY['text']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'set_avatar_url is authenticated-EXECUTABLE');
+SELECT function_privs_are('public', 'set_discovery_opt_in', ARRAY['boolean']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'set_discovery_opt_in is authenticated-EXECUTABLE');
+SELECT function_privs_are('public', 'set_read_receipts_enabled', ARRAY['boolean']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'set_read_receipts_enabled is authenticated-EXECUTABLE');
+SELECT function_privs_are('public', 'set_profile_public', ARRAY['boolean']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'set_profile_public is authenticated-EXECUTABLE');
+
+-- 60d: table privilege lockdown
+SELECT ok(
+    NOT has_table_privilege('authenticated', 'public.users', 'INSERT')
+        AND NOT has_table_privilege('authenticated', 'public.users', 'UPDATE'),
+    'authenticated holds NO INSERT/UPDATE on users (RPC-mediated writes only)'
+);
+SELECT ok(
+    NOT has_table_privilege('anon', 'public.users', 'INSERT')
+        AND NOT has_table_privilege('anon', 'public.users', 'UPDATE'),
+    'anon holds NO INSERT/UPDATE on users'
+);
+SELECT ok(
+    has_table_privilege('authenticated', 'public.users', 'SELECT'),
+    'authenticated keeps own-row SELECT (RLS-gated)'
+);
+SELECT ok(
+    has_table_privilege('service_role', 'public.users', 'UPDATE')
+        AND has_table_privilege('service_role', 'public.users', 'INSERT'),
+    'service_role keeps full access (admin CLI / cron / seeds)'
+);
+
+-- 60e: behavioral matrix (JWT-claims style of Sections 37/44)
+-- UID family unique to this section.
+SELECT set_config('request.jwt.claims',
+    '{"sub":"47474747-4747-4747-4747-474747474701","role":"authenticated"}', false);
+
+SELECT lives_ok(
+    $$SELECT public.create_my_profile('  Sofia  ', DATE '2000-01-15')$$,
+    'create_my_profile happy path sanitizes + inserts'
+);
+SELECT ok(
+    (SELECT username = 'Sofia'
+        AND personal_shards >= 0
+        AND preshards = 0
+        AND subscription_tier = 'free'
+        AND bio IS NULL
+        AND avatar_url IS NULL
+        AND banned_at IS NULL
+        AND deleted_at IS NULL
+     FROM public.users
+     WHERE id = '47474747-4747-4747-4747-474747474701'),
+    'created row carries sanitized username + economy defaults'
+);
+SELECT ok(
+    (SELECT l.delta = COALESCE(
+        (SELECT value::integer FROM public.app_config WHERE key = 'economy.user_signup_shards'), 0)
+        AND l.reason = 'admin_grant'
+     FROM public.shard_ledger l
+     WHERE l.user_id = '47474747-4747-4747-4747-474747474701'),
+    'signup shard_ledger grant written atomically by the RPC'
+);
+SELECT throws_ok(
+    $$SELECT public.create_my_profile('other', DATE '2000-01-15')$$,
+    'P0001', 'Tu perfil ya existe.',
+    'duplicate profile creation raises'
+);
+SELECT throws_ok(
+    $$SELECT public.create_my_profile('abc', DATE '2000-01-15')$$,
+    'P0001', 'Debe tener al menos 5 caracteres.',
+    'username below minimum raises the client-parity message'
+);
+SELECT throws_ok(
+    $$SELECT public.create_my_profile(repeat('x', 65), DATE '2000-01-15')$$,
+    'P0001', 'El nombre de usuario es demasiado largo.',
+    'username above the code-point ceiling raises'
+);
+SELECT throws_ok(
+    $$SELECT public.create_my_profile('validname', DATE '2020-01-01')$$,
+    'P0001', 'Debes tener 18 años para usar Samay.',
+    'underage date_of_birth raises'
+);
+SELECT throws_ok(
+    $$SELECT public.create_my_profile(NULL, DATE '2000-01-15')$$,
+    'P0001', 'El nombre de usuario es obligatorio.',
+    'NULL username raises'
+);
+
+-- bio: sanitize-on-write, cap at 160 code points, '' clears
+SELECT lives_ok(
+    $$SELECT public.update_my_profile(E'  Hola \u200B mundo ', NULL)$$,
+    'update_my_profile accepts a bio (control chars stripped server-side)'
+);
+SELECT is(
+    (SELECT bio FROM public.users WHERE id = '47474747-4747-4747-4747-474747474701'),
+    'Hola  mundo',
+    'bio stored control-char-free and trimmed (inner spacing preserved — client parity)'
+);
+SELECT throws_ok(
+    $$SELECT public.update_my_profile(repeat('b', 161), NULL)$$,
+    'P0001', 'El texto no puede superar 160 caracteres.',
+    'bio above 160 code points raises'
+);
+SELECT lives_ok(
+    $$SELECT public.update_my_profile('', NULL)$$,
+    'empty-string bio clears the field'
+);
+SELECT ok(
+    (SELECT bio IS NULL FROM public.users WHERE id = '47474747-4747-4747-4747-474747474701'),
+    'cleared bio persists as NULL'
+);
+
+-- DOB is set-once: heal a legacy NULL, accept identical no-op, refuse change
+SELECT lives_ok(
+    $$UPDATE public.users SET date_of_birth = NULL
+      WHERE id = '47474747-4747-4747-4747-474747474701'$$,
+    'privileged heal: DOB cleared (simulates a pre-funnel legacy row)'
+);
+SELECT lives_ok(
+    $$SELECT public.update_my_profile(NULL, DATE '1999-05-05')$$,
+    'DOB heal: NULL -> value accepted through the RPC'
+);
+SELECT is(
+    (SELECT date_of_birth FROM public.users WHERE id = '47474747-4747-4747-4747-474747474701'),
+    DATE '1999-05-05',
+    'healed DOB persisted'
+);
+SELECT lives_ok(
+    $$SELECT public.update_my_profile(NULL, DATE '1999-05-05')$$,
+    'identical DOB re-submission is an allowed no-op (set-once semantics)'
+);
+SELECT throws_ok(
+    $$SELECT public.update_my_profile(NULL, DATE '1999-06-06')$$,
+    'P0001', 'La fecha de nacimiento no puede modificarse.',
+    'changing an existing DOB raises (age gate stays unfarmable)'
+);
+
+-- delete: tombstone rename + re-create block
+SELECT lives_ok(
+    $$SELECT public.delete_my_account()$$,
+    'delete_my_account soft-deletes the own row'
+);
+SELECT ok(
+    (SELECT deleted_at IS NOT NULL
+        AND username = 'deleted_user_47474747-4747-4747-4747-474747474701'
+        AND avatar_url IS NULL
+        AND bio IS NULL
+     FROM public.users
+     WHERE id = '47474747-4747-4747-4747-474747474701'),
+    'tombstone: deleted_at stamped, renamed, PII columns nulled'
+);
+SELECT throws_ok(
+    $$SELECT public.create_my_profile('sofia', DATE '2000-01-15')$$,
+    'P0001', 'Tu perfil ya existe.',
+    're-creating over a tombstone raises (row still exists)'
+);
+
+-- CHECK constraint fires even for PRIVILEGED raw writers
+SELECT throws_ok(
+    $$INSERT INTO public.users (id, username) VALUES
+        ('47474747-4747-4747-4747-474747474702', 'abc')$$,
+    '23514', 'new row for relation "users" violates check constraint "users_username_shape"',
+    'users_username_shape rejects a short RAW write (any role)'
+);
+SELECT throws_ok(
+    $$INSERT INTO public.users (id, username) VALUES
+        ('47474747-4747-4747-4747-474747474703', 'ｓｏｆｉａ')$$,
+    '23514', 'new row for relation "users" violates check constraint "users_username_shape"',
+    'users_username_shape rejects non-NFKC usernames (any role)'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.users (id, username, deleted_at) VALUES
+        ('47474747-4747-4747-4747-474747474704',
+         'deleted_user_' || repeat('y', 70), now())$$,
+    'tombstone rows are exempt from the username shape CHECK'
+);
+
+-- clients cannot bypass the RPCs — the core lockdown pin
+SET ROLE authenticated;
+SELECT throws_ok(
+    $$UPDATE public.users SET bio = 'hacked' WHERE id = auth.uid()$$,
+    '42501', 'permission denied for table users',
+    'authenticated direct UPDATE is DENIED (no table privilege)'
+);
+RESET ROLE;
+SET ROLE anon;
+SELECT throws_ok(
+    $$INSERT INTO public.users (id, username) VALUES
+        ('47474747-4747-4747-4747-474747474705', 'hacker')$$,
+    '42501', 'permission denied for table users',
+    'anon direct INSERT is DENIED (no table privilege)'
+);
+RESET ROLE;
+
+-- setters persist through the scoped RPCs (back on the tombstone? no —
+-- setters target the live row; use a second fresh identity)
+SELECT set_config('request.jwt.claims',
+    '{"sub":"47474747-4747-4747-4747-474747474706","role":"authenticated"}', false);
+SELECT lives_ok(
+    $$INSERT INTO public.users (id, username, date_of_birth) VALUES
+        ('47474747-4747-4747-4747-474747474706', 'setteruser', DATE '1990-01-01')$$,
+    'second fixture inserted (privileged, CHECK-compliant)'
+);
+SELECT lives_ok($$SELECT public.set_avatar_url('https://cdn.example/a.png')$$,
+    'set_avatar_url accepts an https URL');
+SELECT throws_ok(
+    $$SELECT public.set_avatar_url('http://insecure.example/a.png')$$,
+    'P0001', 'La URL del avatar no es válida.',
+    'set_avatar_url rejects non-https URLs'
+);
+SELECT lives_ok($$SELECT public.set_avatar_url(NULL)$$,
+    'set_avatar_url(NULL) clears the avatar');
+SELECT lives_ok($$SELECT public.set_discovery_opt_in(true)$$,
+    'set_discovery_opt_in persists');
+SELECT lives_ok($$SELECT public.set_read_receipts_enabled(false)$$,
+    'set_read_receipts_enabled persists');
+SELECT lives_ok($$SELECT public.set_profile_public(true)$$,
+    'set_profile_public persists');
+SELECT ok(
+    (SELECT avatar_url IS NULL
+        AND discovery_opt_in IS TRUE
+        AND read_receipts_enabled IS FALSE
+        AND profile_public IS TRUE
+     FROM public.users
+     WHERE id = '47474747-4747-4747-4747-474747474706'),
+    'all four setter effects persisted on the own row'
+);
+
+-- helper sanity: sanitizer parity with the Dart client
+SELECT is(
+    public.sanitize_username(E'\uFF33\uFF4F\uFF46\uFF49\uFF41'),
+    'Sofia',
+    'sanitize_username NFKC-folds fullwidth forms (client parity)'
+);
+SELECT is(
+    public.sanitize_free_text(E'line1\u000Aline2', 160),
+    'line1line2',
+    'sanitize_free_text strips control characters'
+);
+SELECT is(
+    public.sanitize_free_text(NULL, 160),
+    NULL,
+    'sanitize_free_text(NULL) is NULL'
+);
+
+-- restore a clean claims context for any later sections
+SELECT set_config('request.jwt.claims', '', true);
+
+-- ============================================================
+-- SECTION 61: search abuse protection (baseline 130_search/01_search_rpc.sql,
+-- OWASP API4 hardening of the user-search endpoint).
+--   61a. search_users(p_query text): SECURITY DEFINER + empty search_path +
+--        PUBLIC-revoked + authenticated-EXECUTABLE.
+--   61b. search_rate_limits counter table: PK/FK shape, defaults, RLS
+--        enabled + FORCED, zero client privileges.
+--   61c. idx_users_username_prefix uses text_pattern_ops (allowed searches
+--        must be index scans).
+--   61d. Behavioral matrix under JWT claims: prefix match with caller
+--        exclusion, SR002 on short/long queries, SR003 for anon, SR001 once
+--        the 60/rolling-minute quota is exceeded, window-expiry reset,
+--        LIKE-wildcard escaping.
+-- ============================================================
+
+-- 61a: RPC shape + privileges
+SELECT has_function('search_users', ARRAY['text'],
+    'search_users(p_query text) exists (130_search)');
+SELECT is_definer('public', 'search_users', ARRAY['text'],
+    'search_users is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'search_users'),
+    'search_users sets search_path = '''' (130_search)'
+);
+SELECT function_privs_are('public', 'search_users', ARRAY['text']::name[], 'public', ARRAY[]::name[],
+    'search_users is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'search_users', ARRAY['text']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'search_users is authenticated-EXECUTABLE');
+
+-- 61b: counter table
+SELECT has_table('search_rate_limits',
+    'search_rate_limits exists (130_search)');
+SELECT has_pk('search_rate_limits',
+    'search_rate_limits has a primary key (user_id)');
+SELECT col_type_is('search_rate_limits', 'user_id', 'uuid',
+    'search_rate_limits.user_id is uuid');
+SELECT col_not_null('search_rate_limits', 'user_id',
+    'search_rate_limits.user_id is NOT NULL');
+SELECT col_type_is('search_rate_limits', 'window_start', 'timestamp with time zone',
+    'search_rate_limits.window_start is timestamptz');
+SELECT col_not_null('search_rate_limits', 'window_start',
+    'search_rate_limits.window_start is NOT NULL');
+SELECT col_default_is('search_rate_limits', 'window_start', 'now()',
+    'search_rate_limits.window_start defaults now()');
+SELECT col_type_is('search_rate_limits', 'search_count', 'integer',
+    'search_rate_limits.search_count is integer');
+SELECT col_not_null('search_rate_limits', 'search_count',
+    'search_rate_limits.search_count is NOT NULL');
+SELECT col_default_is('search_rate_limits', 'search_count', '0',
+    'search_rate_limits.search_count defaults 0');
+SELECT fk_ok('search_rate_limits', ARRAY['user_id'::name], 'users', ARRAY['id'::name],
+    'search_rate_limits.user_id cascades from users.id (ON DELETE CASCADE)');
+SELECT ok(
+    (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.search_rate_limits'::regclass),
+    'search_rate_limits has RLS enabled'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.search_rate_limits'::regclass),
+    'search_rate_limits has FORCE ROW LEVEL SECURITY'
+);
+SELECT ok(
+    NOT has_table_privilege('anon', 'public.search_rate_limits', 'SELECT'),
+    'anon holds NO privilege on search_rate_limits'
+);
+SELECT ok(
+    NOT has_table_privilege('authenticated', 'public.search_rate_limits', 'INSERT'),
+    'authenticated holds NO write privilege on search_rate_limits'
+);
+
+-- 61c: prefix index
+SELECT ok(
+    (SELECT count(*) = 1 FROM pg_indexes
+     WHERE indexname = 'idx_users_username_prefix'
+       AND indexdef ILIKE '%text_pattern_ops%'),
+    'idx_users_username_prefix uses text_pattern_ops (ILIKE-prefix index scans)'
+);
+
+-- 61d: behavior under JWT claims
+SELECT lives_ok(
+    $$INSERT INTO public.users (id, username, date_of_birth) VALUES
+        ('88888888-8888-8888-8888-888888881101', 'pgtapsearcha', DATE '1990-06-01')$$,
+    'search fixture A inserted (privileged, CHECK-compliant)'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.users (id, username, date_of_birth) VALUES
+        ('88888888-8888-8888-8888-888888881102', 'pgtapsearchb', DATE '1990-06-02')$$,
+    'search fixture B inserted'
+);
+SELECT set_config('request.jwt.claims',
+    '{"sub":"88888888-8888-8888-8888-888888881101","role":"authenticated"}', false);
+SELECT is(
+    (SELECT count(*) FROM public.search_users('pgtapsea')),
+    1::bigint,
+    'prefix match returns only the OTHER user (caller excluded)'
+);
+SELECT throws_ok($$SELECT public.search_users('pgta')$$,
+    'SR002', 'invalid_query_length',
+    'sub-5-char query rejected (SR002)');
+SELECT throws_ok(
+    $$SELECT public.search_users('pgtapsearchapgtapsearchapgtapsearchapgtapsearchapgtapsea')$$,
+    'SR002', 'invalid_query_length',
+    '51-char query rejected (SR002)'
+);
+SELECT set_config('request.jwt.claims', '', false);
+SELECT throws_ok($$SELECT public.search_users('pgtapsea')$$,
+    'SR003', 'not_authenticated',
+    'anon caller rejected (SR003)');
+SELECT set_config('request.jwt.claims',
+    '{"sub":"88888888-8888-8888-8888-888888881101","role":"authenticated"}', false);
+SELECT lives_ok(
+    $$INSERT INTO public.search_rate_limits (user_id, window_start, search_count)
+      VALUES ('88888888-8888-8888-8888-888888881101', now(), 60)
+      ON CONFLICT (user_id) DO UPDATE SET search_count = 60, window_start = now()$$,
+    'quota counter seeded to 60 (service-side, mirrors opt-015)'
+);
+SELECT throws_ok($$SELECT public.search_users('pgtapsea')$$,
+    'SR001', 'search_rate_limit_exceeded',
+    '61st search inside the window raises SR001');
+UPDATE public.search_rate_limits
+   SET window_start = now() - interval '2 minutes'
+ WHERE user_id = '88888888-8888-8888-8888-888888881101';
+SELECT lives_ok($$SELECT public.search_users('pgtapsea')$$,
+    'expired window resets the quota (call succeeds again)');
+SELECT is(
+    (SELECT count(*) FROM public.search_users('pgtapsea_%')),
+    0::bigint,
+    'LIKE wildcards in the query are escaped (no %/_ expansion)'
+);
+SELECT set_config('request.jwt.claims', '', true);
 
 SELECT * FROM finish();
 ROLLBACK;
