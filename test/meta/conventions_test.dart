@@ -265,6 +265,8 @@ void main() {
       "RoutePaths.eventCollage(':eventId')": 'AppFeatureFlag.photoUpload',
       "RoutePaths.createGroupEvent(':groupId')": 'AppFeatureFlag.events',
       "RoutePaths.minigames(':groupId')": 'AppFeatureFlag.minigames',
+      'RoutePaths.minigamesDirect': 'AppFeatureFlag.minigames',
+      "RoutePaths.minigameSession(':sessionId')": 'AppFeatureFlag.minigames',
       "RoutePaths.chat(':chatId')": 'AppFeatureFlag.chat',
       'RoutePaths.chatList': 'AppFeatureFlag.chat',
       "RoutePaths.qr(':eventId')": 'AppFeatureFlag.qr',
@@ -610,6 +612,131 @@ void main() {
             'ad-hoc hex colors in shared widgets — every color must '
             'come from a design token (design doc §8 "Extending the '
             'system"): $offenders',
+      );
+    });
+  });
+
+  group('visual-pinning guard (2026-08-27 — token-budget)', () {
+    // The *_restyle_test.dart visual-pinning files were deleted (token-budget
+    // decision): exact visual assertions (BoxDecoration.shape, exact
+    // color-token equality on widget internals, exact fontSize) break on
+    // every token/spacing tweak and force an expensive test-repair loop.
+    // Token VALUES are pinned once in test/design_tokens/, the theme contract
+    // in test/theme/app_theme_test.dart, and each widget's behavior in
+    // test/widgets/. This guard bans writing NEW visual-pinning assertions
+    // anywhere outside those canonical owners.
+    //
+    // Canonical owners exempt from the guard (they PIN values by design):
+    //   * test/design_tokens/        — the token values themselves
+    //   * test/theme/                — ThemeData composition of the tokens
+    //   * test/widgets/              — per-widget behavioral contracts
+    //   * test/perf/list_view_builder_test.dart — pre-existing itemExtent pin
+    //   * lib/core/design_tokens/    — the token definitions (source)
+    //   * lib/core/theme/            — the theme definitions (source)
+    final exempt = <String>[
+      '$root/test/design_tokens',
+      '$root/test/theme',
+      '$root/test/widgets',
+      '$root/test/perf/list_view_builder_test.dart',
+      '$root/lib/core/design_tokens',
+      '$root/lib/core/theme',
+    ];
+
+    // Shape pinning: asserting a widget's BoxDecoration.shape or exact
+    // decoration shape — a pure-layout detail that churns on restyle.
+    final shapePin = RegExp(r'decoration\.shape');
+    // Exact fontSize pinned to a token/scale arithmetic (the deleted
+    // restyle pattern: `expect(x.style?.fontSize, AppSpacing.avatar * 0.25)`),
+    // which breaks every time a spacing/type scale is tuned.
+    final fontSizeToken = RegExp(
+      r'\.fontSize,?\s*$|\.fontSize\s*=\s*App|fontSize:\s*App',
+    );
+
+    test('no visual-pinning assertions outside the canonical owners', () {
+      final offenders = <String>[];
+      final files = filesUnder('test')
+          .where((f) => f.path.endsWith('.dart'))
+          .toList();
+      for (final f in files) {
+        if (exempt.any((e) => f.path.startsWith(e))) continue;
+        final lines = File(f.path).readAsLinesSync();
+        for (var i = 0; i < lines.length; i++) {
+          final line = lines[i];
+          if (shapePin.hasMatch(line)) {
+            offenders.add('${relative(f.path)}:${i + 1}: $line');
+            continue;
+          }
+          // fontSize pinned to a token on the same line OR the next line
+          // (the deleted files split the expect across two lines).
+          if (fontSizeToken.hasMatch(line)) {
+            final nextLine = i + 1 < lines.length ? lines[i + 1] : '';
+            final nearby = '$line\n$nextLine';
+            if (RegExp(
+              r'\.fontSize[^\n]*\n[^\n]*(App(Spacing|Typography)|\.\d+\s*\*)',
+            ).hasMatch(nearby) ||
+                RegExp(r'\.fontSize[^\n]*(App(Spacing|Typography)|\.\d+\s*\*)')
+                    .hasMatch(line)) {
+              offenders.add('${relative(f.path)}:${i + 1}: $line');
+            }
+          }
+        }
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            'visual-pinning assertions (BoxDecoration shape / exact '
+            'fontSize-vs-token equality on widget internals) are banned '
+            'outside test/design_tokens, test/theme, test/widgets — pin '
+            'values once, keep behavior tests for behavior '
+            '(token-budget 2026-08-27): $offenders',
+      );
+    });
+
+    test('no *_restyle_test.dart files may be recreated', () {
+      final recreated = filesUnder('test')
+          .where((f) => f.path.endsWith('_restyle_test.dart'))
+          .map((f) => relative(f.path))
+          .toList();
+      expect(
+        recreated,
+        isEmpty,
+        reason:
+            'restyle_test.dart visual-pinning files were deleted '
+            '(token-budget 2026-08-27) — do not recreate them: $recreated',
+      );
+    });
+  });
+
+  group('monochrome guard (2026-08-26 — gradients deleted)', () {
+    // The LUXE gradient system (app_gradients.dart, AppGradient,
+    // AppGradients) was deleted with the monochrome refactor. This guard
+    // keeps it deleted: no lib/ file may import the token file or reference
+    // the classes again. Decorative color is gone — white/black/grey plus
+    // the flat semantic tokens only.
+    final gradientRef = RegExp(r'AppGradients|AppGradient\b|app_gradients');
+
+    test('no gradient-system references anywhere in lib/', () {
+      final files = filesUnder('lib')
+          .where((f) => f.path.endsWith('.dart'))
+          .map<String>((f) => relative(f.path))
+          .toList();
+      final offenders = offendersIn(files, gradientRef);
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            'the gradient system was removed (monochrome 2026-08-26) — '
+            'use flat AppColors tokens (white/black/grey + semantics): '
+            '$offenders',
+      );
+    });
+
+    test('the token file stays deleted', () {
+      expect(
+        File('$root/lib/core/design_tokens/app_gradients.dart').existsSync(),
+        isFalse,
+        reason: 'do not recreate app_gradients.dart',
       );
     });
   });
