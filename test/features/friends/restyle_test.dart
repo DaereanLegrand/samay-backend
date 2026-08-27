@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
-import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/design_tokens/app_spacing.dart';
 import 'package:samay/core/models/friend_request_summary.dart';
 import 'package:samay/core/models/user_profile.dart';
@@ -28,12 +27,12 @@ import '../../support/fake_supabase_http.dart' as support;
 
 /// Friends screens restyle pinning tests.
 ///
-/// Pins the violet-family gradient restyle applied screen-by-screen:
-/// family everywhere (NO PINK MAINS),
-/// sharp [VGlassCard] hairline tiles instead of dividers, mint accents ONLY
-/// on active elements (accept buttons, pending badges), cyan presence dots
-/// stay semantic, AppBars keep Inter-white titles (no display heroes on
-/// these list screens). Flow/text is byte-identical — the existing
+/// Pins the monochrome restyle (2026-08-26 user directive — all decorative
+/// color stripped): sharp [VCard] hairline tiles instead of dividers, flat
+/// white/black surfaces everywhere, NO gradient params on any widget.
+/// Semantic accents stay: cyan presence dots (`statusOnline`) and the white
+/// emphasized pending badge. AppBars keep Inter-white titles (no display
+/// heroes on these list screens). Flow/text is byte-identical — the existing
 /// friends_screens_test + flow_test assertions stay untouched.
 
 const _userId1 = '11111111-1111-1111-1111-111111111111';
@@ -153,7 +152,7 @@ VButton _tileActionButton(WidgetTester tester) =>
 void main() {
   setUpAll(() => support.initSupabaseHarness(sessionEmail: 'a@b.com'));
 
-  group('FriendsListScreen (mint glass tiles + presence dot)', () {
+  group('FriendsListScreen (hairline glass tiles + presence dot)', () {
     testWidgets('renders ProfileAvatar tiles with size-scaled initials', (
       tester,
     ) async {
@@ -218,12 +217,12 @@ void main() {
         AppColors.statusOnline,
         reason:
             'presence stays the statusOnline (discoCyan) semantic — cyan '
-            'is a status color, not the mint screen accent',
+            'is a status color, never decorative',
       );
       expect(dot.size, 8, reason: '§5.5: online dot = 8px circle');
     });
 
-    testWidgets('rows are sharp mint glass tiles — no hairline dividers', (
+    testWidgets('rows are sharp hairline glass tiles — no dividers', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -355,7 +354,7 @@ void main() {
     });
   });
 
-  group('SearchScreen (mint compact action + pending badge)', () {
+  group('SearchScreen (outlined action + pending badge)', () {
     testWidgets('result tiles render ProfileAvatar initials', (tester) async {
       await tester.pumpWidget(
         _wrap(
@@ -383,8 +382,10 @@ void main() {
       );
     });
 
-    testWidgets("'Agregar' is the compact mint-outlined VButton in the tile "
-        'trailing; pending renders the mint status badge', (tester) async {
+    testWidgets("'Agregar' is the compact outlined VButton in the tile "
+        'trailing; pending renders the emphasized white status badge', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           const SearchScreen(),
@@ -410,11 +411,6 @@ void main() {
 
       final button = _tileActionButton(tester);
       expect(button.variant, VButtonVariant.outlined);
-      expect(
-        button.gradient,
-        AppGradients.mint,
-        reason: 'the active add action takes the mint gradient ring',
-      );
       expect(find.text('Agregar'), findsOneWidget);
       expect(
         find.descendant(
@@ -440,9 +436,31 @@ void main() {
 
       final badge = tester.widget<VBadge>(find.byType(VBadge));
       expect(
-        badge.gradient,
-        AppGradients.mint,
-        reason: 'the pending readout is the row\'s mint badge accent',
+        badge.emphasized,
+        isTrue,
+        reason:
+            'the outbound-pending readout is the white emphasized badge — '
+            'no accent, no gradient (2026-08-26 monochrome)',
+      );
+      expect(badge.accent, isNull);
+      // The emphasized face: white fill + black label.
+      final face = tester.widget<Container>(
+        find
+            .descendant(
+              of: find.byType(VBadge),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      expect(
+        (face.decoration as BoxDecoration).color,
+        AppColors.white,
+        reason: 'VBadge.emphasized fills white on black',
+      );
+      expect(
+        tester.widget<Text>(find.text('SOLICITADO')).style?.color,
+        AppColors.discoBlack,
+        reason: 'the emphasized label is black-on-white',
       );
       expect(
         find.text('SOLICITADO'),
@@ -451,7 +469,7 @@ void main() {
       );
     });
 
-    testWidgets('results render as sharp mint glass tiles — no dividers', (
+    testWidgets('results render as sharp hairline glass tiles — no dividers', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -511,7 +529,7 @@ void main() {
     });
   });
 
-  group('RequestsScreen (mint accept + glass tiles + tab badges)', () {
+  group('RequestsScreen (emphasized accept + glass tiles + tab badges)', () {
     List<Override> requestsOverrides({FriendRequestsData? data}) => [
       friendRequestsProvider.overrideWith(
         () => _StubFriendRequestsNotifier(
@@ -537,8 +555,10 @@ void main() {
       expect(find.text('Invitaciones'), findsOneWidget);
     });
 
-    testWidgets('accept is the mint VButton, decline the theme TextButton; '
-        'rows are mint glass tiles', (tester) async {
+    testWidgets('accept is the emphasized VButton (white fill, black label), '
+        'decline the theme TextButton; rows are hairline glass tiles', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           const RequestsScreen(),
@@ -569,10 +589,25 @@ void main() {
         VButtonVariant.emphasized,
         reason: 'accept is the row\'s active filled action',
       );
+      // The monochrome emphasized face (2026-08-26): white fill + black
+      // label — no gradient path anywhere.
+      final acceptFace = tester
+          .widget<TextButton>(
+            find.ancestor(
+              of: find.text('Aceptar').first,
+              matching: find.byType(TextButton),
+            ),
+          )
+          .style;
       expect(
-        accept.gradient,
-        AppGradients.mint,
-        reason: 'the mint accent lives on the accept face — never pink',
+        acceptFace?.backgroundColor?.resolve({}),
+        AppColors.white,
+        reason: 'the emphasized accept face fills white',
+      );
+      expect(
+        acceptFace?.foregroundColor?.resolve({}),
+        AppColors.discoBlack,
+        reason: 'the emphasized accept label is black-on-white',
       );
       expect(find.text('Aceptar'), findsNWidgets(2));
 
@@ -591,9 +626,8 @@ void main() {
       expect(find.byType(Divider), findsNothing);
     });
 
-    testWidgets('the pending-count tab badges take the mint family', (
-      tester,
-    ) async {
+    testWidgets('the pending-count tab badges take the monochrome count '
+        'voice — white border/text on black', (tester) async {
       await tester.pumpWidget(
         _wrap(
           const RequestsScreen(),
@@ -619,10 +653,45 @@ void main() {
           matching: find.byType(VCountBadge),
         ),
       );
+      expect(badge.count, 1);
+      // The red-circle count voice (2026-08-27 user directive): solid
+      // `badgeRed` fill, circular, no border, white count text.
+      final face = tester.widget<Container>(
+        find
+            .descendant(
+              of: find.byType(VCountBadge),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      final decoration = face.decoration as BoxDecoration;
       expect(
-        badge.gradient,
-        AppGradients.mint,
-        reason: 'pending counts are mint accents',
+        decoration.color,
+        AppColors.badgeRed,
+        reason: 'the pending count fills red',
+      );
+      expect(
+        decoration.shape,
+        BoxShape.circle,
+        reason: 'the pending count is a circle',
+      );
+      expect(
+        decoration.border,
+        isNull,
+        reason: 'no border ring on the red badge',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(VCountBadge),
+                matching: find.text('1'),
+              ),
+            )
+            .style
+            ?.color,
+        AppColors.white,
+        reason: 'the count text is white',
       );
     });
 
@@ -665,8 +734,8 @@ void main() {
     });
   });
 
-  group('BlockedUsersScreen (mint glass tiles + theme unblock)', () {
-    testWidgets('renders ProfileAvatar tiles with mint glass tiles and a '
+  group('BlockedUsersScreen (hairline glass tiles + theme unblock)', () {
+    testWidgets('renders ProfileAvatar tiles with hairline glass tiles and a '
         'theme TextButton unblock action', (tester) async {
       await tester.pumpWidget(
         _wrap(

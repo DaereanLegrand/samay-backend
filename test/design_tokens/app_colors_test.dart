@@ -81,6 +81,8 @@ void main() {
         // Chat status ticks (2026-08-15) — verified against white (bubble).
         'statusGrey': Color(0xFF757575),
         'statusRead': Color(0xFF007AFF),
+        // Red pending badge (2026-08-27 user directive — red circle).
+        'badgeRed': Color(0xFFE53935),
       };
       for (final entry in expected.entries) {
         expect(AppColors.all[entry.key], entry.value,

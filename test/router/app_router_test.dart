@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:samay/app.dart';
 import 'package:samay/core/config/feature_flags.dart';
 import 'package:samay/core/models/event.dart';
+import 'package:samay/core/models/notification_item.dart';
 import 'package:samay/core/models/event_photo.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/config_provider.dart';
@@ -46,6 +47,7 @@ import 'package:samay/features/social/screens/social_screen.dart';
 import 'package:samay/features/social/screens/user_ranking_screen.dart';
 import 'package:samay/features/minigames/providers/minigames_providers.dart';
 import 'package:samay/features/minigames/screens/minigames_screen.dart';
+import 'package:samay/features/notifications/providers/notifications_providers.dart';
 import 'package:samay/features/notifications/screens/notification_center_screen.dart';
 import 'package:samay/features/party_finder/providers/party_finder_providers.dart';
 import 'package:samay/features/party_finder/screens/party_finder_screen.dart';
@@ -243,6 +245,15 @@ class _FakeShardLedgerNotifier extends ShardLedgerNotifier {
       const ShardLedgerData(shards: [], preshards: []);
 }
 
+/// Notifications provider pinned to an empty list (2026-08-27): the shell
+/// derives the pending-minigame-invite badge from it, so the router tests
+/// must stub it or the real notifier hits the network via
+/// NotificationService.
+class _FakeNotificationsNotifier extends NotificationsNotifier {
+  @override
+  Future<List<NotificationItem>> build() async => const [];
+}
+
 ProviderContainer _newContainer({
   AppFeatureFlags flags = const AppFeatureFlags(),
   bool hasProfile = true,
@@ -266,6 +277,7 @@ ProviderContainer _newContainer({
       minigameSessionsProvider.overrideWith(_FakeMinigameSessionsNotifier.new),
       eventPhotosProvider.overrideWith(_FakeEventPhotosNotifier.new),
       shardLedgerProvider.overrideWith(_FakeShardLedgerNotifier.new),
+      notificationsProvider.overrideWith(_FakeNotificationsNotifier.new),
       myQrTokenProvider.overrideWith(_FakeQrTokenNotifier.new),
       qrDisplayWindowProvider.overrideWith((ref) async => 15),
       appConfigProvider.overrideWith(() => FakeAppConfigNotifier(const {})),
@@ -350,7 +362,8 @@ void main() {
           final container = _newContainer();
           await _pumpRoute(tester, container, RoutePaths.mainEvents);
           expect(find.byType(MyEventsScreen), findsOneWidget);
-          expect(find.byType(BottomNavigationBar), findsOneWidget);
+          // The floating glass pill (Juega port) replaces BottomNavigationBar.
+          expect(find.byType(BackdropFilter), findsWidgets);
           // The empty list state — real copy, never 'PRÓXIMAMENTE'.
           expect(find.text('Aún no tienes eventos'), findsOneWidget);
           expect(find.text('Crear evento'), findsOneWidget);
@@ -363,8 +376,7 @@ void main() {
           final container = _newContainer();
           await _pumpRoute(tester, container, RoutePaths.mainNotifications);
           expect(find.byType(NotificationCenterScreen), findsOneWidget);
-          expect(find.byType(VEmptyView), findsNothing);
-          expect(find.byType(BottomNavigationBar), findsOneWidget);
+          expect(find.byType(BackdropFilter), findsWidgets);
         },
       );
 
@@ -766,8 +778,8 @@ void main() {
         await tester.pumpAndSettle();
 
         // The fake auth pins authenticated → the router redirects the initial
-        // /login to /main/feed: the shell route with the bottom nav.
-        expect(find.byType(BottomNavigationBar), findsOneWidget);
+        // /login to /main/feed: the shell route with the floating nav pill.
+        expect(find.byType(BackdropFilter), findsWidgets);
 
         controller.add(true);
         await tester.pumpAndSettle();
@@ -778,8 +790,8 @@ void main() {
         expect(find.text(offlineCopy), findsOneWidget);
         expect(find.byIcon(Icons.wifi_off), findsOneWidget);
         expect(
-          find.byType(BottomNavigationBar),
-          findsOneWidget,
+          find.byType(BackdropFilter),
+          findsWidgets,
           reason: 'the banner overlays the shell — it must never replace it',
         );
 
@@ -866,7 +878,7 @@ void main() {
               'NoTransitionPage disposes the old tab instantly — no '
               'slide/zoom wrapper around the incoming one (NAV-08)',
         );
-        expect(find.byType(BottomNavigationBar), findsOneWidget);
+        expect(find.byType(BackdropFilter), findsWidgets);
       });
     });
   });

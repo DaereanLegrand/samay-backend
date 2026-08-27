@@ -3,13 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
-import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/models/friend_request_summary.dart';
+import 'package:samay/core/models/notification_item.dart';
 import 'package:samay/core/router/main_shell.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/theme/samay_durations.dart';
 import 'package:samay/features/friends/providers/friends_providers.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
+import 'package:samay/features/notifications/providers/notifications_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/v_count_badge.dart';
 import 'package:samay/shared/widgets/v_tab_fade.dart';
@@ -34,6 +35,17 @@ class _StubGroupInvitesNotifier extends GroupInvitesNotifier {
 
   @override
   Future<List<Map<String, dynamic>>> build() async => data;
+}
+
+/// The shell also derives pending minigame invites from the notifications
+/// list (2026-08-27) — stubbed to zero by default so no service is needed.
+class _StubNotificationsNotifier extends NotificationsNotifier {
+  final List<NotificationItem> data;
+
+  _StubNotificationsNotifier({this.data = const []});
+
+  @override
+  Future<List<NotificationItem>> build() async => data;
 }
 
 /// Mutable requests notifier for the badge live-update pin (U-28): [build]
@@ -80,6 +92,7 @@ Widget _localized(
       groupInvitesProvider.overrideWith(
         () => _StubGroupInvitesNotifier(data: invites),
       ),
+      notificationsProvider.overrideWith(_StubNotificationsNotifier.new),
     ],
     child: MaterialApp(
       locale: const Locale('es'),
@@ -151,6 +164,7 @@ Widget _localizedRouter(
       groupInvitesProvider.overrideWith(
         () => _StubGroupInvitesNotifier(data: invites),
       ),
+      notificationsProvider.overrideWith(_StubNotificationsNotifier.new),
     ],
     child: MaterialApp.router(
       routerConfig: router,
@@ -238,13 +252,16 @@ void main() {
   });
 
   group('MainShell', () {
-    testWidgets('renders the child and a BottomNavigationBar', (tester) async {
+    testWidgets('renders the child and the floating nav bar', (tester) async {
       await tester.pumpWidget(
         _localized(const MainShell(currentIndex: 0, child: Text('Shell body'))),
       );
 
       expect(find.text('Shell body'), findsOneWidget);
-      expect(find.byType(BottomNavigationBar), findsOneWidget);
+      // The floating glass pill replaces the Material BottomNavigationBar
+      // (2026-08-27 Premium pill port).
+      expect(find.byType(BottomNavigationBar), findsNothing);
+      expect(find.byType(BackdropFilter), findsWidgets);
     });
 
     testWidgets('renders every tab icon (filled for the selected tab, '
@@ -282,38 +299,25 @@ void main() {
       }
     });
 
-    testWidgets('wires each tab selectedIcon as the BottomNavigationBarItem '
-        'activeIcon (I-04 deferred item)', (tester) async {
-      await tester.pumpWidget(
-        _localized(const MainShell(currentIndex: 0, child: SizedBox())),
-      );
-
-      // LUXE v2 (XL-06): the selected icon now rides inside the static violet
-      // glow wrapper (`_tabGlowIcon`'s DecoratedBox) — unwrap it to reach the
-      // IconData the pin cares about.
-      IconData? resolve(Widget? w) {
-        if (w is Icon) return w.icon;
-        if (w is DecoratedBox) return resolve(w.child);
-        return null;
-      }
-
-      final items = tester
-          .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
-          .items;
-      for (var i = 0; i < mainShellTabs.length; i++) {
-        final activeIcon = items[i].activeIcon;
-        expect(
-          activeIcon,
-          isNotNull,
-          reason: 'tab ${mainShellTabs[i].label} must wire activeIcon',
+    testWidgets('wires each tab selectedIcon to render when that tab is '
+        'selected (I-04 deferred item)', (tester) async {
+      // For each tab index, the shell must render THAT tab's filled
+      // `selectedIcon` and every other tab's outlined `icon`.
+      for (var sel = 0; sel < mainShellTabs.length; sel++) {
+        await tester.pumpWidget(
+          _localized(MainShell(currentIndex: sel, child: const SizedBox())),
         );
-        expect(
-          resolve(activeIcon),
-          mainShellTabs[i].selectedIcon,
-          reason:
-              'tab ${mainShellTabs[i].label} activeIcon must be its '
-              'selectedIcon',
-        );
+        for (var i = 0; i < mainShellTabs.length; i++) {
+          final expected = i == sel
+              ? mainShellTabs[i].selectedIcon
+              : mainShellTabs[i].icon;
+          expect(
+            find.byIcon(expected),
+            findsOneWidget,
+            reason: 'tab ${mainShellTabs[i].label} should render $expected '
+                'when index $sel is active',
+          );
+        }
       }
     });
 
@@ -338,32 +342,41 @@ void main() {
       );
     });
 
-    testWidgets('renders every tab label', (tester) async {
+    testWidgets('renders every tab icon as a tooltip label', (tester) async {
       await tester.pumpWidget(
         _localized(const MainShell(currentIndex: 0, child: SizedBox())),
       );
 
+      // The floating pill exposes each tab's localized label as a Tooltip
+      // message (Juega anatomy) — semantics keep the name announced.
       for (final tab in mainShellTabs) {
         expect(
-          find.text(tab.label),
+          find.byTooltip(tab.label),
           findsOneWidget,
-          reason: 'missing label for tab ${tab.label}',
+          reason: 'missing tooltip label for tab ${tab.label}',
         );
       }
     });
 
-    testWidgets('exposes the current index to the BottomNavigationBar', (
+    testWidgets('the selected tab is highlighted by its white icon + dot', (
       tester,
     ) async {
       await tester.pumpWidget(
         _localized(const MainShell(currentIndex: 3, child: SizedBox())),
       );
 
-      final navBar = tester.widget<BottomNavigationBar>(
-        find.byType(BottomNavigationBar),
+      // Notis tab (index 3) selected → filled icon present.
+      expect(find.byIcon(mainShellTabs[3].selectedIcon), findsOneWidget);
+      // The selected indicator dot renders below the active icon.
+      final dots = find.byWidgetPredicate(
+        (w) =>
+            w is Container &&
+            w.decoration is BoxDecoration &&
+            (w.decoration as BoxDecoration).shape == BoxShape.circle &&
+            w.constraints is BoxConstraints &&
+            (w.constraints as BoxConstraints).maxWidth == 4,
       );
-      expect(navBar.currentIndex, 3);
-    });
+      expect(dots, findsOneWidget, reason: 'exactly one selected dot');    });
 
     testWidgets('tapping a tab navigates via context.go', (tester) async {
       final router = _stubRouter();
@@ -377,10 +390,8 @@ void main() {
 
       expect(find.text('Groups stub'), findsOneWidget);
       expect(find.text('Feed stub'), findsNothing);
-      final navBar = tester.widget<BottomNavigationBar>(
-        find.byType(BottomNavigationBar),
-      );
-      expect(navBar.currentIndex, 1);
+      // The pill now highlights the groups tab (filled icon).
+      expect(find.byIcon(mainShellTabs[1].selectedIcon), findsOneWidget);
     });
 
     testWidgets('tapping each remaining tab lands on its screen', (
@@ -444,11 +455,10 @@ void main() {
           ),
         );
         expect(
-          (badgeContainer.decoration! as BoxDecoration).borderRadius,
-          BorderRadius.zero,
+          (badgeContainer.decoration! as BoxDecoration).color,
+          AppColors.badgeRed,
           reason:
-              'U-24 FIX 5: VCountBadge is sharp (§4.2 badge radius-0 list) — '
-              'the shell badge inherits it',
+              '2026-08-27: the shell badge is a red circle (user directive)',
         );
         final badgeStack = find.ancestor(
           of: find.byType(VCountBadge),
@@ -680,40 +690,35 @@ void main() {
     });
 
     group('LUXE — glass shell restyle (XL-06)', () {
-      testWidgets('the nav bar rides on a liquid-glass strip (blur + white '
-          'sheen + top hairline)', (tester) async {
+      testWidgets('the floating pill blurs what scrolls beneath it', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           _localized(const MainShell(currentIndex: 0, child: SizedBox())),
         );
 
-        // The glass strip sits BEHIND the Material bar (same Stack).
-        final stack = find.ancestor(
-          of: find.byType(BottomNavigationBar),
-          matching: find.byType(Stack),
+        // The pill is a BackdropFilter + translucent fill (Juega Premium
+        // card port, 2026-08-27) — it blurs the content under the bar.
+        expect(
+          find.byType(BackdropFilter),
+          findsWidgets,
+          reason: 'the floating pill must blur what scrolls beneath it',
         );
         expect(
-          find.descendant(of: stack, matching: find.byType(BackdropFilter)),
-          findsOneWidget,
-          reason: 'the shell bar must blur what scrolls beneath it (XL-06)',
-        );
-        expect(
-          find.descendant(
-            of: stack,
-            matching: find.byWidgetPredicate(
-              (w) =>
-                  w is DecoratedBox &&
-                  w.decoration is BoxDecoration &&
-                  (w.decoration as BoxDecoration).gradient != null,
-            ),
+          find.byWidgetPredicate(
+            (w) =>
+                w is Container &&
+                w.decoration is BoxDecoration &&
+                (w.decoration as BoxDecoration).color != null &&
+                (w.decoration as BoxDecoration).color!.a < 1.0,
           ),
           findsWidgets,
-          reason: 'the strip paints the white glass sheen (XL-06)',
+          reason: 'the pill carries the translucent glass fill',
         );
       });
 
-      testWidgets('only the selected tab icon carries the violet glow', (
-        tester,
-      ) async {
+      testWidgets('no tab icon carries a glow — chrome is monochrome '
+          '(2026-08-26)', (tester) async {
         await tester.pumpWidget(
           _localized(const MainShell(currentIndex: 1, child: SizedBox())),
         );
@@ -735,29 +740,16 @@ void main() {
               : (boxes.first.decoration as BoxDecoration).boxShadow!;
         }
 
-        final selected = shadowsOf(mainShellTabs[1].selectedIcon);
-        expect(
-          selected,
-          isNotEmpty,
-          reason: 'the selected tab icon must carry the violet halo (XL-06)',
-        );
-        expect(
-          selected.first.color,
-          AppGradients.violet.colors[1].withValues(alpha: 0.30),
-          reason: 'the halo is glowShadows(violet) at the fixed α0.30 (XL-06)',
-        );
-        for (final shadow in selected) {
+        for (final tab in mainShellTabs) {
           expect(
-            shadow.color,
-            isNot(AppColors.glowPink),
-            reason: 'NO PINK MAINS — the shell glow must be violet (XL-06)',
-          );
-        }
-        for (final icon in mainShellTabs.map((t) => t.icon)) {
-          expect(
-            shadowsOf(icon),
+            shadowsOf(tab.selectedIcon),
             isEmpty,
-            reason: 'unselected tab icons must NOT glow (XL-06)',
+            reason: 'selected tab icons carry no halo (monochrome)',
+          );
+          expect(
+            shadowsOf(tab.icon),
+            isEmpty,
+            reason: 'unselected tab icons must NOT glow',
           );
         }
       });

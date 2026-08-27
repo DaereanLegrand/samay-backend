@@ -262,8 +262,8 @@ void main() {
     Widget shell() => const MainShell(currentIndex: 0, child: SizedBox());
 
     testWidgets('nav items expose their localized labels even though the '
-        'labels are visually hidden (showSelectedLabels: false — '
-        'Visibility.maintain keeps semantics)', (tester) async {
+        'labels are visually hidden (2026-08-27 floating pill — explicit '
+        'Semantics button+label)', (tester) async {
       await _pump(
         tester,
         shell(),
@@ -277,15 +277,12 @@ void main() {
 
       for (final label in ['Feed', 'Social', 'Eventos', 'Notis', 'Perfil']) {
         expect(
-          find.descendant(
-            of: find.byType(BottomNavigationBar),
-            matching: find.bySemanticsLabel(RegExp('^$label')),
-          ),
+          find.bySemanticsLabel(RegExp('^$label')),
           findsWidgets,
           reason:
               'nav item "$label" must be announced to screen readers '
-              '(4.1.2 name) even with the labels hidden — the framework '
-              'appends the "Pestaña N de 5" index label to the tile name',
+              '(4.1.2 name) even with the labels visually hidden — the '
+              'pill exposes each tab as a Semantics button+label',
         );
       }
       _disposeSemantics();
@@ -305,17 +302,10 @@ void main() {
         ],
       );
 
-      // The nav bar contains framework-internal Semantics widgets too —
-      // resolve each to its owning node and dedupe, then filter to the
-      // button tiles (4.1.2 role) by their `isButton` flag.
+      // The floating pill exposes each tab as an explicit Semantics button.
+      // Resolve the button nodes (4.1.2 role) by their `isButton` flag.
       final nodes = <SemanticsNode>[];
-      for (final e
-          in find
-              .descendant(
-                of: find.byType(BottomNavigationBar),
-                matching: find.byType(Semantics),
-              )
-              .evaluate()) {
+      for (final e in find.byType(Semantics).evaluate()) {
         final node = tester.getSemantics(find.byWidget(e.widget));
         if (!nodes.contains(node)) nodes.add(node);
       }
@@ -475,6 +465,14 @@ void main() {
       await _pump(tester, const SettingsScreen());
 
       for (final label in ['Notificaciones', 'Privacidad']) {
+        // The settings list grew a Games section (2026-08-26); the account
+        // rows sit below the fold on the default test viewport — scroll to
+        // the row so it is built before reading its semantics.
+        await tester.scrollUntilVisible(
+          find.text(label),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
         final tile = find.ancestor(
           of: find.text(label),
           matching: find.byType(ListTile),
@@ -644,7 +642,7 @@ void main() {
         find.byType(TextButton),
         'the forgot-password link follows the fields',
       );
-      // The sign-in CTA (glowAccent VButton → TextButton) is next.
+      // The sign-in CTA (VButton.dark → TextButton) is next.
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
       final ctaAncestors = find.ancestor(

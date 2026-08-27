@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
-import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/shared/widgets/v_count_badge.dart';
 
 void main() {
@@ -15,36 +14,30 @@ void main() {
       expect(find.text('0'), findsNothing);
     });
 
-    testWidgets('default accent is the violet family vivid end — never pink '
-        '(LUXE 2026-08-12)', (tester) async {
+    testWidgets('red circle: badgeRed fill, no border, white count text', (
+      tester,
+    ) async {
       await tester.pumpWidget(const MaterialApp(home: VCountBadge(count: 3)));
       final container = tester.widget<Container>(find.byType(Container));
       final decoration = container.decoration as BoxDecoration;
-      expect(decoration.color, AppColors.discoBlack);
-      expect(decoration.border, Border.all(color: AppColors.discoViolet));
+      expect(decoration.color, AppColors.badgeRed);
+      expect(decoration.shape, BoxShape.circle);
+      expect(decoration.border, isNull, reason: 'no border ring on the badge');
       final text = tester.widget<Text>(find.text('3'));
-      expect(text.style?.color, AppColors.discoViolet);
+      expect(text.style?.color, AppColors.white);
     });
 
-    testWidgets('gradient param drives the accent family (cyan)', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: VCountBadge(count: 7, gradient: AppGradients.cyan),
-        ),
-      );
+    testWidgets('grows per digit so it stays a true circle', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: VCountBadge(count: 123)));
       final container = tester.widget<Container>(find.byType(Container));
-      final decoration = container.decoration as BoxDecoration;
-      expect(decoration.border, Border.all(color: AppColors.discoCyan));
-      final text = tester.widget<Text>(find.text('7'));
-      expect(text.style?.color, AppColors.discoCyan);
+      final box = container.constraints as BoxConstraints;
+      expect(box.maxWidth, box.maxHeight, reason: 'width == height (circle)');
+      expect(box.maxWidth, greaterThan(20), reason: '2 digits grow the badge');
     });
 
     testWidgets('is const-constructible', (tester) async {
       const badge = VCountBadge(count: 1);
       expect(badge, isA<VCountBadge>());
-      expect(badge.gradient, isNull);
     });
   });
 }
