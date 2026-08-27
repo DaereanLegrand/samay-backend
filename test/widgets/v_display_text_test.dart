@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
-import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/core/design_tokens/app_typography.dart';
 import 'package:samay/shared/widgets/v_display_text.dart';
 
@@ -20,42 +19,24 @@ Text _displayText(WidgetTester tester) => tester.widget<Text>(
   find.descendant(of: find.byType(VDisplayText), matching: find.byType(Text)),
 );
 
-/// LUXE directive (2026-08-12): "glowing pulsation outside letters must be
-/// deleted" — NO DecoratedBox with a boxShadow stack may exist inside
-/// VDisplayText.
-BoxDecoration? _outsideGlow(WidgetTester tester) {
-  final glow = find.byWidgetPredicate(
-    (w) =>
-        w is DecoratedBox &&
-        w.decoration is BoxDecoration &&
-        ((w.decoration as BoxDecoration).boxShadow?.isNotEmpty ?? false) &&
-        find
-            .descendant(
-              of: find.byType(VDisplayText),
-              matching: find.byWidgetPredicate((w2) => identical(w2, w)),
-            )
-            .evaluate()
-            .isNotEmpty,
-  );
-  if (glow.evaluate().isEmpty) return null;
-  return tester.widget<DecoratedBox>(glow).decoration as BoxDecoration;
-}
-
+/// Monochrome contract (2026-08-26 user directive): display copy renders
+/// VERBATIM (no case transformation) in flat WHITE Playfair bold — no
+/// gradient fills, no shimmer sweep, no tickers.
 void main() {
   group('VDisplayText', () {
-    testWidgets('renders the text UPPERCASE — the MAYUS rule (directive #6)', (
+    testWidgets('renders the text verbatim — no uppercase forcing', (
       tester,
     ) async {
       await tester.pumpWidget(
-        _wrap(
-          const VDisplayText(
-            text: 'crea tu cuenta',
-            gradient: AppGradients.violet,
-          ),
-        ),
+        _wrap(const VDisplayText(text: 'crea tu cuenta')),
       );
-      expect(find.text('CREA TU CUENTA'), findsOneWidget);
-      expect(find.text('crea tu cuenta'), findsNothing);
+      expect(find.text('crea tu cuenta'), findsOneWidget);
+      expect(find.text('CREA TU CUENTA'), findsNothing);
+    });
+
+    testWidgets('keeps mixed case exactly as written', (tester) async {
+      await tester.pumpWidget(_wrap(const VDisplayText(text: 'samay')));
+      expect(find.text('samay'), findsOneWidget);
     });
 
     testWidgets('display voice: Playfair bold at the given size', (
@@ -75,116 +56,62 @@ void main() {
       );
     });
 
-    testWidgets('wraps the glyphs in a ShaderMask (gradient fill via '
-        'AppGradients.textShader)', (tester) async {
+    testWidgets('glyphs render FLAT WHITE — always', (tester) async {
       await tester.pumpWidget(
-        _wrap(
-          const VDisplayText(
-            text: 'crea tu cuenta',
-            gradient: AppGradients.violet,
-          ),
-        ),
+        _wrap(const VDisplayText(text: 'crea tu cuenta', size: 64)),
       );
-      final mask = tester.widget<ShaderMask>(find.byType(ShaderMask).first);
-      expect(mask.blendMode, BlendMode.srcIn);
-      expect(mask.shaderCallback, isNotNull);
-    });
-
-    test('cyan (skyblue) family → white glyphs (user directive 2026-08-14)',
-        () {
-      expect(VDisplayText.rendersWhite(AppGradients.cyan), isTrue,
-          reason: 'skyblue text is banned on glyphs');
-      expect(VDisplayText.rendersWhite(null), isTrue);
-      expect(VDisplayText.rendersWhite(AppGradients.violet), isFalse);
-      expect(VDisplayText.rendersWhite(AppGradients.gold), isFalse);
-    });
-
-    testWidgets('cyan gradient still wraps the glyphs in a ShaderMask '
-        '(white fill via the render decision)', (tester) async {
-      await tester.pumpWidget(
-        _wrap(
-          const VDisplayText(
-            text: 'crea tu cuenta',
-            gradient: AppGradients.cyan,
-          ),
-        ),
-      );
-      final mask = tester.widget<ShaderMask>(find.byType(ShaderMask).first);
-      expect(mask.blendMode, BlendMode.srcIn);
-      expect(mask.shaderCallback, isNotNull);
       expect(_displayText(tester).style?.color, AppColors.white);
     });
 
-    testWidgets('gradient null → white glyphs', (tester) async {
+    testWidgets('NO ShaderMask — the gradient fill path is deleted', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(const VDisplayText(text: 'crea tu cuenta')),
       );
-      expect(_displayText(tester).style?.color, AppColors.white);
-      expect(find.byType(ShaderMask), findsWidgets);
+      expect(find.byType(ShaderMask), findsNothing);
     });
 
-    testWidgets('NO external glow — the halo is deleted (user directive '
-        '2026-08-12)', (tester) async {
+    testWidgets('NO external glow — the halo stays deleted', (tester) async {
       await tester.pumpWidget(
-        _wrap(
-          const VDisplayText(
-            text: 'crea tu cuenta',
-            gradient: AppGradients.violet,
-          ),
-        ),
+        _wrap(const VDisplayText(text: 'crea tu cuenta')),
       );
-      expect(
-        _outsideGlow(tester),
-        isNull,
-        reason: 'no boxShadow may sit behind the glyphs',
+      final glow = find.byWidgetPredicate(
+        (w) =>
+            w is DecoratedBox &&
+            w.decoration is BoxDecoration &&
+            ((w.decoration as BoxDecoration).boxShadow?.isNotEmpty ?? false),
       );
+      expect(glow, findsNothing, reason: 'no boxShadow may sit behind glyphs');
     });
 
-    testWidgets('reduce-motion → no shimmer sweep, no tickers (§6.2/§7.5)', (
+    testWidgets('no animation tickers — static render at all times', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(const VDisplayText(text: 'crea tu cuenta'), reduced: true),
+      );
+      expect(tester.binding.transientCallbackCount, 0);
+      await tester.pump(const Duration(seconds: 5));
+      expect(tester.binding.transientCallbackCount, 0);
+    });
+
+    testWidgets('textAlign and maxLines pass through to the Text', (
       tester,
     ) async {
       await tester.pumpWidget(
         _wrap(
           const VDisplayText(
-            text: 'crea tu cuenta',
-            gradient: AppGradients.violet,
-          ),
-          reduced: true,
-        ),
-      );
-      expect(
-        tester.binding.transientCallbackCount,
-        0,
-        reason: 'reduced motion → no shimmer ticker',
-      );
-
-      await tester.pump(const Duration(seconds: 5));
-      expect(tester.binding.transientCallbackCount, 0);
-    });
-
-    testWidgets('the once-only shimmer completes and stops (no pending '
-        'frames after settle)', (tester) async {
-      await tester.pumpWidget(
-        _wrap(
-          const VDisplayText(
-            text: 'crea tu cuenta',
-            gradient: AppGradients.violet,
+            text: 'una linea de display bastante larga para envolver',
+            textAlign: TextAlign.center,
+            maxLines: 2,
           ),
         ),
       );
-      expect(
-        tester.binding.transientCallbackCount,
-        greaterThan(0),
-        reason: 'the sweep is live on first build',
-      );
-
-      await tester.pump(VDisplayText.shimmerDuration);
-      await tester.pumpAndSettle();
-      expect(
-        tester.binding.transientCallbackCount,
-        0,
-        reason: 'the sweep completes and stops — no timer leftovers',
-      );
+      final text = _displayText(tester);
+      expect(text.textAlign, TextAlign.center);
+      expect(text.maxLines, 2);
+      expect(text.overflow, TextOverflow.ellipsis);
     });
   });
 }

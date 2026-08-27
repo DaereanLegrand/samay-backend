@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
-import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/shared/widgets/v_chip.dart';
 
 Widget _buildApp(Widget child) {
@@ -39,9 +38,7 @@ void main() {
       expect(chip.labelStyle?.fontSize, 12);
     });
 
-    testWidgets('selected default chip has white fill + black label', (
-      tester,
-    ) async {
+    testWidgets('selected chip has white fill + black label', (tester) async {
       await tester.pumpWidget(
         _buildApp(const VChip(label: 'VIP', selected: true)),
       );
@@ -50,36 +47,27 @@ void main() {
       expect(chip.labelStyle?.color, AppColors.discoBlack);
     });
 
-    testWidgets('accent chip has violet-family border and label (§5.4, '
-        'LUXE no-pink-mains)', (tester) async {
-      await tester.pumpWidget(_buildApp(const VChip.accent(label: 'VIP')));
-      final chip = tester.widget<FilterChip>(find.byType(FilterChip));
-      expect(chip.side, const BorderSide(color: AppColors.discoViolet));
-      expect(chip.labelStyle?.color, AppColors.discoViolet);
-    });
-
-    testWidgets('selected accent chip has violet-family fill + black label', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        _buildApp(const VChip.accent(label: 'VIP', selected: true)),
-      );
-      final chip = tester.widget<FilterChip>(find.byType(FilterChip));
-      expect(chip.selectedColor, AppColors.discoViolet);
-      expect(chip.labelStyle?.color, AppColors.discoBlack);
-    });
-
-    testWidgets('accent gradient param drives the family (cyan)', (
-      tester,
-    ) async {
+    testWidgets('monochrome: no accent variant exists — every chip resolves '
+        'the same white/black treatment', (tester) async {
       await tester.pumpWidget(
         _buildApp(
-          const VChip.accent(label: 'VIP', gradient: AppGradients.cyan),
+          const Row(
+            children: [
+              VChip(label: 'A'),
+              VChip(label: 'B', selected: true),
+            ],
+          ),
         ),
       );
-      final chip = tester.widget<FilterChip>(find.byType(FilterChip));
-      expect(chip.side, const BorderSide(color: AppColors.discoCyan));
-      expect(chip.labelStyle?.color, AppColors.discoCyan);
+      final chips = tester.widgetList<FilterChip>(find.byType(FilterChip));
+      for (final chip in chips) {
+        expect(chip.side?.color, AppColors.white);
+        expect(
+          chip.selectedColor,
+          AppColors.white,
+          reason: 'selection is the white fill, never an accent hue',
+        );
+      }
     });
 
     testWidgets('sharp corners (§4.2)', (tester) async {

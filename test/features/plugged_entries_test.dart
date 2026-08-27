@@ -230,13 +230,27 @@ void main() {
       );
     });
 
-    testWidgets('tapping a game with no groups shows the join-a-group hint', (
+    testWidgets('tapping a game with no groups opens the DIRECT hub', (
       tester,
     ) async {
       final groups = _MockGroupsRepository();
       when(() => groups.getMyGroups()).thenAnswer((_) async => []);
       final service = _FakeEventService();
       when(() => service.listEvents(any(), any())).thenAnswer((_) async => []);
+      final router = GoRouter(
+        initialLocation: RoutePaths.mainFeed,
+        routes: [
+          GoRoute(
+            path: RoutePaths.mainFeed,
+            builder: (_, _) => const FeedScreen(),
+          ),
+          GoRoute(
+            path: RoutePaths.minigamesDirect,
+            builder: (_, _) =>
+                const Scaffold(body: Center(child: Text('DIRECT STUB'))),
+          ),
+        ],
+      );
       final container = ProviderContainer(
         overrides: [
           eventServiceProvider.overrideWithValue(service),
@@ -247,24 +261,26 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(
-            locale: Locale('es'),
+          child: MaterialApp.router(
+            routerConfig: router,
+            locale: const Locale('es'),
             localizationsDelegates: AppLocalizations
                 .localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
-            home: FeedScreen(),
           ),
         ),
       );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Cadena de Pokes'));
-      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
 
       expect(
-        find.textContaining('Aún no tienes grupos'),
+        find.text('DIRECT STUB'),
         findsOneWidget,
-        reason: 'the snackbar hints at joining a group first',
+        reason:
+            'a user with zero groups can play directly — no join-a-group '
+            'roadblock (direct-minigames 2026-08-27)',
       );
     });
 

@@ -113,7 +113,7 @@ void main() {
   group('typed accessors for the demo keys', () {
     test('es locale exposes the welcome and coming-soon accessors', () async {
       final l10n = await AppLocalizations.delegate.load(const Locale('es'));
-      expect(l10n.welcomeVive, 'VIVE');
+      expect(l10n.welcomeVive, 'vive');
       expect(l10n.welcomeTagline, 'Tu vida social, en un solo lugar');
       expect(l10n.commonCreateAccount, 'Crear cuenta');
       expect(l10n.commonSignIn, 'Iniciar sesión');
@@ -123,7 +123,7 @@ void main() {
 
     test('en locale exposes the same accessors', () async {
       final l10n = await AppLocalizations.delegate.load(const Locale('en'));
-      expect(l10n.welcomeVive, 'VIVE');
+      expect(l10n.welcomeVive, 'vive');
       expect(l10n.welcomeTagline, 'Your social life, all in one place');
       expect(l10n.commonCreateAccount, 'Create account');
       expect(l10n.comingSoonSoon, 'Coming soon');
@@ -171,9 +171,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final context = tester.element(find.text('VIVE'));
+      final context = tester.element(find.text('vive'));
       expect(Localizations.localeOf(context), const Locale('es'));
-      expect(find.text('VIVE'), findsOneWidget);
+      expect(find.text('vive'), findsOneWidget);
       expect(find.text('Tu vida social, en un solo lugar'), findsOneWidget);
       expect(find.text('Crear cuenta'), findsOneWidget);
       expect(find.text('Iniciar sesión'), findsOneWidget);

@@ -225,7 +225,7 @@ void main() {
       expect(find.byType(QrImageView), findsOneWidget);
       expect(_displayedToken(container), 't1');
       expect(find.text('Nuevo código en: 15'), findsOneWidget);
-      expect(find.text('SAMAY'), findsOneWidget);
+      expect(find.text('samay'), findsOneWidget);
     });
 
     testWidgets('countdown ticks down and refetches at 0 (rotation contract)',

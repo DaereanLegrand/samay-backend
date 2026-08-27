@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/design_tokens/app_colors.dart';
-import 'package:samay/core/design_tokens/app_gradients.dart';
 import 'package:samay/shared/widgets/v_button.dart';
 
 void main() {
@@ -24,15 +23,6 @@ void main() {
       expect(find.text('Go'), findsOneWidget);
     });
 
-    testWidgets('renders glowAccent variant', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: VButton.glowAccent(onPressed: () {}, child: const Text('Glow')),
-        ),
-      );
-      expect(find.text('Glow'), findsOneWidget);
-    });
-
     testWidgets('dark variant: black fill, white text, white hairline '
         '(user directive 2026-08-14)', (tester) async {
       await tester.pumpWidget(
@@ -47,7 +37,7 @@ void main() {
       expect(
         style?.backgroundColor?.resolve({}),
         AppColors.surfaceAlt,
-        reason: 'the face is the black surface, never a family gradient',
+        reason: 'the face is the black surface',
       );
       expect(
         style?.foregroundColor?.resolve({}),
@@ -100,195 +90,28 @@ void main() {
       );
     });
 
-    group('glowAccent — LUXE violet default (no pink mains, 2026-08-12)', () {
-      testWidgets('defaults to the violet family: gradient ring, white text, '
-          'violet halo', (tester) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: VButton.glowAccent(
-              onPressed: () {},
-              child: const Text('Glow'),
-            ),
+    testWidgets('monochrome: NO gradient fill path, NO glow halo', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Column(
+            children: [
+              VButton.outlined(onPressed: () {}, child: const Text('A')),
+              VButton.emphasized(onPressed: () {}, child: const Text('B')),
+              VButton.dark(onPressed: () {}, child: const Text('C')),
+            ],
           ),
-        );
-        final style = tester.widget<TextButton>(find.byType(TextButton)).style;
-        expect(style?.backgroundColor?.resolve({}), Colors.transparent);
-        expect(style?.foregroundColor?.resolve({}), AppColors.white);
-        // The halo is the only DecoratedBox carrying a boxShadow stack.
-        final halo = tester.widget<DecoratedBox>(
-          find
-              .byWidgetPredicate(
-                (w) =>
-                    w is DecoratedBox &&
-                    w.decoration is BoxDecoration &&
-                    (w.decoration as BoxDecoration).boxShadow != null,
-              )
-              .first,
-        );
-        final shadows = (halo.decoration as BoxDecoration).boxShadow!;
-        expect(shadows, hasLength(3));
-        expect(
-          shadows[0].color,
-          AppGradients.violet.colors[1].withValues(alpha: 0.35),
-        );
-        expect(
-          shadows[1].color,
-          AppGradients.violet.colors[2].withValues(alpha: 0.35 * 0.6),
-        );
-        expect(
-          shadows[2].color,
-          AppGradients.violet.colors[2].withValues(alpha: 0.35 * 0.3),
-        );
-      });
-
-      testWidgets(
-        'outline label carries the violet glow-hairline shadow (§5.1)',
-        (tester) async {
-          await tester.pumpWidget(
-            MaterialApp(
-              home: VButton.glowAccent(onPressed: () {}, label: 'Glow'),
-            ),
-          );
-          final text = tester.widget<Text>(find.text('Glow'));
-          expect(text.style?.shadows, [
-            Shadow(
-              color: AppGradients.violet.colors[1].withValues(alpha: 0.35),
-              blurRadius: 3.5,
-            ),
-          ]);
-        },
+        ),
       );
-
-      testWidgets('filled renders the violet gradient fill + black text', (
-        tester,
-      ) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: VButton.glowAccent(
-              onPressed: () {},
-              filled: true,
-              child: const Text('Glow filled'),
-            ),
-          ),
-        );
-        final fill = tester.widget<DecoratedBox>(
-          find.byKey(const ValueKey('vButtonGradientFill')),
-        );
-        final gradient =
-            (fill.decoration as BoxDecoration).gradient! as LinearGradient;
-        expect(gradient.colors, AppGradients.violet.colors);
-        expect(gradient.stops, AppGradients.violet.stops);
-        final style = tester.widget<TextButton>(find.byType(TextButton)).style;
-        expect(style?.backgroundColor?.resolve({}), Colors.transparent);
-        expect(style?.foregroundColor?.resolve({}), AppColors.discoBlack);
-      });
-
-      testWidgets('pressed resolves the darker-violet overlay + white text', (
-        tester,
-      ) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: VButton.glowAccent(
-              onPressed: () {},
-              child: const Text('Glow'),
-            ),
-          ),
-        );
-        final style = tester.widget<TextButton>(find.byType(TextButton)).style;
-        expect(
-          style?.overlayColor?.resolve({WidgetState.pressed}),
-          Color.lerp(
-            AppGradients.violet.colors.last,
-            AppColors.discoBlack,
-            0.35,
-          ),
-        );
-        expect(
-          style?.foregroundColor?.resolve({WidgetState.pressed}),
-          AppColors.white,
-        );
-        expect(
-          style?.backgroundColor?.resolve({WidgetState.pressed}),
-          Colors.transparent,
-        );
-      });
-
-      testWidgets('loading on a filled gradient keeps a black spinner '
-          '(contrast with the fill)', (tester) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: VButton.glowAccent(
-              loading: true,
-              onPressed: () {},
-              filled: true,
-              child: const Text('Loading'),
-            ),
-          ),
-        );
-        final spinner = tester.widget<CircularProgressIndicator>(
-          find.byType(CircularProgressIndicator),
-        );
-        expect(spinner.strokeWidth, 2);
-        expect(spinner.color, AppColors.discoBlack);
-      });
-
-      testWidgets('disabled drops the gradient ring and text to muted (§5.1)', (
-        tester,
-      ) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: VButton.glowAccent(
-              onPressed: null,
-              child: const Text('Disabled'),
-            ),
-          ),
-        );
-        final style = tester.widget<TextButton>(find.byType(TextButton)).style;
-        expect(
-          style?.foregroundColor?.resolve({WidgetState.disabled}),
-          AppColors.muted,
-        );
-      });
-    });
-
-    group('gradient param on the flat variants (LUXE v2)', () {
-      testWidgets('emphasized with a gradient renders the family fill + black '
-          'text', (tester) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: VButton.emphasized(
-              onPressed: () {},
-              gradient: AppGradients.mint,
-              child: const Text('Mint'),
-            ),
-          ),
-        );
-        final fill = tester.widget<DecoratedBox>(
-          find.byKey(const ValueKey('vButtonGradientFill')),
-        );
-        final gradient =
-            (fill.decoration as BoxDecoration).gradient! as LinearGradient;
-        expect(gradient.colors, AppGradients.mint.colors);
-        final style = tester.widget<TextButton>(find.byType(TextButton)).style;
-        expect(style?.foregroundColor?.resolve({}), AppColors.discoBlack);
-      });
-
-      testWidgets('outlined with a gradient renders a pastel ring, no fill', (
-        tester,
-      ) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: VButton.outlined(
-              onPressed: () {},
-              gradient: AppGradients.gold,
-              child: const Text('Gold'),
-            ),
-          ),
-        );
-        expect(find.byKey(const ValueKey('vButtonGradientFill')), findsNothing);
-        final style = tester.widget<TextButton>(find.byType(TextButton)).style;
-        expect(style?.foregroundColor?.resolve({}), AppColors.white);
-      });
+      expect(find.byKey(const ValueKey('vButtonGradientFill')), findsNothing);
+      final halo = find.byWidgetPredicate(
+        (w) =>
+            w is DecoratedBox &&
+            w.decoration is BoxDecoration &&
+            ((w.decoration as BoxDecoration).boxShadow?.isNotEmpty ?? false),
+      );
+      expect(halo, findsNothing, reason: 'no boxShadow on buttons');
     });
 
     testWidgets('disabled drops outline and text to muted (§5.1)', (

@@ -92,6 +92,14 @@ class ResolvingBuilder<T> extends PostgrestFilterBuilder<T> {
       _record(column, value);
 
   @override
+  ResolvingBuilder<T> isFilter(String column, bool? value) =>
+      _record(column, value);
+
+  @override
+  ResolvingBuilder<T> contains(String column, Object value) =>
+      _record(column, value);
+
+  @override
   ResolvingBuilder<T> neq(String column, Object value) =>
       _record(column, value);
 

@@ -114,8 +114,9 @@ void main() {
       );
 
       expect(find.text('Collage'), findsOneWidget);
-      // The event title rides the overlay strip (VDisplayText — MAYUS rule).
-      expect(find.text('RAVE EN EL GARAJE'), findsOneWidget);
+      // The event title rides the overlay strip (VDisplayText renders
+      // VERBATIM — monochrome 2026-08-26, no uppercase transform).
+      expect(find.text('Rave en el garaje'), findsOneWidget);
       expect(find.text('3 fotos'), findsOneWidget);
       // One tile per photo, in the signed-URL render path.
       expect(find.byKey(const ValueKey('photo-tile-p-1')), findsOneWidget);

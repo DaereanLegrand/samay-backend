@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(617);
+SELECT plan(661);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -512,8 +512,27 @@ SELECT policies_are('group_rank_snapshots', ARRAY[
     'grs_read_all'
 ], 'group_rank_snapshots is public-readable');
 SELECT policies_are('minigame_sessions', ARRAY[
-    'ms_read_group_member'
+    'ms_read_group_member',
+    'ms_read_invitee',
+    'ms_read_direct_participant'
 ], 'minigame_sessions has expected RLS policies');
+SELECT col_is_null('minigame_sessions', 'group_id',
+    'minigame_sessions.group_id is NULLABLE (NULL = direct session, direct-minigames 2026-08-27)');
+SELECT col_not_null('minigame_sessions', 'player_limit',
+    'minigame_sessions.player_limit is NOT NULL (subscription-scaled player cap, frozen at creation)');
+SELECT col_has_default('minigame_sessions', 'player_limit',
+    'minigame_sessions.player_limit defaults to 8 (free tier baseline)');
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'minigame_sessions'
+          AND policyname = 'ms_read_direct_participant'
+          AND cmd = 'SELECT'
+          AND qual LIKE '%group_id IS NULL%'
+          AND qual LIKE '%participants%'
+    )),
+    'ms_read_direct_participant requires group_id IS NULL AND auth.uid() IN participants (direct-session read only)'
+);
 SELECT policies_are('notifications', ARRAY[
     'notif_read_own',
     'notif_update_own'
@@ -563,8 +582,8 @@ SELECT ok(
     'admin_users has the system admin row (from auto-applied seed-config)'
 );
 SELECT ok(
-    (SELECT count(*) = 39 FROM app_config),
-    'app_config has 39 tuning rows (from auto-applied seed-config)'
+    (SELECT count(*) = 42 FROM app_config),
+    'app_config has 42 tuning rows (from auto-applied seed-config; +3 minigame player caps, 2026-08-27)'
 );
 
 -- ============================================================
@@ -1176,15 +1195,24 @@ SELECT function_privs_are('public', 'validate_qr_token', ARRAY['uuid', 'text']::
 
 -- ============================================================
 -- SECTION 45: create_minigame_session RPC (migration 20260809000006,
--- agent I-63) — GMCR/GWAG foundation: SECURITY DEFINER + SET search_path = ''
--- (I-31 pattern), membership gate via the I-32 is_group_member helper,
--- atomic wager deduct + minigame_wager ledger + session insert (escrow
--- contract, GWAG), business outcomes returned as jsonb statuses, PUBLIC
--- EXECUTE revoked, authenticated-only EXECUTE. Winner-settlement RPCs
--- (minigame_win/minigame_refund) are the documented I-77/S-03 handoff.
+-- agent I-63 + 140_minigame_invites 2026-08-26) — GMCR/GWAG foundation:
+-- SECURITY DEFINER + SET search_path = '' (I-31 pattern), membership gate
+-- via the I-32 is_group_member helper, atomic wager deduct + minigame_wager
+-- ledger + session insert (escrow contract, GWAG), business outcomes
+-- returned as jsonb statuses, PUBLIC EXECUTE revoked, authenticated-only
+-- EXECUTE. The invite-aware 4-arg overload (p_invitees uuid[]) replaces the
+-- 3-arg baseline: per-invitee blocked/deleted + friends-only privacy gates
+-- and one minigame_invites row per invitee, all atomic.
 -- ============================================================
-SELECT has_function('create_minigame_session', ARRAY['uuid', 'text', 'integer'],
-    'create_minigame_session(p_group_id uuid, p_game_type text, p_wager integer) exists (migration 20260809000006)');
+SELECT has_function('create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]'],
+    'create_minigame_session(p_group_id uuid, p_game_type text, p_wager integer, p_invitees uuid[]) exists (140_minigame_invites)');
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'create_minigame_session' AND pronargs = 3
+    ),
+    'the pre-invite 3-arg create_minigame_session overload is dropped (CREATE OR REPLACE cannot change the arg list)'
+);
 SELECT ok(
     (SELECT prosecdef FROM pg_proc WHERE proname = 'create_minigame_session'),
     'create_minigame_session is SECURITY DEFINER'
@@ -1212,10 +1240,56 @@ SELECT ok(
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
     'create_minigame_session returns typed jsonb statuses (I-57 contract)'
 );
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer']::name[], 'public', ARRAY[]::name[],
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.minigame_invites%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session writes one minigame_invites row per invitee (140_minigame_invites)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_invite_friends_only%'
+       AND pg_get_functiondef(p.oid) LIKE '%friendships%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session enforces the friends-only invite privacy switch server-side'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''invitee_not_allowed''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''invitee_friends_only''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''too_many_invitees''%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session returns typed invitee rejection statuses'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%status = ''blocked''::public.friendship_status%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session rejects blocked invitees (either direction)'
+);
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]']::name[], 'public', ARRAY[]::name[],
     'create_minigame_session is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer']::name[], 'authenticated', ARRAY['EXECUTE'],
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]']::name[], 'authenticated', ARRAY['EXECUTE'],
     'create_minigame_session is authenticated-EXECUTABLE');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%p_group_id IS NOT NULL AND NOT public.is_group_member(p_group_id)%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session allows NULL p_group_id (direct sessions) and gates non-null groups via is_group_member'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame.free_max_players%'
+       AND pg_get_functiondef(p.oid) LIKE '%minigame.pro_max_players%'
+       AND pg_get_functiondef(p.oid) LIKE '%minigame.vip_max_players%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session computes the player cap from the creator subscription tier via app_config'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''player_limit_reached''%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session rejects over-cap rosters with player_limit_reached'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%player_limit%'
+       AND pg_get_functiondef(p.oid) LIKE '%INSERT INTO public.minigame_sessions%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session stores the frozen player_limit on the session row'
+);
 
 -- ============================================================
 -- SECTION 46: Static trigger/constraint/RPC contract (agent I-77,
@@ -1548,6 +1622,18 @@ SELECT ok(
     'join_minigame_session deducts the wager into the minigame_wager ledger and appends the participant'
 );
 SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.minigame_invites%'
+       AND pg_get_functiondef(p.oid) LIKE '%''not_allowed''%'
+     FROM pg_proc p WHERE proname = 'join_minigame_session'),
+    'join_minigame_session gates DIRECT sessions by participant / pending-invite standing (not_allowed)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%array_length(v_participants, 1) >= v_player_limit%'
+       AND pg_get_functiondef(p.oid) LIKE '%''player_limit_reached''%'
+     FROM pg_proc p WHERE proname = 'join_minigame_session'),
+    'join_minigame_session enforces the frozen player cap (player_limit_reached)'
+);
+SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%''joined''%'
        AND pg_get_functiondef(p.oid) LIKE '%''session_not_found''%'
        AND pg_get_functiondef(p.oid) LIKE '%''session_not_active''%'
@@ -1584,6 +1670,12 @@ SELECT ok(
     'finish_minigame_session refunds participants on draw (minigame_refund)'
 );
 SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''not_allowed''%'
+       AND pg_get_functiondef(p.oid) LIKE '%v_current_user <> ALL(v_participants)%'
+     FROM pg_proc p WHERE proname = 'finish_minigame_session'),
+    'finish_minigame_session gates DIRECT sessions by participant standing (not_allowed)'
+);
+SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%''finished''%'
        AND pg_get_functiondef(p.oid) LIKE '%''already_finished''%'
        AND pg_get_functiondef(p.oid) LIKE '%''invalid_winner''%'
@@ -1595,6 +1687,108 @@ SELECT function_privs_are('public', 'finish_minigame_session', ARRAY['uuid', 'uu
     'finish_minigame_session is not PUBLIC-EXECUTABLE');
 SELECT function_privs_are('public', 'finish_minigame_session', ARRAY['uuid', 'uuid', 'integer']::name[], 'authenticated', ARRAY['EXECUTE'],
     'finish_minigame_session is authenticated-EXECUTABLE');
+
+-- ============================================================
+-- SECTION 49b: Minigame invites (migration 140_minigame_invites,
+-- 2026-08-26) — participant select. minigame_invites table (FORCE RLS,
+-- invitee+creator read), users.minigame_invite_friends_only privacy switch
+-- (default OFF), the RPC family (set_*/accept/decline: SECURITY DEFINER +
+-- empty search_path + PUBLIC-revoked + authenticated-EXECUTABLE), the
+-- ms_read_invitee session-read policy, and the realtime memberships that
+-- deliver invites live to the invitee's notification center.
+-- ============================================================
+SELECT has_type('mini_game_invite_status',
+    'mini_game_invite_status exists (140_minigame_invites)');
+SELECT has_table('minigame_invites',
+    'minigame_invites exists');
+SELECT col_is_unique('minigame_invites', ARRAY['session_id', 'invitee_id'],
+    'minigame_invites(session_id, invitee_id) is unique (one invite per player per session)');
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.minigame_invites'::regclass),
+    'minigame_invites has FORCE ROW LEVEL SECURITY (140_minigame_invites)'
+);
+SELECT policies_are('minigame_invites', ARRAY[
+    'mi_read_own'
+], 'minigame_invites policies: invitee/creator SELECT only (every write is an RPC contract)');
+SELECT has_column('users', 'minigame_invite_friends_only',
+    'users.minigame_invite_friends_only exists (invite privacy switch, 140_minigame_invites)');
+SELECT ok(
+    (SELECT pg_get_expr(adbin, adrelid)::text = 'false'
+     FROM pg_attrdef d
+     JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+     WHERE a.attrelid = 'users'::regclass AND a.attname = 'minigame_invite_friends_only'),
+    'users.minigame_invite_friends_only defaults to false (non-friends may invite by default)'
+);
+SELECT has_function('set_minigame_invite_friends_only', ARRAY['boolean'],
+    'set_minigame_invite_friends_only(p_value boolean) exists (profile-RPC lockdown)');
+SELECT is_definer('public', 'set_minigame_invite_friends_only', ARRAY['boolean']::name[],
+    'set_minigame_invite_friends_only is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'set_minigame_invite_friends_only'),
+    'set_minigame_invite_friends_only sets search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'set_minigame_invite_friends_only', ARRAY['boolean']::name[], 'public', ARRAY[]::name[],
+    'set_minigame_invite_friends_only is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'set_minigame_invite_friends_only', ARRAY['boolean']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'set_minigame_invite_friends_only is authenticated-EXECUTABLE');
+SELECT has_function('accept_minigame_invite', ARRAY['uuid'],
+    'accept_minigame_invite(p_invite_id uuid) exists');
+SELECT is_definer('public', 'accept_minigame_invite', ARRAY['uuid']::name[],
+    'accept_minigame_invite is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'accept_minigame_invite'),
+    'accept_minigame_invite sets search_path = "" (I-31 pattern)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''session_finished''%'
+       AND pg_get_functiondef(p.oid) LIKE '%participants || ARRAY[v_current_user]%'
+     FROM pg_proc p WHERE proname = 'accept_minigame_invite'),
+    'accept_minigame_invite rejects finished sessions and appends the participant'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_wager%'
+     FROM pg_proc p WHERE proname = 'accept_minigame_invite'),
+    'accept_minigame_invite mirrors the escrow deduction (GWAG)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%array_length(v_participants, 1) >= v_player_limit%'
+       AND pg_get_functiondef(p.oid) LIKE '%''player_limit_reached''%'
+     FROM pg_proc p WHERE proname = 'accept_minigame_invite'),
+    'accept_minigame_invite enforces the frozen player cap (player_limit_reached)'
+);
+SELECT function_privs_are('public', 'accept_minigame_invite', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'accept_minigame_invite is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'accept_minigame_invite', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'accept_minigame_invite is authenticated-EXECUTABLE');
+SELECT has_function('decline_minigame_invite', ARRAY['uuid'],
+    'decline_minigame_invite(p_invite_id uuid) exists');
+SELECT is_definer('public', 'decline_minigame_invite', ARRAY['uuid']::name[],
+    'decline_minigame_invite is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'decline_minigame_invite'),
+    'decline_minigame_invite sets search_path = "" (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'decline_minigame_invite', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'decline_minigame_invite is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'decline_minigame_invite', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'decline_minigame_invite is authenticated-EXECUTABLE');
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'notifications'
+    ),
+    'notifications joins the supabase_realtime publication (GO-realtime invites land live)'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'minigame_invites'
+    ),
+    'minigame_invites joins the supabase_realtime publication (accept/decline streaming)'
+);
 
 -- ============================================================
 -- SECTION 50: create_direct_chat RPC + chat RLS (migration 20260814000001)
@@ -1712,8 +1906,16 @@ SELECT has_trigger('messages', 'notify_new_message_trigger',
     'messages has notify_new_message_trigger');
 SELECT has_function('notify_minigame_invite', ARRAY[]::name[],
     'notify_minigame_invite exists (NTRG #7)');
-SELECT has_trigger('minigame_sessions', 'notify_minigame_invite_trigger',
-    'minigame_sessions has notify_minigame_invite_trigger');
+SELECT has_trigger('minigame_invites', 'notify_minigame_invite_trigger',
+    'minigame_invites has notify_minigame_invite_trigger (140_minigame_invites — notifies the INVITEE, not the creator)');
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgname = 'notify_minigame_invite_trigger'
+          AND tgrelid = 'public.minigame_sessions'::regclass
+    ),
+    'notify_minigame_invite_trigger no longer fires on minigame_sessions INSERT (moved to minigame_invites)'
+);
 SELECT has_function('notify_feature_request', ARRAY[]::name[],
     'notify_feature_request exists (NTRG #8)');
 SELECT has_trigger('feature_requests', 'notify_feature_request_trigger',

@@ -249,4 +249,45 @@ void main() {
       expect(await service().getMyInterestTags(), isEmpty);
     });
   });
+
+  group('UserService minigame-invite privacy switch (140_minigame_invites)',
+      () {
+    test('getMinigameInviteFriendsOnly reads the own users row', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final table = MockQueryBuilder();
+      when(() => client.from('users')).thenAnswer((_) => table);
+      when(() => table.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>(
+          {'minigame_invite_friends_only': true},
+        ),
+      );
+
+      expect(await service().getMinigameInviteFriendsOnly(), isTrue);
+    });
+
+    test('setMinigameInviteFriendsOnly goes through the set_* RPC (clients '
+        'hold no UPDATE on users)', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rpc = ResolvingBuilder<dynamic>(null);
+      when(
+        () => client.rpc(
+          'set_minigame_invite_friends_only',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => rpc);
+
+      await service().setMinigameInviteFriendsOnly(true);
+
+      final params =
+          verify(
+                () => client.rpc(
+                  'set_minigame_invite_friends_only',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map;
+      expect(params['p_value'], isTrue);
+      verifyNever(() => client.from('users').update(any()));
+    });
+  });
 }

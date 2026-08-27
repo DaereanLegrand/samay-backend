@@ -180,7 +180,49 @@ void main() {
           'p_group_id': _groupId,
           'p_game_type': 'poke_chain',
           'p_wager': 50,
+          'p_invitees': <String>[],
         });
+      },
+    );
+
+    test(
+      'forwards the selected invitee ids as p_invitees (140_minigame_invites)',
+      () async {
+        when(() => auth.currentUser).thenReturn(_currentUser());
+        final rpc = ResolvingBuilder<dynamic>({
+          'status': 'created',
+          'sessionId': _sessionId,
+          'invited': 2,
+        });
+        when(
+          () => client.rpc(
+            'create_minigame_session',
+            params: any(named: 'params'),
+          ),
+        ).thenAnswer((_) => rpc);
+
+        await service().createSession(
+          _groupId,
+          MinigameType.questions,
+          0,
+          inviteeIds: const [
+            'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+          ],
+        );
+
+        final params =
+            verify(
+                  () => client.rpc(
+                    'create_minigame_session',
+                    params: captureAny(named: 'params'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+        expect(params['p_invitees'], [
+          'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+          'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        ]);
       },
     );
 
@@ -234,6 +276,257 @@ void main() {
         () => service().createSession(_groupId, MinigameType.challenge, 5000),
         throwsA(isA<PostgrestException>()),
       );
+    });
+
+    test('maps the friends-only privacy rejection to a typed exception', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () =>
+            client.rpc('create_minigame_session', params: any(named: 'params')),
+      ).thenAnswer(
+        (_) => ResolvingBuilder<dynamic>({'status': 'invitee_friends_only'}),
+      );
+
+      expect(
+        () => service().createSession(
+          _groupId,
+          MinigameType.pokeChain,
+          0,
+          inviteeIds: const ['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'],
+        ),
+        throwsA(
+          isA<MinigameSessionRejectedException>().having(
+            (e) => e.rejection,
+            'rejection',
+            MinigameSessionRejection.inviteeFriendsOnly,
+          ),
+        ),
+      );
+    });
+
+    test('propagates the invitee-not-allowed rejection', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () =>
+            client.rpc('create_minigame_session', params: any(named: 'params')),
+      ).thenAnswer(
+        (_) => ResolvingBuilder<dynamic>({'status': 'invitee_not_allowed'}),
+      );
+
+      expect(
+        () => service().createSession(
+          _groupId,
+          MinigameType.pokeChain,
+          0,
+          inviteeIds: const ['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'],
+        ),
+        throwsA(
+          isA<MinigameSessionRejectedException>().having(
+            (e) => e.rejection,
+            'rejection',
+            MinigameSessionRejection.inviteeNotAllowed,
+          ),
+        ),
+      );
+    });
+
+    test('passes p_group_id as null for a DIRECT session (no group)',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rpc = ResolvingBuilder<dynamic>({
+        'status': 'created',
+        'sessionId': _sessionId,
+      });
+      when(
+        () => client.rpc(
+          'create_minigame_session',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => rpc);
+
+      await service().createSession(null, MinigameType.questions, 0);
+
+      final params =
+          verify(
+                () => client.rpc(
+                  'create_minigame_session',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params['p_group_id'], isNull);
+    });
+
+    test('maps the player_limit_reached rejection (frozen player cap)',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () => client.rpc(
+          'create_minigame_session',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer(
+        (_) => ResolvingBuilder<dynamic>({'status': 'player_limit_reached'}),
+      );
+
+      expect(
+        () => service().createSession(null, MinigameType.questions, 0),
+        throwsA(
+          isA<MinigameSessionRejectedException>().having(
+            (e) => e.rejection,
+            'rejection',
+            MinigameSessionRejection.playerLimitReached,
+          ),
+        ),
+      );
+    });
+  });
+
+  group('MinigameService.listMySessions (direct sessions)', () {
+    late MockQueryBuilder table;
+
+    setUp(() {
+      table = MockQueryBuilder();
+      when(() => client.from('minigame_sessions')).thenAnswer((_) => table);
+    });
+
+    test('queries the caller\'s direct sessions (group_id is null + '
+        'participant)', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rows = ResolvingBuilder<PostgrestList>([_session()]);
+      when(() => table.select(any())).thenAnswer((_) => rows);
+
+      final sessions = await service().listMySessions();
+
+      expect(sessions, hasLength(1));
+      expect(sessions.single['id'], _sessionId);
+      // RecordedFilter equality is identity for list values, so the
+      // participants containment filter is asserted via value matchers.
+      expect(
+        rows.filters,
+        containsAllInOrder([
+          const RecordedFilter('group_id', null),
+          isA<RecordedFilter>()
+              .having((f) => f.column, 'column', 'participants')
+              .having((f) => f.value, 'value', [_userId]),
+        ]),
+      );
+    });
+
+    test('throws without an authenticated session', () async {
+      when(() => auth.currentUser).thenReturn(null);
+
+      expect(
+        () => service().listMySessions(),
+        throwsA(isA<Exception>()),
+      );
+      verifyNever(() => table.select(any()));
+    });
+  });
+
+  group('MinigameService.minigame invites (140_minigame_invites)', () {
+    test('myInviteForSession reads the own invite row from minigame_invites',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final table = MockQueryBuilder();
+      when(() => client.from('minigame_invites')).thenAnswer((_) => table);
+      final rows = ResolvingBuilder<PostgrestList>({
+        'id': 'invite-1',
+        'session_id': _sessionId,
+        'invitee_id': _userId,
+        'created_by': '22222222-2222-2222-2222-222222222222',
+        'status': 'pending',
+        'created_at': '2026-08-26T10:00:00Z',
+      });
+      when(() => table.select(any())).thenAnswer((_) => rows);
+
+      final invite = await service().myInviteForSession(_sessionId);
+
+      expect(invite, isNotNull);
+      expect(invite!['status'], 'pending');
+      expect(
+        rows.filters,
+        containsAllInOrder([
+          const RecordedFilter('session_id', _sessionId),
+          const RecordedFilter('invitee_id', _userId),
+        ]),
+      );
+    });
+
+    test('acceptInvite invokes the accept_minigame_invite RPC', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () =>
+            client.rpc('accept_minigame_invite', params: any(named: 'params')),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'accepted'}));
+
+      await service().acceptInvite('invite-1');
+
+      final params =
+          verify(
+                () => client.rpc(
+                  'accept_minigame_invite',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params, {'p_invite_id': 'invite-1'});
+    });
+
+    test('acceptInvite surfaces session_finished as a conflict', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () =>
+            client.rpc('accept_minigame_invite', params: any(named: 'params')),
+      ).thenAnswer(
+        (_) => ResolvingBuilder<dynamic>({'status': 'session_finished'}),
+      );
+
+      expect(
+        () => service().acceptInvite('invite-1'),
+        throwsA(isA<Exception>()),
+      );
+    });
+
+    test('acceptInvite surfaces the player_limit_reached rejection', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () =>
+            client.rpc('accept_minigame_invite', params: any(named: 'params')),
+      ).thenAnswer(
+        (_) => ResolvingBuilder<dynamic>({'status': 'player_limit_reached'}),
+      );
+
+      expect(
+        () => service().acceptInvite('invite-1'),
+        throwsA(
+          isA<MinigameSessionRejectedException>().having(
+            (e) => e.rejection,
+            'rejection',
+            MinigameSessionRejection.playerLimitReached,
+          ),
+        ),
+      );
+    });
+
+    test('declineInvite declines the invite RPC', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () =>
+            client.rpc('decline_minigame_invite', params: any(named: 'params')),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'declined'}));
+
+      await service().declineInvite('invite-1');
+
+      final params =
+          verify(
+                () => client.rpc(
+                  'decline_minigame_invite',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params, {'p_invite_id': 'invite-1'});
     });
   });
 
@@ -320,6 +613,54 @@ void main() {
       },
     );
 
+    test(
+      'propagates the not_allowed rejection (bystander on a DIRECT session)',
+      () async {
+        when(() => auth.currentUser).thenReturn(_currentUser());
+        when(
+          () =>
+              client.rpc('join_minigame_session', params: any(named: 'params')),
+        ).thenAnswer(
+          (_) => ResolvingBuilder<dynamic>({'status': 'not_allowed'}),
+        );
+
+        expect(
+          () => service().joinSession(_sessionId),
+          throwsA(
+            isA<MinigameSessionRejectedException>().having(
+              (e) => e.rejection,
+              'rejection',
+              MinigameSessionRejection.notAllowed,
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'propagates the player_limit_reached rejection for a full session',
+      () async {
+        when(() => auth.currentUser).thenReturn(_currentUser());
+        when(
+          () =>
+              client.rpc('join_minigame_session', params: any(named: 'params')),
+        ).thenAnswer(
+          (_) => ResolvingBuilder<dynamic>({'status': 'player_limit_reached'}),
+        );
+
+        expect(
+          () => service().joinSession(_sessionId),
+          throwsA(
+            isA<MinigameSessionRejectedException>().having(
+              (e) => e.rejection,
+              'rejection',
+              MinigameSessionRejection.playerLimitReached,
+            ),
+          ),
+        );
+      },
+    );
+
     test('throws when the server reports the session missing', () async {
       when(() => auth.currentUser).thenReturn(_currentUser());
       when(
@@ -370,6 +711,27 @@ void main() {
       );
 
       await service().updateStatus(_sessionId, MinigameStatus.finished);
+    });
+
+    test('propagates the not_allowed rejection (bystander settling a '
+        'DIRECT session)', () async {
+      when(
+        () => client.rpc(
+          'finish_minigame_session',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'not_allowed'}));
+
+      expect(
+        () => service().updateStatus(_sessionId, MinigameStatus.finished),
+        throwsA(
+          isA<MinigameSessionRejectedException>().having(
+            (e) => e.rejection,
+            'rejection',
+            MinigameSessionRejection.notAllowed,
+          ),
+        ),
+      );
     });
 
     test('rejects reactivation (no server contract for active)', () async {

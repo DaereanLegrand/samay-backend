@@ -217,7 +217,7 @@ void main() {
         ),
       );
 
-      expect(find.text('CUENTA SUSPENDIDA'), findsOneWidget);
+      expect(find.text('Cuenta suspendida'), findsOneWidget);
       expect(find.text('Tu cuenta ha sido suspendida.'), findsOneWidget);
       expect(find.text('Cerrar sesión'), findsOneWidget);
     });

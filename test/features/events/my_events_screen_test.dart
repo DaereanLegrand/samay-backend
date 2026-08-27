@@ -15,6 +15,7 @@ import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
 import 'package:samay/shared/widgets/skeletons.dart';
 import 'package:samay/shared/widgets/state_views.dart';
+import 'package:samay/shared/widgets/v_button.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 /// MyEventsScreen tests (R1 events sweep): the events tab renders the
@@ -212,9 +213,18 @@ void main() {
       ]);
       await _pumpScreen(tester, service);
 
-      // The hero goes through VDisplayText — the MAYUS rule uppercases it.
-      expect(find.text('MIS EVENTOS'), findsOneWidget);
+      // The hero goes through VDisplayText — VERBATIM glyphs (monochrome
+      // 2026-08-26; the MAYUS uppercase rule is deleted).
+      expect(find.text('Mis eventos'), findsOneWidget);
       expect(find.text('Crear evento'), findsOneWidget);
+      // Monochrome CTA (2026-08-26): the former accent create CTA is now the
+      // dark primary voice (surfaceAlt fill, white label).
+      expect(
+        tester
+            .widget<VButton>(find.widgetWithText(VButton, 'Crear evento'))
+            .variant,
+        VButtonVariant.dark,
+      );
       // The helper explains the groups-tab detour.
       expect(
         find.text(

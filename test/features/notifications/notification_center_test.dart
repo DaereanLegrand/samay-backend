@@ -341,6 +341,30 @@ void main() {
       }
     });
 
+    test('minigame_invite with a session id lands on the session detail '
+        '(140_minigame_invites)', () {
+      expect(
+        notificationDeepLink('minigame_invite', {
+          'groupId': 'g1',
+          'sessionId': 's1',
+        }),
+        '/minigames/session/s1',
+      );
+      expect(
+        notificationDeepLink('minigame_invite', {'session_id': 's2'}),
+        '/minigames/session/s2',
+      );
+      // Without a session id it falls back to the group detail.
+      expect(
+        notificationDeepLink('minigame_invite', {'groupId': 'g1'}),
+        '/group/g1',
+      );
+    });
+
+    test('minigame session deep links are registered routes', () {
+      expect(isRegisteredRoutePath('/minigames/session/s1'), isTrue);
+    });
+
     test('maps chat_message to the chat route', () {
       expect(
         notificationDeepLink('chat_message', {'chat_id': 'c1'}),

@@ -146,7 +146,7 @@ void main() {
       await _pumpRoute(tester, RoutePaths.eventDetail(_eventId), service);
 
       expect(find.byType(EventDetailScreen), findsOneWidget);
-      expect(find.text('RAVE EN EL GARAJE'), findsOneWidget);
+      expect(find.text('Rave en el garaje'), findsOneWidget);
       verifyNever(() => service.getEventByInviteToken(any()));
     });
 
@@ -171,7 +171,7 @@ void main() {
         await _pumpRoute(tester, RoutePaths.eventInviteToken(_token), service);
 
         expect(find.byType(EventDetailScreen), findsOneWidget);
-        expect(find.text('RAVE EN EL GARAJE'), findsOneWidget);
+        expect(find.text('Rave en el garaje'), findsOneWidget);
         verify(() => service.getEventByInviteToken(_token)).called(1);
         // The detail is fetched by the RESOLVED id, not the raw token.
         verify(() => service.getEvent(_eventId)).called(1);

@@ -287,9 +287,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(find.byType(VSkeletonProfile), findsNothing);
-      // LUXE v2 (XL-08): the hero username renders uppercase through
-      // VDisplayText (the MAYUS rule) — 'DANA', not 'dana'.
-      expect(find.text('DANA'), findsOneWidget);
+      // Monochrome (2026-08-26): VDisplayText renders the hero VERBATIM —
+      // natural case, flat white; the MAYUS rule is deleted.
+      expect(find.text('dana'), findsOneWidget);
       expect(find.text('hola mundo'), findsOneWidget);
       expect(find.text('120 shards'), findsOneWidget);
       expect(find.text('3 preshards'), findsOneWidget);
@@ -683,9 +683,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // LUXE v2 (XL-08): the hero renders uppercase (VDisplayText MAYUS
-      // rule) — tap the 'DANA' glyphs.
-      await tester.tap(find.text('DANA'));
+      // Monochrome (2026-08-26): the hero renders VERBATIM through
+      // VDisplayText — tap the 'dana' glyphs.
+      await tester.tap(find.text('dana'));
       await tester.pumpAndSettle();
 
       expect(find.byType(EditProfileScreen), findsOneWidget);
@@ -699,9 +699,9 @@ void main() {
         _wrap(const PublicProfileScreen(userId: 'test-id')),
       );
       await tester.pump(const Duration(seconds: 1));
-      // LUXE v2 (XL-08): the fallback hero renders uppercase through
-      // VDisplayText; no AppBar title duplicates it.
-      expect(find.text('USUARIO'), findsOneWidget);
+      // Monochrome (2026-08-26): the fallback hero ('Usuario') renders
+      // VERBATIM through VDisplayText; no AppBar title duplicates it.
+      expect(find.text('Usuario'), findsOneWidget);
       expect(find.text('Agregar amigo'), findsOneWidget);
     });
 

@@ -41,12 +41,22 @@ void main() {
   final testingMigration = read(
     'supabase-testing/migrations/100_minigames/sessions.sql',
   );
+  final supabaseInvitesMigration = read(
+    'supabase/migrations/140_minigame_invites/invites.sql',
+  );
+  final testingInvitesMigration = read(
+    'supabase-testing/migrations/140_minigame_invites/invites.sql',
+  );
   final supabaseJoinFinishMigration = supabaseMigration;
   final testingJoinFinishMigration = testingMigration;
+  // The invite-aware create_minigame_session lives in 140 (the 3-arg baseline
+  // in 100 is DROP'd there), so the create-contract checks run against the
+  // invites migration.
+  final supabaseCreateMigration = supabaseInvitesMigration;
   final supabaseSchema = read('supabase/tests/schema_test.sql');
   final testingSchema = read('supabase-testing/tests/schema_test.sql');
 
-  group('create_minigame_session RPC migration (100_minigames)', () {
+  group('create_minigame_session RPC migration (100_minigames + 140_minigame_invites)', () {
     test('exists in both the supabase/ and supabase-testing/ stacks', () {
       expect(
         supabaseMigration,
@@ -62,9 +72,23 @@ void main() {
             'supabase-testing/migrations/100_minigames/sessions.sql '
             'is missing or empty',
       );
+      expect(
+        supabaseInvitesMigration,
+        isNotEmpty,
+        reason:
+            'supabase/migrations/140_minigame_invites/invites.sql '
+            'is missing or empty',
+      );
+      expect(
+        testingInvitesMigration,
+        isNotEmpty,
+        reason:
+            'supabase-testing/migrations/140_minigame_invites/invites.sql '
+            'is missing or empty',
+      );
     });
 
-    test('supabase-testing mirror matches the canonical migration', () {
+    test('supabase-testing mirrors match the canonical migrations', () {
       expect(
         testingMigration,
         supabaseMigration,
@@ -72,13 +96,20 @@ void main() {
             'supabase-testing must mirror supabase/ migration-for-migration '
             '(I-02 parity convention)',
       );
+      expect(
+        testingInvitesMigration,
+        supabaseInvitesMigration,
+        reason:
+            'supabase-testing must mirror supabase/ migration-for-migration '
+            '(I-02 parity convention, 140_minigame_invites)',
+      );
     });
 
     test('is SECURITY DEFINER with SET search_path TO \'\' (I-31 pattern)', () {
-      expect(supabaseMigration, contains('SECURITY DEFINER'));
-      expect(supabaseMigration, contains("SET search_path TO ''"));
+      expect(supabaseCreateMigration, contains('SECURITY DEFINER'));
+      expect(supabaseCreateMigration, contains("SET search_path TO ''"));
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains('public.create_minigame_session'),
         reason: 'function must be created with a fully-qualified name',
       );
@@ -88,14 +119,14 @@ void main() {
       'validates group membership via the is_group_member helper (I-32)',
       () {
         expect(
-          supabaseMigration,
+          supabaseCreateMigration,
           contains('public.is_group_member(p_group_id)'),
           reason:
               'the membership gate must delegate to the SECURITY DEFINER '
               'is_group_member helper (recursion-safe, active members only)',
         );
         expect(
-          supabaseMigration,
+          supabaseCreateMigration,
           contains("'not_member'"),
           reason:
               'non-members must get the typed not_member outcome (returned '
@@ -106,12 +137,12 @@ void main() {
 
     test('rejects negative wagers and validates the game type', () {
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains('p_wager < 0'),
         reason: 'negative wagers must be rejected (GWAG: integer shards >= 0)',
       );
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains('::public.mini_game_type'),
         reason:
             'p_game_type must be validated by a cast to the DB enum '
@@ -122,19 +153,19 @@ void main() {
 
     test('deducts personal_shards atomically when the wager is > 0', () {
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains('SET personal_shards = personal_shards - p_wager'),
         reason: 'the wager must be deducted from the caller\'s balance',
       );
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains('personal_shards >= p_wager'),
         reason:
             'the UPDATE must be guarded so insufficient balances are '
             'never overdrawn',
       );
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains("'insufficient_shards'"),
         reason: 'the insufficient-balance outcome must be a typed status',
       );
@@ -144,21 +175,21 @@ void main() {
       'writes the minigame_wager ledger entry with the session reference',
       () {
         expect(
-          supabaseMigration,
+          supabaseCreateMigration,
           contains('INSERT INTO public.shard_ledger'),
           reason:
               'the ledger insert must be fully qualified (search_path='
               ')',
         );
         expect(
-          supabaseMigration,
+          supabaseCreateMigration,
           contains("'minigame_wager'"),
           reason:
               'the wager deduction must be recorded as reason=minigame_wager '
               '(GWAG ledger contract)',
         );
         expect(
-          supabaseMigration,
+          supabaseCreateMigration,
           contains('reference_id'),
           reason:
               'the ledger row must carry reference_id for escrow '
@@ -170,36 +201,36 @@ void main() {
     test('inserts the session with the caller as first participant and '
         'returns the id', () {
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains('INSERT INTO public.minigame_sessions'),
         reason:
             'the session insert must be fully qualified (search_path='
             ')',
       );
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains("'active'"),
         reason: 'new sessions start with status=active (GMCR step 4)',
       );
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains('RETURNING id'),
         reason: 'the RPC must capture the created session id',
       );
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains("'created'"),
         reason: 'the success outcome must be the created status',
       );
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains("'sessionId'"),
         reason:
             'the created status must carry the session id (client '
             'contract: MinigameService.createSession)',
       );
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains('ARRAY[v_current_user]'),
         reason:
             'the initiator must be the first participant (GMCR session '
@@ -219,7 +250,7 @@ void main() {
           "'created'",
         ]) {
           expect(
-            supabaseMigration,
+            supabaseCreateMigration,
             contains(status),
             reason: 'status $status must be returned by the RPC',
           );
@@ -229,21 +260,23 @@ void main() {
 
     test('revokes PUBLIC EXECUTE and grants authenticated only', () {
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains(
           'REVOKE ALL ON FUNCTION public.create_minigame_session'
-          '(p_group_id uuid, p_game_type text, p_wager integer) FROM PUBLIC',
+          '(p_group_id uuid, p_game_type text, p_wager integer,'
+              ' p_invitees uuid[]) FROM PUBLIC',
         ),
       );
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         contains(
           'GRANT ALL ON FUNCTION public.create_minigame_session'
-          '(p_group_id uuid, p_game_type text, p_wager integer) TO authenticated',
+          '(p_group_id uuid, p_game_type text, p_wager integer,'
+              ' p_invitees uuid[]) TO authenticated',
         ),
       );
       expect(
-        supabaseMigration,
+        supabaseCreateMigration,
         isNot(contains(
           'FUNCTION public.create_minigame_session'
           '(p_group_id uuid, p_game_type text, p_wager integer) TO anon',
@@ -260,7 +293,7 @@ void main() {
       // finish_minigame_session — assert the create function's own body
       // slice stays credit-free.
       final createBody = functionSlice(
-        supabaseMigration,
+        supabaseCreateMigration,
         'create_minigame_session',
       );
       expect(
@@ -499,6 +532,296 @@ void main() {
     });
   });
 
+  group('minigame invites migration (140_minigame_invites)', () {
+    test('exists and is mirrored byte-identical', () {
+      expect(
+        supabaseInvitesMigration,
+        testingInvitesMigration,
+        reason: '140_minigame_invites must mirror across stacks (I-02)',
+      );
+    });
+
+    test('drops the 3-arg create overload before creating the 4-arg', () {
+      expect(
+        supabaseInvitesMigration,
+        contains(
+          'DROP FUNCTION public.create_minigame_session'
+          '(p_group_id uuid, p_game_type text, p_wager integer)',
+        ),
+        reason:
+            'CREATE OR REPLACE cannot change the argument list — the 3-arg '
+            'baseline must be dropped first',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains('p_invitees uuid[]'),
+        reason: 'the invite-aware overload must carry p_invitees uuid[]',
+      );
+    });
+
+    test('defines the invites table with FORCE RLS and invitee/creator read',
+        () {
+      expect(supabaseInvitesMigration, contains('public.minigame_invites'));
+      expect(
+        supabaseInvitesMigration,
+        contains('mini_game_invite_status'),
+        reason: 'the pending/accepted/declined status enum must exist',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains('FORCE ROW LEVEL SECURITY'),
+        reason: 'invites are a server-side contract — no client table writes',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains('mi_read_own'),
+        reason: 'invitee/creator SELECT policy must exist',
+      );
+    });
+
+    test('adds the friends-only privacy column defaulting to false', () {
+      expect(
+        supabaseInvitesMigration,
+        contains('minigame_invite_friends_only boolean NOT NULL DEFAULT false'),
+        reason: 'default OFF = non-friends may invite (user directive)',
+      );
+    });
+
+    test('ships the accept/decline + privacy RPC family with hardening', () {
+      for (final fn in const [
+        'set_minigame_invite_friends_only',
+        'accept_minigame_invite',
+        'decline_minigame_invite',
+      ]) {
+        expect(
+          supabaseInvitesMigration,
+          contains('CREATE FUNCTION public.$fn'),
+          reason: '$fn must exist as a public function',
+        );
+        expect(
+          supabaseInvitesMigration,
+          contains('SECURITY DEFINER'),
+          reason: '$fn must be SECURITY DEFINER',
+        );
+        expect(
+          supabaseInvitesMigration,
+          contains("SET search_path TO ''"),
+          reason: '$fn must harden search_path (I-31 pattern)',
+        );
+        expect(
+          supabaseInvitesMigration,
+          contains('REVOKE ALL ON FUNCTION public.$fn'),
+          reason: '$fn must not be PUBLIC-executable',
+        );
+        expect(
+          supabaseInvitesMigration,
+          contains('GRANT ALL ON FUNCTION public.$fn'),
+          reason: '$fn must grant the caller role',
+        );
+      }
+    });
+
+    test('accept_minigame_invite enforces the finished-session closure', () {
+      expect(
+        supabaseInvitesMigration,
+        contains("'session_finished'"),
+        reason:
+            'accepting after the game finished must be rejected (product '
+            'contract)',
+      );
+    });
+
+    test('opens ms_read_invitee on minigame_sessions (non-member reads)', () {
+      expect(
+        supabaseInvitesMigration,
+        contains('ms_read_invitee'),
+        reason: 'invitees need the narrowest SELECT to render the session',
+      );
+    });
+
+    test('joins notifications + minigame_invites to supabase_realtime', () {
+      expect(
+        supabaseInvitesMigration,
+        contains('ADD TABLE public.notifications'),
+        reason: 'GO-realtime: invites must land live in the notification center',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains('ADD TABLE public.minigame_invites'),
+        reason: 'accept/decline streaming needs the invites table published',
+      );
+    });
+
+    test('moves the invite trigger from minigame_sessions to minigame_invites',
+        () {
+      expect(
+        supabaseInvitesMigration,
+        contains(
+          'DROP TRIGGER IF EXISTS notify_minigame_invite_trigger '
+          'ON public.minigame_sessions',
+        ),
+        reason: 'the creator-as-participant notification is retired',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains(
+          'CREATE TRIGGER notify_minigame_invite_trigger '
+          'AFTER INSERT ON public.minigame_invites',
+        ),
+        reason: 'the invitee must be notified on minigame_invites INSERT',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains("'minigame_invite'"),
+        reason: 'the notification type must stay minigame_invite',
+      );
+    });
+  });
+
+  group('direct sessions (2026-08-27 direct-minigames)', () {
+    test('minigame_sessions.group_id is NULLABLE and player_limit is frozen',
+        () {
+      expect(
+        supabaseMigration,
+        contains('group_id uuid,'),
+        reason:
+            'group_id must be nullable so DIRECT sessions (no group) exist '
+            'alongside group sessions',
+      );
+      expect(
+        supabaseMigration,
+        contains('player_limit integer DEFAULT 8 NOT NULL'),
+        reason:
+            'the subscription-scaled player cap must be stored on the session '
+            'and default to 8 (free tier)',
+      );
+    });
+
+    test('create_minigame_session allows NULL p_group_id and gates groups only',
+        () {
+      expect(
+        supabaseInvitesMigration,
+        contains(
+          'IF p_group_id IS NOT NULL AND NOT public.is_group_member(p_group_id)',
+        ),
+        reason:
+            'a NULL p_group_id (direct session) must NOT require group '
+            'membership; a non-null group keeps the is_group_member gate',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains("'not_member'"),
+        reason: 'the typed not_member status must survive for group sessions',
+      );
+    });
+
+    test('the frozen player cap is computed from the creator tier + enforced',
+        () {
+      expect(
+        supabaseInvitesMigration,
+        contains('minigame.free_max_players'),
+        reason: 'the free-tier cap key must be read from app_config',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains('minigame.pro_max_players'),
+        reason: 'the PRO-tier cap key must be read from app_config',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains('minigame.vip_max_players'),
+        reason: 'the VIP-tier cap key must be read from app_config',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains("'player_limit_reached'"),
+        reason: 'over-cap creates must be rejected with the typed status',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains('player_limit'),
+        reason: 'the frozen cap must be stored on the session row',
+      );
+    });
+
+    test('join and accept enforce the cap; join/finish gate direct sessions',
+        () {
+      expect(
+        supabaseJoinFinishMigration,
+        contains("'player_limit_reached'"),
+        reason: 'join must reject a full direct session atomically',
+      );
+      expect(
+        supabaseJoinFinishMigration,
+        contains("'not_allowed'"),
+        reason: 'join/finish must reject bystanders on direct sessions',
+      );
+      expect(
+        supabaseInvitesMigration,
+        contains("'player_limit_reached'"),
+        reason: 'accept must enforce the same frozen cap',
+      );
+    });
+
+    test('adds ms_read_direct_participant (direct-session participant reads)',
+        () {
+      expect(
+        supabaseMigration,
+        contains('ms_read_direct_participant'),
+        reason: 'direct sessions must be readable by their participants',
+      );
+      expect(
+        supabaseMigration,
+        contains('group_id IS NULL'),
+        reason: 'the direct-read policy must require group_id IS NULL',
+      );
+      expect(
+        supabaseMigration,
+        contains('ANY (minigame_sessions.participants)'),
+        reason: 'only a participant may read a direct session',
+      );
+    });
+
+    test('pgTAP pins the direct-session contract in both stacks', () {
+      for (final entry in {
+        'supabase/tests/schema_test.sql': supabaseSchema,
+        'supabase-testing/tests/schema_test.sql': testingSchema,
+      }.entries) {
+        final name = entry.key;
+        final content = entry.value;
+        expect(
+          content,
+          contains("'minigame_sessions.group_id is NULLABLE"),
+          reason: '$name must assert the nullable group_id',
+        );
+        expect(
+          content,
+          contains("'minigame_sessions.player_limit is NOT NULL"),
+          reason: '$name must assert the frozen player cap',
+        );
+        expect(
+          content,
+          contains(
+            "'ms_read_direct_participant requires group_id IS NULL",
+          ),
+          reason: '$name must assert the direct-session read policy contract',
+        );
+        expect(
+          content,
+          contains(
+            "'create_minigame_session allows NULL p_group_id",
+          ),
+          reason: '$name must assert the conditional membership gate',
+        );
+        expect(
+          content,
+          contains("'join_minigame_session gates DIRECT sessions"),
+          reason: '$name must assert the direct join gate',
+        );
+      }
+    });
+  });
+
   group('pgTAP schema_test.sql plan consistency', () {
     int planOf(String content) {
       final match = RegExp(
@@ -568,9 +891,9 @@ void main() {
           content,
           contains(
             "has_function('create_minigame_session', "
-            "ARRAY['uuid', 'text', 'integer']",
+            "ARRAY['uuid', 'text', 'integer', 'uuid[]']",
           ),
-          reason: '$name must assert the RPC signature',
+          reason: '$name must assert the invite-aware 4-arg RPC signature',
         );
         expect(
           content,
@@ -598,6 +921,63 @@ void main() {
             "'create_minigame_session writes the minigame_wager ledger'",
           ),
           reason: '$name must assert the GWAG ledger body contract',
+        );
+        expect(
+          content,
+          contains(
+            "'create_minigame_session writes one minigame_invites row per invitee",
+          ),
+          reason: '$name must assert the invites-table body contract',
+        );
+        expect(
+          content,
+          contains(
+            "'create_minigame_session enforces the friends-only invite privacy switch",
+          ),
+          reason: '$name must assert the friends-only privacy gate body contract',
+        );
+      }
+    });
+
+    test('both suites assert the minigame-invites contract in Section 49b', () {
+      for (final entry in {
+        'supabase/tests/schema_test.sql': supabaseSchema,
+        'supabase-testing/tests/schema_test.sql': testingSchema,
+      }.entries) {
+        final name = entry.key;
+        final content = entry.value;
+        expect(
+          content,
+          contains('SECTION 49b'),
+          reason: '$name must carry the minigame-invites section header',
+        );
+        expect(
+          content,
+          contains("has_table('minigame_invites'"),
+          reason: '$name must assert the invites table exists',
+        );
+        expect(
+          content,
+          contains("has_function('accept_minigame_invite', ARRAY['uuid']"),
+          reason: '$name must assert the accept RPC signature',
+        );
+        expect(
+          content,
+          contains("has_function('decline_minigame_invite', ARRAY['uuid']"),
+          reason: '$name must assert the decline RPC signature',
+        );
+        expect(
+          content,
+          contains("'minigame_invites has FORCE ROW LEVEL SECURITY"),
+          reason: '$name must assert the FORCE RLS posture',
+        );
+        expect(
+          content,
+          contains(
+            "'notifications joins the supabase_realtime publication",
+          ),
+          reason:
+              '$name must assert notifications is realtime-published (GO-realtime invites)',
         );
       }
     });

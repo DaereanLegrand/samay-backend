@@ -107,7 +107,7 @@ void main() {
   group('WelcomeScreen', () {
     testWidgets('renders title and buttons', (tester) async {
       await tester.pumpWidget(_wrap(const WelcomeScreen()));
-      expect(find.text('VIVE'), findsOneWidget);
+      expect(find.text('vive'), findsOneWidget);
       expect(find.text('Crear cuenta'), findsOneWidget);
       expect(find.text('Iniciar sesión'), findsOneWidget);
     });

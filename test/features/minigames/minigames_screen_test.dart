@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:samay/core/models/group.dart';
+import 'package:samay/core/models/user_search_result.dart';
+import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/minigame_service.dart';
+import 'package:samay/features/friends/providers/friends_providers.dart';
+import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/features/minigames/providers/minigames_providers.dart';
+import 'package:samay/features/minigames/screens/minigame_session_detail_screen.dart';
 import 'package:samay/features/minigames/screens/minigames_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
@@ -41,6 +48,7 @@ class _FakeSessionsNotifier extends MinigameSessionsNotifier {
   int builds = 0;
   MinigameType? createdType;
   int? createdWager;
+  List<String>? createdInviteeIds;
   Object? createError;
 
   @override
@@ -51,23 +59,118 @@ class _FakeSessionsNotifier extends MinigameSessionsNotifier {
   }
 
   @override
-  Future<String> create(MinigameType type, int wager) async {
+  Future<String> create(
+    MinigameType type,
+    int wager, {
+    List<String> inviteeIds = const [],
+  }) async {
     if (createError != null) throw createError!;
     createdType = type;
     createdWager = wager;
+    createdInviteeIds = inviteeIds;
     return 'new-session-id';
   }
+}
+
+class _FakeMySessionsNotifier extends MyMinigameSessionsNotifier {
+  _FakeMySessionsNotifier(this.data, {this.error});
+
+  final List<Map<String, dynamic>> data;
+  final Object? error;
+  int builds = 0;
+  MinigameType? createdType;
+  int? createdWager;
+  List<String>? createdInviteeIds;
+  Object? createError;
+
+  @override
+  Future<List<Map<String, dynamic>>> build() async {
+    builds++;
+    if (error != null) throw error!;
+    return data;
+  }
+
+  @override
+  Future<String> create(
+    MinigameType type,
+    int wager, {
+    List<String> inviteeIds = const [],
+  }) async {
+    if (createError != null) throw createError!;
+    createdType = type;
+    createdWager = wager;
+    createdInviteeIds = inviteeIds;
+    return 'new-session-id';
+  }
+}
+
+class _StubSearchResultsNotifier extends SearchResultsNotifier {
+  _StubSearchResultsNotifier(this.data);
+
+  final List<UserSearchResult> data;
+
+  @override
+  Future<List<UserSearchResult>> build(String arg) async => data;
+}
+
+class _StubMyGroupsNotifier extends MyGroupsNotifier {
+  _StubMyGroupsNotifier(this.data);
+
+  final List<Group> data;
+
+  @override
+  Future<List<Group>> build() async => data;
+}
+
+class _FakeSessionStatusNotifier extends MinigameSessionStatusNotifier {
+  _FakeSessionStatusNotifier(this.row);
+
+  final Map<String, dynamic> row;
+
+  @override
+  Future<Map<String, dynamic>> build(String sessionId) async => row;
+}
+
+class _FakeInviteNotifier extends MinigameInviteNotifier {
+  _FakeInviteNotifier(this.invite);
+
+  final Map<String, dynamic>? invite;
+
+  @override
+  Future<Map<String, dynamic>?> build(String sessionId) async => invite;
 }
 
 ProviderContainer _container({
   List<Map<String, dynamic>> sessions = const [],
   Object? sessionsError,
+  List<Map<String, dynamic>> mySessions = const [],
+  Object? mySessionsError,
+  List<Group> myGroups = const [],
+  List<UserSearchResult> searchUsers = const [],
+  Map<String, dynamic>? sessionStatus,
+  Map<String, dynamic>? invite,
 }) {
   final container = ProviderContainer(
     overrides: [
       minigameSessionsProvider.overrideWith(
         () => _FakeSessionsNotifier(sessions, error: sessionsError),
       ),
+      myMinigameSessionsProvider.overrideWith(
+        () => _FakeMySessionsNotifier(mySessions, error: mySessionsError),
+      ),
+      myGroupsProvider.overrideWith(() => _StubMyGroupsNotifier(myGroups)),
+      if (searchUsers.isNotEmpty)
+        searchResultsProvider.overrideWith(
+          () => _StubSearchResultsNotifier(searchUsers),
+        ),
+      if (sessionStatus != null)
+        sessionStatusProvider.overrideWith(
+          () => _FakeSessionStatusNotifier(sessionStatus),
+        ),
+      if (invite != null)
+        minigameInviteProvider.overrideWith(
+          () => _FakeInviteNotifier(invite),
+        ),
     ],
   );
   addTearDown(container.dispose);
@@ -76,18 +179,30 @@ ProviderContainer _container({
 
 Future<ProviderContainer> _pumpScreen(
   WidgetTester tester, {
+  String? groupId = _groupId,
   List<Map<String, dynamic>> sessions = const [],
   Object? sessionsError,
+  List<Map<String, dynamic>> mySessions = const [],
+  Object? mySessionsError,
+  List<Group> myGroups = const [],
+  List<UserSearchResult> searchUsers = const [],
 }) async {
-  final container = _container(sessions: sessions, sessionsError: sessionsError);
+  final container = _container(
+    sessions: sessions,
+    sessionsError: sessionsError,
+    mySessions: mySessions,
+    mySessionsError: mySessionsError,
+    myGroups: myGroups,
+    searchUsers: searchUsers,
+  );
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(
-        locale: Locale('es'),
+      child: MaterialApp(
+        locale: const Locale('es'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: MinigamesScreen(groupId: _groupId),
+        home: MinigamesScreen(groupId: groupId),
       ),
     ),
   );
@@ -126,6 +241,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '25');
       await tester.tap(find.text('Crear partida'));
+      // The create action first opens the player picker; back dismisses it
+      // without selecting anyone (empty invite list) and the session is
+      // created.
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
       // Bounded pumps, not pumpAndSettle: the fake clock must not advance
       // past pending timers, which would run the snackbar through its full
       // 4s lifecycle and dismiss it (LUXE restyle, XL-13).
@@ -137,6 +257,42 @@ void main() {
           as _FakeSessionsNotifier;
       expect(notifier.createdType, MinigameType.truthDare);
       expect(notifier.createdWager, 25);
+      expect(notifier.createdInviteeIds, isEmpty);
+      expect(find.text('Partida creada'), findsOneWidget);
+    });
+
+    testWidgets('selecting players in the picker invites them on create',
+        (tester) async {
+      final container = await _pumpScreen(
+        tester,
+        searchUsers: const [
+          UserSearchResult(id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', username: 'zoe'),
+        ],
+      );
+
+      await tester.tap(find.text('Preguntas'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Crear partida'));
+      await tester.pumpAndSettle();
+
+      // The picker opened — search and select the user. The debounce timer
+      // needs an explicit clock advance to fire (pumpAndSettle alone stops
+      // before a plain Timer schedules a frame).
+      await tester.enterText(find.byType(TextField), 'zo');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('@zoe'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Invitar (1)'));
+      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final notifier = container
+          .read(minigameSessionsProvider(_groupId).notifier)
+          as _FakeSessionsNotifier;
+      expect(notifier.createdType, MinigameType.questions);
+      expect(notifier.createdInviteeIds, ['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']);
       expect(find.text('Partida creada'), findsOneWidget);
     });
 
@@ -149,6 +305,9 @@ void main() {
       await tester.enterText(find.byType(TextField), '0');
       await tester.tap(find.text('Crear partida'));
       await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       final notifier = container
           .read(minigameSessionsProvider(_groupId).notifier)
@@ -165,6 +324,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'abc');
       await tester.tap(find.text('Crear partida'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
 
       final notifier = container
@@ -211,6 +372,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '9999');
       await tester.tap(find.text('Crear partida'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
       // Bounded pumps — pumpAndSettle would advance the fake clock past the
       // 4s snackbar's auto-dismiss (LUXE restyle, XL-13).
       await tester.pump();
@@ -235,6 +398,8 @@ void main() {
       await tester.tap(find.text('Preguntas'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Crear partida'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
       // Bounded pumps — pumpAndSettle would advance the fake clock past the
       // 4s snackbar's auto-dismiss (LUXE restyle, XL-13).
       await tester.pump();
@@ -296,20 +461,100 @@ void main() {
       expect(notifier.builds, before + 1);
     });
 
-    testWidgets('tapping a session card shows the detail placeholder',
+    testWidgets('tapping a session card opens the session detail route',
         (tester) async {
-      await _pumpScreen(tester, sessions: [_session()]);
+      final container = _container(
+        sessions: [_session()],
+        sessionStatus: _session(),
+      );
+      final router = GoRouter(
+        initialLocation: RoutePaths.minigames(_groupId),
+        routes: [
+          GoRoute(
+            path: RoutePaths.minigames(':groupId'),
+            builder: (_, _) => const MinigamesScreen(groupId: _groupId),
+          ),
+          GoRoute(
+            path: RoutePaths.minigameSession(':sessionId'),
+            builder: (_, state) => MinigameSessionDetailScreen(
+              sessionId: state.pathParameters['sessionId']!,
+            ),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            locale: const Locale('es'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('Apuesta: 50 shards'));
-      // Bounded pumps — pumpAndSettle would advance the fake clock past the
-      // 4s snackbar's auto-dismiss (LUXE restyle, XL-13).
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MinigameSessionDetailScreen), findsOneWidget);
+      expect(find.text('Cadena de Pokes'), findsOneWidget);
+    });
+  });
+
+  group('MinigamesScreen — DIRECT scope (direct-minigames 2026-08-27)', () {
+    testWidgets('renders the Direct scope by default with no groupId',
+        (tester) async {
+      await _pumpScreen(tester, groupId: null);
+
+      // Direct chip selected + the direct empty state (no group required).
+      expect(find.text('Directa'), findsOneWidget);
+      expect(find.text('Grupo'), findsOneWidget);
+      expect(find.text('Aún no hay partidas directas'), findsOneWidget);
+      expect(
+        find.text('Crea una partida para jugar ya con un amigo, sin necesidad de un grupo.'),
+        findsOneWidget,
+      );
+      // The five game cards are still creatable in the direct scope.
+      expect(find.text('Cadena de Pokes'), findsOneWidget);
+    });
+
+    testWidgets('creates a DIRECT session through the direct provider',
+        (tester) async {
+      final container = await _pumpScreen(tester, groupId: null);
+
+      await tester.tap(find.text('Verdad o Reto'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '25');
+      await tester.tap(find.text('Crear partida'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
-      expect(
-        find.text('La partida se jugará aquí pronto.'),
-        findsOneWidget,
-      );
+      final notifier = container
+          .read(myMinigameSessionsProvider.notifier)
+          as _FakeMySessionsNotifier;
+      expect(notifier.createdType, MinigameType.truthDare);
+      expect(notifier.createdWager, 25);
+      expect(find.text('Partida creada'), findsOneWidget);
+    });
+
+    testWidgets('switches from Direct to the Group picker and back',
+        (tester) async {
+      await _pumpScreen(tester, groupId: null);
+
+      await tester.tap(find.text('Grupo'));
+      await tester.pumpAndSettle();
+      // The group picker shows the zero-groups empty state (Direct is the
+      // default for a fresh user — groups are optional, not required).
+      expect(find.text('Aún no tienes grupos'), findsOneWidget);
+      expect(find.text('Aún no hay partidas directas'), findsNothing);
+
+      await tester.tap(find.text('Directa'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aún no hay partidas directas'), findsOneWidget);
     });
   });
 }

@@ -349,7 +349,9 @@ void main() {
 
       expect(notifier.resetPasswordCalls, isEmpty);
       expect(find.byType(ForgotPasswordScreen), findsOneWidget);
-      expect(find.text('REVISA TU CORREO'), findsNothing);
+      // The success hero renders VERBATIM (the MAYUS rule is deleted,
+      // 2026-08-26): l10n authForgotPasswordSuccessTitle = 'Revisa tu correo'.
+      expect(find.text('Revisa tu correo'), findsNothing);
     });
 
     testWidgets('invalid email shape does not fire resetPasswordForEmail', (
@@ -378,15 +380,16 @@ void main() {
 
       await tester.enterText(find.byType(TextField), 'a@b.com');
       await tester.tap(find.widgetWithText(TextButton, 'Enviar enlace'));
-      // LUXE v2: looping display animations keep pumpAndSettle pumping past
-      // the snackbar's 4s auto-dismiss — pump the async send and the snackbar
-      // entrance deterministically instead.
+      // Deterministic pumps: the async send resolves and the snackbar enters
+      // without waiting on wall-clock timers (the snackbar auto-dismisses
+      // after 4s — never pumpAndSettle across it).
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(notifier.resetPasswordCalls, ['a@b.com']);
       // F14 in-place success: the form morphs into the confirmation, no route.
-      expect(find.text('REVISA TU CORREO'), findsOneWidget);
+      // The hero renders VERBATIM (MAYUS rule deleted, 2026-08-26).
+      expect(find.text('Revisa tu correo'), findsOneWidget);
       expect(
         find.text('Te enviamos un enlace para restablecer tu contraseña'),
         findsOneWidget,
@@ -405,7 +408,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'a@b.com');
       await tester.tap(find.widgetWithText(TextButton, 'Enviar enlace'));
       await tester.pumpAndSettle();
-      expect(find.text('REVISA TU CORREO'), findsOneWidget);
+      expect(find.text('Revisa tu correo'), findsOneWidget);
 
       await tester.tap(
         find.widgetWithText(TextButton, 'Volver a iniciar sesión'),
@@ -429,7 +432,7 @@ void main() {
 
       expect(notifier.resetPasswordCalls, ['a@b.com']);
       expect(find.text('No se pudo enviar el enlace'), findsOneWidget);
-      expect(find.text('REVISA TU CORREO'), findsNothing);
+      expect(find.text('Revisa tu correo'), findsNothing);
       expect(find.byType(TextField), findsOneWidget);
       expect(
         find.text('Te enviamos un enlace para restablecer tu contraseña'),

@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:samay/core/config/feature_flags.dart';
 import 'package:samay/core/models/event.dart';
+import 'package:samay/core/models/group.dart';
 import 'package:samay/core/providers/config_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
@@ -14,6 +15,7 @@ import 'package:samay/core/services/event_service.dart';
 import 'package:samay/features/events/logic/event_formatters.dart';
 import 'package:samay/features/feed/providers/feed_providers.dart';
 import 'package:samay/features/feed/screens/feed_screen.dart';
+import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
 import 'package:samay/shared/widgets/skeletons.dart';
@@ -105,6 +107,15 @@ class _FakeEventService implements EventService {
   @override
   Future<Map<String, dynamic>> validateQrToken(String eventId, String token) =>
       throw UnimplementedError();
+}
+
+class _StubMyGroupsNotifier extends MyGroupsNotifier {
+  _StubMyGroupsNotifier(this.data);
+
+  final List<Group> data;
+
+  @override
+  Future<List<Group>> build() async => data;
 }
 
 Event _eventRow(
@@ -372,9 +383,9 @@ void main() {
       ]);
       await _pumpScreen(tester, service);
 
-      // LUXE v2 (XL-07): the brand hero renders through VDisplayText, which
-      // enforces the MAYUS rule (ORCHESTRATION directive #6).
-      expect(find.text('SAMAY'), findsOneWidget);
+      // Monochrome restyle (2026-08-26): the brand hero renders through
+      // VDisplayText, which passes l10n.feedBrand through VERBATIM.
+      expect(find.text('samay'), findsOneWidget);
       expect(find.text('Destacados'), findsOneWidget);
       // §3.3/§5.5: VBadge labels render uppercase (U-05 restyle).
       expect(find.text('DESTACADO'), findsOneWidget);
@@ -531,6 +542,54 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('EVENT STUB'), findsOneWidget);
+    });
+
+    testWidgets('tapping a game with ZERO groups opens the DIRECT hub '
+        '(direct-minigames 2026-08-27)', (tester) async {
+      final service = _FakeEventService([]);
+      final container = ProviderContainer(
+        overrides: [
+          eventServiceProvider.overrideWithValue(service),
+          featureFlagsProvider.overrideWithValue(
+            const AppFeatureFlags(minigames: true, partyFinder: false),
+          ),
+          myGroupsProvider.overrideWith(
+            () => _StubMyGroupsNotifier(const <Group>[]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = GoRouter(
+        initialLocation: RoutePaths.mainFeed,
+        routes: [
+          GoRoute(
+            path: RoutePaths.mainFeed,
+            builder: (_, _) => const FeedScreen(),
+          ),
+          GoRoute(
+            path: RoutePaths.minigamesDirect,
+            builder: (_, _) =>
+                const Scaffold(body: Center(child: Text('DIRECT HUB'))),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            locale: const Locale('es'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Cadena de Pokes'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('DIRECT HUB'), findsOneWidget);
     });
   });
 }

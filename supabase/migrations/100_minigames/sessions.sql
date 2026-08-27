@@ -6,10 +6,20 @@
 
 CREATE TABLE public.minigame_sessions (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
-    group_id uuid NOT NULL,
+    -- NULL = DIRECT session (no group); NOT NULL = group-scoped session
+    -- (GMCR baseline). Direct sessions are participant + invitee readable
+    -- via ms_read_direct_participant / ms_read_invitee; groups keep the
+    -- member-only read. (2026-08-27 direct-minigames.)
+    group_id uuid,
     game_type public.mini_game_type NOT NULL,
     status public.mini_game_status DEFAULT 'active'::public.mini_game_status NOT NULL,
     shard_wager integer DEFAULT 0 NOT NULL,
+    -- Subscription-scaled player cap, frozen at creation from the CREATOR's
+    -- subscription_tier via app_config (minigame.{free,pro,vip}_max_players,
+    -- defaults 8/32/100). Stable after creation: a creator downgrade can
+    -- never lock an already-running session. Enforced server-side in
+    -- create/join/accept (never trusted client-side).
+    player_limit integer DEFAULT 8 NOT NULL,
     participants uuid[] DEFAULT '{}'::uuid[] NOT NULL,
     winner_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL
@@ -66,13 +76,15 @@ BEGIN
         RETURN jsonb_build_object('status', 'not_authenticated');
     END IF;
 
-    -- 2. Group-membership gate (GMCR: all games are group-scoped; only
-    --    active members may create sessions).
-    IF NOT public.is_group_member(p_group_id) THEN
+    -- 2. Group-membership gate (direct-minigames 2026-08-27): a NULL
+    --    p_group_id = DIRECT session and needs no group; a non-null group
+    --    still requires active membership. Never trusting the client — the
+    --    membership check stays server-side via is_group_member.
+    IF p_group_id IS NOT NULL AND NOT public.is_group_member(p_group_id) THEN
         RETURN jsonb_build_object('status', 'not_member');
     END IF;
 
-    -- 3. Wager validation (GWAG: integer shards >= 0; 0 = no wager).
+    -- 3. Wager validation (GMCR: integer shards >= 0; 0 = no wager).
     IF p_wager < 0 THEN
         RETURN jsonb_build_object('status', 'invalid_wager');
     END IF;
@@ -154,9 +166,17 @@ BEGIN
         RETURN jsonb_build_object('status', 'session_not_found');
     END IF;
 
-    -- 3. Group-membership gate (only group members may settle a session).
-    IF NOT public.is_group_member(v_group_id) THEN
-        RETURN jsonb_build_object('status', 'not_member');
+    -- 3. Access gate (direct-minigames 2026-08-27): group sessions may only
+    --    be settled by active members; DIRECT sessions only by a
+    --    participant (a bystander can never settle a wager they are not in).
+    IF v_group_id IS NOT NULL THEN
+        IF NOT public.is_group_member(v_group_id) THEN
+            RETURN jsonb_build_object('status', 'not_member');
+        END IF;
+    ELSE
+        IF v_current_user <> ALL(v_participants) THEN
+            RETURN jsonb_build_object('status', 'not_allowed');
+        END IF;
     END IF;
 
     -- 4. Lifecycle gate: only active sessions settle (repeat finishes are
@@ -229,6 +249,7 @@ DECLARE
     v_wager integer;
     v_status public.mini_game_status;
     v_participants uuid[];
+    v_player_limit integer;
 BEGIN
     -- 1. Authentication gate (same as create_minigame_session step 1).
     v_current_user := auth.uid();
@@ -238,8 +259,8 @@ BEGIN
 
     -- 2. Session lookup + row lock: serializes concurrent joins so the
     --    participants append can never lose an update.
-    SELECT group_id, shard_wager, status, participants
-        INTO v_group_id, v_wager, v_status, v_participants
+    SELECT group_id, shard_wager, status, participants, player_limit
+        INTO v_group_id, v_wager, v_status, v_participants, v_player_limit
         FROM public.minigame_sessions
         WHERE id = p_session_id
         FOR UPDATE;
@@ -247,10 +268,25 @@ BEGIN
         RETURN jsonb_build_object('status', 'session_not_found');
     END IF;
 
-    -- 3. Group-membership gate (GMCR: all games are group-scoped; only
-    --    active members may join) — is_group_member is recursion-safe.
-    IF NOT public.is_group_member(v_group_id) THEN
-        RETURN jsonb_build_object('status', 'not_member');
+    -- 3. Access gate (direct-minigames 2026-08-27): group sessions keep the
+    --    member-only join; DIRECT sessions admit the caller when they are a
+    --    participant (idempotent re-join) or hold a PENDING invite (the
+    --    direct play invite path) — is_group_member is recursion-safe.
+    IF v_group_id IS NOT NULL THEN
+        IF NOT public.is_group_member(v_group_id) THEN
+            RETURN jsonb_build_object('status', 'not_member');
+        END IF;
+    ELSE
+        IF v_current_user <> ALL(v_participants)
+           AND NOT EXISTS (
+               SELECT 1 FROM public.minigame_invites
+               WHERE session_id = p_session_id
+                 AND invitee_id = v_current_user
+                 AND status = 'pending'
+           )
+        THEN
+            RETURN jsonb_build_object('status', 'not_allowed');
+        END IF;
     END IF;
 
     -- 4. Lifecycle gate: joins only on active sessions.
@@ -262,6 +298,13 @@ BEGIN
     --    (the client contract never removes participants).
     IF v_current_user = ANY(v_participants) THEN
         RETURN jsonb_build_object('status', 'joined');
+    END IF;
+
+    -- 5b. Player cap (direct-minigames 2026-08-27): a NEW participant is
+    --     rejected once the frozen player_limit is reached (the cap was set
+    --     at creation from the creator's subscription tier).
+    IF array_length(v_participants, 1) >= v_player_limit THEN
+        RETURN jsonb_build_object('status', 'player_limit_reached');
     END IF;
 
     -- 6. Escrow on join (GWAG: wagers deducted immediately for EACH
@@ -304,6 +347,14 @@ ALTER TABLE public.minigame_sessions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY ms_read_group_member ON public.minigame_sessions FOR SELECT USING ((EXISTS ( SELECT 1
    FROM public.group_members
   WHERE ((group_members.group_id = minigame_sessions.group_id) AND (group_members.user_id = auth.uid())))));
+
+-- Direct sessions (group_id IS NULL) are readable by their participants
+-- (the creator is participant[0]) — invitees are opened via the separate
+-- ms_read_invitee policy in 140_minigame_invites. A non-participant cannot
+-- list, watch or inspect a direct session's row: the policy needs BOTH
+-- group_id IS NULL (so group members never widen their scope) AND
+-- auth.uid() membership in participants.
+CREATE POLICY ms_read_direct_participant ON public.minigame_sessions FOR SELECT USING ((minigame_sessions.group_id IS NULL) AND (auth.uid() = ANY (minigame_sessions.participants)));
 
 
 --

@@ -20,6 +20,7 @@ import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/shared/widgets/error_view.dart';
 import 'package:samay/shared/widgets/skeletons.dart';
 import 'package:samay/shared/widgets/state_views.dart';
+import 'package:samay/shared/widgets/v_button.dart';
 import 'package:samay/shared/widgets/v_network_image.dart';
 
 const _eventId = '11111111-1111-1111-1111-111111111111';
@@ -412,11 +413,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(VSkeletonDetail), findsNothing);
         expect(
-          find.text('RAVE EN EL GARAJE'),
+          find.text('Rave en el garaje'),
           findsOneWidget,
           reason:
-              'the LUXE hero renders the name UPPERCASE via VDisplayText '
-              '(Playfair MAYUS rule), AppBar carries no duplicate',
+              'the hero renders the name VERBATIM via VDisplayText '
+              '(monochrome flat white, 2026-08-26), AppBar carries no '
+              'duplicate',
         );
       },
     );
@@ -431,9 +433,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // The hero renders the name UPPERCASE (VDisplayText MAYUS rule); the
-      // badges render uppercase via VBadge.
-      expect(find.text('RAVE EN EL GARAJE'), findsOneWidget);
+      // The hero renders the name VERBATIM (VDisplayText, monochrome flat
+      // white — the uppercase rule is deleted); the badges render uppercase
+      // via VBadge.
+      expect(find.text('Rave en el garaje'), findsOneWidget);
       expect(find.text('La mejor fiesta del barrio'), findsOneWidget);
       expect(find.text('JUERGA'), findsOneWidget);
       expect(find.text('PR\u00d3XIMAMENTE'), findsOneWidget);
@@ -453,6 +456,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Editar'), findsOneWidget);
       expect(find.text('Cancelar evento'), findsOneWidget);
+      // Monochrome CTAs (2026-08-26): the former glowAccent edit CTA is now
+      // the dark primary voice; cancel stays outlined.
+      expect(
+        tester
+            .widget<VButton>(find.widgetWithText(VButton, 'Editar'))
+            .variant,
+        VButtonVariant.dark,
+        reason: 'the edit CTA is VButton.dark (surfaceAlt fill, white text)',
+      );
+      expect(
+        tester
+            .widget<VButton>(find.widgetWithText(VButton, 'Cancelar evento'))
+            .variant,
+        VButtonVariant.outlined,
+      );
     });
 
     testWidgets('renders the cover via VNetworkImage when cover_url is set', (

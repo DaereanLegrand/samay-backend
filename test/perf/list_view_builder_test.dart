@@ -28,6 +28,9 @@ import '../support/fake_supabase_http.dart' as support;
 /// MUST carry a justification. Never add a data-derived list here; convert it
 /// to `ListView.builder` instead.
 const _justifiedFixedLists = <String, String>{
+  'lib/features/minigames/screens/minigame_session_detail_screen.dart':
+      'fixed session header + status card + a conditional invite/closed card '
+      '(≤3 children) — no data list (participants render as a count)',
   'lib/features/profile/screens/edit_profile_screen.dart':
       'fixed 5-child form (avatar, bio input, save button, password link) — no data list',
   'lib/features/profile/screens/public_profile_screen.dart':
