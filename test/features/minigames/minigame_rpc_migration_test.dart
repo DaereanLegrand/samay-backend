@@ -678,6 +678,259 @@ void main() {
     });
   });
 
+  group('minigame play engine (150_minigame_play)', () {
+    final supabasePlayMigration = read(
+      'supabase/migrations/150_minigame_play/play.sql',
+    );
+    final testingPlayMigration = read(
+      'supabase-testing/migrations/150_minigame_play/play.sql',
+    );
+
+    test('exists in both stacks and is mirrored byte-identical', () {
+      expect(
+        supabasePlayMigration,
+        isNotEmpty,
+        reason:
+            'supabase/migrations/150_minigame_play/play.sql is missing or empty',
+      );
+      expect(
+        testingPlayMigration,
+        isNotEmpty,
+        reason:
+            'supabase-testing/migrations/150_minigame_play/play.sql '
+            'is missing or empty',
+      );
+      expect(
+        testingPlayMigration,
+        supabasePlayMigration,
+        reason:
+            'supabase-testing must mirror supabase/ migration-for-migration '
+            '(I-02 parity convention, 150_minigame_play)',
+      );
+    });
+
+    test('defines minigame_game_state with FORCE RLS and the participant '
+        'SELECT policy', () {
+      expect(
+        supabasePlayMigration,
+        contains('public.minigame_game_state'),
+        reason: 'the game-state table must exist',
+      );
+      expect(
+        supabasePlayMigration,
+        contains('session_id uuid NOT NULL'),
+        reason: 'session_id is the PK column (one game-state row per session)',
+      );
+      expect(
+        supabasePlayMigration,
+        contains(
+          'minigame_game_state_pkey PRIMARY KEY (session_id)',
+        ),
+        reason: 'session_id must be the primary key',
+      );
+      expect(
+        supabasePlayMigration,
+        contains('REFERENCES public.minigame_sessions(id) ON DELETE CASCADE'),
+        reason: 'session_id must cascade from minigame_sessions (FK)',
+      );
+      expect(
+        supabasePlayMigration,
+        contains('FORCE ROW LEVEL SECURITY'),
+        reason: 'no client table writes — every mutation is an RPC contract',
+      );
+      expect(
+        supabasePlayMigration,
+        contains('mgs_read_participant'),
+        reason: 'the single participant/invitee/group-member SELECT policy',
+      );
+      expect(
+        supabasePlayMigration,
+        contains("'judge_index'"),
+        reason: 'the state payload carries the generic judge_index rotation',
+      );
+    });
+
+    test('defines minigame_prompts with FORCE RLS and active-prompt reads', () {
+      expect(
+        supabasePlayMigration,
+        contains('public.minigame_prompts'),
+        reason: 'the prompt bank table must exist',
+      );
+      expect(
+        supabasePlayMigration,
+        contains('prompt_type text NOT NULL'),
+        reason: 'prompt_type (verdad/reto, quick/challenge, ...) must exist',
+      );
+      expect(
+        supabasePlayMigration,
+        contains('mgs_prompts_select'),
+        reason: 'the active-prompt SELECT policy must exist',
+      );
+      expect(
+        supabasePlayMigration,
+        contains('is_active = true'),
+        reason: 'mgs_prompts_select must gate on is_active = true',
+      );
+    });
+
+    test('seeds the es-first Verdad o Reto prompt bank idempotently', () {
+      for (final body in const [
+        '¿Cuál fue tu primer beso?',
+        '¿Quién fue tu primer amor?',
+        'Di la inicial de quien te gusta',
+        'Envía una foto de tu perro',
+        'Hazte una selfie con un objeto',
+        'Haz un challenge',
+      ]) {
+        expect(
+          supabasePlayMigration,
+          contains(body),
+          reason: 'the seed must include the prompt: $body',
+        );
+      }
+      expect(
+        supabasePlayMigration,
+        contains('ON CONFLICT (id) DO NOTHING'),
+        reason: 'seeds must be idempotent (deterministic ids, ON CONFLICT)',
+      );
+    });
+
+    test('ships the five play-engine RPCs with SECURITY DEFINER + '
+        'SET search_path TO \'\' + ACL revocation', () {
+      for (final fn in const [
+        'get_minigame_game_state',
+        'init_minigame_game_state',
+        'reveal_minigame_prompt',
+        'advance_minigame_turn',
+        'complete_minigame_game',
+      ]) {
+        expect(
+          supabasePlayMigration,
+          contains('CREATE FUNCTION public.$fn'),
+          reason: '$fn must exist as a public function',
+        );
+        expect(
+          supabasePlayMigration,
+          contains('SECURITY DEFINER'),
+          reason: '$fn must be SECURITY DEFINER',
+        );
+        expect(
+          supabasePlayMigration,
+          contains("SET search_path TO ''"),
+          reason: '$fn must harden search_path (I-31 pattern)',
+        );
+        expect(
+          supabasePlayMigration,
+          contains('REVOKE ALL ON FUNCTION public.$fn'),
+          reason: '$fn must not be PUBLIC-executable',
+        );
+        expect(
+          supabasePlayMigration,
+          contains('GRANT ALL ON FUNCTION public.$fn'),
+          reason: '$fn must grant the caller role',
+        );
+      }
+    });
+
+    test('implements the server-random subject contract (players do NOT '
+        'self-select)', () {
+      expect(
+        supabasePlayMigration,
+        contains('random()'),
+        reason:
+            'the subject pick must be server-random (init picks the first '
+            'subject, advance picks the next subject)',
+      );
+      expect(
+        supabasePlayMigration,
+        contains('ORDER BY random()'),
+        reason: 'reveal_minigame_prompt draws a random active prompt',
+      );
+      expect(
+        supabasePlayMigration,
+        contains('subject_id'),
+        reason: 'the current subject is carried in the state payload',
+      );
+    });
+
+    test('complete_minigame_game settles the wager like finish_minigame_session '
+        'NULL-winner (draw refund)', () {
+      expect(
+        supabasePlayMigration,
+        contains("'minigame_refund'"),
+        reason:
+            'the draw path must write reason=minigame_refund per participant',
+      );
+      expect(
+        supabasePlayMigration,
+        contains('public.shard_ledger'),
+        reason: 'settlement must write the shard_ledger',
+      );
+      expect(
+        supabasePlayMigration,
+        contains('status = \'finished\''),
+        reason: 'the session status must flip to finished',
+      );
+    });
+
+    test('joins minigame_game_state to supabase_realtime', () {
+      expect(
+        supabasePlayMigration,
+        contains('ADD TABLE public.minigame_game_state'),
+        reason: 'game-state changes must stream live to participants',
+      );
+    });
+
+    test('pgTAP pins the 150_minigame_play contract in both stacks', () {
+      for (final entry in {
+        'supabase/tests/schema_test.sql': supabaseSchema,
+        'supabase-testing/tests/schema_test.sql': testingSchema,
+      }.entries) {
+        final name = entry.key;
+        final content = entry.value;
+        expect(
+          content,
+          contains('SECTION 49c'),
+          reason: '$name must carry the game-state section header',
+        );
+        expect(
+          content,
+          contains("has_table('minigame_game_state'"),
+          reason: '$name must assert the game-state table exists',
+        );
+        expect(
+          content,
+          contains("has_table('minigame_prompts'"),
+          reason: '$name must assert the prompts bank exists',
+        );
+        expect(
+          content,
+          contains(
+            "'minigame_game_state has FORCE ROW LEVEL SECURITY",
+          ),
+          reason: '$name must assert the FORCE RLS posture',
+        );
+        expect(
+          content,
+          contains("has_function('reveal_minigame_prompt', ARRAY['uuid', 'text']"),
+          reason: '$name must assert the reveal RPC signature',
+        );
+        expect(
+          content,
+          contains("has_function('advance_minigame_turn', ARRAY['uuid', 'jsonb']"),
+          reason: '$name must assert the advance RPC signature',
+        );
+        expect(
+          content,
+          contains(
+            "'minigame_game_state joins the supabase_realtime publication",
+          ),
+          reason: '$name must assert the realtime membership',
+        );
+      }
+    });
+  });
+
   group('direct sessions (2026-08-27 direct-minigames)', () {
     test('minigame_sessions.group_id is NULLABLE and player_limit is frozen',
         () {
