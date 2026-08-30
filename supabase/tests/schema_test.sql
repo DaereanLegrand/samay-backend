@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(758);
+SELECT plan(765);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3125,6 +3125,58 @@ SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%status = ''accepted''%'
      FROM pg_proc p WHERE proname = 'get_friend_profiles'),
     'get_friend_profiles returns only ACCEPTED friendships'
+);
+
+-- ============================================================
+-- SECTION 49f: Minigame invite badges (migration 170_minigame_invite_badges,
+-- 2026-08-30) — invitee-side "partida-N" + per-game feed badges:
+--   * minigame_sessions.auto_name — the server-computed partida-N running
+--     number per game_type among ACTIVE sessions, stored so creator AND
+--     invitee resolve the SAME canonical name from the row in isolation
+--     (160 kept the auto-name client-side from a list index, which is not
+--     resolvable for a session shown alone). Duplicates allowed.
+--   * create_minigame_session (same 5-arg signature as 160, CREATE OR
+--     REPLACE) computes + stores auto_name at creation.
+--   * notify_minigame_invite now fires for BOTH direct and group sessions
+--     (the 140 early-return for group_id IS NULL is gone) and carries
+--     gameType + sessionName in the notification data so the client groups
+--     the per-game badge without an extra query.
+-- ============================================================
+SELECT has_column('minigame_sessions', 'auto_name',
+    'minigame_sessions.auto_name exists (170_minigame_invite_badges)');
+SELECT col_is_null('minigame_sessions', 'auto_name',
+    'minigame_sessions.auto_name is NULLABLE (fallback when no auto name was computed)');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%auto_name%'
+       AND pg_get_functiondef(p.oid) LIKE '%partida-''%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session computes and stores the server-side partida-N auto_name (170_minigame_invite_badges)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%INSERT INTO public.minigame_sessions%'
+       AND pg_get_functiondef(p.oid) LIKE '%auto_name%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session inserts the auto_name column (170_minigame_invite_badges)'
+);
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgname = 'notify_minigame_invite_trigger'
+          AND tgrelid = 'public.minigame_sessions'::regclass
+    ),
+    'notify_minigame_invite_trigger stays on minigame_invites (170 keeps the 140 placement)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%gameType%'
+       AND pg_get_functiondef(p.oid) LIKE '%sessionName%'
+     FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
+    'notify_minigame_invite payload carries gameType + sessionName (170_minigame_invite_badges)'
+);
+SELECT ok(
+    NOT (SELECT pg_get_functiondef(p.oid) LIKE '%v_group_id IS NULL THEN%'
+             AND pg_get_functiondef(p.oid) LIKE '%RETURN NEW;%'
+         FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
+    'notify_minigame_invite no longer early-returns for DIRECT sessions (170 fires for both scopes)'
 );
 
 SELECT * FROM finish();

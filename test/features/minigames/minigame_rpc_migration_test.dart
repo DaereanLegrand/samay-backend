@@ -60,6 +60,16 @@ void main() {
     'supabase-testing/migrations/160_minigame_names/names.sql',
   );
   final supabaseCreateMigration = supabaseNamesMigration;
+  // The invite-badge migration (170_minigame_invite_badges) redefines
+  // create_minigame_session via CREATE OR REPLACE (same 5-arg signature as
+  // 160) to compute + store the server-side auto_name, and redefines
+  // notify_minigame_invite to fire for BOTH scopes with gameType/sessionName.
+  final supabaseBadgesMigration = read(
+    'supabase/migrations/170_minigame_invite_badges/invite_badges.sql',
+  );
+  final testingBadgesMigration = read(
+    'supabase-testing/migrations/170_minigame_invite_badges/invite_badges.sql',
+  );
   final supabaseSchema = read('supabase/tests/schema_test.sql');
   final testingSchema = read('supabase-testing/tests/schema_test.sql');
 
@@ -804,6 +814,132 @@ void main() {
           content,
           contains("'minigame_sessions.name is NULLABLE"),
           reason: '$name must assert the nullable auto-name fallback',
+        );
+      }
+    });
+  });
+
+  group('minigame invite badges (170_minigame_invite_badges)', () {
+    test('exists in both stacks and is mirrored byte-identical', () {
+      expect(
+        supabaseBadgesMigration,
+        isNotEmpty,
+        reason:
+            'supabase/migrations/170_minigame_invite_badges/invite_badges.sql '
+            'is missing or empty',
+      );
+      expect(
+        testingBadgesMigration,
+        isNotEmpty,
+        reason:
+            'supabase-testing/migrations/170_minigame_invite_badges/'
+            'invite_badges.sql is missing or empty',
+      );
+      expect(
+        testingBadgesMigration,
+        supabaseBadgesMigration,
+        reason:
+            'supabase-testing must mirror supabase/ migration-for-migration '
+            '(I-02 parity convention, 170_minigame_invite_badges)',
+      );
+    });
+
+    test('adds the nullable auto_name column to minigame_sessions', () {
+      expect(
+        supabaseBadgesMigration,
+        contains('ALTER TABLE public.minigame_sessions'),
+        reason: '170 must alter the sessions table',
+      );
+      expect(
+        supabaseBadgesMigration,
+        contains('ADD COLUMN auto_name text'),
+        reason:
+            'the server-computed partida-N must be a plain text column',
+      );
+    });
+
+    test('redefines create_minigame_session via CREATE OR REPLACE (same '
+        '5-arg signature) and stores auto_name', () {
+      expect(
+        supabaseBadgesMigration,
+        contains('CREATE OR REPLACE FUNCTION public.create_minigame_session'),
+        reason:
+            'CREATE OR REPLACE is legal because the 160 signature is unchanged',
+      );
+      expect(
+        supabaseBadgesMigration,
+        contains('p_name text DEFAULT NULL'),
+        reason: 'the 5-arg p_name signature must be preserved',
+      );
+      expect(
+        supabaseBadgesMigration,
+        contains('v_auto_name text'),
+        reason: 'the function must declare the auto-name variable',
+      );
+      expect(
+        supabaseBadgesMigration,
+        contains('WHERE game_type = v_game_type AND status = \'active\''),
+        reason:
+            'auto_name is the running partida-N per game_type among ACTIVE '
+            'sessions',
+      );
+      expect(
+        supabaseBadgesMigration,
+        contains('participants, name, auto_name'),
+        reason: 'the insert column list must include the new auto_name column',
+      );
+    });
+
+    test('notify_minigame_invite fires for BOTH scopes and carries '
+        'gameType + sessionName', () {
+      expect(
+        supabaseBadgesMigration,
+        contains('CREATE OR REPLACE FUNCTION public.notify_minigame_invite()'),
+        reason: '170 must redefine the invite notify function',
+      );
+      expect(
+        supabaseBadgesMigration,
+        isNot(contains('v_group_id IS NULL THEN')),
+        reason:
+            'the direct-session early-return must be gone — direct invites '
+            'must also notify',
+      );
+      expect(
+        supabaseBadgesMigration,
+        contains("'gameType'"),
+        reason: 'the payload must carry the game type for per-game badges',
+      );
+      expect(
+        supabaseBadgesMigration,
+        contains("'sessionName'"),
+        reason:
+            'the payload must carry the partida display name so the invitee '
+            'can render "partida-N" without a round-trip',
+      );
+    });
+
+    test('pgTAP pins the 170_minigame_invite_badges contract in both stacks',
+        () {
+      for (final entry in {
+        'supabase/tests/schema_test.sql': supabaseSchema,
+        'supabase-testing/tests/schema_test.sql': testingSchema,
+      }.entries) {
+        final name = entry.key;
+        final content = entry.value;
+        expect(
+          content,
+          contains('SECTION 49f'),
+          reason: '$name must carry the invite-badges section header',
+        );
+        expect(
+          content,
+          contains("has_column('minigame_sessions', 'auto_name'"),
+          reason: '$name must assert the auto_name column',
+        );
+        expect(
+          content,
+          contains('gameType'),
+          reason: '$name must assert the notify payload carries gameType',
         );
       }
     });

@@ -101,6 +101,9 @@ class _FakeMinigameService implements MinigameService {
       null;
 
   @override
+  Future<List<Map<String, dynamic>>> listMyPendingInvites() async => [];
+
+  @override
   Future<void> acceptInvite(String inviteId) async {}
 
   @override

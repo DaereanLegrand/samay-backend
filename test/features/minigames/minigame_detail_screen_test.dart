@@ -6,6 +6,7 @@ import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/realtime_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/minigame_service.dart';
+import 'package:samay/core/services/notification_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
 import 'package:samay/features/minigames/screens/minigame_detail_screen.dart';
 import 'package:samay/features/profile/providers/profile_providers.dart';
@@ -18,6 +19,16 @@ import '../../support/stub_auth_notifier.dart';
 
 const _sessionId = '33333333-3333-3333-3333-333333333333';
 const _myUserId = '11111111-1111-1111-1111-111111111111';
+
+/// Empty [NotificationService] fake so [myPendingInvitesProvider] resolves
+/// (the per-game page renders the pending-invite list it drives).
+class _FakeNotificationService implements NotificationService {
+  @override
+  Future<List<Map<String, dynamic>>> getNotifications() async => const [];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 /// Dedicated per-game landing page tests (2026-08-28): the reusable shell
 /// shows the game title/explanation/audience, the ongoing partidas (with the
@@ -38,6 +49,7 @@ class _FakeMinigameService implements MinigameService {
   _FakeMinigameService({this.sessions = const []});
 
   List<Map<String, dynamic>> sessions;
+  List<Map<String, dynamic>> pendingInvites = [];
   int createCalls = 0;
   String? lastCreatedName;
   int? lastCreatedWager;
@@ -103,6 +115,10 @@ class _FakeMinigameService implements MinigameService {
       null;
 
   @override
+  Future<List<Map<String, dynamic>>> listMyPendingInvites() async =>
+      List.of(pendingInvites);
+
+  @override
   Future<void> acceptInvite(String inviteId) async {}
 
   @override
@@ -159,6 +175,7 @@ void main() {
           ),
         ),
         minigameServiceProvider.overrideWithValue(service),
+        notificationServiceProvider.overrideWithValue(_FakeNotificationService()),
         realtimeChannelProvider.overrideWith(
           (ref, request) => const Stream<Map<String, dynamic>>.empty(),
         ),
@@ -248,6 +265,38 @@ void main() {
     expect(find.text('Aún no hay partidas de Verdad o Reto'), findsOneWidget);
     expect(find.text('Toca «Nueva partida» para crear la primera.'),
         findsOneWidget);
+  });
+
+  testWidgets('a PENDING INVITE renders the invited partida (partida-1) '
+      'with the invite chip — the invitee sees the match ready to accept '
+      '(170_minigame_invite_badges)', (tester) async {
+    final service = _FakeMinigameService()
+      ..pendingInvites = [
+        {
+          'id': 'invited-session',
+          'group_id': null,
+          'game_type': 'truth_dare',
+          'status': 'active',
+          'shard_wager': 0,
+          'participants': ['99999999-9999-9999-9999-999999999999'],
+          'winner_id': null,
+          'created_at': '2026-08-29T10:00:00Z',
+          'name': null,
+          'auto_name': 'partida-1',
+        },
+      ];
+    await pumpDetail(tester, service: service);
+
+    // The invitee's pending match shows in the ongoing list with the
+    // server-canonical name and the pending-invite chip.
+    await tester.scrollUntilVisible(
+      find.text('PARTIDAS EN CURSO'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('partida-1'), findsOneWidget);
+    expect(find.text('Invitación pendiente'), findsOneWidget);
   });
 
   testWidgets(

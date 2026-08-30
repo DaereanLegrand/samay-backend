@@ -561,6 +561,74 @@ void main() {
               as Map<String, dynamic>;
       expect(params, {'p_invite_id': 'invite-1'});
     });
+
+    test('listMyPendingInvites reads pending invites then the session rows '
+        '(170_minigame_invite_badges)', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final invitesTable = MockQueryBuilder();
+      when(() => client.from('minigame_invites')).thenAnswer((_) => invitesTable);
+      final inviteRows = ResolvingBuilder<PostgrestList>([
+        {
+          'id': 'invite-1',
+          'session_id': _sessionId,
+          'invitee_id': _userId,
+          'created_by': '22222222-2222-2222-2222-222222222222',
+          'status': 'pending',
+          'created_at': '2026-08-26T10:00:00Z',
+        },
+      ]);
+      when(() => invitesTable.select(any())).thenAnswer((_) => inviteRows);
+
+      final sessionsTable = MockQueryBuilder();
+      when(() => client.from('minigame_sessions')).thenAnswer((_) => sessionsTable);
+      when(
+        () => sessionsTable.select(any()),
+      ).thenAnswer((_) => ResolvingBuilder<PostgrestList>(_session()));
+
+      final sessions = await service().listMyPendingInvites();
+
+      expect(sessions, hasLength(1));
+      expect(sessions.single['id'], _sessionId);
+      expect(
+        inviteRows.filters,
+        containsAllInOrder([
+          const RecordedFilter('invitee_id', _userId),
+          const RecordedFilter('status', 'pending'),
+        ]),
+        reason: 'only the caller\'s PENDING invites are fetched (mi_read_own)',
+      );
+    });
+
+    test('listMyPendingInvites skips sessions that are no longer visible '
+        '(accepted/declined/finished)', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final invitesTable = MockQueryBuilder();
+      when(() => client.from('minigame_invites')).thenAnswer((_) => invitesTable);
+      when(() => invitesTable.select(any())).thenAnswer(
+        (_) => ResolvingBuilder<PostgrestList>([
+          {'session_id': _sessionId},
+          {'session_id': '99999999-9999-9999-9999-999999999999'},
+        ]),
+      );
+
+      final sessionsTable = MockQueryBuilder();
+      when(() => client.from('minigame_sessions')).thenAnswer((_) => sessionsTable);
+      var sessionCalls = 0;
+      when(() => sessionsTable.select(any())).thenAnswer((_) {
+        sessionCalls++;
+        // First lookup (the real _sessionId) resolves; the stale one does not
+        // (accepted/declined/finished sessions drop out of the invitee read).
+        return sessionCalls == 1
+            ? ResolvingBuilder<PostgrestList>(_session())
+            : ResolvingBuilder<PostgrestList>(null);
+      });
+
+      final sessions = await service().listMyPendingInvites();
+
+      expect(sessions, hasLength(1));
+      expect(sessions.single['id'], _sessionId);
+      expect(sessionCalls, 2);
+    });
   });
 
   group('MinigameService.joinSession', () {

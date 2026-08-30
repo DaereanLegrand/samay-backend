@@ -346,6 +346,48 @@ else
 fi
 
 # =========================================================================
+# TEST H — invite notifications + auto partida-N (170_minigame_invite_badges)
+#   H1) a DIRECT invite notifies the INVITEE (the 140 early-return for
+#       group_id IS NULL is gone) with gameType + sessionName in data
+#   H2) create_minigame_session stores the server auto_name (partida-N)
+#       on the row, canonical for creator AND invitee
+# =========================================================================
+h1 "TEST H — direct-invite notification + auto partida-N"
+
+# H1: A creates a DIRECT truth_dare inviting C; C must get a notification.
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
+  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
+SESSION_H=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_H" ]; then
+  ok "Direct truth_dare session created for the notification check ($SESSION_H)"
+else
+  nok "Direct create failed for TEST H: $(echo "$resp" | head -c 120)"
+fi
+
+# C reads their own notifications (RLS user_id = C).
+notif_resp=$(curl -s -X GET "$SUPABASE_URL/rest/v1/notifications?user_id=eq.$UUID_C&type=eq.minigame_invite&order=created_at.desc&limit=1&select=data" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_C" | norm_json)
+if echo "$notif_resp" | grep -q "$SESSION_H"; then
+  ok "Invitee C received a minigame_invite notification for the DIRECT session"
+else
+  nok "No direct-session notification for C: $(echo "$notif_resp" | head -c 120)"
+fi
+if echo "$notif_resp" | grep -q '"gameType":"truth_dare"'; then
+  ok "The notification payload carries gameType (per-game feed badge)"
+else
+  nok "notification data missing gameType: $(echo "$notif_resp" | head -c 120)"
+fi
+
+# H2: the session row carries the server-computed auto_name (partida-N).
+row_resp=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_sessions?id=eq.$SESSION_H&select=auto_name" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | norm_json)
+if echo "$row_resp" | grep -q '"auto_name":"partida-[0-9]*"'; then
+  ok "create_minigame_session stored the canonical auto_name (partida-N)"
+else
+  nok "auto_name missing on the session row: $(echo "$row_resp" | head -c 120)"
+fi
+
+# =========================================================================
 h1 "RESULTS"
 echo "  Passed: $PASS"
 echo "  Failed: $FAIL"

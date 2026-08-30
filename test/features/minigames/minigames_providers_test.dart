@@ -7,10 +7,13 @@ import 'package:riverpod/riverpod.dart';
 import 'package:samay/core/providers/realtime_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/minigame_service.dart';
+import 'package:samay/core/services/notification_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
+import 'package:samay/core/services/rest_client.dart';
 import 'package:samay/core/services/user_service.dart';
 import 'package:samay/features/minigames/logic/truth_dare.dart';
 import 'package:samay/features/minigames/providers/minigames_providers.dart';
+import 'package:samay/features/notifications/providers/notifications_providers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 const _userId = '11111111-1111-1111-1111-111111111111';
@@ -19,15 +22,79 @@ const _sessionId = '33333333-3333-3333-3333-333333333333';
 
 class MockUserService extends Mock implements UserService {}
 
+/// In-memory [NotificationService] fake for the badge-derivation tests: the
+/// rows are shaped like real `notifications` table rows so
+/// [NotificationItem.fromJson] parses them.
+class _FakeNotificationService implements NotificationService {
+  _FakeNotificationService(this.rows);
+
+  final List<Map<String, dynamic>> rows;
+
+  @override
+  GoTrueClient get auth => throw UnimplementedError();
+
+  @override
+  SupabaseClient get client => throw UnimplementedError();
+
+  @override
+  RealtimeService get realtime => throw UnimplementedError();
+
+  @override
+  RestClient get rest => throw UnimplementedError();
+
+  @override
+  Future<List<Map<String, dynamic>>> getNotifications() async =>
+      List.of(rows);
+
+  @override
+  Future<void> markNotificationRead(String id) async {}
+
+  @override
+  Future<RealtimeChannel> subscribeToNotifications(
+    void Function(Map<String, dynamic>) onInsert,
+  ) async =>
+      throw UnimplementedError();
+}
+
+/// A [NotificationService] whose list NEVER resolves — pins that the badge
+/// derivation stays zero while the notifications list is still loading.
+class _PendingNotificationsNever implements NotificationService {
+  @override
+  GoTrueClient get auth => throw UnimplementedError();
+
+  @override
+  SupabaseClient get client => throw UnimplementedError();
+
+  @override
+  RealtimeService get realtime => throw UnimplementedError();
+
+  @override
+  RestClient get rest => throw UnimplementedError();
+
+  @override
+  Future<List<Map<String, dynamic>>> getNotifications() =>
+      Completer<List<Map<String, dynamic>>>().future;
+
+  @override
+  Future<void> markNotificationRead(String id) async {}
+
+  @override
+  Future<RealtimeChannel> subscribeToNotifications(
+    void Function(Map<String, dynamic>) onInsert,
+  ) async =>
+      throw UnimplementedError();
+}
+
 Map<String, dynamic> _session({
   String id = _sessionId,
   String status = 'active',
   int wager = 0,
+  String gameType = 'poke_chain',
 }) {
   return {
     'id': id,
     'group_id': _groupId,
-    'game_type': 'poke_chain',
+    'game_type': gameType,
     'status': status,
     'shard_wager': wager,
     'participants': [_userId],
@@ -69,6 +136,7 @@ class _FakeMinigameService implements MinigameService {
   });
 
   List<Map<String, dynamic>> sessions;
+  List<Map<String, dynamic>> pendingInvites = [];
   Object? sessionError;
   Object? createError;
   int listFetches = 0;
@@ -141,6 +209,13 @@ class _FakeMinigameService implements MinigameService {
   @override
   Future<Map<String, dynamic>?> myInviteForSession(String sessionId) async {
     return inviteRow;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> listMyPendingInvites() async {
+    listFetches++;
+    if (sessionError != null) throw sessionError!;
+    return List.of(pendingInvites);
   }
 
   @override
@@ -593,6 +668,101 @@ void main() {
         isTrue,
       );
       verify(() => users.setMinigameInviteFriendsOnly(true)).called(1);
+    });
+  });
+
+  group('pendingMinigameInvitesByTypeProvider (170_minigame_invite_badges)',
+      () {
+    Map<String, dynamic> notificationRow({
+      String type = 'minigame_invite',
+      bool read = false,
+      Map<String, dynamic>? data,
+    }) {
+      return {
+        'id': 'n-${DateTime.now().microsecondsSinceEpoch}',
+        'type': type,
+        'title': 'Invitación a minijuego',
+        'body': 'Te invitaron a un minijuego',
+        'data': data,
+        'read': read,
+        'created_at': '2026-08-30T10:00:00Z',
+      };
+    }
+
+    test('groups unread minigame_invite notifications by gameType', () async {
+      final fake = _FakeNotificationService([
+        notificationRow(data: {'gameType': 'truth_dare'}),
+        notificationRow(data: {'gameType': 'truth_dare'}),
+        notificationRow(data: {'gameType': 'poke_chain'}),
+        notificationRow(read: true, data: {'gameType': 'challenge'}),
+        notificationRow(type: 'friend_request', data: null),
+      ]);
+      final container = ProviderContainer(
+        overrides: [notificationServiceProvider.overrideWithValue(fake)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(notificationsProvider.future);
+      final byType = container.read(pendingMinigameInvitesByTypeProvider);
+
+      expect(byType['truth_dare'], 2);
+      expect(byType['poke_chain'], 1);
+      expect(byType.containsKey('challenge'), isFalse,
+          reason: 'read invites are excluded');
+      expect(byType.containsKey(null), isFalse,
+          reason: 'non-minigame types are excluded');
+    });
+
+    test('is empty while the notifications list is loading', () {
+      final container = ProviderContainer(
+        overrides: [
+          notificationServiceProvider.overrideWithValue(
+            _PendingNotificationsNever(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      expect(container.read(pendingMinigameInvitesByTypeProvider), isEmpty);
+    });
+  });
+
+  group('myPendingInvitesProvider (170_minigame_invite_badges)', () {
+    test('loads the pending invite sessions from the service', () async {
+      final service = _FakeMinigameService()
+        ..pendingInvites = [
+          _session(id: _sessionId, gameType: 'truth_dare'),
+        ];
+      final fake = _FakeNotificationService(const []);
+      final container = ProviderContainer(
+        overrides: [
+          minigameServiceProvider.overrideWithValue(service),
+          notificationServiceProvider.overrideWithValue(fake),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final state = await container.read(myPendingInvitesProvider.future);
+
+      expect(state, hasLength(1));
+      expect(state.single['id'], _sessionId);
+    });
+
+    test('refresh re-runs the service fetch', () async {
+      final service = _FakeMinigameService();
+      final fake = _FakeNotificationService(const []);
+      final container = ProviderContainer(
+        overrides: [
+          minigameServiceProvider.overrideWithValue(service),
+          notificationServiceProvider.overrideWithValue(fake),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(myPendingInvitesProvider.future);
+
+      await container.read(myPendingInvitesProvider.notifier).refresh();
+      await container.read(myPendingInvitesProvider.future);
+
+      expect(service.listFetches, 2);
     });
   });
 
