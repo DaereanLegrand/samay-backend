@@ -19,9 +19,10 @@ const _myUserId = '11111111-1111-1111-1111-111111111111';
 const _otherUserId = '22222222-2222-2222-2222-222222222222';
 
 class _FakeMinigameService implements MinigameService {
-  _FakeMinigameService({this.isMyTurn = true});
+  _FakeMinigameService({this.isMyTurn = true, this.isCreator = true});
 
   final bool isMyTurn;
+  final bool isCreator;
   int revealCalls = 0;
   int advanceCalls = 0;
   int completeCalls = 0;
@@ -72,10 +73,9 @@ class _FakeMinigameService implements MinigameService {
     'game_type': 'truth_dare',
     'status': 'active',
     'shard_wager': 0,
-    'participants': [
-      {'id': _myUserId, 'username': 'yo'},
-      {'id': _otherUserId, 'username': 'otro'},
-    ],
+    'participants': isCreator
+        ? [_myUserId, _otherUserId]
+        : [_otherUserId, _myUserId],
     'winner_id': null,
     'created_at': '2026-08-28T10:00:00Z',
   };
@@ -122,12 +122,18 @@ class _FakeMinigameService implements MinigameService {
       _current = _state();
 
   @override
+  Future<void> cancelMinigameStart(String sessionId) async {}
+
+  @override
   Future<void> setReady(String sessionId, bool ready) async {}
 
   @override
   Future<List<Map<String, dynamic>>> getMinigameParticipants(
     String sessionId,
-  ) async => const [];
+  ) async => [
+    {'id': _myUserId, 'username': 'yo', 'avatar_url': null},
+    {'id': _otherUserId, 'username': 'otro', 'avatar_url': null},
+  ];
 
   @override
   Future<void> removeParticipant(String sessionId, String userId) async {}
@@ -219,6 +225,9 @@ void main() {
     final service = _FakeMinigameService(isMyTurn: true);
     await pumpTruthDare(tester, service: service);
 
+    // The turn header names the subject via the roster username — never a
+    // UUID (2026-08-30 directive).
+    expect(find.text('Turno de yo'), findsOneWidget);
     expect(find.text('Verdad'), findsOneWidget);
     expect(find.text('Reto'), findsOneWidget);
 
@@ -251,22 +260,32 @@ void main() {
 
     expect(find.text('Verdad'), findsNothing);
     expect(find.text('Reto'), findsNothing);
-    // The header + the waiting body both name the subject.
-    expect(find.textContaining('Le toca a'), findsNWidgets(2));
+    // The header names the OTHER subject; the waiting body renders the
+    // generic waiting line (no UUID anywhere).
+    expect(find.text('Turno de otro'), findsOneWidget);
+    expect(find.text('Esperando al jugador actual…'), findsOneWidget);
   });
 
-  testWidgets('ending the game confirms then settles (wiring to complete)',
-      (tester) async {
+  testWidgets('host-only X ends the game after a small confirm (wiring to '
+      'complete)', (tester) async {
     final service = _FakeMinigameService(isMyTurn: true);
     await pumpTruthDare(tester, service: service);
 
-    await tester.tap(find.text('Terminar juego'));
+    // The X close icon is the host's end-game action.
+    expect(find.byIcon(Icons.close), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.close));
     await tester.pumpAndSettle();
-    expect(find.text('Terminar juego'), findsWidgets);
-
-    await tester.tap(find.widgetWithText(TextButton, 'Terminar juego').last);
+    expect(find.text('¿Seguro? Las apuestas se redistribuirán.'), findsOneWidget);
+    await tester.tap(find.text('Terminar juego').last);
     await tester.pumpAndSettle();
 
     expect(service.completeCalls, 1);
+  });
+
+  testWidgets('a NON-host sees no end-game X', (tester) async {
+    final service = _FakeMinigameService(isMyTurn: false, isCreator: false);
+    await pumpTruthDare(tester, service: service);
+
+    expect(find.byIcon(Icons.close), findsNothing);
   });
 }

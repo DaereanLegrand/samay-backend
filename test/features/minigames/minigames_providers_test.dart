@@ -260,6 +260,12 @@ class _FakeMinigameService implements MinigameService {
   }
 
   @override
+  Future<void> cancelMinigameStart(String sessionId) async {
+    cancelCalls++;
+    gameStateRow = _gameState(phase: 'setup', subjectId: null);
+  }
+
+  @override
   Future<Map<String, dynamic>> revealMinigamePrompt(
     String sessionId,
     String promptType,
@@ -329,6 +335,7 @@ class _FakeMinigameService implements MinigameService {
 
   Map<String, dynamic>? gameStateRow;
   int initCalls = 0;
+  int cancelCalls = 0;
   int revealCalls = 0;
   int advanceCalls = 0;
   int completeCalls = 0;

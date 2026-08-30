@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(793);
+SELECT plan(796);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3312,6 +3312,27 @@ SELECT ok(
     EXISTS (SELECT 1 FROM pg_publication_tables
             WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='minigame_sessions'),
     'minigame_sessions joins supabase_realtime (participant join/remove streams live to the lobby, 180_minigame_lobby)'
+);
+
+-- SECTION 49h: Minigame game-state at creation (migration
+-- 191_minigame_game_state_at_creation, 2026-08-30) — the minigame_game_state
+-- row exists FROM session creation so every ready toggle is an UPDATE
+-- (streamed by the update-only realtime subscription from the first one).
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%INSERT INTO public.minigame_game_state (session_id, game_type, state, ready)%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session seeds the minigame_game_state row at creation (191)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%UPDATE public.minigame_game_state%'
+       AND NOT pg_get_functiondef(p.oid) LIKE '%ON CONFLICT (session_id) DO UPDATE%'
+     FROM pg_proc p WHERE proname = 'set_minigame_ready'),
+    'set_minigame_ready is a plain UPDATE (row exists at creation, 191)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%jsonb_build_object(auth.uid()::text, p_ready)%'
+     FROM pg_proc p WHERE proname = 'set_minigame_ready'),
+    'set_minigame_ready still upserts the caller''s ready flag keyed by auth.uid()'
 );
 
 SELECT * FROM finish();

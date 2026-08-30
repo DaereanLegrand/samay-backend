@@ -136,6 +136,10 @@ class _FakeMinigameService implements MinigameService {
       throw UnimplementedError();
 
   @override
+  Future<void> cancelMinigameStart(String sessionId) async =>
+      throw UnimplementedError();
+
+  @override
   Future<void> setReady(String sessionId, bool ready) async {}
 
   @override
@@ -244,8 +248,9 @@ void main() {
     await pumpDetail(tester, service: service);
 
     // The game name renders exactly once (the AppBar) — the hero no longer
-    // duplicates the title + icon (2026-08-28 user directive).
-    expect(find.text('Verdad o Reto'), findsOneWidget);
+    // duplicates the title + icon (2026-08-28 user directive); the AppBar
+    // title is the LOWERCASE name (2026-08-30 directive).
+    expect(find.text('verdad o reto'), findsOneWidget);
     expect(find.text('Para jugar con amigos'), findsOneWidget);
     expect(find.text('Nueva partida'), findsOneWidget);
 

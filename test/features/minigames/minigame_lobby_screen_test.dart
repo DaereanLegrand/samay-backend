@@ -29,6 +29,7 @@ class _FakeMinigameService implements MinigameService {
 
   final bool isCreator;
   int initCalls = 0;
+  int cancelCalls = 0;
   int readyCalls = 0;
   int removeCalls = 0;
   bool? lastReady;
@@ -141,6 +142,13 @@ class _FakeMinigameService implements MinigameService {
     initCalls++;
     _started = true;
     return _state = _gameState;
+  }
+
+  @override
+  Future<void> cancelMinigameStart(String sessionId) async {
+    cancelCalls++;
+    _started = false;
+    _state = _gameState;
   }
 
   @override
