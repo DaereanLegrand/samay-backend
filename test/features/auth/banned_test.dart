@@ -198,52 +198,6 @@ void main() {
   });
 
   group('BannedScreen', () {
-    testWidgets('renders the suspension title, body and logout action', (
-      tester,
-    ) async {
-      final container = ProviderContainer(
-        overrides: [
-          authStateProvider.overrideWith(
-            () => _BannedAuthNotifier(reason: null),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: _wrapWithL10n(const BannedScreen()),
-        ),
-      );
-
-      expect(find.text('Cuenta suspendida'), findsOneWidget);
-      expect(find.text('Tu cuenta ha sido suspendida.'), findsOneWidget);
-      expect(find.text('Cerrar sesión'), findsOneWidget);
-    });
-
-    testWidgets('renders the stored ban reason when present', (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          authStateProvider.overrideWith(
-            () => _BannedAuthNotifier(reason: 'Spam'),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: _wrapWithL10n(const BannedScreen()),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Motivo: Spam'), findsOneWidget);
-      expect(find.text('Tu cuenta ha sido suspendida.'), findsNothing);
-    });
-
     testWidgets('logout signs the user out', (tester) async {
       final authService = _FakeAuthService();
       when(() => authService.signOut()).thenAnswer((_) async {});

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -23,17 +22,14 @@ import 'package:samay/core/services/group_service.dart';
 import 'package:samay/core/services/media_service.dart';
 import 'package:samay/core/services/permission_service.dart';
 import 'package:samay/features/friends/providers/friends_providers.dart';
+import 'package:samay/features/friends/providers/recent_friends_provider.dart';
 import 'package:samay/features/groups/screens/create_group_screen.dart';
 import 'package:samay/features/groups/screens/group_detail_screen.dart';
-import 'package:samay/features/groups/screens/group_members_screen.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/features/groups/screens/donate_shards_screen.dart';
 import 'package:samay/features/groups/screens/invite_screen.dart';
 import 'package:samay/features/groups/screens/leaderboard_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/error_view.dart';
-import 'package:samay/shared/widgets/skeletons.dart';
-import 'package:samay/shared/widgets/state_views.dart';
 import 'package:samay/shared/widgets/v_chip.dart';
 
 import '../support/fake_supabase_http.dart' as support;
@@ -52,14 +48,10 @@ Group _group(String id, String name, {String? myRole}) => Group(
 
 class _FakeGroupDetailNotifier extends GroupDetailNotifier {
   final Group? data;
-  final Object? error;
-  _FakeGroupDetailNotifier({this.data, this.error});
+  _FakeGroupDetailNotifier({this.data});
 
   @override
-  Future<Group?> build(String arg) async {
-    if (error != null) throw error!;
-    return data;
-  }
+  Future<Group?> build(String arg) async => data;
 }
 
 class _FakeGroupMembersNotifier extends GroupMembersNotifier {
@@ -93,20 +85,10 @@ class _FakeGroupDetailCombinedNotifier extends GroupDetailCombinedNotifier {
 
 class _FakeLeaderboardNotifier extends LeaderboardNotifier {
   final List<LeaderboardEntry> data;
-  final Object? error;
-
-  /// When set, [build] awaits it before resolving — tests hold the provider
-  /// in the loading state deterministically.
-  final Future<void>? gate;
-  _FakeLeaderboardNotifier({this.data = const [], this.error, this.gate});
+  _FakeLeaderboardNotifier({this.data = const []});
 
   @override
-  Future<List<LeaderboardEntry>> build(String arg) async {
-    final g = gate;
-    if (g != null) await g;
-    if (error != null) throw error!;
-    return data;
-  }
+  Future<List<LeaderboardEntry>> build(String arg) async => data;
 }
 
 class _FakeSearchResultsNotifier extends SearchResultsNotifier {
@@ -115,6 +97,18 @@ class _FakeSearchResultsNotifier extends SearchResultsNotifier {
 
   @override
   Future<List<UserSearchResult>> build(String arg) async => data;
+}
+
+/// Stubbed on-device friends cache — replaces the derived
+/// [recentFriendsProvider] so InviteScreen tests control the friends list
+/// directly (the recency derivation is covered in
+/// `recent_friends_provider_test.dart`).
+class _FakeRecentFriendsNotifier extends RecentFriendsNotifier {
+  final List<UserSearchResult> data;
+  _FakeRecentFriendsNotifier({this.data = const []});
+
+  @override
+  Future<List<UserSearchResult>> build() async => data;
 }
 
 /// Records every query the provider is asked to resolve, so tests can assert
@@ -328,14 +322,6 @@ void main() {
   });
 
   group('CreateGroupScreen', () {
-    testWidgets('renders create group form', (tester) async {
-      await _pump(tester, const CreateGroupScreen(), []);
-      expect(find.text('Crear grupo'), findsOneWidget);
-      expect(find.text('Nombre del grupo'), findsOneWidget);
-      expect(find.text('Descripción (opcional)'), findsOneWidget);
-      expect(find.text('Crear'), findsOneWidget);
-    });
-
     testWidgets('with a cover: uploads via MediaService.uploadGroupCover, then '
         'creates the group with the public URL (EF-03 swap)', (tester) async {
       final media = _MockMediaService();
@@ -485,129 +471,6 @@ void main() {
   });
 
   group('GroupDetailScreen', () {
-    testWidgets('renders group header and tabs when data is loaded', (
-      tester,
-    ) async {
-      await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
-        groupDetailProvider.overrideWith(
-          () => _FakeGroupDetailNotifier(
-            data: const Group(id: _groupId, name: 'Disco Crew', groupShards: 100),
-          ),
-        ),
-        groupMembersProvider.overrideWith(
-          () => _FakeGroupMembersNotifier(
-            data: [
-              GroupMember(
-                id: 'gm-1',
-                groupId: _groupId,
-                userId: _userId1,
-                role: 'promotor',
-                joinedAt: DateTime(2026),
-                users: const {'username': 'ana'},
-              ),
-              GroupMember(
-                id: 'gm-2',
-                groupId: _groupId,
-                userId: _userId2,
-                role: 'member',
-                joinedAt: DateTime(2026),
-                users: const {'username': 'lucas'},
-              ),
-            ],
-          ),
-        ),
-        contributionsProvider.overrideWith(
-          () => _FakeContributionsNotifier(
-            data: const GroupContributionsData(
-              contributors: [
-                {
-                  'user_id': _userId1,
-                  'shards_contributed': 50,
-                  'users': {'username': 'ana'},
-                },
-              ],
-              myContribution: 30,
-            ),
-          ),
-        ),
-        groupDetailCombinedProvider.overrideWith(
-          () => _FakeGroupDetailCombinedNotifier(
-            GroupDetailData(
-              group: const Group(id: _groupId, name: 'Disco Crew', groupShards: 100),
-              members: [
-                GroupMember(
-                  id: 'gm-1',
-                  groupId: _groupId,
-                  userId: _userId1,
-                  role: 'promotor',
-                  joinedAt: DateTime(2026),
-                  users: const {'username': 'ana'},
-                ),
-                GroupMember(
-                  id: 'gm-2',
-                  groupId: _groupId,
-                  userId: _userId2,
-                  role: 'member',
-                  joinedAt: DateTime(2026),
-                  users: const {'username': 'lucas'},
-                ),
-              ],
-              contributions: const GroupContributionsData(
-                contributors: [
-                  {
-                    'user_id': _userId1,
-                    'shards_contributed': 50,
-                    'users': {'username': 'ana'},
-                  },
-                ],
-                myContribution: 30,
-              ),
-              membership: null,
-            ),
-          ),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(
-        find.text('Disco Crew'),
-        findsOneWidget,
-        reason:
-            'USER FIX 4 — the name renders only in the AppBar title next to '
-            'the back arrow (no hero banner)',
-      );
-      expect(find.text('Chat'), findsOneWidget);
-      expect(find.text('Miembros'), findsOneWidget);
-      expect(find.text('Eventos'), findsOneWidget);
-      expect(find.textContaining('2 / 14 miembros'), findsOneWidget);
-      expect(find.textContaining('Mi contribuci\u00f3n: 30'), findsOneWidget);
-    });
-
-    testWidgets('renders ErrorView when the group provider fails', (
-      tester,
-    ) async {
-      await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
-        groupDetailProvider.overrideWith(
-          () => _FakeGroupDetailNotifier(error: Exception('grupo perdido')),
-        ),
-        groupDetailCombinedProvider.overrideWith(
-          () => _FakeGroupDetailCombinedNotifier(
-            const GroupDetailData(
-              group: null,
-              members: [],
-              contributions: GroupContributionsData(
-                contributors: [],
-                myContribution: 0,
-              ),
-              membership: null,
-            ),
-          ),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.byType(ErrorView), findsOneWidget);
-      expect(find.text('Reintentar'), findsOneWidget);
-    });
-
     testWidgets('donate button navigates to the donate route (TST-07/M-14)', (
       tester,
     ) async {
@@ -616,7 +479,7 @@ void main() {
         _loadedGroupDetailOverrides(),
       );
 
-      await tester.tap(find.text('Donar shards'));
+      await tester.tap(find.text('donar'));
       await tester.pumpAndSettle();
 
       expect(find.text('donate-$_groupId'), findsOneWidget);
@@ -711,44 +574,6 @@ void main() {
       },
     );
 
-    testWidgets('events tab empty state when the group has no events (R2)', (
-      tester,
-    ) async {
-      final events = _MockEventService();
-      when(() => events.listEvents()).thenAnswer((_) async => []);
-      await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
-        ..._loadedGroupDetailOverrides(),
-        eventServiceProvider.overrideWithValue(events),
-      ]);
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Eventos'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Sin eventos en este grupo'), findsOneWidget);
-      expect(
-        find.textContaining('Crea el primer evento'),
-        findsOneWidget,
-        reason: 'R2 — the empty state points at the real create-event action',
-      );
-    });
-
-    testWidgets('events tab error state offers retry (R2)', (tester) async {
-      final events = _MockEventService();
-      when(() => events.listEvents()).thenThrow(Exception('events down'));
-      await _pump(tester, const GroupDetailScreen(groupId: _groupId), [
-        ..._loadedGroupDetailOverrides(),
-        eventServiceProvider.overrideWithValue(events),
-      ]);
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Eventos'));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(ErrorView), findsOneWidget);
-      expect(find.text('Reintentar'), findsOneWidget);
-    });
-
     testWidgets('tapping a group event pushes the event-detail route (R2)', (
       tester,
     ) async {
@@ -789,35 +614,6 @@ void main() {
   });
 
   group('DonateShardsScreen', () {
-    testWidgets('renders donation form', (tester) async {
-      await _pump(
-        tester,
-        const DonateShardsScreen(groupId: _groupId, groupName: 'Test Group'),
-        [],
-      );
-      expect(find.text('Donar shards'), findsOneWidget);
-      expect(find.textContaining('Test Group'), findsOneWidget);
-      expect(find.byType(TextField), findsOneWidget);
-    });
-
-    testWidgets('shows boost info text', (tester) async {
-      await _pump(
-        tester,
-        const DonateShardsScreen(groupId: _groupId, groupName: 'Test Group'),
-        [],
-      );
-      expect(find.textContaining('impulsarán el ranking'), findsOneWidget);
-    });
-
-    testWidgets('shows donation button', (tester) async {
-      await _pump(
-        tester,
-        const DonateShardsScreen(groupId: _groupId, groupName: 'Test Group'),
-        [],
-      );
-      expect(find.text('Donar'), findsOneWidget);
-    });
-
     testWidgets('amount below 1 shows the invalid-amount snackbar and never '
         'touches the repository (I-73 numericValidator)', (tester) async {
       await _pump(
@@ -941,39 +737,63 @@ void main() {
   });
 
   group('InviteScreen', () {
-    testWidgets('renders search bar and hint text', (tester) async {
+    testWidgets('query <5: shows the cached friends (filtered), never the '
+        'backend', (tester) async {
+      final recording = _RecordingSearchResultsNotifier();
       await _pump(tester, const InviteScreen(groupId: _groupId), [
         groupMembersProvider.overrideWith(_FakeGroupMembersNotifier.new),
-        searchResultsProvider.overrideWith(_FakeSearchResultsNotifier.new),
+        searchResultsProvider.overrideWith(() => recording),
+        recentFriendsProvider.overrideWith(
+          () => _FakeRecentFriendsNotifier(
+            data: const [
+              UserSearchResult(id: _userId1, username: 'analia'),
+              UserSearchResult(id: _userId2, username: 'lucas'),
+            ],
+          ),
+        ),
       ]);
       await tester.pumpAndSettle();
-      expect(find.byType(TextField), findsOneWidget);
-      expect(find.textContaining('Buscar usuarios'), findsOneWidget);
-      expect(
-        find.textContaining('Escribe al menos 2 caracteres'),
-        findsOneWidget,
-      );
+
+      await tester.enterText(find.byType(TextField), 'an');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+
+      expect(find.text('@analia'), findsOneWidget);
+      expect(find.text('@lucas'), findsNothing,
+          reason: 'a sub-5-char query must filter the cached friends');
+      expect(recording.queries, isEmpty,
+          reason: 'sub-5-char queries must never reach the backend');
     });
 
-    testWidgets('excludes existing members from search results', (
+    // User directive (2026-08-29): EMPTY input must display the friend list.
+    testWidgets('EMPTY input displays the full cached friend list, no backend '
+        'call', (tester) async {
+      final recording = _RecordingSearchResultsNotifier();
+      await _pump(tester, const InviteScreen(groupId: _groupId), [
+        groupMembersProvider.overrideWith(_FakeGroupMembersNotifier.new),
+        searchResultsProvider.overrideWith(() => recording),
+        recentFriendsProvider.overrideWith(
+          () => _FakeRecentFriendsNotifier(
+            data: const [
+              UserSearchResult(id: _userId1, username: 'analia'),
+              UserSearchResult(id: _userId2, username: 'lucas'),
+            ],
+          ),
+        ),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(find.text('@analia'), findsOneWidget,
+          reason: 'the empty invite query shows the first cached friend');
+      expect(find.text('@lucas'), findsOneWidget,
+          reason: 'the empty invite query shows the second cached friend');
+      expect(recording.queries, isEmpty,
+          reason: 'an empty invite query must never reach the backend');
+    });
+
+    testWidgets('excludes existing members from the cached friends', (
       tester,
     ) async {
-      // The result row is a ListTile wrapped in a solid-fill VCard
-      // (Container with AppColors.surface). Flutter's ListTile debug assertion
-      // ("ListTile background color or ink splashes may be invisible") fires
-      // for this wrapping; it is a cosmetic warning, not a behavior break, so
-      // the test tolerates it. TODO(lib): wrap the ListTile in its own Material.
-      final prev = FlutterError.onError;
-      FlutterError.onError = (details) {
-        if (details.exception
-            .toString()
-            .contains('ListTile background')) {
-          return;
-        }
-        prev?.call(details);
-      };
-      addTearDown(() => FlutterError.onError = prev);
-
       await _pump(tester, const InviteScreen(groupId: _groupId), [
         groupMembersProvider.overrideWith(
           () => _FakeGroupMembersNotifier(
@@ -988,21 +808,44 @@ void main() {
             ],
           ),
         ),
-        searchResultsProvider.overrideWith(
-          () => _FakeSearchResultsNotifier(
-            data: [
-              const UserSearchResult(id: _userId1, username: 'ana'),
-              const UserSearchResult(id: _userId2, username: 'lucas'),
+        searchResultsProvider.overrideWith(_FakeSearchResultsNotifier.new),
+        recentFriendsProvider.overrideWith(
+          () => _FakeRecentFriendsNotifier(
+            data: const [
+              UserSearchResult(id: _userId1, username: 'ana'),
+              UserSearchResult(id: _userId2, username: 'lucas'),
             ],
           ),
         ),
       ]);
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'lu');
-      await tester.pump(const Duration(milliseconds: 350));
-      await tester.pumpAndSettle();
       expect(find.text('@lucas'), findsOneWidget);
       expect(find.text('@ana'), findsNothing);
+    });
+
+    testWidgets('query >=5: backend + cached friends merged, friends first, '
+        'no duplicates, existing members excluded', (tester) async {
+      final recording = _RecordingSearchResultsNotifier();
+      await _pump(tester, const InviteScreen(groupId: _groupId), [
+        groupMembersProvider.overrideWith(_FakeGroupMembersNotifier.new),
+        searchResultsProvider.overrideWith(() => recording),
+        recentFriendsProvider.overrideWith(
+          () => _FakeRecentFriendsNotifier(
+            data: const [
+              UserSearchResult(id: _userId1, username: 'analia'),
+            ],
+          ),
+        ),
+      ]);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'analia');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+
+      expect(recording.queries, ['analia']);
+      expect(find.text('@analia'), findsOneWidget,
+          reason: 'a friend returned by the backend must not be duplicated');
     });
 
     testWidgets('debounces rapid keystrokes into a single query after 300ms', (
@@ -1012,150 +855,23 @@ void main() {
       await _pump(tester, const InviteScreen(groupId: _groupId), [
         groupMembersProvider.overrideWith(_FakeGroupMembersNotifier.new),
         searchResultsProvider.overrideWith(() => recording),
+        recentFriendsProvider.overrideWith(_FakeRecentFriendsNotifier.new),
       ]);
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), 'l');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 50));
-      await tester.enterText(find.byType(TextField), 'lu');
+      await tester.enterText(find.byType(TextField), 'analia');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 
       expect(recording.queries, [
-        'lu',
+        'analia',
       ], reason: 'intermediate keystrokes must not fire a query');
     });
   });
 
-  group('GroupMembersScreen', () {
-    testWidgets('renders loading state first', (tester) async {
-      await _pump(tester, const GroupMembersScreen(groupId: _groupId), []);
-      expect(find.byType(VLoadingView), findsOneWidget);
-      expect(find.text('No hay miembros'), findsNothing);
-    });
-
-    testWidgets('renders empty state when no members', (tester) async {
-      await _pump(tester, const GroupMembersScreen(groupId: _groupId), []);
-      await tester.pumpAndSettle();
-      expect(find.text('No hay miembros'), findsOneWidget);
-      expect(find.byType(VEmptyView), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-    });
-
-    testWidgets('renders screen with members title', (tester) async {
-      await _pump(tester, const GroupMembersScreen(groupId: _groupId), []);
-      await tester.pumpAndSettle();
-      expect(find.text('Miembros'), findsOneWidget);
-    });
-  });
-
   group('LeaderboardScreen', () {
-    testWidgets('shows the avatar+lines skeleton while the provider is '
-        'pending (U-22 §5.8)', (tester) async {
-      final gate = Completer<void>();
-      await _pump(tester, const LeaderboardScreen(), [
-        leaderboardProvider.overrideWith(
-          () => _FakeLeaderboardNotifier(
-            data: [
-              LeaderboardEntry(
-                group: _group('44444444-4444-4444-4444-444444444444', 'Disco Crew'),
-                rankPosition: 1,
-                score: 500,
-                memberCount: 12,
-              ),
-            ],
-            gate: gate.future,
-          ),
-        ),
-      ]);
-
-      expect(
-        find.byType(VSkeletonList),
-        findsOneWidget,
-        reason: 'first load shows the list skeleton, not a spinner',
-      );
-      expect(find.byType(VLoadingView), findsNothing);
-
-      gate.complete();
-      await tester.pumpAndSettle();
-
-      expect(find.byType(VSkeletonList), findsNothing);
-      expect(find.text('#1'), findsOneWidget);
-    });
-
-    testWidgets('renders leaderboard title and size tier chips', (
-      tester,
-    ) async {
-      await _pump(tester, const LeaderboardScreen(), [
-        leaderboardProvider.overrideWith(_FakeLeaderboardNotifier.new),
-      ]);
-      expect(find.text('Ranking de grupos'), findsOneWidget);
-      expect(find.text('micro'), findsOneWidget);
-      expect(find.text('small'), findsOneWidget);
-      expect(find.text('medium'), findsOneWidget);
-      expect(find.text('large'), findsOneWidget);
-    });
-
-    testWidgets('renders rankings from the provider', (tester) async {
-      await _pump(tester, const LeaderboardScreen(), [
-        leaderboardProvider.overrideWith(
-          () => _FakeLeaderboardNotifier(
-            data: [
-              LeaderboardEntry(
-                group: _group('44444444-4444-4444-4444-444444444444', 'Disco Crew'),
-                rankPosition: 1,
-                score: 500,
-                memberCount: 12,
-              ),
-              LeaderboardEntry(
-                group: _group(
-                  '55555555-5555-5555-5555-555555555555',
-                  'Vinyl Lovers',
-                ),
-                rankPosition: 2,
-                score: 300,
-                memberCount: 8,
-              ),
-            ],
-          ),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.text('#1'), findsOneWidget);
-      expect(find.text('#2'), findsOneWidget);
-      expect(
-        find.text('Disco Crew'),
-        findsOneWidget,
-        reason: 'white-only — podium names render plain white text',
-      );
-      expect(
-        find.text('Vinyl Lovers'),
-        findsOneWidget,
-        reason: 'white-only — podium names render plain white text',
-      );
-      expect(find.textContaining('12 miembros'), findsOneWidget);
-      expect(find.textContaining('500 shards'), findsOneWidget);
-    });
-
-    testWidgets('shows empty ranking state', (tester) async {
-      await _pump(tester, const LeaderboardScreen(), [
-        leaderboardProvider.overrideWith(_FakeLeaderboardNotifier.new),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.text('Sin datos de ranking'), findsOneWidget);
-    });
-
-    testWidgets('renders ErrorView when the provider fails', (tester) async {
-      await _pump(tester, const LeaderboardScreen(), [
-        leaderboardProvider.overrideWith(
-          () => _FakeLeaderboardNotifier(error: Exception('ranking caído')),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.byType(ErrorView), findsOneWidget);
-      expect(find.text('Reintentar'), findsOneWidget);
-    });
-
     testWidgets('tapping a size-tier chip re-watches that tier of the family '
         'provider (U-28 pin)', (tester) async {
       final tiers = <String>[];

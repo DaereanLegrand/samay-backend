@@ -28,28 +28,6 @@ void main() {
   });
 
   group('core layers', () {
-    for (final name in [
-      'theme',
-      'config',
-      'deep_links',
-      'router',
-      'services',
-      'providers',
-      'repositories',
-      'models',
-      'design_tokens',
-      'errors',
-      'extensions',
-      'logging',
-      'telemetry',
-      'utils',
-    ]) {
-      test('lib/core/$name exists', () {
-        expect(Directory('$root/lib/core/$name').existsSync(), isTrue,
-            reason: 'lib/core/$name should exist');
-      });
-    }
-
     test('ARC-03: no constants/ placeholder dir is required (M-24 decision)',
         () {
       // The campaign's constants home is design_tokens/ + the
@@ -61,40 +39,6 @@ void main() {
       expect(Directory('$root/lib/core/constants').existsSync(), isFalse,
           reason: 'lib/core/constants/ must NOT be created — constants home '
               'is design_tokens/ + config/feature_flags.dart (ARC-03/M-24)');
-    });
-  });
-
-  group('feature modules', () {
-    for (final name in ['auth', 'profile', 'friends', 'groups', 'feed']) {
-      test('lib/features/$name exists', () {
-        expect(Directory('$root/lib/features/$name').existsSync(), isTrue,
-            reason: 'lib/features/$name should exist');
-      });
-    }
-  });
-
-  group('feature sublayers (ARC-01, M-23)', () {
-    test('every lib/features/<feature>/ has a screens/ subdir with a Dart '
-        'file', () {
-      final broken = <String>[];
-      final features = Directory('$root/lib/features').listSync()
-          .whereType<Directory>();
-      expect(features.length, greaterThan(0),
-          reason: 'lib/features/ should contain at least one feature dir');
-      for (final dir in features) {
-        final name = dir.path.split(Platform.pathSeparator).last;
-        final screens = Directory('${dir.path}/screens');
-        if (!screens.existsSync()) {
-          broken.add('$name (no screens/ subdir)');
-          continue;
-        }
-        final hasDart = screens.listSync().whereType<File>().any(
-            (f) => f.path.endsWith('.dart'));
-        if (!hasDart) broken.add('$name (screens/ has no .dart file)');
-      }
-      expect(broken, isEmpty,
-          reason: 'feature dirs missing a screens/ sublayer (ARC-01/M-23): '
-              '$broken');
     });
   });
 

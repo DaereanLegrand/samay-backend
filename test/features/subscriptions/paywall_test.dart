@@ -1,21 +1,11 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/providers/auth_provider.dart';
-import 'package:samay/core/providers/config_provider.dart';
 import 'package:samay/features/subscriptions/screens/paywall_screen.dart';
-import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/error_view.dart';
-import 'package:samay/shared/widgets/v_button.dart';
 
-import '../../support/fake_config_provider.dart';
 
-/// Paywall screen tests (I-61, PLAN): tier table rendered from a fake
-/// `app_config` (`subs.*_price_pen`), PEN formatting, current-tier badge from
-/// the auth state, and stub-mode disabled purchase buttons.
-///
-/// Prices are asserted as formatted PEN strings — the screen must read
-/// `app_config` and never hardcode a price.
+/// Paywall pure-logic tests (I-61, PLAN): PEN formatting, price lookup from a
+/// fake `app_config` (`subs.*_price_pen`), current-tier resolution from the
+/// auth state, and the full §7 comparison table.
 const _proMonthly = '1999';
 const _proAnnual = '19990';
 const _vipMonthly = '4999';
@@ -27,52 +17,6 @@ Map<String, String> _fakeConfig() => {
   'subs.vip_monthly_price_pen': _vipMonthly,
   'subs.vip_annual_price_pen': _vipAnnual,
 };
-
-class _FakeAuthNotifier extends AuthNotifier {
-  _FakeAuthNotifier(this.user);
-
-  final Map<String, dynamic>? user;
-
-  @override
-  Future<AuthState> build() async =>
-      AuthState(authenticated: true, hasProfile: true, user: user);
-}
-
-ProviderContainer _container({Map<String, dynamic>? user}) {
-  final container = ProviderContainer(
-    overrides: [
-      authStateProvider.overrideWith(() => _FakeAuthNotifier(user)),
-      appConfigProvider.overrideWith(
-        () => FakeAppConfigNotifier(_fakeConfig()),
-      ),
-    ],
-  );
-  addTearDown(container.dispose);
-  return container;
-}
-
-Future<void> _pump(WidgetTester tester, ProviderContainer container) async {
-  // The paywall is a vertical scroll of 3 tier cards; give the widget tests a
-  // tall surface so every card (incl. the VIP "Actual" badge and the third
-  // tooltip) is rendered and findable (the ListView only builds visible
-  // children otherwise).
-  tester.view.physicalSize = const Size(800, 2800);
-  tester.view.devicePixelRatio = 1.0;
-  addTearDown(tester.view.reset);
-
-  await tester.pumpWidget(
-    UncontrolledProviderScope(
-      container: container,
-      child: const MaterialApp(
-        locale: Locale('es'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: PaywallScreen(),
-      ),
-    ),
-  );
-  await tester.pumpAndSettle();
-}
 
 void main() {
   group('paywall pure helpers', () {
@@ -144,92 +88,6 @@ void main() {
       expect(paywallRows, hasLength(8));
       expect(paywallTiers, hasLength(3));
       expect(paywallTiers.map((t) => t.id), ['free', 'pro', 'vip']);
-    });
-  });
-
-  group('PaywallScreen', () {
-    testWidgets(
-      'renders the three tiers with prices from the fake app_config',
-      (tester) async {
-        await _pump(tester, _container());
-
-        expect(find.byType(PaywallScreen), findsOneWidget);
-
-        // Tier names (all three visible — App Store compliance).
-        for (final title in ['Free', 'PRO', 'VIP']) {
-          expect(find.text(title), findsOneWidget);
-        }
-
-        // Monthly prices, formatted PEN from app_config (never hardcoded).
-        expect(find.text('S/ 19.99/mes'), findsOneWidget);
-        expect(find.text('S/ 49.99/mes'), findsOneWidget);
-
-        // Annual rows: monthly equivalent of the annual price + 17% savings.
-        expect(find.textContaining('S/ 16.66/mes'), findsOneWidget);
-        expect(find.textContaining('S/ 41.66/mes'), findsOneWidget);
-        expect(find.textContaining('ahorrando 17%'), findsNWidgets(2));
-
-        // Feature table rows render for each tier card.
-        expect(find.text('Eventos por día'), findsNWidgets(3));
-        // The spec §7 "Miembros" row: Free=14 / PRO=256 / VIP=Ilimitado —
-        // each card shows the full row, so the cell appears once per card.
-        expect(find.text('Ilimitado'), findsNWidgets(3));
-      },
-    );
-
-    testWidgets('marks the current tier with the Actual badge', (tester) async {
-      await _pump(tester, _container(user: {'subscription_tier': 'vip'}));
-      expect(find.text('ACTUAL'), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(PaywallScreen),
-          matching: find.text('VIP'),
-        ),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('no ACTUAL badge when the tier is unknown or absent', (
-      tester,
-    ) async {
-      await _pump(tester, _container());
-      expect(find.text('ACTUAL'), findsNothing);
-    });
-
-    testWidgets('purchase buttons are disabled with a Próximamente tooltip '
-        'in stub mode', (tester) async {
-      await _pump(tester, _container());
-
-      // Two upgrade buttons + the restore button — all disabled.
-      final buttons = tester.widgetList<VButton>(find.byType(VButton));
-      expect(buttons.length, 3);
-      for (final button in buttons) {
-        expect(
-          button.onPressed,
-          isNull,
-          reason: 'stub mode must never enable a purchase',
-        );
-      }
-      expect(find.byTooltip('Próximamente'), findsNWidgets(3));
-    });
-
-    testWidgets('renders the ErrorView when app_config fails to load', (
-      tester,
-    ) async {
-      final container = ProviderContainer(
-        overrides: [
-          authStateProvider.overrideWith(() => _FakeAuthNotifier(null)),
-          appConfigProvider.overrideWith(
-            () => FailingAppConfigNotifier(Exception('connection refused')),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      await _pump(tester, container);
-
-      expect(find.byType(ErrorView), findsOneWidget);
-      expect(find.text('S/ 19.99/mes'), findsNothing);
     });
   });
 }

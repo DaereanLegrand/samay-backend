@@ -12,7 +12,9 @@ import 'package:samay/core/models/user_search_result.dart';
 import 'package:samay/core/repositories/friends_repository.dart';
 import 'package:samay/core/repositories/groups_repository.dart';
 import 'package:samay/core/repositories/repository_providers.dart';
+import 'package:samay/features/friends/providers/friends_cache_provider.dart';
 import 'package:samay/features/friends/providers/friends_providers.dart';
+import 'package:samay/features/friends/providers/recent_friends_provider.dart';
 import 'package:samay/features/friends/screens/blocked_users_screen.dart';
 import 'package:samay/features/friends/screens/friends_list_screen.dart';
 import 'package:samay/features/friends/screens/requests_screen.dart';
@@ -222,6 +224,28 @@ class _StubSearchResultsNotifier extends SearchResultsNotifier {
 
   @override
   Future<List<UserSearchResult>> build(String arg) async => data;
+}
+
+/// Stubbed on-device friends cache — replaces the derived
+/// [recentFriendsProvider] so the search/invite tests control the friends
+/// list directly (the recency derivation is covered in
+/// `recent_friends_provider_test.dart`).
+class _FakeRecentFriendsNotifier extends RecentFriendsNotifier {
+  final List<UserSearchResult> data;
+  _FakeRecentFriendsNotifier({this.data = const []});
+
+  @override
+  Future<List<UserSearchResult>> build() async => data;
+}
+
+/// Stubbed on-device friends cache (the [friendsCacheProvider] source the
+/// pickers read from for empty + <5-char queries).
+class _FakeFriendsCacheNotifier extends FriendsCacheController {
+  final List<UserSearchResult> data;
+  _FakeFriendsCacheNotifier(this.data);
+
+  @override
+  Future<List<UserSearchResult>> build() async => data;
 }
 
 /// Counting search-results variant — the post-accept reload assertion
@@ -904,7 +928,7 @@ void main() {
 
   });
 
-  group('R14 — search autofocus + min-chars hint', () {
+  group('R14 — search autofocus + cached-friends below 5 chars', () {
     testWidgets('the search field takes keyboard focus on entry', (
       tester,
     ) async {
@@ -913,6 +937,7 @@ void main() {
           const SearchScreen(),
           overrides: [
             searchResultsProvider.overrideWith(_StubSearchResultsNotifier.new),
+            recentFriendsProvider.overrideWith(_FakeRecentFriendsNotifier.new),
           ],
         ),
       );
@@ -925,43 +950,97 @@ void main() {
       );
     });
 
-    testWidgets('queries shorter than 5 chars show the min-chars hint instead '
-        'of results', (tester) async {
+    testWidgets('queries shorter than 5 chars show the cached friends '
+        '(filtered), never the backend', (tester) async {
+      final backend = _CountingSearchResultsNotifier(const []);
       await tester.pumpWidget(
         _wrap(
           const SearchScreen(),
           overrides: [
-            searchResultsProvider.overrideWith(
-              () => _StubSearchResultsNotifier(data: [_searchResult(_userId1, 'ana')]),
+            searchResultsProvider.overrideWith(() => backend),
+            recentFriendsProvider.overrideWith(
+              () => _FakeRecentFriendsNotifier(
+                data: [_searchResult(_userId1, 'analia')],
+              ),
             ),
           ],
         ),
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), 'a');
+      await tester.enterText(find.byType(TextField), 'an');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 
       expect(
-        find.text('Escribe al menos 5 caracteres para buscar'),
+        find.text('@analia'),
         findsOneWidget,
-        reason: 'a 1-char query shows the min-5 hint (R14)',
+        reason: 'a sub-5-char query shows matching cached friends',
       );
       expect(
-        find.text('@ana'),
-        findsNothing,
-        reason: 'no results for a sub-5-char query',
+        backend.builds,
+        0,
+        reason: 'a sub-5-char query must never hit the backend',
       );
     });
 
-    testWidgets('queries of 5+ chars render results', (tester) async {
+    // User directive (2026-08-29): EMPTY input must display the friend list.
+    testWidgets('EMPTY input displays the full cached friend list, no backend '
+        'call', (tester) async {
+      final backend = _CountingSearchResultsNotifier(const []);
+      await tester.pumpWidget(
+        _wrap(
+          const SearchScreen(),
+          overrides: [
+            searchResultsProvider.overrideWith(() => backend),
+            recentFriendsProvider.overrideWith(
+              () => _FakeRecentFriendsNotifier(
+                data: [
+                  _searchResult(_userId1, 'analia'),
+                  _searchResult(_userId2, 'lucas'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('@analia'),
+        findsOneWidget,
+        reason: 'the empty query shows the first cached friend',
+      );
+      expect(
+        find.text('@lucas'),
+        findsOneWidget,
+        reason: 'the empty query shows the second cached friend',
+      );
+      expect(
+        backend.builds,
+        0,
+        reason: 'an empty query must never hit the backend',
+      );
+    });
+
+    testWidgets('queries of 5+ chars merge backend + cached friends, friends '
+        'first, no duplicates', (tester) async {
       await tester.pumpWidget(
         _wrap(
           const SearchScreen(),
           overrides: [
             searchResultsProvider.overrideWith(
-              () => _StubSearchResultsNotifier(data: [_searchResult(_userId1, 'ana')]),
+              () => _StubSearchResultsNotifier(
+                data: [
+                  _searchResult(_userId1, 'analia'),
+                  _searchResult(_groupId1, 'andres'),
+                ],
+              ),
+            ),
+            recentFriendsProvider.overrideWith(
+              () => _FakeRecentFriendsNotifier(
+                data: [_searchResult(_userId1, 'analia')],
+              ),
             ),
           ],
         ),
@@ -972,10 +1051,61 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
 
-      expect(find.text('@ana'), findsOneWidget);
+      expect(find.text('@analia'), findsOneWidget);
       expect(
         find.text('Escribe al menos 5 caracteres para buscar'),
         findsNothing,
+      );
+    });
+
+    // Regression for the reported bug (2026-08-29): after a successful 5-char
+    // backend search, clearing back to a 1-char query must STILL show the
+    // friends. Uses the REAL recentFriendsProvider build (which reads the
+    // on-device friends cache) — a stubbed friends cache — so it proves the
+    // short query is never empty and never re-hits the backend.
+    testWidgets('1-char query after a 5-char search still shows the friends '
+        '(cache-backed, short query filters on-device)', (tester) async {
+      final backend = _CountingSearchResultsNotifier([
+        _searchResult(_userId1, 'analia'),
+      ]);
+      await tester.pumpWidget(
+        _wrap(
+          const SearchScreen(),
+          overrides: [
+            friendsCacheProvider.overrideWith(
+              () => _FakeFriendsCacheNotifier([
+                _searchResult(_userId1, 'analia'),
+                _searchResult(_userId2, 'lucas'),
+              ]),
+            ),
+            searchResultsProvider.overrideWith(() => backend),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 5-char query → backend runs, friend 'analia' shows (cache + merged).
+      await tester.enterText(find.byType(TextField), 'analia');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      expect(backend.builds, 1);
+      expect(find.text('@analia'), findsOneWidget);
+
+      // Clear back to a 1-char query → the cached friends are filtered
+      // on-device; nothing is empty, the backend is NOT hit again.
+      await tester.enterText(find.byType(TextField), 'l');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('@lucas'),
+        findsOneWidget,
+        reason: 'a 1-char query filters the cached friends',
+      );
+      expect(
+        backend.builds,
+        1,
+        reason: 'the short query must not fire another backend search',
       );
     });
   });

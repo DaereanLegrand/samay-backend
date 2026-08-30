@@ -49,14 +49,21 @@ void main() {
   );
   final supabaseJoinFinishMigration = supabaseMigration;
   final testingJoinFinishMigration = testingMigration;
-  // The invite-aware create_minigame_session lives in 140 (the 3-arg baseline
-  // in 100 is DROP'd there), so the create-contract checks run against the
-  // invites migration.
-  final supabaseCreateMigration = supabaseInvitesMigration;
+  // The invite-aware create_minigame_session gained p_invitees in 140 (the
+  // 3-arg baseline in 100 is DROP'd there) and then p_name in 160 (the 4-arg
+  // is DROP'd in 160 — CREATE OR REPLACE cannot change the argument list),
+  // so the current create-contract checks run against the names migration.
+  final supabaseNamesMigration = read(
+    'supabase/migrations/160_minigame_names/names.sql',
+  );
+  final testingNamesMigration = read(
+    'supabase-testing/migrations/160_minigame_names/names.sql',
+  );
+  final supabaseCreateMigration = supabaseNamesMigration;
   final supabaseSchema = read('supabase/tests/schema_test.sql');
   final testingSchema = read('supabase-testing/tests/schema_test.sql');
 
-  group('create_minigame_session RPC migration (100_minigames + 140_minigame_invites)', () {
+  group('create_minigame_session RPC migration (100_minigames + 140_minigame_invites + 160_minigame_names)', () {
     test('exists in both the supabase/ and supabase-testing/ stacks', () {
       expect(
         supabaseMigration,
@@ -86,6 +93,20 @@ void main() {
             'supabase-testing/migrations/140_minigame_invites/invites.sql '
             'is missing or empty',
       );
+      expect(
+        supabaseNamesMigration,
+        isNotEmpty,
+        reason:
+            'supabase/migrations/160_minigame_names/names.sql '
+            'is missing or empty',
+      );
+      expect(
+        testingNamesMigration,
+        isNotEmpty,
+        reason:
+            'supabase-testing/migrations/160_minigame_names/names.sql '
+            'is missing or empty',
+      );
     });
 
     test('supabase-testing mirrors match the canonical migrations', () {
@@ -102,6 +123,13 @@ void main() {
         reason:
             'supabase-testing must mirror supabase/ migration-for-migration '
             '(I-02 parity convention, 140_minigame_invites)',
+      );
+      expect(
+        testingNamesMigration,
+        supabaseNamesMigration,
+        reason:
+            'supabase-testing must mirror supabase/ migration-for-migration '
+            '(I-02 parity convention, 160_minigame_names)',
       );
     });
 
@@ -264,7 +292,7 @@ void main() {
         contains(
           'REVOKE ALL ON FUNCTION public.create_minigame_session'
           '(p_group_id uuid, p_game_type text, p_wager integer,'
-              ' p_invitees uuid[]) FROM PUBLIC',
+              ' p_invitees uuid[], p_name text) FROM PUBLIC',
         ),
       );
       expect(
@@ -272,7 +300,7 @@ void main() {
         contains(
           'GRANT ALL ON FUNCTION public.create_minigame_session'
           '(p_group_id uuid, p_game_type text, p_wager integer,'
-              ' p_invitees uuid[]) TO authenticated',
+              ' p_invitees uuid[], p_name text) TO authenticated',
         ),
       );
       expect(
@@ -675,6 +703,109 @@ void main() {
         contains("'minigame_invite'"),
         reason: 'the notification type must stay minigame_invite',
       );
+    });
+  });
+
+  group('minigame partida names (160_minigame_names)', () {
+    test('adds the nullable name column to minigame_sessions', () {
+      expect(
+        supabaseNamesMigration,
+        contains('ALTER TABLE public.minigame_sessions'),
+        reason: '160 must alter the sessions table',
+      );
+      expect(
+        supabaseNamesMigration,
+        contains('ADD COLUMN name text'),
+        reason: 'the optional partida title must be a plain text column',
+      );
+    });
+
+    test('drops the 4-arg create overload before creating the 5-arg', () {
+      expect(
+        supabaseNamesMigration,
+        contains(
+          'DROP FUNCTION public.create_minigame_session'
+          '(p_group_id uuid, p_game_type text, p_wager integer,'
+          ' p_invitees uuid[])',
+        ),
+        reason:
+            'CREATE OR REPLACE cannot change the argument list — the 4-arg '
+            'overload must be dropped first',
+      );
+      expect(
+        supabaseNamesMigration,
+        contains('p_name text DEFAULT NULL'),
+        reason: 'the name-aware overload must carry the optional p_name',
+      );
+    });
+
+    test('stores p_name on the session row (auto partida-XX stays client-side)',
+        () {
+      expect(
+        supabaseNamesMigration,
+        contains('INSERT INTO public.minigame_sessions'),
+        reason: 'the session insert must be fully qualified',
+      );
+      expect(
+        supabaseNamesMigration,
+        contains('participants, name'),
+        reason: 'the insert column list must include the new name column',
+      );
+      expect(
+        supabaseNamesMigration,
+        contains('ARRAY[v_current_user], v_name'),
+        reason: 'the initiator participant + trimmed partida name must be inserted',
+      );
+    });
+
+    test('keeps the escrow + invite body intact across the signature change', () {
+      for (final needle in const [
+        'SET personal_shards = personal_shards - p_wager',
+        "'insufficient_shards'",
+        "'minigame_wager'",
+        'INSERT INTO public.shard_ledger',
+        'public.is_group_member(p_group_id)',
+        'RETURNING id',
+      ]) {
+        expect(
+          supabaseNamesMigration,
+          contains(needle),
+          reason: 'the 5-arg create must retain the $needle contract',
+        );
+      }
+    });
+
+    test('pgTAP pins the 160_minigame_names contract in both stacks', () {
+      for (final entry in {
+        'supabase/tests/schema_test.sql': supabaseSchema,
+        'supabase-testing/tests/schema_test.sql': testingSchema,
+      }.entries) {
+        final name = entry.key;
+        final content = entry.value;
+        expect(
+          content,
+          contains('SECTION 49d'),
+          reason: '$name must carry the partida-names section header',
+        );
+        expect(
+          content,
+          contains("has_column('minigame_sessions', 'name'"),
+          reason: '$name must assert the nullable name column',
+        );
+        expect(
+          content,
+          contains(
+            "has_function('create_minigame_session', "
+            "ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text']",
+          ),
+          reason: '$name must assert the 5-arg p_name RPC signature',
+        );
+        expect(
+          content,
+          contains("'minigame_sessions.name is NULLABLE"),
+          reason: '$name must assert the nullable auto-name fallback',
+        );
+      }
     });
   });
 

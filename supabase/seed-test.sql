@@ -1,15 +1,18 @@
 -- Samay — seed-test.sql (MSQ-01, user directive 2026-08-23)
 -- Test-data snapshot from the pre-squash DB: @tester.com users, friendships,
 -- group "Cowboy Bebopers" (+members), E2EE identity keys, minigames,
--- shards/ranks, signup tracker, storage-object metadata.
+-- shards/ranks, signup tracker.
+--
+-- NO IMAGE DATA (user directive 2026-08-28): avatars/banners and the
+-- storage.objects metadata rows are stripped — the 4 users carry no
+-- avatar_url and the group has no cover_url.
 --
 -- CONVERSATIONS AND NOTIFICATIONS ARE DELIBERATELY ABSENT (user directive):
 -- no chats / messages / read receipts / deleted_messages / notifications.
 --
 -- EXPLICIT ONLY — never applied by init/reset/migrate:
 --   make supabase-seed-test
--- Idempotent (ON CONFLICT DO NOTHING). Blobs for the 4 storage rows must be
--- restored from the MinIO backup or they dangle.
+-- Idempotent (ON CONFLICT DO NOTHING).
 
 SET TIME ZONE 'UTC';
 BEGIN;
@@ -28,8 +31,8 @@ INSERT INTO auth.users (instance_id,id,aud,role,email,encrypted_password,email_c
 -- ── public.users ──
 INSERT INTO public.users (id,username,avatar_url,date_of_birth,bio,banned_at,ban_reason,deleted_at,personal_shards,preshards,subscription_tier,subscription_expires_at,notification_preferences,created_at,updated_at,interest_tags,discovery_opt_in,read_receipts_enabled,profile_public) VALUES ('c5c2cba7-c25b-45c8-a4f3-a33b3cbe0227','tester3',NULL,NULL,NULL,NULL,NULL,NULL,'1000','0','free',NULL,'{}','2026-08-15 10:35:49.074734+00','2026-08-15 10:37:02.079351+00','{}','false','true','false') ON CONFLICT DO NOTHING;
 INSERT INTO public.users (id,username,avatar_url,date_of_birth,bio,banned_at,ban_reason,deleted_at,personal_shards,preshards,subscription_tier,subscription_expires_at,notification_preferences,created_at,updated_at,interest_tags,discovery_opt_in,read_receipts_enabled,profile_public) VALUES ('9bb9e190-da36-42ec-952e-26dca8ec51ba','tester2',NULL,NULL,NULL,NULL,NULL,NULL,'1000','0','free',NULL,'{}','2026-08-15 10:35:58.399558+00','2026-08-15 10:37:02.079351+00','{}','false','true','false') ON CONFLICT DO NOTHING;
-INSERT INTO public.users (id,username,avatar_url,date_of_birth,bio,banned_at,ban_reason,deleted_at,personal_shards,preshards,subscription_tier,subscription_expires_at,notification_preferences,created_at,updated_at,interest_tags,discovery_opt_in,read_receipts_enabled,profile_public) VALUES ('6f8108f5-3964-45df-82a1-76a5d9185c10','tester','https://samay-api.qallariy.lat/storage/v1/object/public/avatars/6f8108f5-3964-45df-82a1-76a5d9185c10/1787025251189.png','2008-08-09',NULL,NULL,NULL,NULL,'256','0','free',NULL,'{}','2026-08-15 17:00:15.337595+00','2026-08-18 03:54:16.328464+00','{}','false','true','false') ON CONFLICT DO NOTHING;
-INSERT INTO public.users (id,username,avatar_url,date_of_birth,bio,banned_at,ban_reason,deleted_at,personal_shards,preshards,subscription_tier,subscription_expires_at,notification_preferences,created_at,updated_at,interest_tags,discovery_opt_in,read_receipts_enabled,profile_public) VALUES ('e5b725d6-b491-4f36-9528-278363846697','tester4','https://samay-api.qallariy.lat/storage/v1/object/public/avatars/e5b725d6-b491-4f36-9528-278363846697/1787259486635.png','2008-08-15',NULL,NULL,NULL,NULL,'256','0','free',NULL,'{}','2026-08-15 17:01:13.115392+00','2026-08-20 20:58:09.995509+00','{}','false','true','false') ON CONFLICT DO NOTHING;
+INSERT INTO public.users (id,username,avatar_url,date_of_birth,bio,banned_at,ban_reason,deleted_at,personal_shards,preshards,subscription_tier,subscription_expires_at,notification_preferences,created_at,updated_at,interest_tags,discovery_opt_in,read_receipts_enabled,profile_public) VALUES ('6f8108f5-3964-45df-82a1-76a5d9185c10','tester',NULL,'2008-08-09',NULL,NULL,NULL,NULL,'256','0','free',NULL,'{}','2026-08-15 17:00:15.337595+00','2026-08-18 03:54:16.328464+00','{}','false','true','false') ON CONFLICT DO NOTHING;
+INSERT INTO public.users (id,username,avatar_url,date_of_birth,bio,banned_at,ban_reason,deleted_at,personal_shards,preshards,subscription_tier,subscription_expires_at,notification_preferences,created_at,updated_at,interest_tags,discovery_opt_in,read_receipts_enabled,profile_public) VALUES ('e5b725d6-b491-4f36-9528-278363846697','tester4',NULL,'2008-08-15',NULL,NULL,NULL,NULL,'256','0','free',NULL,'{}','2026-08-15 17:01:13.115392+00','2026-08-20 20:58:09.995509+00','{}','false','true','false') ON CONFLICT DO NOTHING;
 
 
 -- ── e2ee_identity_keys ──
@@ -49,7 +52,7 @@ INSERT INTO public.friendships (id,requester_id,addressee_id,status,created_at) 
 
 
 -- ── groups ──
-INSERT INTO public.groups (id,name,description,cover_url,created_by_user_id,group_shards,size_tier,rank_bracket,frozen_at,created_at,updated_at) VALUES ('63ff0f12-a827-48eb-b9c7-762a61259973','Cowboy Bebopers','boop','https://samay-api.qallariy.lat/storage/v1/object/public/groups/group_covers/1786927556873.png','9bb9e190-da36-42ec-952e-26dca8ec51ba','0','micro','b40_60',NULL,'2026-08-17 00:46:00.588508+00','2026-08-22 23:59:00.021216+00') ON CONFLICT DO NOTHING;
+INSERT INTO public.groups (id,name,description,cover_url,created_by_user_id,group_shards,size_tier,rank_bracket,frozen_at,created_at,updated_at) VALUES ('63ff0f12-a827-48eb-b9c7-762a61259973','Cowboy Bebopers','boop',NULL,'9bb9e190-da36-42ec-952e-26dca8ec51ba','0','micro','b40_60',NULL,'2026-08-17 00:46:00.588508+00','2026-08-22 23:59:00.021216+00') ON CONFLICT DO NOTHING;
 
 
 -- ── group_members ──
@@ -85,12 +88,5 @@ INSERT INTO public.group_rank_snapshots (id,group_id,size_tier,rank_bracket,rank
 -- ── signup_tracker ──
 INSERT INTO public.signup_tracker (email,profile_created,created_at,updated_at) VALUES ('tester@tester.com','true','2026-08-15 21:57:38.169387+00','2026-08-15 22:00:15.955799+00') ON CONFLICT DO NOTHING;
 INSERT INTO public.signup_tracker (email,profile_created,created_at,updated_at) VALUES ('tester4@tester.com','true','2026-08-15 21:58:01.09446+00','2026-08-15 22:01:13.774043+00') ON CONFLICT DO NOTHING;
-
-
--- ── storage.objects (metadata; blobs restored separately) ──
-INSERT INTO storage.objects (id,bucket_id,name,owner,created_at,updated_at,last_accessed_at,metadata,version,owner_id,user_metadata) VALUES ('405c7650-e72c-449e-85fe-dddeab4365fd','avatars','6f8108f5-3964-45df-82a1-76a5d9185c10/1787025240628.png','6f8108f5-3964-45df-82a1-76a5d9185c10','2026-08-18 03:54:01.738464+00','2026-08-18 03:54:01.738464+00','2026-08-18 03:54:01.738464+00',E'{"eTag": "\\"cfc68cd33c105e9c6a07c4e5c5c53bee\\"", "size": 1857368, "mimetype": "image/png", "cacheControl": "max-age=3600", "lastModified": "2026-08-18T03:54:01.000Z", "contentLength": 1857368, "httpStatusCode": 200}','459d4902-bffe-499e-975a-61b1d2b451bb','6f8108f5-3964-45df-82a1-76a5d9185c10','{}') ON CONFLICT DO NOTHING;
-INSERT INTO storage.objects (id,bucket_id,name,owner,created_at,updated_at,last_accessed_at,metadata,version,owner_id,user_metadata) VALUES ('69ba6396-245b-4c30-9ccf-ace5808dc88d','avatars','6f8108f5-3964-45df-82a1-76a5d9185c10/1787025251189.png','6f8108f5-3964-45df-82a1-76a5d9185c10','2026-08-18 03:54:16.080118+00','2026-08-18 03:54:16.080118+00','2026-08-18 03:54:16.080118+00',E'{"eTag": "\\"06bd00ba8f7c9fe07d0b7d069c4bca44\\"", "size": 814017, "mimetype": "image/png", "cacheControl": "max-age=3600", "lastModified": "2026-08-18T03:54:16.000Z", "contentLength": 814017, "httpStatusCode": 200}','6b6eb8fc-78d1-45bb-b113-641263d0ceef','6f8108f5-3964-45df-82a1-76a5d9185c10','{}') ON CONFLICT DO NOTHING;
-INSERT INTO storage.objects (id,bucket_id,name,owner,created_at,updated_at,last_accessed_at,metadata,version,owner_id,user_metadata) VALUES ('954d388e-fc14-4143-a189-9c3ad2c1da91','avatars','e5b725d6-b491-4f36-9528-278363846697/1787259486635.png','e5b725d6-b491-4f36-9528-278363846697','2026-08-20 20:58:09.556664+00','2026-08-20 20:58:09.556664+00','2026-08-20 20:58:09.556664+00',E'{"eTag": "\\"849f7835a0cd829cc9967c7f430a9f9c\\"", "size": 989042, "mimetype": "image/png", "cacheControl": "max-age=3600", "lastModified": "2026-08-20T20:58:09.000Z", "contentLength": 989042, "httpStatusCode": 200}','3b484f83-c410-4371-9e89-620ec27f819d','e5b725d6-b491-4f36-9528-278363846697','{}') ON CONFLICT DO NOTHING;
-INSERT INTO storage.objects (id,bucket_id,name,owner,created_at,updated_at,last_accessed_at,metadata,version,owner_id,user_metadata) VALUES ('797f8e57-2907-44a3-9cd3-9761fd3971e3','groups','group_covers/1786927556873.png','9bb9e190-da36-42ec-952e-26dca8ec51ba','2026-08-17 00:46:00.278933+00','2026-08-17 00:46:00.278933+00','2026-08-17 00:46:00.278933+00',E'{"eTag": "\\"9220b2657a7568a534226f6ecbba2355\\"", "size": 156620, "mimetype": "image/png", "cacheControl": "max-age=3600", "lastModified": "2026-08-17T00:46:00.000Z", "contentLength": 156620, "httpStatusCode": 200}','4547833c-99c0-42ed-acf6-56e087f21820','9bb9e190-da36-42ec-952e-26dca8ec51ba','{}') ON CONFLICT DO NOTHING;
 
 COMMIT;

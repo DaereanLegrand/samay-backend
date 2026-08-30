@@ -74,6 +74,30 @@ void main() {
     });
   });
 
+  group('FriendsRepository.getUserSearchRows (batched friend profiles)', () {
+    test('delegates to FriendshipService.getFriendProfiles with the ids',
+        () async {
+      when(() => friendships.getFriendProfiles([_otherId])).thenAnswer(
+        (_) async => [
+          {'id': _otherId, 'username': 'ana', 'avatar_url': null, 'bio': null},
+        ],
+      );
+
+      final rows = await repo.getUserSearchRows([_otherId]);
+
+      verify(() => friendships.getFriendProfiles([_otherId])).called(1);
+      expect(rows.single['username'], 'ana');
+    });
+
+    test('returns [] for an empty id list without touching the service',
+        () async {
+      final rows = await repo.getUserSearchRows(const []);
+
+      expect(rows, isEmpty);
+      verifyNever(() => friendships.getFriendProfiles(any()));
+    });
+  });
+
   group('FriendsRepository.getFriends', () {
     test('delegates and maps rows to FriendshipSummary', () async {
       when(() => friendships.getFriends()).thenAnswer((_) async => [

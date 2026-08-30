@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(742);
+SELECT plan(758);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3048,6 +3048,84 @@ SELECT is(
     'LIKE wildcards in the query are escaped (no %/_ expansion)'
 );
 SELECT set_config('request.jwt.claims', '', true);
+
+-- ============================================================
+-- SECTION 49d: Minigame partida names (migration 160_minigame_names) —
+-- the per-game page flow lets a player name their partida (or fall back to
+-- the auto "partida-XX" display): minigame_sessions.name carries the
+-- optional user-supplied title, and create_minigame_session gains the
+-- nullable p_name text argument (the 4-arg overload is dropped — CREATE OR
+-- REPLACE cannot change the argument list).
+-- ============================================================
+SELECT has_column('minigame_sessions', 'name',
+    'minigame_sessions.name exists (160_minigame_names)');
+SELECT col_is_null('minigame_sessions', 'name',
+    'minigame_sessions.name is NULLABLE (null/empty = auto "partida-XX" display, 160_minigame_names)');
+SELECT has_function('create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text'],
+    'create_minigame_session(p_group_id uuid, p_game_type text, p_wager integer, p_invitees uuid[], p_name text) exists (160_minigame_names)');
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'create_minigame_session'
+          AND pronargs = 4
+          AND pg_get_function_arguments(pg_proc.oid) LIKE '%uuid[], text%'
+    ),
+    'the pre-name 4-arg create_minigame_session overload is dropped (CREATE OR REPLACE cannot change the arg list)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%INSERT INTO public.minigame_sessions%'
+       AND pg_get_functiondef(p.oid) LIKE '%name%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session stores p_name on the session row (160_minigame_names)'
+);
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text']::name[], 'public', ARRAY[]::name[],
+    'create_minigame_session is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'create_minigame_session is authenticated-EXECUTABLE');
+SELECT ok(
+    (SELECT prosecdef FROM pg_proc
+     WHERE proname = 'create_minigame_session'
+       AND pg_get_function_arguments(pg_proc.oid) LIKE '%uuid[], text%'),
+    'the 5-arg create_minigame_session is SECURITY DEFINER'
+);
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc
+     WHERE proname = 'create_minigame_session'
+       AND pg_get_function_arguments(pg_proc.oid) LIKE '%uuid[], text%'),
+    'the 5-arg create_minigame_session sets search_path = '''' (I-31 pattern)'
+);
+
+-- ============================================================
+-- SECTION 49e: get_friend_profiles(uuid[]) — batched accepted-friend profile
+-- resolution for the on-device friends cache (130_search/02_get_friend_profiles,
+-- 2026-08-30). SECURITY DEFINER + empty search_path + PUBLIC-revoked +
+-- authenticated-EXECUTABLE, scoped to auth.uid()'s accepted friendships only.
+-- ============================================================
+SELECT has_function('get_friend_profiles', ARRAY['uuid[]'],
+    'get_friend_profiles(uuid[]) exists (130_search/02_get_friend_profiles)');
+SELECT is_definer('public', 'get_friend_profiles', ARRAY['uuid[]'],
+    'get_friend_profiles is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'get_friend_profiles'),
+    'get_friend_profiles sets search_path = '''' '
+);
+SELECT function_privs_are('public', 'get_friend_profiles', ARRAY['uuid[]']::name[], 'public', ARRAY[]::name[],
+    'get_friend_profiles is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'get_friend_profiles', ARRAY['uuid[]']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'get_friend_profiles is authenticated-EXECUTABLE');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%user_search_view%'
+       AND pg_get_functiondef(p.oid) LIKE '%auth.uid()%'
+     FROM pg_proc p WHERE proname = 'get_friend_profiles'),
+    'get_friend_profiles reads user_search_view scoped by auth.uid() (accepted friends only)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%status = ''accepted''%'
+     FROM pg_proc p WHERE proname = 'get_friend_profiles'),
+    'get_friend_profiles returns only ACCEPTED friendships'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

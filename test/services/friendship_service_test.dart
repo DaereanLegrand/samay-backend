@@ -342,6 +342,36 @@ void main() {
     });
   });
 
+  group('FriendshipService.getFriendProfiles (batched friend profiles)', () {
+    test('calls the get_friend_profiles RPC with the ids and maps the rows',
+        () async {
+      when(
+        () => client.rpc('get_friend_profiles', params: any(named: 'params')),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>([
+            {'id': _otherId, 'username': 'ana', 'avatar_url': null},
+            {'id': _thirdId, 'username': 'lucas', 'avatar_url': null},
+          ]));
+
+      final rows = await service().getFriendProfiles([_otherId, _thirdId]);
+
+      verify(() => client.rpc('get_friend_profiles', params: {
+        'p_user_ids': [_otherId, _thirdId],
+      })).called(1);
+      expect(rows, hasLength(2));
+      expect(rows.first['username'], 'ana');
+      expect(rows.last['username'], 'lucas');
+    });
+
+    test('returns [] for an empty id list without calling the RPC', () async {
+      final rows = await service().getFriendProfiles(const []);
+
+      expect(rows, isEmpty);
+      verifyNever(
+        () => client.rpc('get_friend_profiles', params: any(named: 'params')),
+      );
+    });
+  });
+
   group('FriendshipService.accept/decline/remove friend request', () {
     test('acceptFriendRequest calls the accept_friend_request RPC', () async {
       when(() => client.rpc('accept_friend_request',

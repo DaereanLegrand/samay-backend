@@ -9,6 +9,7 @@ import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/minigame_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
 import 'package:samay/core/services/user_service.dart';
+import 'package:samay/features/minigames/logic/truth_dare.dart';
 import 'package:samay/features/minigames/providers/minigames_providers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -35,6 +36,31 @@ Map<String, dynamic> _session({
   };
 }
 
+Map<String, dynamic> _gameState({
+  String sessionId = _sessionId,
+  String phase = 'playing',
+  int round = 0,
+  String? subjectId = _userId,
+  String? promptType,
+  Map<String, dynamic>? prompt,
+}) {
+  return {
+    'session_id': sessionId,
+    'game_type': 'truth_dare',
+    'state': {
+      'judge_index': 0,
+      'round': round,
+      'phase': phase,
+      'subject_id': subjectId,
+      'prompt_type': promptType,
+      'prompt': prompt,
+    },
+    'rounds': <dynamic>[],
+    'created_at': '2026-08-28T10:00:00Z',
+    'updated_at': '2026-08-28T10:00:00Z',
+  };
+}
+
 class _FakeMinigameService implements MinigameService {
   _FakeMinigameService({
     this.sessions = const [],
@@ -53,6 +79,7 @@ class _FakeMinigameService implements MinigameService {
   MinigameType? lastCreatedType;
   int? lastCreatedWager;
   List<String>? lastInviteeIds;
+  String? lastCreatedName;
   Map<String, dynamic>? inviteRow;
 
   @override
@@ -90,11 +117,13 @@ class _FakeMinigameService implements MinigameService {
     MinigameType type,
     int wager, {
     List<String> inviteeIds = const [],
+    String? name,
   }) async {
     if (createError != null) throw createError!;
     lastCreatedType = type;
     lastCreatedWager = wager;
     lastInviteeIds = inviteeIds;
+    lastCreatedName = name;
     sessions = [_session(id: _sessionId), ...sessions];
     return _sessionId;
   }
@@ -141,8 +170,61 @@ class _FakeMinigameService implements MinigameService {
   }
 
   @override
+  Future<Map<String, dynamic>?> getMinigameGameState(String sessionId) async {
+    return gameStateRow;
+  }
+
+  @override
+  Future<Map<String, dynamic>> initMinigameGameState(String sessionId) async {
+    initCalls++;
+    gameStateRow = _gameState();
+    return gameStateRow!;
+  }
+
+  @override
+  Future<Map<String, dynamic>> revealMinigamePrompt(
+    String sessionId,
+    String promptType,
+  ) async {
+    revealCalls++;
+    lastPromptType = promptType;
+    gameStateRow = _gameState(
+      promptType: promptType,
+      prompt: {'id': 'p-1', 'body': '¿Cuál fue tu primer beso?'},
+    );
+    return gameStateRow!;
+  }
+
+  @override
+  Future<Map<String, dynamic>> advanceMinigameTurn(
+    String sessionId,
+    Map<String, dynamic> round,
+  ) async {
+    advanceCalls++;
+    gameStateRow = _gameState(round: (gameStateRow?['state'] as Map?)?['round'] as int? ?? 0);
+    return gameStateRow!;
+  }
+
+  @override
+  Future<void> completeMinigameGame(String sessionId) async {
+    completeCalls++;
+    gameStateRow = _gameState(phase: 'finished');
+  }
+
+  @override
   RealtimeChannel subscribeToSession(String id) =>
       throw UnimplementedError();
+
+  @override
+  RealtimeChannel subscribeToGameState(String sessionId) =>
+      throw UnimplementedError();
+
+  Map<String, dynamic>? gameStateRow;
+  int initCalls = 0;
+  int revealCalls = 0;
+  int advanceCalls = 0;
+  int completeCalls = 0;
+  String? lastPromptType;
 }
 
 void main() {
@@ -238,6 +320,22 @@ void main() {
         'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
       ]);
+    });
+
+    test('create forwards the partida name to the service '
+        '(160_minigame_names)', () async {
+      final service = _FakeMinigameService(sessions: [_session()]);
+      final container = ProviderContainer(
+        overrides: [minigameServiceProvider.overrideWithValue(service)],
+      );
+      addTearDown(container.dispose);
+      await container.read(minigameSessionsProvider(_groupId).future);
+
+      await container
+          .read(minigameSessionsProvider(_groupId).notifier)
+          .create(MinigameType.truthDare, 10, name: 'La revancha');
+
+      expect(service.lastCreatedName, 'La revancha');
     });
 
     test('maps the server rejection to a typed not-member error', () async {
@@ -495,6 +593,126 @@ void main() {
         isTrue,
       );
       verify(() => users.setMinigameInviteFriendsOnly(true)).called(1);
+    });
+  });
+
+  group('minigameGameStateProvider (150_minigame_play)', () {
+    test('loads the state row and parses the nested skeleton', () async {
+      final service = _FakeMinigameService()..gameStateRow = _gameState();
+      final container = ProviderContainer(
+        overrides: [
+          minigameServiceProvider.overrideWithValue(service),
+          _realtimeOverride(const Stream<Map<String, dynamic>>.empty()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final state = await container.read(minigameGameStateProvider(_sessionId).future);
+
+      expect(state.sessionId, _sessionId);
+      expect(state.gameType, 'truth_dare');
+      expect(state.skeleton.subjectId, _userId);
+      expect(state.isFinished, isFalse);
+    });
+
+    test('auto-initializes when no game-state row exists (server-random)',
+        () async {
+      final service = _FakeMinigameService(); // gameStateRow = null → not_started
+      final container = ProviderContainer(
+        overrides: [
+          minigameServiceProvider.overrideWithValue(service),
+          _realtimeOverride(const Stream<Map<String, dynamic>>.empty()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final state = await container.read(minigameGameStateProvider(_sessionId).future);
+
+      expect(service.initCalls, 1);
+      expect(state.skeleton.subjectId, _userId);
+    });
+
+    test('reveal calls the service with the kind wire value and reloads',
+        () async {
+      final service = _FakeMinigameService()..gameStateRow = _gameState();
+      final container = ProviderContainer(
+        overrides: [
+          minigameServiceProvider.overrideWithValue(service),
+          _realtimeOverride(const Stream<Map<String, dynamic>>.empty()),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(minigameGameStateProvider(_sessionId).future);
+
+      await container
+          .read(minigameGameStateProvider(_sessionId).notifier)
+          .reveal(TruthDareKind.truth);
+
+      expect(service.revealCalls, 1);
+      expect(service.lastPromptType, 'verdad');
+      final state = await container.read(minigameGameStateProvider(_sessionId).future);
+      expect(state.skeleton.promptType, 'verdad');
+      expect(state.hasPrompt, isTrue);
+    });
+
+    test('advance closes the round and advances the turn', () async {
+      final service = _FakeMinigameService()..gameStateRow = _gameState();
+      final container = ProviderContainer(
+        overrides: [
+          minigameServiceProvider.overrideWithValue(service),
+          _realtimeOverride(const Stream<Map<String, dynamic>>.empty()),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(minigameGameStateProvider(_sessionId).future);
+
+      await container
+          .read(minigameGameStateProvider(_sessionId).notifier)
+          .advance();
+
+      expect(service.advanceCalls, 1);
+    });
+
+    test('complete settles the game and flips the finished phase', () async {
+      final service = _FakeMinigameService()..gameStateRow = _gameState();
+      final container = ProviderContainer(
+        overrides: [
+          minigameServiceProvider.overrideWithValue(service),
+          _realtimeOverride(const Stream<Map<String, dynamic>>.empty()),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(minigameGameStateProvider(_sessionId).future);
+
+      await container
+          .read(minigameGameStateProvider(_sessionId).notifier)
+          .complete();
+
+      expect(service.completeCalls, 1);
+      final state = await container.read(minigameGameStateProvider(_sessionId).future);
+      expect(state.isFinished, isTrue);
+    });
+
+    test('merges live realtime rows on the game-state channel', () async {
+      final updates = StreamController<Map<String, dynamic>>();
+      final service = _FakeMinigameService()..gameStateRow = _gameState();
+      final container = ProviderContainer(
+        overrides: [
+          minigameServiceProvider.overrideWithValue(service),
+          _realtimeOverride(updates.stream),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(updates.close);
+
+      final initial = await container.read(minigameGameStateProvider(_sessionId).future);
+      expect(initial.isFinished, isFalse);
+
+      updates.add(_gameState(phase: 'finished'));
+      await Future<void>.delayed(Duration.zero);
+
+      final state = container.read(minigameGameStateProvider(_sessionId));
+      expect(state.valueOrNull?.isFinished, isTrue);
     });
   });
 }

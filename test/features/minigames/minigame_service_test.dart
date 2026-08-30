@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:samay/core/errors/app_error.dart';
 import 'package:samay/core/services/minigame_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
@@ -181,9 +182,41 @@ void main() {
           'p_game_type': 'poke_chain',
           'p_wager': 50,
           'p_invitees': <String>[],
+          'p_name': null,
         });
       },
     );
+
+    test('forwards the partida name as p_name (160_minigame_names)', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rpc = ResolvingBuilder<dynamic>({
+        'status': 'created',
+        'sessionId': _sessionId,
+      });
+      when(
+        () => client.rpc(
+          'create_minigame_session',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => rpc);
+
+      await service().createSession(
+        _groupId,
+        MinigameType.pokeChain,
+        50,
+        name: 'La revancha',
+      );
+
+      final params =
+          verify(
+                () => client.rpc(
+                  'create_minigame_session',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params['p_name'], 'La revancha');
+    });
 
     test(
       'forwards the selected invitee ids as p_invitees (140_minigame_invites)',
@@ -786,5 +819,258 @@ void main() {
         ).called(1);
       },
     );
+  });
+
+  group('MinigameService game-state RPCs (150_minigame_play)', () {
+    Map<String, dynamic> stateRow({String phase = 'playing'}) => {
+      'session_id': _sessionId,
+      'game_type': 'truth_dare',
+      'state': {
+        'judge_index': 0,
+        'round': 0,
+        'phase': phase,
+        'subject_id': _userId,
+        'prompt_type': null,
+        'prompt': null,
+      },
+      'rounds': <dynamic>[],
+      'created_at': '2026-08-28T10:00:00Z',
+      'updated_at': '2026-08-28T10:00:00Z',
+    };
+
+    test('getMinigameGameState invokes the RPC and returns the state row',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rpc = ResolvingBuilder<dynamic>({
+        'status': 'ok',
+        'state': stateRow(),
+      });
+      when(
+        () => client.rpc(
+          'get_minigame_game_state',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => rpc);
+
+      final state = await service().getMinigameGameState(_sessionId);
+
+      expect(state, isNotNull);
+      expect(state!['session_id'], _sessionId);
+      final params =
+          verify(
+                () => client.rpc(
+                  'get_minigame_game_state',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params, {'p_session_id': _sessionId});
+    });
+
+    test('getMinigameGameState returns null on not_started', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () => client.rpc(
+          'get_minigame_game_state',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'not_started'}));
+
+      expect(await service().getMinigameGameState(_sessionId), isNull);
+    });
+
+    test('getMinigameGameState maps the access denial', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () => client.rpc(
+          'get_minigame_game_state',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'not_allowed'}));
+
+      expect(
+        () => service().getMinigameGameState(_sessionId),
+        throwsA(isA<PermissionError>()),
+      );
+    });
+
+    test('initMinigameGameState starts and returns the seeded row', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rpc = ResolvingBuilder<dynamic>({
+        'status': 'started',
+        'state': stateRow(),
+      });
+      when(
+        () => client.rpc(
+          'init_minigame_game_state',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => rpc);
+
+      final state = await service().initMinigameGameState(_sessionId);
+
+      expect(state['session_id'], _sessionId);
+      final params =
+          verify(
+                () => client.rpc(
+                  'init_minigame_game_state',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params, {'p_session_id': _sessionId});
+    });
+
+    test('initMinigameGameState is idempotent on already_started', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () => client.rpc(
+          'init_minigame_game_state',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer(
+        (_) => ResolvingBuilder<dynamic>({
+          'status': 'already_started',
+          'state': stateRow(),
+        }),
+      );
+
+      final state = await service().initMinigameGameState(_sessionId);
+      expect(state['session_id'], _sessionId);
+    });
+
+    test('revealMinigamePrompt draws a random prompt of the kind', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rpc = ResolvingBuilder<dynamic>({
+        'status': 'revealed',
+        'prompt_type': 'verdad',
+        'prompt': {'id': 'p-1', 'body': '¿Cuál fue tu primer beso?'},
+        'state': stateRow(),
+      });
+      when(
+        () => client.rpc(
+          'reveal_minigame_prompt',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => rpc);
+
+      final state = await service().revealMinigamePrompt(_sessionId, 'verdad');
+
+      expect(state['session_id'], _sessionId);
+      final params =
+          verify(
+                () => client.rpc(
+                  'reveal_minigame_prompt',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params, {'p_session_id': _sessionId, 'p_prompt_type': 'verdad'});
+    });
+
+    test('revealMinigamePrompt surfaces invalid_prompt_type', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () => client.rpc(
+          'reveal_minigame_prompt',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer(
+        (_) => ResolvingBuilder<dynamic>({'status': 'invalid_prompt_type'}),
+      );
+
+      expect(
+        () => service().revealMinigamePrompt(_sessionId, 'bogus'),
+        throwsA(isA<ValidationError>()),
+      );
+    });
+
+    test('advanceMinigameTurn passes the completed round jsonb', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      final rpc = ResolvingBuilder<dynamic>({
+        'status': 'advanced',
+        'state': stateRow(),
+      });
+      when(
+        () => client.rpc(
+          'advance_minigame_turn',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => rpc);
+
+      final round = {
+        'subject_id': _userId,
+        'prompt_type': 'verdad',
+        'outcome': 'done',
+      };
+      final state = await service().advanceMinigameTurn(_sessionId, round);
+
+      expect(state['session_id'], _sessionId);
+      final params =
+          verify(
+                () => client.rpc(
+                  'advance_minigame_turn',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params, {'p_session_id': _sessionId, 'p_round': round});
+    });
+
+    test('completeMinigameGame settles and is idempotent', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () => client.rpc(
+          'complete_minigame_game',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'finished'}));
+
+      await service().completeMinigameGame(_sessionId);
+
+      final params =
+          verify(
+                () => client.rpc(
+                  'complete_minigame_game',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params, {'p_session_id': _sessionId});
+
+      when(
+        () => client.rpc(
+          'complete_minigame_game',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'already_finished'}));
+      await service().completeMinigameGame(_sessionId);
+    });
+
+    test('subscribeToGameState opens the game-state realtime channel', () {
+      final channel = MockRealtimeChannel();
+      when(
+        () => realtime.subscribeToChannel(
+          any(),
+          any(),
+          any(),
+          any(),
+          onStatus: any(named: 'onStatus'),
+        ),
+      ).thenReturn(channel);
+
+      final result = service().subscribeToGameState(_sessionId);
+
+      expect(result, channel);
+      verify(
+        () => realtime.subscribeToChannel(
+          'minigame-game-state:$_sessionId',
+          PostgresChangeEvent.update,
+          'minigame_game_state',
+          any(),
+          onStatus: any(named: 'onStatus'),
+        ),
+      ).called(1);
+    });
   });
 }

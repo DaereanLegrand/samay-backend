@@ -267,6 +267,8 @@ void main() {
       "RoutePaths.minigames(':groupId')": 'AppFeatureFlag.minigames',
       'RoutePaths.minigamesDirect': 'AppFeatureFlag.minigames',
       "RoutePaths.minigameSession(':sessionId')": 'AppFeatureFlag.minigames',
+      "RoutePaths.minigame(':gameType')": 'AppFeatureFlag.minigames',
+      "RoutePaths.truthDare(':sessionId')": 'AppFeatureFlag.minigames',
       "RoutePaths.chat(':chatId')": 'AppFeatureFlag.chat',
       'RoutePaths.chatList': 'AppFeatureFlag.chat',
       "RoutePaths.qr(':eventId')": 'AppFeatureFlag.qr',
@@ -704,6 +706,96 @@ void main() {
         reason:
             'restyle_test.dart visual-pinning files were deleted '
             '(token-budget 2026-08-27) — do not recreate them: $recreated',
+      );
+    });
+  });
+
+  group('no UI-only tests guard (2026-08-27 — suckless)', () {
+    // Suckless directive: only FUNCTIONAL tests (logic, contract, wiring)
+    // ship in test/. UI-only suites — pure-render presence, empty-state copy,
+    // loading-skeleton frame, "renders without overflow" — were deleted.
+    // New widget tests must assert a behavior/wiring, never a static render.
+    //
+    // Exempt (they OWN the state-widget contract by design):
+    //   * test/widgets/            — per-widget behavioral contracts
+    //   * test/design_tokens/      — the token values
+    //   * test/theme/              — ThemeData composition
+    //   * test/router/             — route-graph navigation behavior
+    //   * test/perf/               — list-view performance pin
+    final uiExempt = <String>[
+      '$root/test/widgets',
+      '$root/test/design_tokens',
+      '$root/test/theme',
+      '$root/test/router',
+      '$root/test/perf',
+    ];
+
+    test('no "renders without overflow" takeException smoke tests', () {
+      // The responsive suite (17 near-identical takeException()==null smoke
+      // tests) was deleted: overflow risk is not provable at the Ahem-font
+      // test viewport and it duplicated the same assertion per screen.
+      final offenders = <String>[];
+      final files = filesUnder('test')
+          .where((f) => f.path.endsWith('.dart'))
+          .toList();
+      for (final f in files) {
+        if (uiExempt.any((e) => f.path.startsWith(e))) continue;
+        // deep_link_handler + fonts render their target as a SIDE EFFECT of
+        // a behavioral assertion (route resolution / asset load) — the
+        // exception check guards the build, not a no-overflow smoke.
+        if (f.path.endsWith('deep_link_handler_test.dart') ||
+            f.path.endsWith('fonts_test.dart')) {
+          continue;
+        }
+        final source = File(f.path).readAsStringSync();
+        // ignore: prefer_single_quotes
+        if (RegExp(r"takeException\(\),?\s*isNull").hasMatch(source)) {
+          offenders.add(relative(f.path));
+        }
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            '"renders without overflow" takeException()==null smoke tests '
+            'were deleted (suckless 2026-08-27) — a per-screen no-overflow '
+            'assertion is not functional coverage: $offenders',
+      );
+    });
+
+    test('no new *_restyle_test.dart / *_screens_test.dart-style whole-file '
+        'render pins recreated', () {
+      // The deleted feature suites asserted every screen's static render
+      // (title + empty-state copy + skeleton + error view) with no service
+      // assertion. Recreating a whole-file "screen render" suite is the
+      // anti-pattern. A file is a render suite if it asserts empty-state or
+      // skeleton presence AND has zero service/wiring assertions.
+      final offenders = <String>[];
+      final files = filesUnder('test/features')
+          .where((f) => f.path.endsWith('.dart'))
+          .toList();
+      final renderOnly = RegExp(
+        r"find\.text\('Sin |findsOneWidget[^\n]*\bNo hay |"
+        // ignore: prefer_single_quotes
+        r"find\.byType\((VSkeleton|VEmptyView|VLoadingView)\)",
+      );
+      for (final f in files) {
+        final source = File(f.path).readAsStringSync();
+        final hasRenderAssert = renderOnly.hasMatch(source);
+        final hasBehavior = RegExp(
+          r'when\(|verify\(|harnessHttp|\.sent\(|\.sentRpc\(|\.(refresh|accept|decline|kick|promote|submit|create|send|rotate|mark|leave)\(',
+        ).hasMatch(source);
+        if (hasRenderAssert && !hasBehavior) {
+          offenders.add(relative(f.path));
+        }
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            'whole-file render-only feature suites (empty-state/skeleton '
+            'assertions with zero service wiring) were deleted (suckless '
+            '2026-08-27): $offenders',
       );
     });
   });

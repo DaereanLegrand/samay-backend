@@ -33,6 +33,21 @@ class _FakeHiveService implements HiveService {
 
   @override
   Future<void> pruneCachedMessages(String chatId, int maxPerChat) async {}
+
+  final Map<String, List<Map<String, dynamic>>> friends = {};
+
+  @override
+  Future<void> cacheFriends(String userId, List<Map<String, dynamic>> friends) async {
+    this.friends[userId] = friends;
+  }
+
+  @override
+  List<Map<String, dynamic>>? getCachedFriends(String userId) => friends[userId];
+
+  @override
+  Future<void> clearCachedFriends(String userId) async {
+    friends.remove(userId);
+  }
 }
 
 ProviderContainer makeContainer({HiveService? hive}) {

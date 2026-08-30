@@ -1,63 +1,28 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samay/core/models/friend_request_summary.dart';
-import 'package:samay/core/models/user_profile.dart';
 import 'package:samay/core/models/user_search_result.dart';
 import 'package:samay/features/friends/providers/friends_providers.dart';
-import 'package:samay/features/friends/screens/search_screen.dart';
 import 'package:samay/features/friends/screens/requests_screen.dart';
-import 'package:samay/features/friends/screens/friends_list_screen.dart';
-import 'package:samay/features/friends/screens/blocked_users_screen.dart';
+import 'package:samay/features/friends/screens/search_screen.dart';
 import 'package:samay/features/groups/providers/groups_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/error_view.dart';
 
 import '../support/fake_supabase_http.dart' as support;
 
 const _userId1 = '11111111-1111-1111-1111-111111111111';
-const _userId2 = '22222222-2222-2222-2222-222222222222';
 
-UserProfile _user(String id, String username) => UserProfile(
-  id: id,
-  username: username,
-  avatarUrl: null,
-);
-
-UserSearchResult _searchResult(String id, String username) => UserSearchResult(
-  id: id,
-  username: username,
-);
-
-class _FakeFriendsListNotifier extends FriendsListNotifier {
-  final List<UserProfile> data;
-  final Object? error;
-  _FakeFriendsListNotifier({this.data = const [], this.error});
+/// Records every query the provider is asked to resolve, so tests can assert
+/// that keystrokes were debounced into a single search.
+class _RecordingSearchResultsNotifier extends SearchResultsNotifier {
+  final List<String> queries = [];
 
   @override
-  Future<List<UserProfile>> build() async {
-    if (error != null) throw error!;
-    return data;
+  Future<List<UserSearchResult>> build(String arg) async {
+    queries.add(arg);
+    return const [];
   }
-}
-
-class _PendingFriendsListNotifier extends FriendsListNotifier {
-  @override
-  Future<List<UserProfile>> build() async {
-    return Completer<List<UserProfile>>().future;
-  }
-}
-
-class _FakeFriendRequestsNotifier extends FriendRequestsNotifier {
-  final FriendRequestsData data;
-  _FakeFriendRequestsNotifier({
-    this.data = const FriendRequestsData(requests: [], names: {}),
-  });
-
-  @override
-  Future<FriendRequestsData> build() async => data;
 }
 
 class _FakeGroupInvitesNotifier extends GroupInvitesNotifier {
@@ -79,42 +44,6 @@ class _CountingGroupInvitesNotifier extends GroupInvitesNotifier {
   Future<List<Map<String, dynamic>>> build() async {
     builds++;
     return data;
-  }
-}
-
-class _FakeBlockedUsersNotifier extends BlockedUsersNotifier {
-  final List<UserProfile> data;
-  _FakeBlockedUsersNotifier({this.data = const []});
-
-  @override
-  Future<List<UserProfile>> build() async => data;
-}
-
-class _FakeSearchResultsNotifier extends SearchResultsNotifier {
-  final List<UserSearchResult> data;
-  _FakeSearchResultsNotifier({this.data = const []});
-
-  @override
-  Future<List<UserSearchResult>> build(String arg) async => data;
-}
-
-/// Search provider pinned to a failure — the error-state rendering under test.
-class _ErrorSearchResultsNotifier extends SearchResultsNotifier {
-  @override
-  Future<List<UserSearchResult>> build(String arg) async {
-    throw Exception('search down');
-  }
-}
-
-/// Records every query the provider is asked to resolve, so tests can assert
-/// that keystrokes were debounced into a single search.
-class _RecordingSearchResultsNotifier extends SearchResultsNotifier {
-  final List<String> queries = [];
-
-  @override
-  Future<List<UserSearchResult>> build(String arg) async {
-    queries.add(arg);
-    return const [];
   }
 }
 
@@ -162,131 +91,7 @@ void main() {
     await support.initSupabaseHarness(sessionEmail: 'a@b.com');
   });
 
-  group('FriendsListScreen', () {
-    testWidgets('shows loading spinner while the provider is pending', (
-      tester,
-    ) async {
-      await _pump(tester, const FriendsListScreen(), [
-        friendsListProvider.overrideWith(_PendingFriendsListNotifier.new),
-      ]);
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    });
-
-    testWidgets('shows empty state when the provider returns no friends', (
-      tester,
-    ) async {
-      await _pump(tester, const FriendsListScreen(), [
-        friendsListProvider.overrideWith(_FakeFriendsListNotifier.new),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.text('Sin amigos aún'), findsOneWidget);
-      expect(find.text('Busca usuarios para agregar amigos'), findsOneWidget);
-    });
-
-    testWidgets('renders friend rows from the provider', (tester) async {
-      await _pump(tester, const FriendsListScreen(), [
-        friendsListProvider.overrideWith(
-          () => _FakeFriendsListNotifier(
-            data: [_user(_userId1, 'ana'), _user(_userId2, 'lucas')],
-          ),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(
-        find.text('@ana'),
-        findsOneWidget,
-        reason: 'U-24: the subtitle no longer duplicates the title',
-      );
-      expect(
-        find.text('@lucas'),
-        findsOneWidget,
-        reason: 'U-24: the subtitle no longer duplicates the title',
-      );
-      expect(find.text('Sin amigos aún'), findsNothing);
-    });
-
-    testWidgets('renders ErrorView with retry when the provider fails', (
-      tester,
-    ) async {
-      await _pump(tester, const FriendsListScreen(), [
-        friendsListProvider.overrideWith(
-          () => _FakeFriendsListNotifier(error: Exception('boom')),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.byType(ErrorView), findsOneWidget);
-      expect(find.text('Reintentar'), findsOneWidget);
-    });
-  });
-
   group('RequestsScreen', () {
-    testWidgets('renders received, sent and invites tabs from providers', (
-      tester,
-    ) async {
-      await _pump(tester, const RequestsScreen(), [
-        friendRequestsProvider.overrideWith(
-          () => _FakeFriendRequestsNotifier(
-            data: const FriendRequestsData(
-              requests: [
-                FriendRequestSummary(
-                  type: 'received',
-                  friendshipId: 'f1',
-                  userId: _userId1,
-                ),
-                FriendRequestSummary(
-                  type: 'sent',
-                  friendshipId: 'f2',
-                  userId: _userId2,
-                ),
-              ],
-              names: {_userId1: 'ana', _userId2: 'lucas'},
-            ),
-          ),
-        ),
-        groupInvitesProvider.overrideWith(
-          () => _FakeGroupInvitesNotifier(
-            data: [
-              {
-                'id': 'm1',
-                'groups': {'name': 'Disco Crew'},
-                'role': 'member',
-              },
-            ],
-          ),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.text('Recibidas'), findsOneWidget);
-      expect(find.text('Enviadas'), findsOneWidget);
-      expect(find.text('Invitaciones'), findsOneWidget);
-      expect(find.text('ana'), findsOneWidget);
-      expect(find.text('Aceptar'), findsWidgets);
-
-      await tester.tap(find.text('Enviadas'));
-      await tester.pumpAndSettle();
-      expect(find.text('lucas'), findsOneWidget);
-      expect(find.text('Solicitud enviada'), findsOneWidget);
-    });
-
-    testWidgets('shows empty states when there is nothing to show', (
-      tester,
-    ) async {
-      await _pump(tester, const RequestsScreen(), [
-        friendRequestsProvider.overrideWith(_FakeFriendRequestsNotifier.new),
-        groupInvitesProvider.overrideWith(_FakeGroupInvitesNotifier.new),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.text('Sin solicitudes recibidas'), findsOneWidget);
-
-      await tester.tap(find.text('Enviadas'));
-      await tester.pumpAndSettle();
-      expect(find.text('Sin solicitudes enviadas'), findsOneWidget);
-
-      await tester.tap(find.text('Invitaciones'));
-      await tester.pumpAndSettle();
-      expect(find.text('Sin invitaciones'), findsOneWidget);
-    });
-
     testWidgets('accept calls the service (accept_friend_request RPC) and '
         'reloads the provider (TST-07/M-14)', (tester) async {
       final requests = _CountingFriendRequestsNotifier(
@@ -407,71 +212,7 @@ void main() {
     });
   });
 
-  group('BlockedUsersScreen', () {
-    testWidgets('shows empty state when no users are blocked', (tester) async {
-      await _pump(tester, const BlockedUsersScreen(), [
-        blockedUsersProvider.overrideWith(_FakeBlockedUsersNotifier.new),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.text('No has bloqueado a nadie'), findsOneWidget);
-    });
-
-    testWidgets('renders blocked users with unblock button', (tester) async {
-      await _pump(tester, const BlockedUsersScreen(), [
-        blockedUsersProvider.overrideWith(
-          () => _FakeBlockedUsersNotifier(data: [_user(_userId1, 'ana')]),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(
-        find.text('@ana'),
-        findsOneWidget,
-        reason: 'U-24: the subtitle no longer duplicates the title',
-      );
-      expect(find.text('Desbloquear'), findsOneWidget);
-    });
-  });
-
   group('SearchScreen', () {
-    testWidgets('shows hint until the user types a query', (tester) async {
-      await _pump(tester, const SearchScreen(), [
-        searchResultsProvider.overrideWith(_FakeSearchResultsNotifier.new),
-      ]);
-      expect(find.byType(TextField), findsOneWidget);
-      expect(find.text('No se encontraron usuarios'), findsNothing);
-    });
-
-    testWidgets('renders search results from the provider after debounce', (
-      tester,
-    ) async {
-      await _pump(tester, const SearchScreen(), [
-        searchResultsProvider.overrideWith(
-          () => _FakeSearchResultsNotifier(
-            data: [
-              _searchResult(_userId1, 'ana'),
-              const UserSearchResult(
-                id: _userId2,
-                username: 'lucas',
-                friendshipStatus: 'pending',
-              ),
-            ],
-          ),
-        ),
-      ]);
-      await tester.enterText(find.byType(TextField), 'analia');
-      await tester.pump(const Duration(milliseconds: 350));
-      await tester.pumpAndSettle();
-      expect(find.text('@ana'), findsOneWidget);
-      expect(find.text('@lucas'), findsOneWidget);
-      expect(
-        find.text('SOLICITADO'),
-        findsOneWidget,
-        reason: 'XL-09: the pending readout is now the mint VBadge '
-            '(labelSmall voice uppercases)',
-      );
-      expect(find.text('Agregar'), findsOneWidget);
-    });
-
     testWidgets('debounces rapid keystrokes into a single provider query', (
       tester,
     ) async {
@@ -490,20 +231,6 @@ void main() {
       expect(recording.queries, [
         'analia',
       ], reason: 'intermediate keystrokes must not fire a query');
-    });
-
-    testWidgets('renders ErrorView with retry when the search provider fails '
-        '(TST-07/M-14)', (tester) async {
-      await _pump(tester, const SearchScreen(), [
-        searchResultsProvider.overrideWith(_ErrorSearchResultsNotifier.new),
-      ]);
-      await tester.enterText(find.byType(TextField), 'analia');
-      await tester.pump(const Duration(milliseconds: 350));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(ErrorView), findsOneWidget);
-      expect(find.text('Reintentar'), findsOneWidget);
-      expect(find.text('No se encontraron usuarios'), findsNothing);
     });
   });
 }

@@ -18,6 +18,7 @@ import 'package:samay/features/groups/screens/group_members_screen.dart';
 import 'package:samay/l10n/app_localizations.dart';
 import 'package:samay/core/theme/app_theme.dart';
 import 'package:samay/shared/widgets/v_display_text.dart';
+import 'package:samay/shared/widgets/v_header_bar.dart';
 import 'package:samay/shared/widgets/v_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
@@ -706,10 +707,10 @@ void main() {
         reason: 'an invited user sees no tab bar at all (ISSUE 2)',
       );
       for (final cta in [
-        'Donar shards',
+        'donar',
         'Crear evento',
         'Invitar',
-        'Juegos',
+        'juegos',
         'Abandonar grupo',
       ]) {
         expect(
@@ -779,7 +780,7 @@ void main() {
         findsOneWidget,
         reason: 'no membership row falls back to the active detail',
       );
-      expect(find.text('Donar shards'), findsOneWidget);
+      expect(find.text('donar'), findsOneWidget);
     });
   });
 
@@ -815,7 +816,7 @@ void main() {
         reason: 'the description lives on the Info tab (ISSUE 3)',
       );
       expect(
-        find.text('Donar shards'),
+        find.text('donar'),
         findsOneWidget,
         reason: 'the CTA row lives on the Info tab (ISSUE 3)',
       );
@@ -879,15 +880,15 @@ void main() {
         groupChatIdProvider.overrideWith(() => _StubGroupChatIdNotifier(null)),
       ]);
 
-      final appBarName = find.descendant(
-        of: find.byType(AppBar),
+      final headerName = find.descendant(
+        of: find.byType(VHeaderBar),
         matching: find.text('Disco Crew'),
       );
       expect(
-        appBarName,
+        headerName,
         findsOneWidget,
         reason:
-            'the name renders next to the back arrow in the AppBar '
+            'the name renders next to the back arrow in the header '
             '(USER FIX 4)',
       );
       expect(
@@ -896,9 +897,17 @@ void main() {
         reason: 'the name appears exactly once in the whole tree (USER FIX 4)',
       );
       expect(
+        find.descendant(
+          of: find.byType(VHeaderBar),
+          matching: find.byType(VDisplayText),
+        ),
+        findsOneWidget,
+        reason: 'the header title renders the display voice (VHeaderBar)',
+      );
+      expect(
         find.byType(VDisplayText),
-        findsNothing,
-        reason: 'the hero display voice above the tabs is gone (USER FIX 4)',
+        findsOneWidget,
+        reason: 'the only display voice is the header title (USER FIX 4)',
       );
       expect(
         find.byType(VNetworkImage),
@@ -919,15 +928,15 @@ void main() {
       expect(
         find.text('Disco Crew'),
         findsOneWidget,
-        reason: 'the name stays in the AppBar on every tab (USER FIX 4)',
+        reason: 'the name stays in the header on every tab (USER FIX 4)',
       );
       expect(
         find.descendant(
-          of: find.byType(AppBar),
+          of: find.byType(VHeaderBar),
           matching: find.text('Disco Crew'),
         ),
         findsOneWidget,
-        reason: 'still exactly one name, in the AppBar (USER FIX 4)',
+        reason: 'still exactly one name, in the header (USER FIX 4)',
       );
     });
 
@@ -949,12 +958,12 @@ void main() {
       expect(find.text('Rechazar'), findsOneWidget);
       expect(
         find.descendant(
-          of: find.byType(AppBar),
+          of: find.byType(VHeaderBar),
           matching: find.text('Disco Crew'),
         ),
         findsOneWidget,
         reason:
-            'the invited panel owns the name in its AppBar title '
+            'the invited panel owns the name in its header title '
             '(USER FIX 4)',
       );
       expect(
@@ -966,10 +975,8 @@ void main() {
       );
       expect(
         find.byType(VDisplayText),
-        findsNothing,
-        reason:
-            'the in-body display name is gone from the invited panel '
-            '(USER FIX 4)',
+        findsOneWidget,
+        reason: 'the only display voice is the header title (USER FIX 4)',
       );
     });
   });

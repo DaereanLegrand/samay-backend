@@ -31,6 +31,14 @@ const _justifiedFixedLists = <String, String>{
   'lib/features/minigames/screens/minigame_session_detail_screen.dart':
       'fixed session header + status card + a conditional invite/closed card '
       '(≤3 children) — no data list (participants render as a count)',
+  'lib/features/minigames/screens/minigame_detail_screen.dart':
+      'fixed create-partida wizard form (name, scope chips, group picker, '
+      'wager, submit, invite summary) — the game page itself uses a '
+      'ListView.builder (data-derived ongoing rows are lazy)',
+  'lib/features/minigames/screens/truth_dare_screen.dart':
+      'fixed 3-child play body (turn header, spacer, prompt card) — the child '
+      'count never depends on the game state (a subject/prompt swap only '
+      'changes card content, not the list length)',
   'lib/features/profile/screens/edit_profile_screen.dart':
       'fixed 5-child form (avatar, bio input, save button, password link) — no data list',
   'lib/features/profile/screens/public_profile_screen.dart':

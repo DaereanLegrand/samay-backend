@@ -5,13 +5,10 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:samay/core/models/event.dart';
 import 'package:samay/core/models/event_photo.dart';
-import 'package:samay/core/models/group.dart';
-import 'package:samay/core/models/group_member.dart';
 import 'package:samay/core/models/user_profile.dart';
 import 'package:samay/core/providers/auth_provider.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/repositories/friends_repository.dart';
-import 'package:samay/core/repositories/groups_repository.dart';
 import 'package:samay/core/repositories/repository_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/chat_service.dart';
@@ -19,8 +16,6 @@ import 'package:samay/core/services/event_service.dart';
 import 'package:samay/features/events/providers/events_providers.dart';
 import 'package:samay/features/events/screens/event_detail_screen.dart';
 import 'package:samay/features/feed/screens/feed_screen.dart';
-import 'package:samay/features/groups/providers/groups_providers.dart';
-import 'package:samay/features/groups/screens/group_detail_screen.dart';
 import 'package:samay/features/photos/providers/photos_providers.dart';
 import 'package:samay/features/photos/screens/photo_gallery_screen.dart';
 import 'package:samay/features/profile/screens/public_profile_screen.dart';
@@ -33,14 +28,11 @@ import '../support/stub_auth_notifier.dart';
 /// button wiring now navigates to its real route —
 /// home games section (feed), party finder, event QR/scanner/photos,
 /// group games, and the friend-chat message button.
-const _groupId = '33333333-3333-3333-3333-333333333333';
 const _eventId = '44444444-4444-4444-4444-444444444444';
 const _promotorId = '11111111-1111-1111-1111-111111111111';
 const _peerUserId = '22222222-2222-2222-2222-222222222222';
 
 class _MockFriendsRepository extends Mock implements FriendsRepository {}
-
-class _MockGroupsRepository extends Mock implements GroupsRepository {}
 
 class _MockChatService extends Mock implements ChatService {}
 
@@ -66,33 +58,6 @@ class _StubMyEventInviteNotifier extends MyEventInviteNotifier {
 
   @override
   Future<Map<String, dynamic>?> build(String arg) async => data;
-}
-
-class _StubGroupDetailNotifier extends GroupDetailNotifier {
-  final Group? data;
-  _StubGroupDetailNotifier(this.data);
-
-  @override
-  Future<Group?> build(String arg) async => data;
-}
-
-class _StubGroupMembersNotifier extends GroupMembersNotifier {
-  @override
-  Future<List<GroupMember>> build(String arg) async => const [];
-}
-
-class _StubContributionsNotifier extends GroupContributionsNotifier {
-  @override
-  Future<GroupContributionsData> build(String arg) async =>
-      const GroupContributionsData(contributors: [], myContribution: 0);
-}
-
-class _StubGroupDetailCombinedNotifier extends GroupDetailCombinedNotifier {
-  final GroupDetailData _data;
-  _StubGroupDetailCombinedNotifier(this._data);
-
-  @override
-  Future<GroupDetailData> build(String arg) async => _data;
 }
 
 class _StubUploadPhotoNotifier extends PhotoUploadNotifier {
@@ -133,56 +98,8 @@ void main() {
   setUpAll(() => support.initSupabaseHarness(sessionEmail: 'a@b.com'));
 
   group('plugged home — games section (feed)', () {
-    testWidgets('renders the five games and the Party Finder entry on top', (
-      tester,
-    ) async {
-      final service = _FakeEventService();
-      when(
-        () => service.listEvents(any(), any()),
-      ).thenAnswer((_) async => [_event()]);
-      final container = ProviderContainer(
-        overrides: [
-          eventServiceProvider.overrideWithValue(service),
-        ],
-      );
-      addTearDown(container.dispose);
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: const MaterialApp(
-            locale: Locale('es'),
-            localizationsDelegates: AppLocalizations
-                .localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            home: FeedScreen(),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('JUEGOS'),
-        findsOneWidget,
-        reason: 'the games section header sits at the top of the home feed',
-      );
-      expect(find.text('Cadena de Pokes'), findsOneWidget);
-      expect(find.text('Preguntas'), findsOneWidget);
-      expect(find.text('Party Finder'), findsOneWidget);
-    });
-
-    testWidgets('tapping a game with one group navigates to the minigames hub',
+    testWidgets('tapping a game opens its dedicated page (no group needed)',
         (tester) async {
-      final groups = _MockGroupsRepository();
-      when(() => groups.getMyGroups()).thenAnswer(
-        (_) async => [
-          const Group(
-            id: _groupId,
-            name: 'Disco Crew',
-            groupShards: 100,
-            myRole: 'member',
-          ),
-        ],
-      );
       final router = GoRouter(
         initialLocation: RoutePaths.mainFeed,
         routes: [
@@ -191,19 +108,16 @@ void main() {
             builder: (_, _) => const FeedScreen(),
           ),
           GoRoute(
-            path: RoutePaths.minigames(_groupId),
+            path: RoutePaths.minigame(':gameType'),
             builder: (_, _) =>
-                const Scaffold(body: Center(child: Text('GAMES STUB'))),
+                const Scaffold(body: Center(child: Text('GAME STUB'))),
           ),
         ],
       );
       final service = _FakeEventService();
       when(() => service.listEvents(any(), any())).thenAnswer((_) async => []);
       final container = ProviderContainer(
-        overrides: [
-          eventServiceProvider.overrideWithValue(service),
-          groupsRepositoryProvider.overrideWithValue(groups),
-        ],
+        overrides: [eventServiceProvider.overrideWithValue(service)],
       );
       addTearDown(container.dispose);
       await tester.pumpWidget(
@@ -224,109 +138,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.text('GAMES STUB'),
-        findsOneWidget,
-        reason: 'single-group users jump straight into the games hub',
-      );
-    });
-
-    testWidgets('tapping a game with no groups opens the DIRECT hub', (
-      tester,
-    ) async {
-      final groups = _MockGroupsRepository();
-      when(() => groups.getMyGroups()).thenAnswer((_) async => []);
-      final service = _FakeEventService();
-      when(() => service.listEvents(any(), any())).thenAnswer((_) async => []);
-      final router = GoRouter(
-        initialLocation: RoutePaths.mainFeed,
-        routes: [
-          GoRoute(
-            path: RoutePaths.mainFeed,
-            builder: (_, _) => const FeedScreen(),
-          ),
-          GoRoute(
-            path: RoutePaths.minigamesDirect,
-            builder: (_, _) =>
-                const Scaffold(body: Center(child: Text('DIRECT STUB'))),
-          ),
-        ],
-      );
-      final container = ProviderContainer(
-        overrides: [
-          eventServiceProvider.overrideWithValue(service),
-          groupsRepositoryProvider.overrideWithValue(groups),
-        ],
-      );
-      addTearDown(container.dispose);
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp.router(
-            routerConfig: router,
-            locale: const Locale('es'),
-            localizationsDelegates: AppLocalizations
-                .localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Cadena de Pokes'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('DIRECT STUB'),
+        find.text('GAME STUB'),
         findsOneWidget,
         reason:
-            'a user with zero groups can play directly — no join-a-group '
-            'roadblock (direct-minigames 2026-08-27)',
+            'the feed game card opens the dedicated per-game page directly '
+            '(2026-08-28) — the group-picker bottom sheet is gone',
       );
-    });
-
-    testWidgets('tapping the Party Finder card navigates to the finder', (
-      tester,
-    ) async {
-      final router = GoRouter(
-        initialLocation: RoutePaths.mainFeed,
-        routes: [
-          GoRoute(
-            path: RoutePaths.mainFeed,
-            builder: (_, _) => const FeedScreen(),
-          ),
-          GoRoute(
-            path: RoutePaths.partyFinder,
-            builder: (_, _) =>
-                const Scaffold(body: Center(child: Text('FINDER STUB'))),
-          ),
-        ],
-      );
-      final service = _FakeEventService();
-      when(() => service.listEvents(any(), any())).thenAnswer((_) async => []);
-      final container = ProviderContainer(
-        overrides: [
-          eventServiceProvider.overrideWithValue(service),
-        ],
-      );
-      addTearDown(container.dispose);
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp.router(
-            routerConfig: router,
-            locale: const Locale('es'),
-            localizationsDelegates: AppLocalizations
-                .localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Party Finder'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('FINDER STUB'), findsOneWidget);
     });
   });
 
@@ -373,39 +190,14 @@ void main() {
       return container;
     }
 
-    testWidgets('renders attendee QR, scanner (promotor) and photos actions', (
-      tester,
-    ) async {
-      await pumpEventDetail(tester);
-      await tester.drag(find.byType(ListView), const Offset(0, -1600));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Código de asistencia'), findsOneWidget);
-      expect(find.text('Escáner de asistencia'), findsOneWidget);
-      expect(find.text('Fotos'), findsOneWidget);
-    });
-
-    testWidgets('attendees never see the promotor scanner', (tester) async {
-      await pumpEventDetail(
-        tester,
-        promotores: _promotores(asPromotor: false),
-      );
-      await tester.drag(find.byType(ListView), const Offset(0, -1600));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Código de asistencia'), findsOneWidget);
-      expect(find.text('Escáner de asistencia'), findsNothing);
-      expect(find.text('Fotos'), findsOneWidget);
-    });
-
     testWidgets('closed events hide the live actions', (tester) async {
       await pumpEventDetail(tester, status: 'ended');
       await tester.drag(find.byType(ListView), const Offset(0, -1600));
       await tester.pumpAndSettle();
 
-      expect(find.text('Código de asistencia'), findsNothing);
-      expect(find.text('Escáner de asistencia'), findsNothing);
-      expect(find.text('Fotos'), findsNothing);
+      expect(find.text('código'), findsNothing);
+      expect(find.text('escáner'), findsNothing);
+      expect(find.text('fotos'), findsNothing);
     });
   });
 
@@ -463,90 +255,6 @@ void main() {
         find.text('COLLAGE STUB'),
         findsOneWidget,
         reason: 'the gallery header opens the auto-collage wall',
-      );
-    });
-  });
-
-  group('plugged group detail — games', () {    testWidgets('the Juegos button opens the group minigames hub', (
-      tester,
-    ) async {
-      final router = GoRouter(
-        initialLocation: '/home',
-        routes: [
-          GoRoute(
-            path: '/home',
-            builder: (_, _) => const Scaffold(body: Text('home-marker')),
-          ),
-          GoRoute(
-            path: RoutePaths.groupDetail(_groupId),
-            builder: (_, _) => const GroupDetailScreen(groupId: _groupId),
-          ),
-          GoRoute(
-            path: RoutePaths.minigames(_groupId),
-            builder: (_, _) =>
-                const Scaffold(body: Center(child: Text('GAMES STUB'))),
-          ),
-        ],
-      );
-      final container = ProviderContainer(
-        overrides: [
-          groupDetailProvider.overrideWith(
-            () => _StubGroupDetailNotifier(
-              const Group(
-                id: _groupId,
-                name: 'Disco Crew',
-                groupShards: 100,
-              ),
-            ),
-          ),
-          groupMembersProvider.overrideWith(_StubGroupMembersNotifier.new),
-          contributionsProvider.overrideWith(
-            _StubContributionsNotifier.new,
-          ),
-          groupDetailCombinedProvider.overrideWith(
-            () => _StubGroupDetailCombinedNotifier(
-              const GroupDetailData(
-                group: Group(
-                  id: _groupId,
-                  name: 'Disco Crew',
-                  groupShards: 100,
-                ),
-                members: [],
-                contributions: GroupContributionsData(
-                  contributors: [],
-                  myContribution: 0,
-                ),
-                membership: null,
-              ),
-            ),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp.router(
-            routerConfig: router,
-            locale: const Locale('es'),
-            localizationsDelegates: AppLocalizations
-                .localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-          ),
-        ),
-      );
-      router.push(RoutePaths.groupDetail(_groupId));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Juegos'), findsOneWidget);
-
-      await tester.tap(find.text('Juegos'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('GAMES STUB'),
-        findsOneWidget,
-        reason: 'the group action row routes straight into the hub',
       );
     });
   });

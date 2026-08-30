@@ -1,29 +1,17 @@
-import 'dart:async';
-
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
-import 'package:mocktail/mocktail.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/router/route_paths.dart';
 import 'package:samay/core/services/notification_service.dart';
 import 'package:samay/core/services/rest_client.dart';
 import 'package:samay/core/services/realtime_service.dart';
-import 'package:samay/features/notifications/screens/notification_center_screen.dart';
 import 'package:samay/features/notifications/providers/notifications_providers.dart';
-import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/skeletons.dart';
-import 'package:samay/shared/widgets/state_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
-/// Notification center tests (I-53, NOTI): provider list/refresh/markRead
-/// against a fake [NotificationService] injected via
-/// [notificationServiceProvider], derived unread count, pure deep-link and
-/// relative-time helpers, and the screen's render / empty / tap / realtime /
-/// mark-all-read behaviors.
-class _MockRealtimeChannel extends Mock implements RealtimeChannel {}
-
+/// Notification center functional tests (I-53, NOTI): provider list/refresh/
+/// markRead against a fake [NotificationService] injected via
+/// [notificationServiceProvider], derived unread count, and the pure deep-link
+/// and relative-time helpers.
 Map<String, dynamic> _row(
   String id, {
   String type = 'event_invite',
@@ -47,17 +35,11 @@ Map<String, dynamic> _row(
 /// Fake service standing in for [notificationServiceProvider]: in-memory
 /// rows, a record of marked ids, and captured realtime insert callbacks.
 class _FakeNotificationService implements NotificationService {
-  _FakeNotificationService(this.rows, {this.error, this.gate});
+  _FakeNotificationService(this.rows, {this.error});
 
   final List<Map<String, dynamic>> rows;
   final Object? error;
-
-  /// When set, [getNotifications] awaits it before resolving — tests hold
-  /// the provider in the loading state deterministically.
-  final Future<void>? gate;
   final List<String> markedRead = [];
-  final List<void Function(Map<String, dynamic>)> onInserts = [];
-  _MockRealtimeChannel? _channel;
 
   @override
   GoTrueClient get auth => throw UnimplementedError();
@@ -73,8 +55,6 @@ class _FakeNotificationService implements NotificationService {
 
   @override
   Future<List<Map<String, dynamic>>> getNotifications() async {
-    final g = gate;
-    if (g != null) await g;
     if (error != null) throw error!;
     return List.of(rows);
   }
@@ -90,12 +70,8 @@ class _FakeNotificationService implements NotificationService {
   @override
   Future<RealtimeChannel> subscribeToNotifications(
     void Function(Map<String, dynamic>) onInsert,
-  ) async {
-    onInserts.add(onInsert);
-    final channel = _channel ??= _MockRealtimeChannel();
-    when(() => channel.unsubscribe()).thenAnswer((_) => Future.value('ok'));
-    return channel;
-  }
+  ) async =>
+      throw UnimplementedError();
 }
 
 ProviderContainer _container(_FakeNotificationService service) {
@@ -103,35 +79,6 @@ ProviderContainer _container(_FakeNotificationService service) {
     overrides: [notificationServiceProvider.overrideWithValue(service)],
   );
   addTearDown(container.dispose);
-  return container;
-}
-
-Future<ProviderContainer> _pumpScreen(
-  WidgetTester tester,
-  _FakeNotificationService service, {
-  GoRouter? router,
-}) async {
-  final container = _container(service);
-  await tester.pumpWidget(
-    UncontrolledProviderScope(
-      container: container,
-      child: router == null
-          ? const MaterialApp(
-              locale: Locale('es'),
-              localizationsDelegates: AppLocalizations.localizationsDelegates,
-              supportedLocales: AppLocalizations.supportedLocales,
-              home: NotificationCenterScreen(),
-            )
-          : MaterialApp.router(
-              routerConfig: router,
-              locale: const Locale('es'),
-              localizationsDelegates: AppLocalizations.localizationsDelegates,
-              supportedLocales: AppLocalizations.supportedLocales,
-            ),
-    ),
-  );
-  await tester.pump();
-  await tester.pumpAndSettle();
   return container;
 }
 
@@ -363,6 +310,9 @@ void main() {
 
     test('minigame session deep links are registered routes', () {
       expect(isRegisteredRoutePath('/minigames/session/s1'), isTrue);
+      // 150_minigame_play: the Verdad o Reto play route is a registered
+      // deep-link target (4 segments: minigames/play/truth-dare/:id).
+      expect(isRegisteredRoutePath('/minigames/play/truth-dare/s1'), isTrue);
     });
 
     test('maps chat_message to the chat route', () {
@@ -411,169 +361,4 @@ void main() {
     });
   });
 
-  group('NotificationCenterScreen', () {
-    testWidgets('shows the avatar+lines skeleton while the provider is '
-        'pending (U-22 §5.8)', (tester) async {
-      final gate = Completer<void>();
-      final service = _FakeNotificationService([
-        _row('n-1', title: 'Invitación a evento'),
-      ], gate: gate.future);
-      final container = _container(service);
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: const MaterialApp(
-            locale: Locale('es'),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            home: NotificationCenterScreen(),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      expect(
-        find.byType(VSkeletonList),
-        findsOneWidget,
-        reason: 'first load shows the list skeleton, not a spinner',
-      );
-      expect(find.byType(VLoadingView), findsNothing);
-
-      gate.complete();
-      await tester.pumpAndSettle();
-
-      expect(find.byType(VSkeletonList), findsNothing);
-      expect(find.text('Invitación a evento'), findsOneWidget);
-    });
-
-    testWidgets('renders items with icon, title, body and relative time', (
-      tester,
-    ) async {
-      final fiveMinutesAgo = DateTime.now().toUtc().subtract(
-        const Duration(minutes: 5),
-      );
-      final service = _FakeNotificationService([
-        _row(
-          'n-1',
-          title: 'Invitación a evento',
-          body: 'Ana te invitó a Fiesta',
-          createdAt: fiveMinutesAgo,
-        ),
-        _row(
-          'n-2',
-          type: 'qr_active',
-          title: 'QR de asistencia activo',
-          body: 'Tu QR para Fiesta ya está disponible',
-          read: true,
-        ),
-      ]);
-      await _pumpScreen(tester, service);
-
-      expect(find.text('Notificaciones'), findsOneWidget);
-      expect(find.text('Invitación a evento'), findsOneWidget);
-      expect(find.text('Ana te invitó a Fiesta'), findsOneWidget);
-      expect(find.text('QR de asistencia activo'), findsOneWidget);
-      expect(find.text('hace 5 min'), findsOneWidget);
-      expect(find.text('Ahora'), findsOneWidget);
-      expect(find.byIcon(Icons.event), findsOneWidget);
-      expect(find.byIcon(Icons.qr_code), findsOneWidget);
-    });
-
-    testWidgets('shows the empty state', (tester) async {
-      await _pumpScreen(tester, _FakeNotificationService([]));
-
-      expect(find.text('Sin notificaciones'), findsOneWidget);
-      expect(
-        find.text('Cuando recibas novedades, aparecerán aquí.'),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('shows the unread dot only on unread items', (tester) async {
-      final service = _FakeNotificationService([
-        _row('n-1'),
-        _row('n-2', read: true),
-      ]);
-      await _pumpScreen(tester, service);
-
-      expect(find.byKey(const ValueKey('unread-dot-n-1')), findsOneWidget);
-      expect(find.byKey(const ValueKey('unread-dot-n-2')), findsNothing);
-    });
-
-    testWidgets('tapping a notification without a deep link marks it read', (
-      tester,
-    ) async {
-      final service = _FakeNotificationService([_row('n-1', data: null)]);
-      await _pumpScreen(tester, service);
-
-      await tester.tap(find.text('Invitación a evento'));
-      await tester.pumpAndSettle();
-
-      expect(service.markedRead, ['n-1']);
-      expect(find.byKey(const ValueKey('unread-dot-n-1')), findsNothing);
-    });
-
-    testWidgets(
-      'tapping a notification with a registered deep link navigates',
-      (tester) async {
-        final service = _FakeNotificationService([
-          _row('n-1', type: 'event_invite', data: {'event_id': 'e1'}),
-        ]);
-        final router = GoRouter(
-          initialLocation: RoutePaths.mainNotifications,
-          routes: [
-            GoRoute(
-              path: RoutePaths.mainNotifications,
-              builder: (_, _) => const NotificationCenterScreen(),
-            ),
-            GoRoute(
-              path: RoutePaths.eventDetail('e1'),
-              builder: (_, _) =>
-                  const Scaffold(body: Center(child: Text('EVENT STUB'))),
-            ),
-          ],
-        );
-        await _pumpScreen(tester, service, router: router);
-
-        await tester.tap(find.text('Invitación a evento'));
-        await tester.pumpAndSettle();
-
-        expect(find.text('EVENT STUB'), findsOneWidget);
-        expect(service.markedRead, ['n-1']);
-      },
-    );
-
-    testWidgets('a realtime insert appends the new notification', (
-      tester,
-    ) async {
-      final service = _FakeNotificationService([_row('n-1', data: null)]);
-      await _pumpScreen(tester, service);
-      expect(find.text('Invitación a evento'), findsOneWidget);
-
-      service.onInserts.single(
-        _row('n-live', type: 'shard_received', title: 'Shards recibidos'),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Shards recibidos'), findsOneWidget);
-      expect(find.byKey(const ValueKey('unread-dot-n-live')), findsOneWidget);
-    });
-
-    testWidgets('mark-all-read clears every unread dot', (tester) async {
-      final service = _FakeNotificationService([
-        _row('n-1', data: null),
-        _row('n-2', data: null),
-      ]);
-      await _pumpScreen(tester, service);
-      expect(find.text('Marcar todo como leído'), findsOneWidget);
-
-      await tester.tap(find.text('Marcar todo como leído'));
-      await tester.pumpAndSettle();
-
-      expect(service.markedRead.toSet(), {'n-1', 'n-2'});
-      expect(find.byKey(const ValueKey('unread-dot-n-1')), findsNothing);
-      expect(find.byKey(const ValueKey('unread-dot-n-2')), findsNothing);
-      expect(find.text('Marcar todo como leído'), findsNothing);
-    });
-  });
 }

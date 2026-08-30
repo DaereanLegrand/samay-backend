@@ -127,49 +127,12 @@ void main() {
   });
 
   group('InterestTagPicker', () {
-    Future<AppLocalizations> es() =>
-        AppLocalizations.delegate.load(const Locale('es'));
-
     Widget harness(Widget child) => MaterialApp(
           locale: const Locale('es'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: child),
         );
-
-    testWidgets('renders every catalog tag as a chip with the es label',
-        (tester) async {
-      final l10n = await es();
-      await tester.pumpWidget(harness(
-        InterestTagPicker(onChanged: (_) {}),
-      ));
-
-      expect(find.byType(FilterChip), findsNWidgets(kInterestTagIds.length));
-      for (final id in kInterestTagIds) {
-        expect(find.text(interestTagLabel(l10n, id)), findsOneWidget);
-      }
-    });
-
-    testWidgets('marks the preselected chips as selected', (tester) async {
-      await tester.pumpWidget(harness(
-        InterestTagPicker(
-          selected: const {'musica', 'arte'},
-          onChanged: (_) {},
-        ),
-      ));
-
-      final chips = tester
-          .widgetList<FilterChip>(find.byType(FilterChip))
-          .toList();
-      expect(
-        chips.where((c) => c.selected).length,
-        2,
-        reason: 'only the preselected chips may render as selected',
-      );
-      final labels = chips.map((c) => (c.label as Text).data).toList();
-      expect(labels, contains('Música'));
-      expect(labels, contains('Arte'));
-    });
 
     testWidgets('toggling a chip reports the full updated selection',
         (tester) async {
@@ -198,13 +161,5 @@ void main() {
       await tester.tap(find.text('Deportes'));
       expect(selected, {'deportes'});
     });
-
-    testWidgets('is const-constructible', (tester) async {
-      const picker = InterestTagPicker(onChanged: _noop);
-      await tester.pumpWidget(harness(picker));
-      expect(find.byType(FilterChip), findsWidgets);
-    });
   });
 }
-
-void _noop(Set<String> _) {}

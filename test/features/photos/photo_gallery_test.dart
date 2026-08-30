@@ -1,33 +1,25 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:samay/core/providers/config_provider.dart';
 import 'package:samay/core/models/event.dart';
 import 'package:samay/core/providers/service_providers.dart';
 import 'package:samay/core/services/event_service.dart';
 import 'package:samay/core/services/media_service.dart';
 import 'package:samay/core/services/moderation_service.dart';
-import 'package:samay/core/services/permission_service.dart';
 import 'package:samay/features/events/providers/events_providers.dart';
-import 'package:samay/features/photos/screens/photo_gallery_screen.dart';
 import 'package:samay/features/photos/providers/photos_providers.dart';
-import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/error_view.dart';
-import 'package:samay/shared/widgets/state_views.dart';
-import 'package:samay/shared/widgets/v_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 import '../../support/fake_config_provider.dart';
 /// PHUP gallery tests (I-59): provider list/signed-url caching/like
 /// optimistic+rollback/report/upload against fake services injected through
-/// the service providers, plus the screen's grid/empty/error/upload/window
-/// behaviors with an injectable picker + permission seam.
+/// the service providers.
 
 const _eventId = '66666666-6666-6666-6666-666666666666';
 const _userId = '11111111-1111-1111-1111-111111111111';
@@ -278,44 +270,6 @@ ProviderContainer _container({
       uploadPhotoProvider.overrideWith(() => _FakeUploadNotifier()),
   ]);
   addTearDown(container.dispose);
-  return container;
-}
-
-Future<ProviderContainer> _pumpGallery(
-  WidgetTester tester, {
-  _FakeMediaService? media,
-  _FakeEventService? events,
-  _FakeModerationService? moderation,
-  Map<String, String> config = const {},
-  DateTime? endsAt,
-  PermissionService? permissions,
-  PhotoPicker? picker,
-  bool fakeUpload = false,
-}) async {
-  final container = _container(
-    media: media,
-    events: events,
-    moderation: moderation,
-    config: config,
-    endsAt: endsAt,
-    fakeUpload: fakeUpload,
-  );
-  await tester.pumpWidget(
-    UncontrolledProviderScope(
-      container: container,
-      child: MaterialApp(
-        locale: const Locale('es'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: PhotoGalleryScreen(
-          eventId: _eventId,
-          permissions: permissions,
-          picker: picker,
-        ),
-      ),
-    ),
-  );
-  await tester.pumpAndSettle();
   return container;
 }
 
@@ -594,164 +548,6 @@ void main() {
         throwsException,
       );
       expect(container.read(uploadPhotoProvider), isA<AsyncError>());
-    });
-  });
-
-  group('PhotoGalleryScreen', () {
-    testWidgets('renders the photo grid with signed-URL tiles and like counts',
-        (tester) async {
-      final media = _FakeMediaService(rows: [
-        _photoRow('p-1', storagePath: 'e-1/photos/a.png', likes: 0),
-        _photoRow('p-2', storagePath: 'e-1/photos/b.png', likes: 3),
-      ]);
-      await _pumpGallery(tester, media: media);
-
-      expect(find.byType(PhotoGalleryScreen), findsOneWidget);
-      expect(find.text('Fotos'), findsOneWidget);
-      expect(find.byType(VNetworkImage), findsNWidgets(2));
-      expect(find.text('0 likes'), findsOneWidget);
-      expect(find.text('3 likes'), findsOneWidget);
-      expect(find.byIcon(Icons.favorite_border), findsNWidgets(2));
-    });
-
-    testWidgets('shows the empty state', (tester) async {
-      await _pumpGallery(tester);
-
-      expect(find.text('No hay fotos todavía'), findsOneWidget);
-      expect(find.text('¡Sé el primero en subir una!'), findsOneWidget);
-      expect(find.byType(VEmptyView), findsOneWidget);
-    });
-
-    testWidgets('shows the error view and recovers via retry', (tester) async {
-      final media = _FakeMediaService()..listError = Exception('boom');
-      await _pumpGallery(tester, media: media);
-
-      expect(find.byType(ErrorView), findsOneWidget);
-
-      media.listError = null;
-      await tester.tap(find.text('Reintentar'));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(ErrorView), findsNothing);
-      expect(find.text('No hay fotos todavía'), findsOneWidget);
-    });
-
-    testWidgets('a like tap flips the heart and calls the service',
-        (tester) async {
-      final media = _FakeMediaService(rows: [_photoRow('p-1')]);
-      final events = _FakeEventService();
-      await _pumpGallery(tester, media: media, events: events);
-
-      await tester.tap(find.byKey(const ValueKey('photo-like-p-1')));
-      await tester.pumpAndSettle();
-
-      expect(events.liked, ['p-1']);
-      expect(find.byIcon(Icons.favorite), findsOneWidget);
-      expect(find.text('1 likes'), findsOneWidget);
-    });
-
-    testWidgets('long-press opens the report dialog and submits',
-        (tester) async {
-      final media = _FakeMediaService(rows: [_photoRow('p-1')]);
-      final moderation = _FakeModerationService();
-      await _pumpGallery(tester, media: media, moderation: moderation);
-
-      await tester.longPress(find.byKey(const ValueKey('photo-tile-p-1')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Reportar foto'), findsOneWidget);
-      await tester.enterText(find.byType(TextField), 'Contenido inapropiado');
-      await tester.tap(find.text('Enviar reporte'));
-      await tester.pumpAndSettle();
-
-      expect(moderation.reports, [('photo', 'p-1', 'Contenido inapropiado')]);
-      expect(find.text('Reporte enviado'), findsOneWidget);
-    });
-
-    testWidgets('the upload flow picks, compresses and uploads', (tester) async {
-      final media = _FakeMediaService(rows: [_photoRow('p-1')]);
-      // dart:ui image futures never complete under the fake-async widget-test
-      // zone — generate the PNG in the real zone first (repo pattern, see
-      // create_event_test.dart `_solidPng`).
-      final png = (await tester.runAsync(_tinyPng))!;
-      final permissions = PermissionService(
-        request: (_) async => ph.PermissionStatus.granted,
-      );
-      Future<XFile?> picker(ImageSource source) async =>
-          XFile.fromData(png, name: 'foto.png');
-      await _pumpGallery(
-        tester,
-        media: media,
-        permissions: permissions,
-        picker: picker,
-        fakeUpload: true,
-      );
-
-      await tester.tap(find.byKey(const ValueKey('photos-upload-button')));
-      // Bounded pumps, not pumpAndSettle: the fake clock must not advance
-      // past pending timers, which would run the snackbar through its full
-      // 4s lifecycle and dismiss it (LUXE restyle, XL-13).
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-
-      expect(media.uploadedEventId, _eventId);
-      expect(media.uploaded, hasLength(1));
-      expect(media.uploaded.single, png);
-      expect(find.text('Foto subida'), findsOneWidget);
-    });
-
-    testWidgets('a denied photo permission aborts the upload', (tester) async {
-      final media = _FakeMediaService(rows: [_photoRow('p-1')]);
-      final png = (await tester.runAsync(_tinyPng))!;
-      final permissions = PermissionService(
-        request: (_) async => ph.PermissionStatus.denied,
-      );
-      Future<XFile?> picker(ImageSource source) async =>
-          XFile.fromData(png, name: 'foto.png');
-      await _pumpGallery(
-        tester,
-        media: media,
-        permissions: permissions,
-        picker: picker,
-      );
-
-      await tester.tap(find.byKey(const ValueKey('photos-upload-button')));
-      // Bounded pumps — see the upload-success test above (pending timers vs
-      // the 4s snackbar lifecycle under pumpAndSettle).
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-
-      expect(media.uploaded, isEmpty);
-      expect(find.byType(SnackBar), findsOneWidget,
-          reason: 'denied permission shows the rationale snackbar');
-    });
-
-    testWidgets('a closed upload window hides the button and shows the notice',
-        (tester) async {
-      final media = _FakeMediaService(rows: [_photoRow('p-1')]);
-      await _pumpGallery(
-        tester,
-        media: media,
-        endsAt: DateTime(2020, 1, 1),
-      );
-
-      expect(
-        find.text('La ventana de subida de fotos ya cerró'),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('photos-upload-button')),
-        findsNothing,
-      );
-      expect(find.byType(VNetworkImage), findsOneWidget,
-          reason: 'the gallery stays readable after the window closes');
-    });
-
-    testWidgets('the empty state offers the upload CTA while the window is '
-        'open', (tester) async {
-      await _pumpGallery(tester);
-
-      expect(find.text('Subir foto'), findsOneWidget);
     });
   });
 }

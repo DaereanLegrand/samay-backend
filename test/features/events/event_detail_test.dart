@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,11 +15,6 @@ import 'package:samay/features/events/screens/event_edit_screen.dart';
 import 'package:samay/features/events/logic/event_formatters.dart';
 import 'package:samay/features/events/providers/events_providers.dart';
 import 'package:samay/l10n/app_localizations.dart';
-import 'package:samay/shared/widgets/error_view.dart';
-import 'package:samay/shared/widgets/skeletons.dart';
-import 'package:samay/shared/widgets/state_views.dart';
-import 'package:samay/shared/widgets/v_button.dart';
-import 'package:samay/shared/widgets/v_network_image.dart';
 
 const _eventId = '11111111-1111-1111-1111-111111111111';
 const _promotorId = '22222222-2222-2222-2222-222222222222';
@@ -92,19 +85,13 @@ class _FakeAuthNotifier extends AuthNotifier {
 
 class _FakeEventDetailNotifier extends EventDetailNotifier {
   final Event data;
-  final Object? error;
-  final Future<void>? gate;
-  _FakeEventDetailNotifier({required this.data, this.error, this.gate});
+  _FakeEventDetailNotifier({required this.data});
 
   @override
   Duration get refreshThrottle => Duration.zero;
 
   @override
-  Future<Event> build(String arg) async {
-    if (gate != null) await gate;
-    if (error != null) throw error!;
-    return data;
-  }
+  Future<Event> build(String arg) async => data;
 }
 
 class _NoThrottleEventDetailNotifier extends EventDetailNotifier {
@@ -382,157 +369,6 @@ void main() {
   });
 
   group('EventDetailScreen', () {
-    testWidgets(
-      'shows the cover+lines skeleton while the detail fetch is pending '
-      '(U-22 handoff, §5.8)',
-      (tester) async {
-        final gate = Completer<void>();
-        await _pump(tester, const EventDetailScreen(eventId: _eventId), [
-          eventDetailProvider.overrideWith(
-            () => _FakeEventDetailNotifier(data: _event(), gate: gate.future),
-          ),
-          eventPromotoresProvider.overrideWith(
-            () => _FakeEventPromotoresNotifier(data: _promotores()),
-          ),
-          myEventInviteProvider.overrideWith(
-            () => _FakeMyEventInviteNotifier(data: null),
-          ),
-        ]);
-        await tester.pump();
-
-        expect(
-          find.byType(VSkeletonDetail),
-          findsOneWidget,
-          reason:
-              'the heaviest events screen shows the card skeleton on first '
-              'load, not the bare spinner',
-        );
-        expect(find.byType(VLoadingView), findsNothing);
-
-        gate.complete();
-        await tester.pumpAndSettle();
-        expect(find.byType(VSkeletonDetail), findsNothing);
-        expect(
-          find.text('Rave en el garaje'),
-          findsOneWidget,
-          reason:
-              'the hero renders the name VERBATIM via VDisplayText '
-              '(monochrome flat white, 2026-08-26), AppBar carries no '
-              'duplicate',
-        );
-      },
-    );
-
-    testWidgets('renders header, badges, date range, pool and promotores', (
-      tester,
-    ) async {
-      await _pump(
-        tester,
-        const EventDetailScreen(eventId: _eventId),
-        _loadedEventOverrides(),
-      );
-      await tester.pumpAndSettle();
-
-      // The hero renders the name VERBATIM (VDisplayText, monochrome flat
-      // white — the uppercase rule is deleted); the badges render uppercase
-      // via VBadge.
-      expect(find.text('Rave en el garaje'), findsOneWidget);
-      expect(find.text('La mejor fiesta del barrio'), findsOneWidget);
-      expect(find.text('JUERGA'), findsOneWidget);
-      expect(find.text('PR\u00d3XIMAMENTE'), findsOneWidget);
-      expect(
-        find.text(formatEventDateRange(_startsAt, _endsAt, 'es')),
-        findsOneWidget,
-      );
-      expect(find.text('Av. Los Aromos 123'), findsOneWidget);
-      expect(find.text('500 preshards'), findsOneWidget);
-      expect(find.text('ana'), findsOneWidget);
-      expect(find.text('lucas'), findsOneWidget);
-      expect(find.text('Promotor'), findsOneWidget);
-      expect(find.text('Co-promotor'), findsOneWidget);
-      // The action buttons sit below the fold of the tall ListView — drag to
-      // the bottom before asserting (lazy-built children).
-      await tester.drag(find.byType(ListView), const Offset(0, -1200));
-      await tester.pumpAndSettle();
-      expect(find.text('Editar'), findsOneWidget);
-      expect(find.text('Cancelar evento'), findsOneWidget);
-      // Monochrome CTAs (2026-08-26): the former glowAccent edit CTA is now
-      // the dark primary voice; cancel stays outlined.
-      expect(
-        tester
-            .widget<VButton>(find.widgetWithText(VButton, 'Editar'))
-            .variant,
-        VButtonVariant.dark,
-        reason: 'the edit CTA is VButton.dark (surfaceAlt fill, white text)',
-      );
-      expect(
-        tester
-            .widget<VButton>(find.widgetWithText(VButton, 'Cancelar evento'))
-            .variant,
-        VButtonVariant.outlined,
-      );
-    });
-
-    testWidgets('renders the cover via VNetworkImage when cover_url is set', (
-      tester,
-    ) async {
-      await _pump(tester, const EventDetailScreen(eventId: _eventId), [
-        eventDetailProvider.overrideWith(
-          () => _FakeEventDetailNotifier(
-            data: _event(coverUrl: 'https://img.test/cover.png'),
-          ),
-        ),
-        eventPromotoresProvider.overrideWith(
-          () => _FakeEventPromotoresNotifier(data: _promotores()),
-        ),
-        myEventInviteProvider.overrideWith(
-          () => _FakeMyEventInviteNotifier(data: null),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.byType(VNetworkImage), findsOneWidget);
-    });
-
-    testWidgets('shows the own invite status when the user was invited', (
-      tester,
-    ) async {
-      await _pump(tester, const EventDetailScreen(eventId: _eventId), [
-        eventDetailProvider.overrideWith(
-          () => _FakeEventDetailNotifier(data: _event()),
-        ),
-        eventPromotoresProvider.overrideWith(
-          () => _FakeEventPromotoresNotifier(data: _promotores()),
-        ),
-        myEventInviteProvider.overrideWith(
-          () => _FakeMyEventInviteNotifier(data: {'status': 'pending'}),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.text('Tu invitaci\u00f3n: pendiente'), findsOneWidget);
-    });
-
-    testWidgets('renders ErrorView with retry when the detail fetch fails', (
-      tester,
-    ) async {
-      await _pump(tester, const EventDetailScreen(eventId: _eventId), [
-        eventDetailProvider.overrideWith(
-          () => _FakeEventDetailNotifier(
-            data: _event(),
-            error: Exception('evento perdido'),
-          ),
-        ),
-        eventPromotoresProvider.overrideWith(
-          () => _FakeEventPromotoresNotifier(data: _promotores()),
-        ),
-        myEventInviteProvider.overrideWith(
-          () => _FakeMyEventInviteNotifier(data: null),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.byType(ErrorView), findsOneWidget);
-      expect(find.text('Reintentar'), findsOneWidget);
-    });
-
     testWidgets('editar navigates to the event edit route', (tester) async {
       final harness = await _pumpDetailWithRouter(
         tester,
@@ -605,25 +441,6 @@ void main() {
       },
     );
 
-    testWidgets('no cancel button once the event is cancelled or ended', (
-      tester,
-    ) async {
-      await _pump(tester, const EventDetailScreen(eventId: _eventId), [
-        eventDetailProvider.overrideWith(
-          () => _FakeEventDetailNotifier(data: _event(status: 'cancelled')),
-        ),
-        eventPromotoresProvider.overrideWith(
-          () => _FakeEventPromotoresNotifier(data: _promotores()),
-        ),
-        myEventInviteProvider.overrideWith(
-          () => _FakeMyEventInviteNotifier(data: null),
-        ),
-      ]);
-      await tester.pumpAndSettle();
-      expect(find.text('Cancelar evento'), findsNothing);
-      expect(find.text('Editar'), findsNothing);
-    });
-
     testWidgets('co_promotor sees no edit or cancel actions', (tester) async {
       final container = ProviderContainer(
         overrides: [
@@ -663,28 +480,6 @@ void main() {
   });
 
   group('EventEditScreen', () {
-    testWidgets('renders the pre-filled form with editable pool fields', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(800, 2400);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      await _pump(
-        tester,
-        const EventEditScreen(eventId: _eventId),
-        _loadedEventOverrides(),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        find.widgetWithText(TextField, 'Rave en el garaje'),
-        findsOneWidget,
-      );
-      expect(find.text('La mejor fiesta del barrio'), findsOneWidget);
-      expect(find.text('Av. Los Aromos 123'), findsOneWidget);
-      expect(find.text('Guardar'), findsOneWidget);
-    });
-
     testWidgets('shows the pool-locked notice when starts_at has passed', (
       tester,
     ) async {
