@@ -136,6 +136,17 @@ class _FakeMinigameService implements MinigameService {
       throw UnimplementedError();
 
   @override
+  Future<void> setReady(String sessionId, bool ready) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> getMinigameParticipants(
+    String sessionId,
+  ) async => const [];
+
+  @override
+  Future<void> removeParticipant(String sessionId, String userId) async {}
+
+  @override
   Future<Map<String, dynamic>> revealMinigamePrompt(
     String sessionId,
     String promptType,

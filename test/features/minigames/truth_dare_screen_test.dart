@@ -115,11 +115,22 @@ class _FakeMinigameService implements MinigameService {
 
   @override
   Future<Map<String, dynamic>?> getMinigameGameState(String sessionId) async =>
-      _current;
+      current;
 
   @override
   Future<Map<String, dynamic>> initMinigameGameState(String sessionId) async =>
       _current = _state();
+
+  @override
+  Future<void> setReady(String sessionId, bool ready) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> getMinigameParticipants(
+    String sessionId,
+  ) async => const [];
+
+  @override
+  Future<void> removeParticipant(String sessionId, String userId) async {}
 
   @override
   Future<Map<String, dynamic>> revealMinigamePrompt(

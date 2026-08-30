@@ -1547,4 +1547,70 @@ void main() {
       }
     });
   });
+
+  group('minigame partida lobby (180_minigame_lobby)', () {
+    final supabaseMigration =
+        read('supabase/migrations/180_minigame_lobby/lobby.sql');
+    final testingMigration =
+        read('supabase-testing/migrations/180_minigame_lobby/lobby.sql');
+
+    test('the lobby migration mirrors byte-identical into both stacks', () {
+      expect(
+        testingMigration,
+        equals(supabaseMigration),
+        reason: '180_minigame_lobby must be mirrored byte-identical '
+            '(M-10 parity rule)',
+      );
+    });
+
+    test('pgTAP pins the 180_minigame_lobby contract in both stacks', () {
+      for (final entry in {
+        'supabase/tests/schema_test.sql': supabaseSchema,
+        'supabase-testing/tests/schema_test.sql': testingSchema,
+      }.entries) {
+        final name = entry.key;
+        final content = entry.value;
+        expect(
+          content,
+          contains('SECTION 49g'),
+          reason: '$name must carry the partida-lobby section header',
+        );
+        expect(
+          content,
+          contains("has_column('minigame_game_state', 'ready'"),
+          reason: '$name must assert the ready map column',
+        );
+        expect(
+          content,
+          contains("has_function('set_minigame_ready', ARRAY['uuid', 'boolean']"),
+          reason: '$name must assert the set_minigame_ready signature',
+        );
+        expect(
+          content,
+          contains("has_function('get_minigame_participants', ARRAY['uuid']"),
+          reason: '$name must assert the get_minigame_participants signature',
+        );
+        expect(
+          content,
+          contains(
+            "has_function('remove_minigame_participant', ARRAY['uuid', 'uuid']",
+          ),
+          reason: '$name must assert the remove_minigame_participant signature',
+        );
+        expect(
+          content,
+          contains(
+            "'init_minigame_game_state is CREATOR-ONLY, backend-enforced via "
+            "participants[0] (not_creator, 180_minigame_lobby)'",
+          ),
+          reason: '$name must assert the creator-only Start gate',
+        );
+        expect(
+          content,
+          contains("'minigame_sessions joins supabase_realtime"),
+          reason: '$name must assert minigame_sessions is realtime-published',
+        );
+      }
+    });
+  });
 }

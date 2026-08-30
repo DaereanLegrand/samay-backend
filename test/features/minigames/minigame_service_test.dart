@@ -1141,4 +1141,148 @@ void main() {
       ).called(1);
     });
   });
+
+  group('MinigameService partida lobby (180_minigame_lobby)', () {
+    test('setReady invokes set_minigame_ready with the flag and returns on '
+        'ready', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () => client.rpc(
+          'set_minigame_ready',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'ready'}));
+
+      await service().setReady(_sessionId, true);
+
+      final params =
+          verify(
+                () => client.rpc(
+                  'set_minigame_ready',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params, {'p_session_id': _sessionId, 'p_ready': true});
+    });
+
+    test('setReady surfaces typed rejections (not_allowed / '
+        'session_not_active)', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+
+      when(
+        () => client.rpc(
+          'set_minigame_ready',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'not_allowed'}));
+      await expectLater(
+        service().setReady(_sessionId, true),
+        throwsA(isA<PermissionError>()),
+      );
+
+      when(
+        () => client.rpc(
+          'set_minigame_ready',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) =>
+          ResolvingBuilder<dynamic>({'status': 'session_not_active'}));
+      await expectLater(
+        service().setReady(_sessionId, true),
+        throwsA(
+          isA<ConflictError>().having((e) => e.code, 'code', 'session_not_active'),
+        ),
+      );
+    });
+
+    test('getMinigameParticipants returns the roster from the RPC payload',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () => client.rpc(
+          'get_minigame_participants',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer(
+        (_) => ResolvingBuilder<dynamic>({
+          'status': 'ok',
+          'participants': [
+            {'id': _userId, 'username': 'yo', 'avatar_url': null},
+            {'id': _groupId, 'username': 'otro', 'avatar_url': 'a.png'},
+          ],
+        }),
+      );
+
+      final roster = await service().getMinigameParticipants(_sessionId);
+
+      expect(roster, hasLength(2));
+      expect(roster.first['username'], 'yo');
+      final params =
+          verify(
+                () => client.rpc(
+                  'get_minigame_participants',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params, {'p_session_id': _sessionId});
+    });
+
+    test('getMinigameParticipants throws not_allowed for a bystander',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () => client.rpc(
+          'get_minigame_participants',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'not_allowed'}));
+      await expectLater(
+        service().getMinigameParticipants(_sessionId),
+        throwsA(isA<PermissionError>()),
+      );
+    });
+
+    test('removeParticipant invokes the RPC with the session + target',
+        () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () => client.rpc(
+          'remove_minigame_participant',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'removed'}));
+
+      await service().removeParticipant(_sessionId, _groupId);
+
+      final params =
+          verify(
+                () => client.rpc(
+                  'remove_minigame_participant',
+                  params: captureAny(named: 'params'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(params, {
+        'p_session_id': _sessionId,
+        'p_user_id': _groupId,
+      });
+    });
+
+    test('removeParticipant surfaces not_creator (backend-enforced host '
+        'gate)', () async {
+      when(() => auth.currentUser).thenReturn(_currentUser());
+      when(
+        () => client.rpc(
+          'remove_minigame_participant',
+          params: any(named: 'params'),
+        ),
+      ).thenAnswer((_) => ResolvingBuilder<dynamic>({'status': 'not_creator'}));
+      await expectLater(
+        service().removeParticipant(_sessionId, _groupId),
+        throwsA(isA<PermissionError>()),
+      );
+    });
+  });
 }

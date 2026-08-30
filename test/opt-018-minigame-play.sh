@@ -8,7 +8,9 @@ set -uo pipefail
 #       session row; blank → NULL (client-side auto partida-XX display)
 #   B) init_minigame_game_state starts the engine: the server picks the first
 #      subject RANDOMLY from the participants (players never self-select);
-#      re-init is idempotent (already_started)
+#      re-init is idempotent (already_started). CREATOR-ONLY since
+#      180_minigame_lobby — a non-creator participant gets not_creator; a
+#      bystander still gets not_allowed (access gate runs first, 150 contract).
 #   C) reveal_minigame_prompt draws a random active prompt of the requested
 #      prompt_type (verdad/reto) and persists it into the state
 #   D) invalid_prompt_type is rejected (no such prompt_type for the game)
@@ -168,8 +170,9 @@ else
 fi
 
 ROW=$(curl -s "$SUPABASE_URL/rest/v1/minigame_sessions?id=eq.$SESSION2_ID&select=name" \
-  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | norm_json)
-if echo "$ROW" | grep -q '"name":"La revancha"'; then
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY")
+# PostgREST may render JSON with spaces; normalize for the grep.
+if echo "$ROW" | norm_json | grep -q '"name":"Larevancha"'; then
   ok "p_name trimmed + stored on the session row (La revancha)"
 else
   nok "expected name 'La revancha': $ROW"

@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(765);
+SELECT plan(793);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3177,6 +3177,141 @@ SELECT ok(
              AND pg_get_functiondef(p.oid) LIKE '%RETURN NEW;%'
          FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
     'notify_minigame_invite no longer early-returns for DIRECT sessions (170 fires for both scopes)'
+);
+
+-- ============================================================
+-- SECTION 49g: Minigame partida lobby (migration
+-- 180_minigame_lobby, 2026-08-30) — realtime participant list, per-player
+-- Ready, creator-only Start, creator removal:
+--   * minigame_game_state.ready — the authoritative jsonb ready map
+--     ({participant_id: bool}), written ONLY through set_minigame_ready and
+--     streamed live via the existing minigame_game_state realtime
+--     subscription.
+--   * set_minigame_ready(uuid, boolean) — SECURITY DEFINER intent handler:
+--     standing gate (participant/invitee/group-member) + active-session
+--     gate, then upserts the caller's flag into the ready map.
+--   * get_minigame_participants(uuid) — SECURITY DEFINER roster resolution
+--     (id/username/avatar_url) through user_search_view, works for
+--     NON-friends, I-57 typed-jsonb-status contract.
+--   * remove_minigame_participant(uuid, uuid) — SECURITY DEFINER
+--     CREATOR-ONLY removal: refunds the wager escrow (minigame_refund),
+--     drops the participant, deletes their invite, clears their ready flag.
+--   * init_minigame_game_state — CREATE OR REPLACE with a SERVER-SIDE
+--     creator gate (participants[0] only → not_creator) so Start is
+--     backend-enforced, never just a UI rule; ready map clears on init.
+--   * minigame_sessions JOINS supabase_realtime so participant join/remove
+--     UPDATEs stream LIVE to the lobby.
+-- ============================================================
+SELECT has_column('minigame_game_state', 'ready',
+    'minigame_game_state.ready exists (180_minigame_lobby)');
+SELECT col_is_null('minigame_game_state', 'ready',
+    'minigame_game_state.ready is NULLABLE (absent = nobody ready)');
+
+SELECT has_function('set_minigame_ready', ARRAY['uuid', 'boolean'],
+    'set_minigame_ready(p_session_id uuid, p_ready boolean) exists (180_minigame_lobby)');
+SELECT is_definer('public', 'set_minigame_ready', ARRAY['uuid', 'boolean'],
+    'set_minigame_ready is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'set_minigame_ready'),
+    'set_minigame_ready sets search_path = '''' (I-31 pattern)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%jsonb_build_object(auth.uid()::text, p_ready)%'
+       AND pg_get_functiondef(p.oid) LIKE '%ready%'
+     FROM pg_proc p WHERE proname = 'set_minigame_ready'),
+    'set_minigame_ready upserts the caller''s flag into the ready map keyed by auth.uid()'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''not_allowed''%'
+       AND pg_get_functiondef(p.oid) LIKE '%public.minigame_invites%'
+       AND pg_get_functiondef(p.oid) LIKE '%public.group_members%'
+     FROM pg_proc p WHERE proname = 'set_minigame_ready'),
+    'set_minigame_ready gates by participant / invitee / group-member standing (not_allowed)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''session_not_active''%'
+     FROM pg_proc p WHERE proname = 'set_minigame_ready'),
+    'set_minigame_ready rejects toggles on finished sessions (session_not_active)'
+);
+SELECT function_privs_are('public', 'set_minigame_ready', ARRAY['uuid', 'boolean']::name[], 'public', ARRAY[]::name[],
+    'set_minigame_ready is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'set_minigame_ready', ARRAY['uuid', 'boolean']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'set_minigame_ready is authenticated-EXECUTABLE');
+
+SELECT has_function('get_minigame_participants', ARRAY['uuid'],
+    'get_minigame_participants(p_session_id uuid) exists (180_minigame_lobby)');
+SELECT is_definer('public', 'get_minigame_participants', ARRAY['uuid'],
+    'get_minigame_participants is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'get_minigame_participants'),
+    'get_minigame_participants sets search_path = '''' (I-31 pattern)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.user_search_view%'
+     FROM pg_proc p WHERE proname = 'get_minigame_participants'),
+    'get_minigame_participants resolves the roster through user_search_view (works for non-friends)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%jsonb_build_object(''id'', usv.id%'
+       AND pg_get_functiondef(p.oid) LIKE '%jsonb_agg%'
+     FROM pg_proc p WHERE proname = 'get_minigame_participants'),
+    'get_minigame_participants returns the I-57 typed jsonb roster (id/username/avatar_url)'
+);
+SELECT function_privs_are('public', 'get_minigame_participants', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'get_minigame_participants is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'get_minigame_participants', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'get_minigame_participants is authenticated-EXECUTABLE');
+
+SELECT has_function('remove_minigame_participant', ARRAY['uuid', 'uuid'],
+    'remove_minigame_participant(p_session_id uuid, p_user_id uuid) exists (180_minigame_lobby)');
+SELECT is_definer('public', 'remove_minigame_participant', ARRAY['uuid', 'uuid'],
+    'remove_minigame_participant is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'remove_minigame_participant'),
+    'remove_minigame_participant sets search_path = '''' (I-31 pattern)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%v_participants[1] <> auth.uid()%'
+       AND pg_get_functiondef(p.oid) LIKE '%''not_creator''%'
+     FROM pg_proc p WHERE proname = 'remove_minigame_participant'),
+    'remove_minigame_participant is CREATOR-ONLY, backend-enforced via participants[0] (not_creator)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_refund%'
+       AND pg_get_functiondef(p.oid) LIKE '%personal_shards + v_wager%'
+     FROM pg_proc p WHERE proname = 'remove_minigame_participant'),
+    'remove_minigame_participant refunds the removed player''s wager escrow (GWAG minigame_refund)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%DELETE FROM public.minigame_invites%'
+       AND pg_get_functiondef(p.oid) LIKE '%ready - p_user_id::text%'
+     FROM pg_proc p WHERE proname = 'remove_minigame_participant'),
+    'remove_minigame_participant closes the invite and clears the ready flag'
+);
+SELECT function_privs_are('public', 'remove_minigame_participant', ARRAY['uuid', 'uuid']::name[], 'public', ARRAY[]::name[],
+    'remove_minigame_participant is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'remove_minigame_participant', ARRAY['uuid', 'uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'remove_minigame_participant is authenticated-EXECUTABLE');
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''not_creator''%'
+       AND pg_get_functiondef(p.oid) LIKE '%v_participants[1] <> auth.uid()%'
+     FROM pg_proc p WHERE proname = 'init_minigame_game_state'),
+    'init_minigame_game_state is CREATOR-ONLY, backend-enforced via participants[0] (not_creator, 180_minigame_lobby)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''ready''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''{}''::jsonb%'
+     FROM pg_proc p WHERE proname = 'init_minigame_game_state'),
+    'init_minigame_game_state seeds an empty ready map on start (lobby roster resets)'
+);
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_publication_tables
+            WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='minigame_sessions'),
+    'minigame_sessions joins supabase_realtime (participant join/remove streams live to the lobby, 180_minigame_lobby)'
 );
 
 SELECT * FROM finish();

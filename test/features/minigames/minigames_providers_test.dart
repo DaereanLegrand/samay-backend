@@ -11,6 +11,7 @@ import 'package:samay/core/services/notification_service.dart';
 import 'package:samay/core/services/realtime_service.dart';
 import 'package:samay/core/services/rest_client.dart';
 import 'package:samay/core/services/user_service.dart';
+import 'package:samay/features/minigames/logic/minigame_engine.dart';
 import 'package:samay/features/minigames/logic/truth_dare.dart';
 import 'package:samay/features/minigames/providers/minigames_providers.dart';
 import 'package:samay/features/notifications/providers/notifications_providers.dart';
@@ -110,6 +111,7 @@ Map<String, dynamic> _gameState({
   String? subjectId = _userId,
   String? promptType,
   Map<String, dynamic>? prompt,
+  Map<String, dynamic>? ready,
 }) {
   return {
     'session_id': sessionId,
@@ -123,6 +125,7 @@ Map<String, dynamic> _gameState({
       'prompt': prompt,
     },
     'rounds': <dynamic>[],
+    'ready': ready ?? const <String, dynamic>{},
     'created_at': '2026-08-28T10:00:00Z',
     'updated_at': '2026-08-28T10:00:00Z',
   };
@@ -287,6 +290,36 @@ class _FakeMinigameService implements MinigameService {
   }
 
   @override
+  Future<void> setReady(String sessionId, bool ready) async {
+    readyCalls++;
+    lastReady = ready;
+    final currentReady = Map<String, dynamic>.from(
+      (gameStateRow?['ready'] as Map?) ?? const {},
+    );
+    currentReady[_userId] = ready;
+    gameStateRow = _gameState(ready: currentReady);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getMinigameParticipants(
+    String sessionId,
+  ) async {
+    participantsFetches++;
+    return List.of(participantRows);
+  }
+
+  @override
+  Future<void> removeParticipant(String sessionId, String userId) async {
+    removeCalls++;
+    lastRemovedId = userId;
+    final ids = participantRows.map((r) => r['id']).toList();
+    ids.remove(userId);
+    participantRows = [
+      for (final id in ids) {'id': id, 'username': 'u-$id'},
+    ];
+  }
+
+  @override
   RealtimeChannel subscribeToSession(String id) =>
       throw UnimplementedError();
 
@@ -299,6 +332,12 @@ class _FakeMinigameService implements MinigameService {
   int revealCalls = 0;
   int advanceCalls = 0;
   int completeCalls = 0;
+  int readyCalls = 0;
+  int removeCalls = 0;
+  int participantsFetches = 0;
+  bool? lastReady;
+  String? lastRemovedId;
+  List<Map<String, dynamic>> participantRows = const [];
   String? lastPromptType;
 }
 
@@ -785,8 +824,8 @@ void main() {
       expect(state.isFinished, isFalse);
     });
 
-    test('auto-initializes when no game-state row exists (server-random)',
-        () async {
+    test('does NOT auto-initialize when no game-state row exists (180: '
+        'Start is the creator''s explicit action)', () async {
       final service = _FakeMinigameService(); // gameStateRow = null → not_started
       final container = ProviderContainer(
         overrides: [
@@ -798,7 +837,31 @@ void main() {
 
       final state = await container.read(minigameGameStateProvider(_sessionId).future);
 
+      // A not-started session stays a lobby: no init fired, empty skeleton.
+      expect(service.initCalls, 0);
+      expect(state.skeleton.phase, MinigamePhase.setup);
+      expect(state.skeleton.subjectId, isNull);
+    });
+
+    test('start() calls init_minigame_game_state (creator-only, '
+        'backend-enforced) and seeds the skeleton', () async {
+      final service = _FakeMinigameService(); // gameStateRow = null → not_started
+      final container = ProviderContainer(
+        overrides: [
+          minigameServiceProvider.overrideWithValue(service),
+          _realtimeOverride(const Stream<Map<String, dynamic>>.empty()),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(minigameGameStateProvider(_sessionId).future);
+
+      await container
+          .read(minigameGameStateProvider(_sessionId).notifier)
+          .start();
+
       expect(service.initCalls, 1);
+      final state = await container.read(minigameGameStateProvider(_sessionId).future);
+      expect(state.skeleton.phase, MinigamePhase.playing);
       expect(state.skeleton.subjectId, _userId);
     });
 
