@@ -1,23 +1,29 @@
-# Samay — Testing Guide
+# Samay — Backend Testing Guide
 
-This guide covers the **full test matrix** of the Samay repo. For the
-one-paragraph overview see the root [`README.md`](../README.md#testing-summary).
+This guide covers the **backend test matrix** of the Samay repo: Go unit
+tests, curl opt-tests, and SQL pgTAP. For the one-paragraph overview see the
+root [`README.md`](../README.md#testing-summary).
+
+## Testing architecture (directive 2026-08-31)
+
+**Testing is reserved for the backend, or per task there are NO integration
+tests.** The Flutter/Dart test trees were deleted — `test/*.dart` (unit/widget/
+provider/router/theme suites), `integration_test/` (all flows + `runner.sh`),
+`test_driver/` — and must NOT be recreated. There is no `make flutter-test` /
+`make test-file` / `make test-feature` / `make test-integration`.
 
 ## The Test Matrix
 
 | Layer | Where | Command | Notes |
 |-------|-------|---------|-------|
-| **Flutter unit/widget** | `test/` | `make flutter-test` | Functional-only: logic, contract, and HTTP-to-harness wiring tests mirroring `lib/` layout (`test/features/`, `test/router/`, `test/services/`, `test/crypto/`, ...). UI-only render/empty-state/visual-pin suites were removed (suckless 2026-08-28). Full suite green — **1907 pass / 0 fail** (re-verified 2026-08-30: square game tiles, invite-badge feed tiles, invitee partida-N, partida lobby). |
-| **Flutter modular integration** | `integration_test/` | `flutter test integration_test/<module>_test.dart -d <device>` | **Landed (I-01, 2026-08-09).** One file per module/feature — **23 flows** registered in `runner.sh`'s `ORDERED_FLOWS` (ui_smoke, auth, telemetry, ban, error, profile, theme, cosmetics, friends, groups, events, photos, chat, group chat, QR, realtime, notifications, feed, party finder, subscriptions, minigames, truth_dare, minigame_lobby) — plus `integration_test/README.md` and `runner.sh` (dependency-safe order, exit 0/1). Each file is **independently runnable** and **hermetic by default**: flows run against the in-memory Supabase harness (`integration_test/support/fake_supabase.dart`) with zero network; live-stack flows are opt-in (`support/test_users.dart`, skips when the stack is down). When you build a feature, add its flow file here and register it in `runner.sh`. |
-| **Backend (curl opt-tests)** | `test/opt-*.sh` | `bash test/run_all_backend.sh` | Self-contained curl scripts that hit Supabase REST/Auth exactly like the Dart client (see "How to Test Backend Changes" below). Run against Kong at `http://127.0.0.1:54386`. Prerequisites: `make supabase-docker-start`, `make supabase-docker-reset`. Suite: `opt-001` RLS security · `opt-002` event lifecycle (fields/CHECK/QR-trigger/RLS) · `opt-003` chat + E2EE envelope contract · `opt-004` photo gallery contract · `opt-005` seed-dev static gate (no stack) · `opt-006` `fetch_prekey_bundle` contract (OPK consumption) · `opt-007` compose/config static gate (no stack) · `opt-008` Makefile/scratch-repo static gate (no stack) · `opt-009` groups chain (invites/roles/chain-of-command) · `opt-010` groups chat (E2EE sender-key distribution + read receipts) · `opt-011` groups reads (group chat read paths) · `opt-012` friendships · `opt-013` user ranking · `opt-014` profile-RPC lockdown · `opt-015` search RPC (rate limits) · `opt-016` profile-RPC lockdown static · `opt-017` minigame play RPCs · `opt-018` minigame play flow · `opt-019` minigame lobby (ready map, creator-only Start/remove, roster). All auto-discovered by the `test/opt-*.sh` glob in the runner. |
-| **Go (admin CLI + ops)** | `*_test.go` | `go test ./...` | 188 tests: CLI flag/validation behavior (cobra) and `internal/ops` business logic against `httptest` servers. Run via `make test` together with Flutter. |
-| **SQL (pgTAP)** | `supabase/tests/schema_test.sql` | `supabase db test` | **plan(793)** assertions (both stacks, mirrored byte-identical): extensions, 21 enums, 30+ tables, triggers, RPCs, RLS policy sets per table, seed data, minigame play engine + partida names + partida lobby (Section 49g — ready map, set_minigame_ready/get_minigame_participants/remove_minigame_participant, creator-gated init, `minigame_sessions` realtime), `get_friend_profiles` (batched accepted-friend profiles). New migrations must extend this file. |
+| **Backend (curl opt-tests)** | `test/opt-*.sh` | `bash test/run_all_backend.sh` | Self-contained curl scripts that hit Supabase REST/Auth exactly like the Dart client (see "How to Test Backend Changes" below). Run against Kong at `http://127.0.0.1:54386`. Prerequisites: `make supabase-docker-start`, `make supabase-docker-reset`. Suite: `opt-001` RLS security · `opt-002` event lifecycle (fields/CHECK/QR-trigger/RLS) · `opt-003` chat + E2EE envelope contract · `opt-004` photo gallery contract · `opt-005` seed-dev static gate (no stack) · `opt-006` `fetch_prekey_bundle` contract (OPK consumption) · `opt-007` compose/config static gate (no stack) · `opt-008` Makefile/scratch-repo static gate (no stack) · `opt-009` groups chain (invites/roles/chain-of-command) · `opt-010` groups chat (E2EE sender-key distribution + read receipts) · `opt-011` groups reads (group chat read paths) · `opt-012` friendships · `opt-013` user ranking · `opt-014` profile-RPC lockdown · `opt-015` search RPC (rate limits) · `opt-016` profile-RPC lockdown static · `opt-018` minigame play flow · `opt-019` minigame lobby (ready map, creator-only Start/remove, roster) · `opt-020` minigame voting · `opt-021` minigame play v2. All auto-discovered by the `test/opt-*.sh` glob in the runner. |
+| **Go (admin CLI + ops)** | `*_test.go` | `go test ./...` | 188 tests: CLI flag/validation behavior (cobra) and `internal/ops` business logic against `httptest` servers. Run via `make test` together with the static gates. |
+| **SQL (pgTAP)** | `supabase/tests/schema_test.sql` | `supabase db test` | **plan(871)** assertions (both stacks, mirrored byte-identical): extensions, enums, tables, triggers, RPCs, RLS policy sets per table, seed data, minigame play engine + partida names + partida lobby (Section 49g — ready map, `set_minigame_ready`/`get_minigame_participants`/`remove_minigame_participant`, creator-gated init, `minigame_sessions` realtime), `get_friend_profiles` (batched accepted-friend profiles), `202_minigame_play_v2` round-key hardening. New migrations must extend this file. |
 | **Manual end-user QA** | `test_runner.sh` (root) | `bash test_runner.sh` | gum-based interactive runner — 55 cases across auth → leaderboard (Phases 00–04). Wipes local user data, records results to a timestamped markdown file. Not part of the automated TDD suite; used for pre-release device testing. |
 
-**Golden rule:** every code change ships a test at its layer. Flutter unit/widget
-tests in `test/`, integration flow in `integration_test/`, curl opt-test in
-`test/opt-NNN-*.sh` (+ registered by `run_all_backend.sh`), Go `*_test.go`,
-SQL pgTAP in `supabase/tests/schema_test.sql`.
+**Golden rule:** every backend change ships a test at its layer. Go
+`*_test.go`, curl opt-test in `test/opt-NNN-*.sh` (+ registered by
+`run_all_backend.sh`), SQL pgTAP in `supabase/tests/schema_test.sql`.
 
 ---
 
@@ -25,6 +31,10 @@ SQL pgTAP in `supabase/tests/schema_test.sql`.
 
 Every optimization or bug fix follows this cycle:
 
+```
+1. WRITE TEST   →  curl script that verifies expected correct behavior
+2. IMPLEMENT    →  migration / code change
+3. VERIFY       →  run the opt-test against the stack; pgTAP for schema
 ```
 1. WRITE TEST   →  curl script that verifies expected correct behavior
 2. IMPLEMENT    →  migration / code change
@@ -150,13 +160,6 @@ resp=$(auth_get "$TOKEN" "users?select=id&id=eq.<uuid>")
 ## Running Tests
 
 ```bash
-# Flutter unit/widget
-make flutter-test
-
-# Flutter modular integration (integration_test/ — landed, I-01)
-flutter test integration_test/auth_flow_test.dart -d <device>   # per module
-bash integration_test/runner.sh                                  # whole suite (hermetic by default)
-
 # Backend: reset DB to clean state (applies all migrations + seed)
 make supabase-docker-start
 make supabase-docker-reset
@@ -179,7 +182,7 @@ go test ./...
 # SQL schema tests (pgTAP)
 supabase db test    # requires the stack + supabase CLI project
 
-# Everything: Flutter + Go
+# Everything (no stack needed): Go + backend static gates
 make test
 ```
 
@@ -192,14 +195,14 @@ make test
 ## File Naming Convention
 
 ```
-test/opt-NNN-description.sh     # Optimization integration test (curl-based)
-test/features/<feature>_test.dart   # Flutter widget/unit tests per feature
-test/router/, test/providers/, test/services/, test/theme/, test/widgets/  # per-layer tests
-integration_test/<module>_flow_test.dart  # Flutter modular integration (landed — see integration_test/README.md; register new flows in runner.sh)
-supabase/tests/schema_test.sql   # pgTAP schema assertions
+test/opt-NNN-description.sh     # Backend integration test (curl-based)
+supabase/tests/schema_test.sql  # pgTAP schema assertions
+internal/**/*_test.go           # Go unit tests (admin CLI + ops logic)
 ```
 
-Each curl test file is self-contained: creates its own test users, seeds data, runs assertions, and reports pass/fail. Tests use `exit 0` on success, `exit 1` on failure.
+Each curl test file is self-contained: creates its own test users, seeds data,
+runs assertions, and reports pass/fail. Tests use `exit 0` on success,
+`exit 1` on failure.
 
 ---
 
@@ -238,7 +241,7 @@ Backend opt-test coverage by surface (I-76, 2026-08-10):
   without a stack.
 
 Tests do **not** cover:
-- UI rendering (handled by Flutter widget tests)
+- UI rendering (the Flutter/Dart test trees were deleted — directive 2026-08-31)
 - Device-level features (GPS, sensors, file system)
 - Performance benchmarks (run separately)
 - Storage API signed URLs / object uploads (bucket-dependent — the opt-tests

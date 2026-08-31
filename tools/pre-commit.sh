@@ -3,27 +3,26 @@
 # pre-commit.sh — the Samay fast pre-commit gate (TOOL-04, agent M-26).
 #
 # Runs the FAST static gates only. The full validation matrix is CI's job
-# (`make check` + `make test-all` — see docs/process/DEVELOPMENT-WORKFLOW.md
+# (`make check` + `make test` — see docs/process/DEVELOPMENT-WORKFLOW.md
 # §3.6); a pre-commit hook must finish in seconds, not minutes, or developers
 # will bypass it. Tradeoff, documented:
 #
 #   FULL GATE (CI / make test)          FAST GATE (this script, pre-commit)
-#   flutter test test/ (all)            flutter test test/meta/ test/core/ test/utils/
-#   flutter test integration_test/      (skipped — needs a device/runner)
 #   go test ./...                       (skipped — Go changes are rare and CI covers)
 #   go vet / golangci-lint              (skipped)
 #   supabase db test (pgTAP)            (skipped — needs the stack up)
+#   bash test/run_all_backend.sh        (skipped — needs the stack up)
 #
 # What IS enforced here (fail-fast, exit 1 on first failure):
 #   1. dart analyze          — must be 0 issues (the campaign baseline; any
 #                              new issue blocks the commit)
-#   2. flutter test smoke    — test/meta/ (guards: lints, hooks, ports,
-#                              routes, opencode config) + test/core/ +
-#                              test/utils/ (pure logic — the layers most
-#                              likely to catch a broken edit fast)
-#   3. make secrets-check    — no committed secrets (tools/check_secrets.sh)
-#   4. tools/check_ports.sh --strict — no port-map violations (AGENTS.md)
-#   5. bash test/opt-008-makefile-static.sh — Makefile surface resolves
+#   2. make secrets-check    — no committed secrets (tools/check_secrets.sh)
+#   3. tools/check_ports.sh --strict — no port-map violations (AGENTS.md)
+#   4. bash test/opt-008-makefile-static.sh — Makefile surface resolves
+#
+# NOTE (directive 2026-08-31): there are NO Flutter/Dart tests in this repo —
+# the test/ Dart tree and integration_test/ were deleted. Testing is reserved
+# for the backend (Go + pgTAP + curl opt-tests).
 #
 # Lock protocol: this script deliberately does NOT take file locks. The
 # semaphore (tools/agent_lock.sh) arbitrates EDITORS; a read-only gate that
@@ -43,7 +42,7 @@ cd "$ROOT" || exit 2
 step() { printf '\n\033[1m━━━ %s\033[0m\n' "$1"; }
 fail() { printf '  ❌ %s\n' "$1" >&2; }
 
-step "1/5  dart analyze (must be 0 issues)"
+step "1/4  dart analyze (must be 0 issues)"
 # --fatal-infos --fatal-warnings: bare `dart analyze` exits 0 on info/warning
 # issues, so without these flags a lint violation would pass the gate.
 if ! dart analyze --fatal-infos --fatal-warnings; then
@@ -52,28 +51,21 @@ if ! dart analyze --fatal-infos --fatal-warnings; then
 fi
 printf '  ✅ dart analyze clean\n'
 
-step "2/5  flutter test smoke (test/meta/ + test/core/ + test/utils/)"
-if ! flutter test test/meta/ test/core/ test/utils/; then
-  fail "smoke tests failed — fix before committing. Full suite: make test-unit"
-  exit 1
-fi
-printf '  ✅ smoke tests passed\n'
-
-step "3/5  secrets-check (committed-secret scan)"
+step "2/4  secrets-check (committed-secret scan)"
 if ! make secrets-check; then
   fail "secrets-check FAILED — a secret pattern was found in tracked files."
   exit 1
 fi
 printf '  ✅ secrets-check passed\n'
 
-step "4/5  port-map gate (tools/check_ports.sh --strict)"
+step "3/4  port-map gate (tools/check_ports.sh --strict)"
 if ! tools/check_ports.sh --strict >/dev/null; then
   fail "port-map violations — see tools/check_ports.sh --strict output."
   exit 1
 fi
 printf '  ✅ port map consistent\n'
 
-step "5/5  Makefile surface (test/opt-008-makefile-static.sh)"
+step "4/4  Makefile surface (test/opt-008-makefile-static.sh)"
 if ! bash test/opt-008-makefile-static.sh >/dev/null; then
   fail "makefile-static gate failed — see bash test/opt-008-makefile-static.sh"
   exit 1

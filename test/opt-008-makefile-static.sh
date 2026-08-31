@@ -104,7 +104,7 @@ echo "════════════════════════�
 echo ""
 echo "━━━ 1. make -n resolves all documented targets ━━━"
 TARGETS="help build dev install build-install clean clear-storage uninstall build-cli build-linux build-api lint check test \
-test-all test-unit test-integration test-backend-static test-go flutter-test \
+test-all test-backend-static test-go \
 flutter-analyze define-env secrets-check tunnel-android tunnel-waydroid ios-signing-restore \
 supabase-start supabase-stop supabase-status supabase-reset \
 supabase-docker-start supabase-docker-stop supabase-docker-status supabase-docker-reset \
@@ -135,7 +135,7 @@ if make -n dev TARGET=waydroid >/dev/null 2>&1; then pass "make -n dev TARGET=wa
 if make -n dev TARGET=android >/dev/null 2>&1; then pass "make -n dev TARGET=android (Darwin tunnel-android + emulator branches resolve dry)"; else fail "make -n dev TARGET=android"; fi
 if make -n install TARGET=waydroid >/dev/null 2>&1; then pass "make -n install TARGET=waydroid (tunneled adb install resolves dry)"; else fail "make -n install TARGET=waydroid"; fi
 if make -n clear-storage TARGET=waydroid >/dev/null 2>&1; then pass "make -n clear-storage TARGET=waydroid (tunneled pm clear resolves dry)"; else fail "make -n clear-storage TARGET=waydroid"; fi
-if make -n test-integration TARGET=waydroid >/dev/null 2>&1; then pass "make -n test-integration TARGET=waydroid (device branch resolves dry)"; else fail "make -n test-integration TARGET=waydroid"; fi
+if make -n test-backend-static TARGET=waydroid >/dev/null 2>&1; then pass "make -n test-backend-static (dry resolves)"; else fail "make -n test-backend-static"; fi
 if make -n tunnel-waydroid >/dev/null 2>&1; then pass "make -n tunnel-waydroid (waydroid tunnel target resolves dry)"; else fail "make -n tunnel-waydroid"; fi
 if make -n uninstall TARGET=all >/dev/null 2>&1; then pass "make -n uninstall TARGET=all (all-devices branch resolves dry)"; else fail "make -n uninstall TARGET=all"; fi
 if make -n build TARGET=all >/dev/null 2>&1; then pass "make -n build TARGET=all (all-platforms branch resolves dry)"; else fail "make -n build TARGET=all"; fi
