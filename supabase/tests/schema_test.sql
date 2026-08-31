@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(872);
+SELECT plan(873);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3518,6 +3518,16 @@ SELECT ok(
      WHERE table_schema = 'public' AND table_name = 'minigame_e2ee_bundles'
        AND grantee = 'authenticated'),
     'authenticated has exactly SELECT/INSERT/UPDATE on minigame_e2ee_bundles (no DELETE, 202)'
+);
+-- Supabase RLS rule "UPDATE requires a SELECT policy": the sender must be able
+-- to SELECT its own outbound row for the upsert-conflict UPDATE (and for the
+-- host's self-heal of its own minted keys). recipient-only read silently
+-- no-oped every re-delivery (2026-08-31 on-device fix).
+SELECT ok(
+    (SELECT qual
+       FROM pg_policies
+      WHERE tablename = 'minigame_e2ee_bundles' AND policyname = 'mgs_bundles_read_recipient') LIKE '%sender_id = auth.uid()%',
+    'mgs_bundles_read_recipient lets the SENDER read own outbound rows (UPDATE pre-SELECT + self-heal)'
 );
 
 SELECT has_function('submit_minigame_answer', ARRAY['uuid', 'text', 'text'],

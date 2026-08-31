@@ -253,9 +253,19 @@ CREATE POLICY mgs_bundles_update_own ON public.minigame_e2ee_bundles
         )
     );
 
--- A recipient reads only bundles addressed to them.
+-- A recipient reads only bundles addressed to them; the SENDER also reads their
+-- own OUTBOUND rows. The sender leg is required for two reasons (2026-08-31
+-- on-device fix, Supabase RLS rule "UPDATE requires a SELECT policy"):
+--   * the upsert-conflict UPDATE must first SELECT the row it is updating
+--     (mgs_bundles_read_recipient was recipient-only, so the sender could not
+--     see its own outbound row and every re-delivery silently no-oped / 42501'd);
+--   * the host self-heals its own minted keys by reading its own-sent bundles.
+--   The host's own outbound rows ARE its own keys in additive ciphertext form —
+--   no confidentiality loss (the envelope is already pairwise-encrypted).
 CREATE POLICY mgs_bundles_read_recipient ON public.minigame_e2ee_bundles
-    FOR SELECT TO authenticated USING (recipient_id = auth.uid());
+    FOR SELECT TO authenticated USING (
+        recipient_id = auth.uid() OR sender_id = auth.uid()
+    );
 
 -- ======================================================================
 -- 4b. init_minigame_game_state(uuid) — CREATE OR REPLACE (190 sig).

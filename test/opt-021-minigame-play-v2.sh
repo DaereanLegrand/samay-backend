@@ -642,24 +642,47 @@ else
   nok "participant A→B bundle UPDATE returned $code (expected 200/204)"
 fi
 
-# H3c: the UPDATE leg is participant-only too — the invited member C cannot
-# UPDATE a bundle row addressed to them (sender != auth.uid()) → 403.
-code=$(auth_status "PATCH" "minigame_e2ee_bundles?session_id=eq.$SESSION3_ID&sender_id=eq.$UUID_A&recipient_id=eq.$UUID_C" "$TOKEN_C" \
-  "{\"bundle_ciphertext\":\"forged\"}")
-if [ "$code" = "403" ]; then
-  ok "invited member denied bundle UPDATE (sender != auth.uid() → 403)"
+# H3c: the UPDATE USING predicate is SENDER-only — a participant who is NOT
+# the row's sender (C in SESSION3) cannot MODIFY an A→B bundle. RLS filters
+# the row out silently (a USING denial is a no-op, not an error), so assert
+# the security property directly: the forged ciphertext must NOT land (the
+# stored value stays A's last write "enc_ok_v2").
+code=$(auth_status "PATCH" "minigame_e2ee_bundles?session_id=eq.$SESSION3_ID&sender_id=eq.$UUID_A&recipient_id=eq.$UUID_B" "$TOKEN_C" \
+  "{\"bundle_ciphertext\":\"forged_by_c\"}")
+stored=$(curl -s "$SUPABASE_URL/rest/v1/minigame_e2ee_bundles?select=bundle_ciphertext&session_id=eq.$SESSION3_ID&sender_id=eq.$UUID_A&recipient_id=eq.$UUID_B" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"bundle_ciphertext":"[^"]*"' | head -1 | cut -d'"' -f4)
+if [ "$code" = "204" ] && [ "$stored" = "enc_ok_v2" ]; then
+  ok "non-sender cannot modify A→B bundle (USING sender-only → forged write did not land)"
 else
-  nok "invited member bundle UPDATE returned $code (expected 403)"
+  nok "non-sender bundle modification returned $code / stored=$stored (expected 204 no-op + unchanged)"
 fi
 
-# H3d: the UPDATE leg is participant-only for the RECIPIENT too — a
-# participant cannot UPDATE a row addressed to a non-participant → 403.
-code=$(auth_status "PATCH" "minigame_e2ee_bundles?session_id=eq.$SESSION3_ID&sender_id=eq.$UUID_A&recipient_id=eq.$UUID_C" "$TOKEN_A" \
-  "{\"bundle_ciphertext\":\"enc_to_nonparticipant\"}")
+# H3d: the UPDATE WITH CHECK is participant-only for the RECIPIENT — a
+# participant re-addressing their own bundle to a NON-participant (C in
+# SESSION_ID, where C is only an invitee) violates the WITH CHECK predicate
+# → 403. Establish an A-owned row in SESSION_ID first (A→A, recipient A is a
+# participant), then try to re-address it to C.
+curl -s -X POST "$SUPABASE_URL/rest/v1/minigame_e2ee_bundles" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" -H "Prefer: return=minimal" \
+  -d "{\"session_id\":\"$SESSION_ID\",\"sender_id\":\"$UUID_A\",\"recipient_id\":\"$UUID_A\",\"bundle_ciphertext\":\"enc_self\"}" > /dev/null 2>&1 || true
+code=$(auth_status "PATCH" "minigame_e2ee_bundles?session_id=eq.$SESSION_ID&sender_id=eq.$UUID_A&recipient_id=eq.$UUID_A" "$TOKEN_A" \
+  "{\"recipient_id\":\"$UUID_C\"}")
 if [ "$code" = "403" ]; then
-  ok "participant UPDATE to non-participant denied (recipient not in participants → 403)"
+  ok "participant re-address to non-participant denied (WITH CHECK → 403)"
 else
-  nok "participant UPDATE to non-participant returned $code (expected 403)"
+  nok "participant re-address to non-participant returned $code (expected 403)"
+fi
+
+# H3e: the sender can READ its own outbound row (Supabase RLS "UPDATE requires
+# a SELECT policy" + the host's self-heal of its own minted keys). Before the
+# 2026-08-31 fix the SELECT policy was recipient-only, so A could not see the
+# A→B row it sent — the upsert-conflict UPDATE silently no-oped.
+rows=$(auth_get "minigame_e2ee_bundles?select=id&session_id=eq.$SESSION3_ID&sender_id=eq.$UUID_A&recipient_id=eq.$UUID_B" "$TOKEN_A" | norm_json)
+if [ "$rows" != "[]" ]; then
+  ok "sender A reads its own outbound A→B bundle (SELECT sender leg)"
+else
+  nok "sender A CANNOT read its own outbound bundle: $rows"
 fi
 
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION3_ID\"}")
