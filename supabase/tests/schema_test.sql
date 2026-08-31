@@ -1263,14 +1263,16 @@ SELECT ok(
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
     'create_minigame_session rejects blocked invitees (either direction)'
 );
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer']::name[], 'public', ARRAY[]::name[],
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone']::name[], 'public', ARRAY[]::name[],
     'create_minigame_session is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer']::name[], 'authenticated', ARRAY['EXECUTE'],
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone']::name[], 'authenticated', ARRAY['EXECUTE'],
     'create_minigame_session is authenticated-EXECUTABLE');
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%p_group_id IS NOT NULL AND NOT public.is_group_member(p_group_id)%'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%player_limit%'
+       AND pg_get_functiondef(p.oid) LIKE '%app_config%'
+       AND pg_get_functiondef(p.oid) LIKE '%array_length%'
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
-    'create_minigame_session allows NULL p_group_id (direct sessions) and gates non-null groups via is_group_member'
+    'create_minigame_session computes the player cap from the creator subscription tier via app_config'
 );
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%minigame.free_max_players%'
@@ -2013,21 +2015,21 @@ SELECT function_privs_are('public', 'advance_minigame_turn', ARRAY['uuid', 'json
 SELECT function_privs_are('public', 'advance_minigame_turn', ARRAY['uuid', 'jsonb']::name[], 'authenticated', ARRAY['EXECUTE'],
     'advance_minigame_turn is authenticated-EXECUTABLE');
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%''advanced''%'
-       AND pg_get_functiondef(p.oid) LIKE '%rounds || ARRAY[%'
-       AND pg_get_functiondef(p.oid) LIKE '%random()%'
-       AND pg_get_functiondef(p.oid) LIKE '%participants%'
-     FROM pg_proc p WHERE proname = 'advance_minigame_turn'),
-    'advance_minigame_turn appends the round, rotates the judge round-robin, and picks a RANDOM next subject'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%rounds || ARRAY[%'
+        AND pg_get_functiondef(p.oid) LIKE '%random()%'
+        AND pg_get_functiondef(p.oid) LIKE '%participants%'
+        AND pg_get_functiondef(p.oid) LIKE '%judge_index%'
+        AND pg_get_functiondef(p.oid) LIKE '%subject_id%'
+      FROM pg_proc p WHERE proname = '_minigame_advance_round'),
+    '_minigame_advance_round appends the round, rotates the judge round-robin, and picks a RANDOM next subject (202)'
 );
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%rounds || ARRAY[%'
-       AND pg_get_functiondef(p.oid) LIKE '%prompt_type%'
-       AND pg_get_functiondef(p.oid) LIKE '%''round''%'
-       AND pg_get_functiondef(p.oid) LIKE '%v_round + 1%'
-       AND pg_get_functiondef(p.oid) LIKE '%''phase'', ''playing''%'
-     FROM pg_proc p WHERE proname = 'advance_minigame_turn'),
-    'advance_minigame_turn bumps the round, clears prompt_type/prompt, and keeps phase=playing'
+        AND pg_get_functiondef(p.oid) LIKE '%prompt_type%'
+        AND pg_get_functiondef(p.oid) LIKE '%''phase''%'
+        AND pg_get_functiondef(p.oid) LIKE '%v_round + 1%'
+       FROM pg_proc p WHERE proname = '_minigame_advance_round'),
+    '_minigame_advance_round bumps the round, clears prompt_type/prompt, and keeps phase=playing (202)'
 );
 
 SELECT ok(
@@ -3023,22 +3025,22 @@ SELECT ok(
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
     'create_minigame_session stores p_name on the session row (160_minigame_names)'
 );
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer']::name[], 'public', ARRAY[]::name[],
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone']::name[], 'public', ARRAY[]::name[],
     'create_minigame_session is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer']::name[], 'authenticated', ARRAY['EXECUTE'],
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone']::name[], 'authenticated', ARRAY['EXECUTE'],
     'create_minigame_session is authenticated-EXECUTABLE');
 SELECT ok(
     (SELECT prosecdef FROM pg_proc
      WHERE proname = 'create_minigame_session'
        AND pg_get_function_arguments(pg_proc.oid) LIKE '%p_rounds integer%'),
-    'the 7-arg create_minigame_session is SECURITY DEFINER'
+    'create_minigame_session is SECURITY DEFINER'
 );
 SELECT ok(
     (SELECT 'search_path=""' = ANY (proconfig)
      FROM pg_proc
      WHERE proname = 'create_minigame_session'
        AND pg_get_function_arguments(pg_proc.oid) LIKE '%p_rounds integer%'),
-    'the 7-arg create_minigame_session sets search_path = '''' (I-31 pattern)'
+    'create_minigame_session sets search_path = '''' (I-31 pattern)'
 );
 
 -- ============================================================
@@ -3430,12 +3432,13 @@ SELECT ok(
     'complete_minigame_game is dropped (201 replaces the draw-only seam)'
 );
 
--- advance_minigame_turn auto-finishes at the round target via the new RPC.
+-- The auto-finish at the total-turn target lives in the round-advance helper
+-- (202 moved the advance out of advance_minigame_turn into _minigame_advance_round).
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%round_target%'
        AND pg_get_functiondef(p.oid) LIKE '%finish_minigame_game%'
-     FROM pg_proc p WHERE proname = 'advance_minigame_turn'),
-    'advance_minigame_turn auto-finishes via finish_minigame_game at round_target'
+     FROM pg_proc p WHERE proname = '_minigame_advance_round'),
+    '_minigame_advance_round auto-finishes via finish_minigame_game at round_target (202)'
 );
 
 -- Realtime membership for the live votes + settled leaderboard.
@@ -3560,7 +3563,9 @@ SELECT ok(
 -- (all-reacted contract) and lets the creator force-advance.
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%waiting_reactions%'
-       AND pg_get_functiondef(p.oid) LIKE '%not v_is_creator%'
+       AND pg_get_functiondef(p.oid) LIKE '%v_required_count%'
+       AND pg_get_functiondef(p.oid) LIKE '%distinct%'
+       AND pg_get_functiondef(p.oid) LIKE '%_minigame_advance_round%'
      FROM pg_proc p WHERE proname = 'advance_minigame_turn'),
     'advance_minigame_turn waits for all reactions unless the creator forces (202_minigame_play_v2)'
 );
