@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(796);
+SELECT plan(871);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -1204,8 +1204,8 @@ SELECT function_privs_are('public', 'validate_qr_token', ARRAY['uuid', 'text']::
 -- 3-arg baseline: per-invitee blocked/deleted + friends-only privacy gates
 -- and one minigame_invites row per invitee, all atomic.
 -- ============================================================
-SELECT has_function('create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]'],
-    'create_minigame_session(p_group_id uuid, p_game_type text, p_wager integer, p_invitees uuid[]) exists (140_minigame_invites)');
+SELECT has_function('create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone'],
+    'create_minigame_session(p_group_id uuid, p_game_type text, p_wager integer, p_invitees uuid[], p_name text, p_rounds integer, p_prize_positions integer, p_play_mode text, p_anonymous boolean, p_async_rounds_per_player integer, p_async_ends_at timestamp with time zone) exists (202_minigame_play_v2)');
 SELECT ok(
     NOT EXISTS (
         SELECT 1 FROM pg_proc
@@ -1263,9 +1263,9 @@ SELECT ok(
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
     'create_minigame_session rejects blocked invitees (either direction)'
 );
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]']::name[], 'public', ARRAY[]::name[],
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer']::name[], 'public', ARRAY[]::name[],
     'create_minigame_session is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]']::name[], 'authenticated', ARRAY['EXECUTE'],
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer']::name[], 'authenticated', ARRAY['EXECUTE'],
     'create_minigame_session is authenticated-EXECUTABLE');
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%p_group_id IS NOT NULL AND NOT public.is_group_member(p_group_id)%'
@@ -1516,8 +1516,10 @@ SELECT policies_are('storage', 'objects', ARRAY[
     'storage_objects_events_select_access',
     'storage_objects_insert_own',
     'storage_objects_public_read_avatars_groups',
-    'storage_objects_update_own'
-], 'storage.objects has exactly the 5 M-08 policies (public read avatars/groups, events select-access, own insert/update/delete)');
+    'storage_objects_update_own',
+    'storage_objects_minigame_images_select',
+    'storage_objects_minigame_images_insert'
+], 'storage.objects has exactly the 7 policies (public read avatars/groups, events select-access, minigame-images select/insert, own insert/update/delete)');
 
 -- ============================================================
 -- SECTION 48: Function EXECUTE hardening (20260811000001)
@@ -1553,7 +1555,7 @@ SELECT ok(
      WHERE n.nspname = 'public'
        AND p.proname IN ('donate_shards_to_group', 'fetch_prekey_bundle',
                          'validate_qr_token', 'create_minigame_session',
-                         'join_minigame_session', 'finish_minigame_session')
+                         'join_minigame_session', 'finish_minigame_game')
        AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) = 6,
     'authenticated can EXECUTE the 6 client RPCs'
 );
@@ -1646,47 +1648,13 @@ SELECT function_privs_are('public', 'join_minigame_session', ARRAY['uuid']::name
 SELECT function_privs_are('public', 'join_minigame_session', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
     'join_minigame_session is authenticated-EXECUTABLE');
 
--- 49b: finish_minigame_session(uuid, uuid, integer)
-SELECT has_function('finish_minigame_session', ARRAY['uuid', 'uuid', 'integer'],
-    'finish_minigame_session(p_session_id uuid, p_winner_id uuid, p_place integer) exists (migration 20260813000001)');
+-- 49b: finish_minigame_session is REPLACED by finish_minigame_game
+-- (201_minigame_voting) — the winner-takes-all + draw settlement seams are
+-- dropped; the leaderboard settlement is the one and only path.
 SELECT ok(
-    (SELECT prosecdef FROM pg_proc WHERE proname = 'finish_minigame_session'),
-    'finish_minigame_session is SECURITY DEFINER'
+    NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'finish_minigame_session'),
+    'finish_minigame_session is dropped (201_minigame_voting replaces it with finish_minigame_game)'
 );
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'finish_minigame_session'),
-    'finish_minigame_session sets search_path = '''' (migration 20260813000001)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_win%'
-       AND pg_get_functiondef(p.oid) LIKE '%public.shard_ledger%'
-     FROM pg_proc p WHERE proname = 'finish_minigame_session'),
-    'finish_minigame_session credits the winner via the minigame_win ledger'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_refund%'
-     FROM pg_proc p WHERE proname = 'finish_minigame_session'),
-    'finish_minigame_session refunds participants on draw (minigame_refund)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%''not_allowed''%'
-       AND pg_get_functiondef(p.oid) LIKE '%v_current_user <> ALL(v_participants)%'
-     FROM pg_proc p WHERE proname = 'finish_minigame_session'),
-    'finish_minigame_session gates DIRECT sessions by participant standing (not_allowed)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%''finished''%'
-       AND pg_get_functiondef(p.oid) LIKE '%''already_finished''%'
-       AND pg_get_functiondef(p.oid) LIKE '%''invalid_winner''%'
-       AND pg_get_functiondef(p.oid) LIKE '%status = ''finished''%'
-     FROM pg_proc p WHERE proname = 'finish_minigame_session'),
-    'finish_minigame_session returns typed jsonb statuses and flips the session status (I-57 contract)'
-);
-SELECT function_privs_are('public', 'finish_minigame_session', ARRAY['uuid', 'uuid', 'integer']::name[], 'public', ARRAY[]::name[],
-    'finish_minigame_session is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'finish_minigame_session', ARRAY['uuid', 'uuid', 'integer']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'finish_minigame_session is authenticated-EXECUTABLE');
 
 -- ============================================================
 -- SECTION 49b: Minigame invites (migration 140_minigame_invites,
@@ -2046,14 +2014,14 @@ SELECT function_privs_are('public', 'advance_minigame_turn', ARRAY['uuid', 'json
     'advance_minigame_turn is authenticated-EXECUTABLE');
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%''advanced''%'
-       AND pg_get_functiondef(p.oid) LIKE '%rounds || ARRAY[p_round]%'
+       AND pg_get_functiondef(p.oid) LIKE '%rounds || ARRAY[%'
        AND pg_get_functiondef(p.oid) LIKE '%random()%'
        AND pg_get_functiondef(p.oid) LIKE '%participants%'
      FROM pg_proc p WHERE proname = 'advance_minigame_turn'),
     'advance_minigame_turn appends the round, rotates the judge round-robin, and picks a RANDOM next subject'
 );
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%rounds || ARRAY[p_round]%'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%rounds || ARRAY[%'
        AND pg_get_functiondef(p.oid) LIKE '%prompt_type%'
        AND pg_get_functiondef(p.oid) LIKE '%''round''%'
        AND pg_get_functiondef(p.oid) LIKE '%v_round + 1%'
@@ -2062,32 +2030,9 @@ SELECT ok(
     'advance_minigame_turn bumps the round, clears prompt_type/prompt, and keeps phase=playing'
 );
 
-SELECT has_function('complete_minigame_game', ARRAY['uuid'],
-    'complete_minigame_game(p_session_id uuid) exists (150_minigame_play)');
-SELECT is_definer('public', 'complete_minigame_game', ARRAY['uuid'],
-    'complete_minigame_game is SECURITY DEFINER');
 SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'complete_minigame_game'),
-    'complete_minigame_game sets search_path = '''' (I-31 pattern)'
-);
-SELECT function_privs_are('public', 'complete_minigame_game', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
-    'complete_minigame_game is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'complete_minigame_game', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'complete_minigame_game is authenticated-EXECUTABLE');
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_refund%'
-       AND pg_get_functiondef(p.oid) LIKE '%public.shard_ledger%'
-       AND pg_get_functiondef(p.oid) LIKE '%personal_shards = personal_shards +%'
-     FROM pg_proc p WHERE proname = 'complete_minigame_game'),
-    'complete_minigame_game settles the wager like finish_minigame_session NULL-winner (minigame_refund per participant)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%status = ''finished''%'
-       AND pg_get_functiondef(p.oid) LIKE '%phase%'
-       AND pg_get_functiondef(p.oid) LIKE '%''finished''%'
-     FROM pg_proc p WHERE proname = 'complete_minigame_game'),
-    'complete_minigame_game flips the game phase and the session status to finished'
+    NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'complete_minigame_game'),
+    'complete_minigame_game is dropped (201_minigame_voting replaces it with finish_minigame_game)'
 );
 
 -- 49c-d: realtime publication membership
@@ -2106,9 +2051,9 @@ SELECT ok(
      WHERE n.nspname = 'public'
        AND p.proname IN ('get_minigame_game_state', 'init_minigame_game_state',
                          'reveal_minigame_prompt', 'advance_minigame_turn',
-                         'complete_minigame_game')
-       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) = 5,
-    'authenticated can EXECUTE the 5 play-engine RPCs'
+                         'submit_minigame_reaction', 'finish_minigame_game')
+       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) = 6,
+    'authenticated can EXECUTE the 6 play-engine RPCs'
 );
 SELECT ok(
     (SELECT count(*) FROM pg_catalog.pg_proc p
@@ -3061,8 +3006,8 @@ SELECT has_column('minigame_sessions', 'name',
     'minigame_sessions.name exists (160_minigame_names)');
 SELECT col_is_null('minigame_sessions', 'name',
     'minigame_sessions.name is NULLABLE (null/empty = auto "partida-XX" display, 160_minigame_names)');
-SELECT has_function('create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text'],
-    'create_minigame_session(p_group_id uuid, p_game_type text, p_wager integer, p_invitees uuid[], p_name text) exists (160_minigame_names)');
+SELECT has_function('create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone'],
+    'create_minigame_session(p_group_id uuid, p_game_type text, p_wager integer, p_invitees uuid[], p_name text, p_rounds integer, p_prize_positions integer, p_play_mode text, p_anonymous boolean, p_async_rounds_per_player integer, p_async_ends_at timestamp with time zone) exists (202_minigame_play_v2)');
 SELECT ok(
     NOT EXISTS (
         SELECT 1 FROM pg_proc
@@ -3078,22 +3023,22 @@ SELECT ok(
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
     'create_minigame_session stores p_name on the session row (160_minigame_names)'
 );
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text']::name[], 'public', ARRAY[]::name[],
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer']::name[], 'public', ARRAY[]::name[],
     'create_minigame_session is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text']::name[], 'authenticated', ARRAY['EXECUTE'],
+SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer']::name[], 'authenticated', ARRAY['EXECUTE'],
     'create_minigame_session is authenticated-EXECUTABLE');
 SELECT ok(
     (SELECT prosecdef FROM pg_proc
      WHERE proname = 'create_minigame_session'
-       AND pg_get_function_arguments(pg_proc.oid) LIKE '%uuid[], text%'),
-    'the 5-arg create_minigame_session is SECURITY DEFINER'
+       AND pg_get_function_arguments(pg_proc.oid) LIKE '%p_rounds integer%'),
+    'the 7-arg create_minigame_session is SECURITY DEFINER'
 );
 SELECT ok(
     (SELECT 'search_path=""' = ANY (proconfig)
      FROM pg_proc
      WHERE proname = 'create_minigame_session'
-       AND pg_get_function_arguments(pg_proc.oid) LIKE '%uuid[], text%'),
-    'the 5-arg create_minigame_session sets search_path = '''' (I-31 pattern)'
+       AND pg_get_function_arguments(pg_proc.oid) LIKE '%p_rounds integer%'),
+    'the 7-arg create_minigame_session sets search_path = '''' (I-31 pattern)'
 );
 
 -- ============================================================
@@ -3254,7 +3199,7 @@ SELECT ok(
     'get_minigame_participants resolves the roster through user_search_view (works for non-friends)'
 );
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%jsonb_build_object(''id'', usv.id%'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%jsonb_build_object(%''id'', usv.id%'
        AND pg_get_functiondef(p.oid) LIKE '%jsonb_agg%'
      FROM pg_proc p WHERE proname = 'get_minigame_participants'),
     'get_minigame_participants returns the I-57 typed jsonb roster (id/username/avatar_url)'
@@ -3303,7 +3248,7 @@ SELECT ok(
     'init_minigame_game_state is CREATOR-ONLY, backend-enforced via participants[0] (not_creator, 180_minigame_lobby)'
 );
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%''ready''%'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%ready%'
        AND pg_get_functiondef(p.oid) LIKE '%''{}''::jsonb%'
      FROM pg_proc p WHERE proname = 'init_minigame_game_state'),
     'init_minigame_game_state seeds an empty ready map on start (lobby roster resets)'
@@ -3334,6 +3279,445 @@ SELECT ok(
      FROM pg_proc p WHERE proname = 'set_minigame_ready'),
     'set_minigame_ready still upserts the caller''s ready flag keyed by auth.uid()'
 );
+
+-- SECTION 49i: Minigame invite notice (migration 200_minigame_invite_notice,
+-- 2026-08-30) — the invite notification must state the wager explicitly (the
+-- amount taken from each participant until the game ends or is cancelled; a
+-- player without the funds cannot participate — accept enforces
+-- insufficient_shards server-side) AND identify the inviter (the username for
+-- a DIRECT session, or the group name for a GROUP session):
+--   * notify_minigame_invite reads shard_wager from the session.
+--   * The body states the cost: "{N} shards." when wagered, "FREE" for a
+--     free (0-wager) game.
+--   * The data payload carries "wager" so clients render the cost without a
+--     re-query, plus "inviterName" (user_search_view) and "groupName" (the
+--     group row, null for direct) — the RLS-invisible who-invited context the
+--     accept surfaces must show. gameType + sessionName + sessionId + inviteId
+--     stay intact.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%shard_wager%'
+     FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
+    'notify_minigame_invite reads shard_wager from the session (200_minigame_invite_notice)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%shards.%'
+       AND pg_get_functiondef(p.oid) LIKE '%FREE%'
+     FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
+    'notify_minigame_invite body states the cost explicitly: "{N} shards." or "FREE" for free games'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''wager'', v_wager%'
+     FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
+    'notify_minigame_invite data payload carries the wager amount (200_minigame_invite_notice)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%inviterName%'
+       AND pg_get_functiondef(p.oid) LIKE '%user_search_view%'
+     FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
+    'notify_minigame_invite resolves the inviter username via user_search_view (200_minigame_invite_notice)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%groupName%'
+       AND pg_get_functiondef(p.oid) LIKE '%public.groups%'
+     FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
+    'notify_minigame_invite resolves the group name for group sessions (200_minigame_invite_notice)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%gameType%'
+       AND pg_get_functiondef(p.oid) LIKE '%sessionName%'
+     FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
+    'notify_minigame_invite keeps gameType + sessionName in the payload (170 stays intact)'
+);
+
+-- SECTION 49j: Minigame rounds + reaction voting + leaderboard (migration
+-- 201_minigame_voting, 2026-08-30) — the round target, the paid-position
+-- count N, the realtime emoji voting, and the harmonic leaderboard payout:
+--   * minigame_sessions.round_target (int) + prize_positions (int, default 3)
+--     frozen at creation by the 7-arg create_minigame_session
+--     (+ p_rounds, p_prize_positions).
+--   * minigame_reactions — one vote per (session, round, voter), FORCE RLS,
+--     reads by participants/invitees/group members, writes ONLY through
+--     submit_minigame_reaction.
+--   * minigame_results — the settle-once leaderboard row, FORCE RLS, written
+--     ONLY by finish_minigame_game.
+--   * submit_minigame_reaction(uuid, text) — SECURITY DEFINER, idempotent
+--     upsert + realtime mirror into state.reactions.
+--   * finish_minigame_game(uuid) — SECURITY DEFINER settlement replacing
+--     finish_minigame_session + complete_minigame_game: HARMONIC prize split
+--     (1/rank weights, integer-exact, sum == pot).
+--   * advance_minigame_turn (CREATE OR REPLACE) scores the round server-side
+--     and AUTO-FINISHES at round_target.
+SELECT has_column('minigame_sessions', 'round_target',
+    'minigame_sessions.round_target exists (201_minigame_voting)');
+SELECT col_is_null('minigame_sessions', 'round_target',
+    'minigame_sessions.round_target is NULLABLE (legacy open-ended games)');
+SELECT has_column('minigame_sessions', 'prize_positions',
+    'minigame_sessions.prize_positions exists (201_minigame_voting)');
+SELECT col_not_null('minigame_sessions', 'prize_positions',
+    'minigame_sessions.prize_positions is NOT NULL (default 3)');
+SELECT col_has_default('minigame_sessions', 'prize_positions',
+    'minigame_sessions.prize_positions defaults to 3');
+
+SELECT has_table('minigame_reactions',
+    'minigame_reactions exists (201_minigame_voting)');
+SELECT col_not_null('minigame_reactions', 'voter_id',
+    'minigame_reactions.voter_id is NOT NULL (one vote per voter per round)');
+SELECT has_table('minigame_results',
+    'minigame_results exists (201_minigame_voting)');
+
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'minigame_reactions'::regclass),
+    'minigame_reactions has FORCE ROW LEVEL SECURITY (201_minigame_voting)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'minigame_results'::regclass),
+    'minigame_results has FORCE ROW LEVEL SECURITY (201_minigame_voting)'
+);
+SELECT policies_are('minigame_reactions', ARRAY['mgs_reactions_read'],
+    'minigame_reactions has exactly the participant-read policy (201_minigame_voting)');
+SELECT policies_are('minigame_results', ARRAY['mgs_results_read'],
+    'minigame_results has exactly the participant-read policy (201_minigame_voting)');
+
+SELECT has_function('submit_minigame_reaction', ARRAY['uuid', 'text'],
+    'submit_minigame_reaction(p_session_id uuid, p_reaction text) exists (201_minigame_voting)');
+SELECT is_definer('public', 'submit_minigame_reaction', ARRAY['uuid', 'text'],
+    'submit_minigame_reaction is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction sets search_path = '''' (I-31 pattern)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.minigame_reactions%'
+       AND pg_get_functiondef(p.oid) LIKE '%ON CONFLICT (session_id, round, voter_id) DO UPDATE%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction upserts one vote per (session, round, voter)'
+);
+
+SELECT function_privs_are('public', 'submit_minigame_reaction', ARRAY['uuid', 'text']::name[], 'public', ARRAY[]::name[],
+    'submit_minigame_reaction is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'submit_minigame_reaction', ARRAY['uuid', 'text']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'submit_minigame_reaction is authenticated-EXECUTABLE');
+SELECT function_privs_are('public', 'finish_minigame_game', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'finish_minigame_game is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'finish_minigame_game', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'finish_minigame_game is authenticated-EXECUTABLE');
+
+SELECT has_function('finish_minigame_game', ARRAY['uuid'],
+    'finish_minigame_game(p_session_id uuid) exists (201_minigame_voting)');
+SELECT is_definer('public', 'finish_minigame_game', ARRAY['uuid'],
+    'finish_minigame_game is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'finish_minigame_game'),
+    'finish_minigame_game sets search_path = '''' (I-31 pattern)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.minigame_results%'
+       AND pg_get_functiondef(p.oid) LIKE '%gcd%'
+     FROM pg_proc p WHERE proname = 'finish_minigame_game'),
+    'finish_minigame_game writes minigame_results with harmonic (gcd) weights'
+);
+
+-- The legacy settlement seams are REPLACED (201 user directive): the only
+-- settlement RPC left is finish_minigame_game.
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'finish_minigame_session'),
+    'finish_minigame_session is dropped (201 replaces the winner-takes-all seam)'
+);
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'complete_minigame_game'),
+    'complete_minigame_game is dropped (201 replaces the draw-only seam)'
+);
+
+-- advance_minigame_turn auto-finishes at the round target via the new RPC.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%round_target%'
+       AND pg_get_functiondef(p.oid) LIKE '%finish_minigame_game%'
+     FROM pg_proc p WHERE proname = 'advance_minigame_turn'),
+    'advance_minigame_turn auto-finishes via finish_minigame_game at round_target'
+);
+
+-- Realtime membership for the live votes + settled leaderboard.
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_publication_tables
+            WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='minigame_reactions'),
+    'minigame_reactions joins supabase_realtime (votes stream live, 201_minigame_voting)'
+);
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_publication_tables
+            WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='minigame_results'),
+    'minigame_results joins supabase_realtime (leaderboard streams live, 201_minigame_voting)'
+);
+
+-- SECTION 49k: Minigame play engine v2 (migration 202_minigame_play_v2,
+-- 2026-08-30) — answer-first, modes, anonymous, E2EE answers:
+--   * minigame_sessions + play_mode (by_turns|async), + anonymous bool,
+--     + async_rounds_per_player (default 1), + async_ends_at (settable at
+--     creation, no override).
+--   * minigame_aliases — (session, participant) temp nickname, FORCE RLS,
+--     read by participants, written ONLY through set_minigame_alias.
+--   * minigame_answers — E2EE answer store (ciphertext only), FORCE RLS,
+--     written ONLY through submit_minigame_answer / submit_minigame_pasar /
+--     submit_minigame_async_answer.
+--   * minigame_e2ee_bundles — sender-key distribution delivery rows (own-row
+--     INSERT + recipient-read SELECT policies).
+--   * submit_minigame_answer(uuid, text, text) / submit_minigame_pasar(uuid) /
+--     submit_minigame_async_answer(uuid, text, text, text) /
+--     react_minigame_round(uuid, integer, text) / set_minigame_alias(uuid,
+--     text) — SECURITY DEFINER, authenticated-only EXECUTE.
+SELECT has_column('minigame_sessions', 'play_mode',
+    'minigame_sessions.play_mode exists (202_minigame_play_v2)');
+SELECT col_has_check('minigame_sessions', 'play_mode',
+    'minigame_sessions.play_mode has a CHECK (by_turns|async)');
+SELECT has_column('minigame_sessions', 'anonymous',
+    'minigame_sessions.anonymous exists (202_minigame_play_v2)');
+SELECT col_not_null('minigame_sessions', 'anonymous',
+    'minigame_sessions.anonymous is NOT NULL (default false)');
+SELECT has_column('minigame_sessions', 'async_rounds_per_player',
+    'minigame_sessions.async_rounds_per_player exists (202_minigame_play_v2)');
+SELECT has_column('minigame_sessions', 'async_ends_at',
+    'minigame_sessions.async_ends_at exists (202_minigame_play_v2)');
+SELECT col_is_null('minigame_sessions', 'async_ends_at',
+    'minigame_sessions.async_ends_at is NULLABLE (NULL for by_turns)');
+
+SELECT has_table('minigame_aliases',
+    'minigame_aliases exists (202_minigame_play_v2)');
+SELECT has_table('minigame_answers',
+    'minigame_answers exists (202_minigame_play_v2)');
+SELECT has_table('minigame_e2ee_bundles',
+    'minigame_e2ee_bundles exists (202_minigame_play_v2)');
+
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'minigame_aliases'::regclass),
+    'minigame_aliases has FORCE ROW LEVEL SECURITY (202_minigame_play_v2)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'minigame_answers'::regclass),
+    'minigame_answers has FORCE ROW LEVEL SECURITY (202_minigame_play_v2)'
+);
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'minigame_e2ee_bundles'::regclass),
+    'minigame_e2ee_bundles has FORCE ROW LEVEL SECURITY (202_minigame_play_v2)'
+);
+SELECT policies_are('minigame_aliases', ARRAY['mgs_aliases_read'],
+    'minigame_aliases has exactly the participant-read policy (202_minigame_play_v2)');
+SELECT policies_are('minigame_answers', ARRAY['mgs_answers_read'],
+    'minigame_answers has exactly the participant-read policy (202_minigame_play_v2)');
+SELECT policies_are('minigame_e2ee_bundles', ARRAY['mgs_bundles_insert_own', 'mgs_bundles_read_recipient'],
+    'minigame_e2ee_bundles has the own-insert + recipient-read policies (202_minigame_play_v2)');
+
+SELECT has_function('submit_minigame_answer', ARRAY['uuid', 'text', 'text'],
+    'submit_minigame_answer(p_session_id uuid, p_answer_ciphertext text, p_image_storage_path text) exists (202_minigame_play_v2)');
+SELECT is_definer('public', 'submit_minigame_answer', ARRAY['uuid', 'text', 'text'],
+    'submit_minigame_answer is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'submit_minigame_answer'),
+    'submit_minigame_answer sets search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'submit_minigame_answer', ARRAY['uuid', 'text', 'text']::name[], 'public', ARRAY[]::name[],
+    'submit_minigame_answer is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'submit_minigame_answer', ARRAY['uuid', 'text', 'text']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'submit_minigame_answer is authenticated-EXECUTABLE');
+
+SELECT has_function('submit_minigame_pasar', ARRAY['uuid'],
+    'submit_minigame_pasar(p_session_id uuid) exists (202_minigame_play_v2)');
+SELECT is_definer('public', 'submit_minigame_pasar', ARRAY['uuid'],
+    'submit_minigame_pasar is SECURITY DEFINER');
+
+SELECT has_function('submit_minigame_async_answer', ARRAY['uuid', 'text', 'text', 'text'],
+    'submit_minigame_async_answer(p_session_id uuid, p_prompt_type text, p_answer_ciphertext text, p_image_storage_path text) exists (202_minigame_play_v2)');
+SELECT is_definer('public', 'submit_minigame_async_answer', ARRAY['uuid', 'text', 'text', 'text'],
+    'submit_minigame_async_answer is SECURITY DEFINER');
+
+SELECT has_function('react_minigame_round', ARRAY['uuid', 'integer', 'text'],
+    'react_minigame_round(p_session_id uuid, p_round integer, p_reaction text) exists (202_minigame_play_v2)');
+SELECT is_definer('public', 'react_minigame_round', ARRAY['uuid', 'integer', 'text'],
+    'react_minigame_round is SECURITY DEFINER');
+
+SELECT has_function('set_minigame_alias', ARRAY['uuid', 'text'],
+    'set_minigame_alias(p_session_id uuid, p_alias text) exists (202_minigame_play_v2)');
+SELECT is_definer('public', 'set_minigame_alias', ARRAY['uuid', 'text'],
+    'set_minigame_alias is SECURITY DEFINER');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.minigame_aliases%'
+       AND pg_get_functiondef(p.oid) LIKE '%ON CONFLICT (session_id, participant_id) DO UPDATE%'
+     FROM pg_proc p WHERE proname = 'set_minigame_alias'),
+    'set_minigame_alias upserts one temp nickname per (session, participant)'
+);
+
+-- The answer-first reaction gate (202): the subject cannot react to their own
+-- round and reactions open only after the answer (ciphertext) is submitted.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%own_round%'
+       AND pg_get_functiondef(p.oid) LIKE '%answer_pending%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction enforces the own-round + answer-first gates (202_minigame_play_v2)'
+);
+
+-- The by_turns advance waits for every non-subject participant to react
+-- (all-reacted contract) and lets the creator force-advance.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%waiting_reactions%'
+       AND pg_get_functiondef(p.oid) LIKE '%not v_is_creator%'
+     FROM pg_proc p WHERE proname = 'advance_minigame_turn'),
+    'advance_minigame_turn waits for all reactions unless the creator forces (202_minigame_play_v2)'
+);
+
+-- The async timer auto-finish: pg_cron job + the lazy read flip.
+SELECT ok(
+    EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'minigames-async-finish'),
+    'minigames-async-finish pg_cron job settles async sessions past their deadline (202_minigame_play_v2)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%async_ends_at%'
+       AND pg_get_functiondef(p.oid) LIKE '%finish_minigame_game%'
+     FROM pg_proc p WHERE proname = 'get_minigame_game_state'),
+    'get_minigame_game_state lazy-flips an expired async timer to finished (202_minigame_play_v2)'
+);
+
+-- Realtime membership for the live aliases + answers.
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_publication_tables
+            WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='minigame_aliases'),
+    'minigame_aliases joins supabase_realtime (nicknames stream live, 202_minigame_play_v2)'
+);
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_publication_tables
+            WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='minigame_answers'),
+    'minigame_answers joins supabase_realtime (answers stream live, 202_minigame_play_v2)'
+);
+
+-- ======================================================================
+-- SECTION 49k (cont.): play-engine security hardening (2026-08-31) —
+-- active-only group members, participant-only writers/bundles, distinct-
+-- voter reaction counts (TODO.md §3.7 findings A–E).
+-- ======================================================================
+
+-- Finding A: the RLS read policies require gm.status='active' + not-deleted
+-- (the ms_read_group_member / mgs_*_read status-less EXISTS was the hole).
+SELECT ok(
+    (SELECT pg_get_expr(polqual, polrelid) LIKE '%gm.status = ''active''%'
+     FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+     WHERE p.polname = 'ms_read_group_member'),
+    'ms_read_group_member requires gm.status = ''active'' (2026-08-31 hardening)'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polqual, polrelid) LIKE '%gm.status = ''active''%'
+     FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+     WHERE p.polname = 'mgs_answers_read'),
+    'mgs_answers_read requires gm.status = ''active'' (2026-08-31 hardening)'
+);
+
+-- Finding B: the play RPC group-member gates carry gm.status = 'active'.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%gm.status = ''active''%'
+     FROM pg_proc p WHERE proname = 'get_minigame_game_state'),
+    'get_minigame_game_state group-member gate requires gm.status = ''active'' (2026-08-31 hardening)'
+);
+
+-- Finding C: the reaction WRITER is participant-only.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%auth.uid() = ANY (v_participants)%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%minigame_invites mi%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction is participant-only (no invitee/group-member union) (2026-08-31 hardening)'
+);
+
+-- Finding D: mgs_bundles_insert_own dropped the invitee clause.
+SELECT ok(
+    NOT (SELECT pg_get_expr(polwithcheck, polrelid) LIKE '%minigame_invites%'
+         FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+         WHERE p.polname = 'mgs_bundles_insert_own'),
+    'mgs_bundles_insert_own no longer references minigame_invites (participant-only, 2026-08-31 hardening)'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polwithcheck, polrelid) LIKE '%recipient_id = ANY (s.participants)%'
+     FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+     WHERE p.polname = 'mgs_bundles_insert_own'),
+    'mgs_bundles_insert_own requires sender AND recipient to be participants (2026-08-31 hardening)'
+);
+
+-- Finding E + mirror shape: distinct-voter count + {"list","count"} mirror.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%count(distinct voter_id)%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction counts DISTINCT voters for the auto-advance gate (2026-08-31 hardening)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''list''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''count''%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction mirrors {"list": [...], "count": N} (2026-08-31 hardening)'
+);
+
+-- ======================================================================
+-- SECTION 49l: encrypted image storage (2026-08-31) — TODO.md §4.6
+-- Minigame image answers move from a DB column to a PRIVATE storage bucket:
+--   * minigame_answers drops image_ciphertext and gains image_storage_path
+--     (nullable; the bucket object path of the ENCRYPTED image bytes — the
+--     server never sees plaintext or keys).
+--   * submit_minigame_answer / submit_minigame_async_answer accept
+--     p_image_storage_path text DEFAULT NULL and store that path (both on the
+--     row and in the state mirror key 'image_storage_path').
+--   * storage: private 'minigame_images' bucket + participant-gated SELECT
+--     (storage_objects_minigame_images_select) + participant-only INSERT
+--     (storage_objects_minigame_images_insert, session from path[1]).
+-- ======================================================================
+
+-- Column contract: image_storage_path replaces image_ciphertext.
+SELECT ok(
+    (SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+     WHERE c.relname = 'minigame_answers' AND a.attname = 'image_storage_path') = 1,
+    'minigame_answers has image_storage_path (nullable bucket path, 2026-08-31)'
+);
+SELECT ok(
+    (SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+     WHERE c.relname = 'minigame_answers' AND a.attname = 'image_ciphertext') = 0,
+    'minigame_answers no longer has image_ciphertext (moved to storage, 2026-08-31)'
+);
+SELECT col_is_null('minigame_answers', 'image_storage_path',
+    'minigame_answers.image_storage_path is NULLABLE (optional image answer, 2026-08-31)');
+
+-- The by_turns answer RPC stores the storage path.
+SELECT has_function('submit_minigame_answer', ARRAY['uuid', 'text', 'text'],
+    'submit_minigame_answer(p_session_id uuid, p_answer_ciphertext text, p_image_storage_path text) exists (2026-08-31)');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%image_storage_path%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%image_ciphertext%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_answer'),
+    'submit_minigame_answer stores image_storage_path and no longer references image_ciphertext (2026-08-31)'
+);
+
+-- The async answer RPC stores the storage path too.
+SELECT has_function('submit_minigame_async_answer', ARRAY['uuid', 'text', 'text', 'text'],
+    'submit_minigame_async_answer(p_session_id uuid, p_prompt_type text, p_answer_ciphertext text, p_image_storage_path text) exists (2026-08-31)');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%image_storage_path%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%image_ciphertext%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_async_answer'),
+    'submit_minigame_async_answer stores image_storage_path and no longer references image_ciphertext (2026-08-31)'
+);
+
+-- The storage bucket is private + participant-gated object access.
+SELECT ok(
+    EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'minigame_images'),
+    'minigame_images bucket exists (private encrypted-image storage, 2026-08-31)'
+);
+SELECT ok(
+    NOT (SELECT public FROM storage.buckets WHERE id = 'minigame_images'),
+    'minigame_images bucket is private (public=false, signed-URL retrieval only, 2026-08-31)'
+);
+SELECT policies_are('storage', 'objects',
+    ARRAY['storage_objects_delete_own',
+          'storage_objects_events_select_access',
+          'storage_objects_insert_own',
+          'storage_objects_minigame_images_insert',
+          'storage_objects_minigame_images_select',
+          'storage_objects_public_read_avatars_groups',
+          'storage_objects_update_own'],
+    'storage.objects carries the minigame_images select + insert policies (2026-08-31)');
 
 SELECT * FROM finish();
 ROLLBACK;

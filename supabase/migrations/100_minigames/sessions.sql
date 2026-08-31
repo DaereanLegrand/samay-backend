@@ -344,9 +344,22 @@ ALTER TABLE public.minigame_sessions ENABLE ROW LEVEL SECURITY;
 -- Name: minigame_sessions ms_read_group_member; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ms_read_group_member ON public.minigame_sessions FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM public.group_members
-  WHERE ((group_members.group_id = minigame_sessions.group_id) AND (group_members.user_id = auth.uid())))));
+-- Only ACTIVE (never-banned) group members read group sessions — the
+-- status-less EXISTS opened sessions to invited-only members (security
+-- hardening, 2026-08-31: is_group_member's status='active' contract) and
+-- deleted users never get in (belt-and-suspenders mirror).
+CREATE POLICY ms_read_group_member ON public.minigame_sessions FOR SELECT USING (
+    EXISTS (
+        SELECT 1 FROM public.group_members gm
+        WHERE gm.group_id = minigame_sessions.group_id
+          AND gm.user_id = auth.uid()
+          AND gm.status = 'active'
+          AND NOT EXISTS (
+                SELECT 1 FROM public.users u
+                WHERE u.id = gm.user_id AND u.deleted_at IS NOT NULL
+            )
+    )
+);
 
 -- Direct sessions (group_id IS NULL) are readable by their participants
 -- (the creator is participant[0]) — invitees are opened via the separate

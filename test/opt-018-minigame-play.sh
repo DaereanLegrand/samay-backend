@@ -3,7 +3,8 @@ set -uo pipefail
 # =============================================================================
 # [OPT-018] Minigame play engine — Verdad o Reto (150_minigame_play)
 # Verifies the reusable play-engine RPC family end-to-end:
-#   A) get_minigame_game_state on a fresh session returns not_started
+#   A) get_minigame_game_state on a fresh session returns the SEEDED row (191:
+#      the game-state row exists from creation) with status ok + round 0
 #   A1) p_name partida title (160_minigame_names): trimmed + stored on the
 #       session row; blank → NULL (client-side auto partida-XX display)
 #   B) init_minigame_game_state starts the engine: the server picks the first
@@ -18,7 +19,7 @@ set -uo pipefail
 #      and re-picks the subject randomly; the next get returns the new state
 #   F) a NON-participant (bystander) cannot get/init/reveal/advance/complete
 #      (not_allowed) — the participant-only gate
-#   G) complete_minigame_game settles as a draw (phase finished, session
+#   G) finish_minigame_game settles the leaderboard (phase finished, session
 #      finished) and is idempotent (already_finished)
 #
 # Usage: bash test/opt-018-minigame-play.sh
@@ -63,9 +64,11 @@ nok()  { echo "  ❌ FAIL: $1"; ((FAIL++)); }
 info() { echo "    ℹ️  $1"; }
 h1()   { echo ""; echo "━━━ $1 ━━━"; }
 
-# PostgREST may render JSON with spaces; normalize for the greps.
+# PostgREST may render JSON with spaces; normalize for the greps. The
+# normalizer collapses whitespace around JSON punctuation ONLY — spaces
+# inside string VALUES ("25 shards.", "La revancha") must be preserved.
 norm_json() {
-  sed -E 's/[[:space:]]+//g'
+  sed -E 's/([][,{}:])[[:space:]]+/\1/g; s/[[:space:]]+([][,{}:])/\1/g'
 }
 
 auth_rpc() {
@@ -81,6 +84,21 @@ svc_post() {
 svc_delete() {
   curl -s -X DELETE "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Prefer: return=minimal" 2>/dev/null
+}
+
+# Wait for the 190 countdown to flip to playing (the lazy get-flip after the
+# 5s deadline) so reveal/advance can proceed.
+wait_playing() {
+  local sid=$1 token=$2 tries=0
+  while [ "$tries" -lt 20 ]; do
+    resp=$(auth_rpc "$token" "get_minigame_game_state" "{\"p_session_id\":\"$sid\"}")
+    if echo "$resp" | grep -q '"phase":"playing"'; then
+      return 0
+    fi
+    sleep 0.5
+    tries=$((tries + 1))
+  done
+  return 1
 }
 
 # --- Setup ---
@@ -149,10 +167,10 @@ else
 fi
 
 resp=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"not_started"'; then
-  ok "get_minigame_game_state on a fresh session = not_started"
+if echo "$resp" | grep -q '"status":"ok"' && echo "$resp" | grep -q '"round":0'; then
+  ok "get_minigame_game_state on a fresh session = ok with the seeded row (191)"
 else
-  nok "expected not_started: $resp"
+  nok "expected seeded state: $resp"
 fi
 
 # =========================================================================
@@ -172,7 +190,7 @@ fi
 ROW=$(curl -s "$SUPABASE_URL/rest/v1/minigame_sessions?id=eq.$SESSION2_ID&select=name" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY")
 # PostgREST may render JSON with spaces; normalize for the grep.
-if echo "$ROW" | norm_json | grep -q '"name":"Larevancha"'; then
+if echo "$ROW" | norm_json | grep -q '"name":"La revancha"'; then
   ok "p_name trimmed + stored on the session row (La revancha)"
 else
   nok "expected name 'La revancha': $ROW"
@@ -243,10 +261,31 @@ fi
 # =========================================================================
 h1 "TEST E — advance_minigame_turn"
 
+# 202 by_turns: advance requires phase=playing (the 190 countdown lazy-flips
+# on read) AND the round to have an answer. The creator may FORCE-advance an
+# idle round once the subject answered (no all-reacted wait).
+if wait_playing "$SESSION_ID" "$TOKEN_A"; then
+  ok "countdown flipped to playing"
+else
+  nok "countdown never flipped to playing"
+fi
+
+# The current subject answers (the answer-first contract).
+SUBJ=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}" \
+  | grep -o '"subject_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+STOKEN=$([ "$SUBJ" = "$UUID_A" ] && echo "$TOKEN_A" || echo "$TOKEN_B")
+resp=$(auth_rpc "$STOKEN" "submit_minigame_answer" \
+  "{\"p_session_id\":\"$SESSION_ID\",\"p_answer_ciphertext\":\"cipher_$SUBJ\"}")
+if echo "$resp" | grep -q '"status":"submitted"'; then
+  ok "subject answered (answer-first)"
+else
+  nok "subject answer failed: $(echo "$resp" | head -c 120)"
+fi
+
 resp=$(auth_rpc "$TOKEN_A" "advance_minigame_turn" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_round\":{\"subject_id\":\"$SUBJECT\",\"prompt_type\":\"verdad\",\"outcome\":\"done\"}}")
 if echo "$resp" | grep -q '"status":"advanced"'; then
-  ok "advance = advanced"
+  ok "advance = advanced (creator force)"
 else
   nok "advance failed: $(echo "$resp" | head -c 120)"
 fi
@@ -277,26 +316,26 @@ resp=$(auth_rpc "$TOKEN_C" "advance_minigame_turn" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_round\":{}}")
 if echo "$resp" | grep -q '"status":"not_allowed"'; then ok "advance denied for bystander"; else nok "bystander advance: $resp"; fi
 
-resp=$(auth_rpc "$TOKEN_C" "complete_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"not_allowed"'; then ok "complete denied for bystander"; else nok "bystander complete: $resp"; fi
+resp=$(auth_rpc "$TOKEN_C" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
+if echo "$resp" | grep -q '"status":"not_allowed"'; then ok "finish denied for bystander"; else nok "bystander finish: $resp"; fi
 
 # =========================================================================
-# TEST G — complete settles as a draw and is idempotent
+# TEST G — finish settles the leaderboard and is idempotent
 # =========================================================================
-h1 "TEST G — complete_minigame_game (draw settlement)"
+h1 "TEST G — finish_minigame_game (leaderboard settlement)"
 
-resp=$(auth_rpc "$TOKEN_A" "complete_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
 if echo "$resp" | grep -q '"status":"finished"'; then
-  ok "complete = finished"
+  ok "finish = finished"
 else
-  nok "complete failed: $(echo "$resp" | head -c 120)"
+  nok "finish failed: $(echo "$resp" | head -c 120)"
 fi
 
-resp=$(auth_rpc "$TOKEN_A" "complete_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"already_finished"'; then
-  ok "re-complete is idempotent (already_finished)"
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
+if echo "$resp" | grep -q '"status":"finished"'; then
+  ok "re-finish is idempotent (finished, no double settlement)"
 else
-  nok "re-complete expected already_finished: $resp"
+  nok "re-finish expected finished: $resp"
 fi
 
 resp=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")

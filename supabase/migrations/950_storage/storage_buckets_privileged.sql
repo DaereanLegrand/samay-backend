@@ -9,7 +9,8 @@ INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 VALUES
     ('avatars', 'avatars', true, NULL, NULL),
     ('groups',  'groups',  true, NULL, NULL),
-    ('events',  'events',  false, NULL, NULL)
+    ('events',  'events',  false, NULL, NULL),
+    ('minigame_images', 'minigame_images', false, NULL, NULL)
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
@@ -50,6 +51,43 @@ CREATE POLICY storage_objects_events_select_access
         )
     );
 
+-- 2.2b Minigame-images SELECT — participants of the answer's session ONLY.
+--     The ENCRYPTED image bytes live in the private minigame_images bucket;
+--     reads must be gated by the answer row whose image_storage_path matches
+--     the object name. public.minigame_answers is FORCE RLS with
+--     mgs_answers_read (participant / invitee / group member, active-only) —
+--     RLS applies inside policy subqueries, so the EXISTS transitively
+--     enforces the canonical answer-access predicate without duplicating it.
+--     Recursion-safe: mgs_answers_read's chain terminates on session/group
+--     column checks and never re-enters storage.objects.
+DROP POLICY IF EXISTS storage_objects_minigame_images_select ON storage.objects;
+CREATE POLICY storage_objects_minigame_images_select
+    ON storage.objects FOR SELECT TO authenticated
+    USING (
+        bucket_id = 'minigame_images'
+        AND EXISTS (
+            SELECT 1 FROM public.minigame_answers a
+            WHERE a.image_storage_path = storage.objects.name
+        )
+    );
+
+-- 2.2c Minigame-images INSERT — participant-only upload. The object path is
+--     <sessionId>/<round>/<uuid>.bin, so the session id is the FIRST path
+--     segment (storage.foldername(name))[1]; the caller must own the object
+--     AND be a participant of that session.
+DROP POLICY IF EXISTS storage_objects_minigame_images_insert ON storage.objects;
+CREATE POLICY storage_objects_minigame_images_insert
+    ON storage.objects FOR INSERT TO authenticated
+    WITH CHECK (
+        bucket_id = 'minigame_images'
+        AND owner_id = auth.jwt() ->> 'sub'
+        AND EXISTS (
+            SELECT 1 FROM public.minigame_sessions s
+            WHERE s.id = (storage.foldername(name))[1]::uuid
+              AND auth.uid() = ANY (s.participants)
+        )
+    );
+
 -- 2.3 Own-row INSERT — authenticated uploads into the three app buckets.
 --     owner_id is written by storage-api from the JWT sub. Avatars add the
 --     SECU spec path-prefix rule: the first path segment must be the caller's
@@ -72,11 +110,11 @@ DROP POLICY IF EXISTS storage_objects_update_own ON storage.objects;
 CREATE POLICY storage_objects_update_own
     ON storage.objects FOR UPDATE TO authenticated
     USING (
-        bucket_id IN ('avatars', 'groups', 'events')
+        bucket_id IN ('avatars', 'groups', 'events', 'minigame_images')
         AND owner_id = auth.jwt() ->> 'sub'
     )
     WITH CHECK (
-        bucket_id IN ('avatars', 'groups', 'events')
+        bucket_id IN ('avatars', 'groups', 'events', 'minigame_images')
         AND owner_id = auth.jwt() ->> 'sub'
     );
 
@@ -86,6 +124,6 @@ DROP POLICY IF EXISTS storage_objects_delete_own ON storage.objects;
 CREATE POLICY storage_objects_delete_own
     ON storage.objects FOR DELETE TO authenticated
     USING (
-        bucket_id IN ('avatars', 'groups', 'events')
+        bucket_id IN ('avatars', 'groups', 'events', 'minigame_images')
         AND owner_id = auth.jwt() ->> 'sub'
     );

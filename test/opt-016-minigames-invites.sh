@@ -11,6 +11,9 @@ set -uo pipefail
 #   D) accept_minigame_invite joins the participant list (escrow on wager)
 #   E) a finished session cannot be accepted (session_finished)
 #   F) decline_minigame_invite flips pending -> declined
+#   H) invite notifications: direct invites notify with gameType/sessionName;
+#      the wager is stated explicitly in body/data and the inviter/group name
+#      is carried for the accept surfaces (200_minigame_invite_notice)
 #
 # Usage: bash test/opt-016-minigames-invites.sh
 # Requires the stack with migration 140 applied (supabase db reset).
@@ -61,7 +64,7 @@ h1()   { echo ""; echo "━━━ $1 ━━━"; }
 # PostgREST may render JSON with spaces after colons/commas; the greps that
 # parse statuses/session ids expect compact JSON, so normalize before use.
 norm_json() {
-  sed -E 's/[[:space:]]+//g'
+  sed -E 's/([][,{}:])[[:space:]]+/\1/g; s/[[:space:]]+([][,{}:])/\1/g'
 }
 
 auth_get() {
@@ -249,7 +252,7 @@ h1 "TEST E — finished session closes the invite"
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"challenge\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
 SESSION3=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION3\",\"p_winner_id\":null,\"p_place\":null}" >/dev/null
+auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION3\"}" >/dev/null
 INVITE3=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION3&invitee_id=eq.$UUID_C" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 resp=$(auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE3\"}")
@@ -331,9 +334,9 @@ else
 fi
 
 # G5: the creator settles (draw); a bystander is rejected.
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION5\",\"p_winner_id\":null,\"p_place\":null}")
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION5\"}")
 if echo "$resp" | grep -q '"status":"finished"'; then ok "Creator A finished the direct session"; else nok "finish failed: $(echo "$resp" | head -c 100)"; fi
-resp=$(auth_rpc "$TOKEN_D" "finish_minigame_session" "{\"p_session_id\":\"$SESSION5\",\"p_winner_id\":null,\"p_place\":null}")
+resp=$(auth_rpc "$TOKEN_D" "finish_minigame_game" "{\"p_session_id\":\"$SESSION5\"}")
 if echo "$resp" | grep -q '"status":"not_allowed"'; then ok "Bystander D cannot finish the direct session (not_allowed)"; else nok "bystander finish not rejected: $(echo "$resp" | head -c 100)"; fi
 
 # G6: over-cap roster is rejected atomically (10 invitees + self > free 8).
@@ -365,7 +368,7 @@ else
 fi
 
 # C reads their own notifications (RLS user_id = C).
-notif_resp=$(curl -s -X GET "$SUPABASE_URL/rest/v1/notifications?user_id=eq.$UUID_C&type=eq.minigame_invite&order=created_at.desc&limit=1&select=data" \
+notif_resp=$(curl -s -X GET "$SUPABASE_URL/rest/v1/notifications?user_id=eq.$UUID_C&type=eq.minigame_invite&order=created_at.desc&limit=1&select=data,body" \
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_C" | norm_json)
 if echo "$notif_resp" | grep -q "$SESSION_H"; then
   ok "Invitee C received a minigame_invite notification for the DIRECT session"
@@ -376,6 +379,76 @@ if echo "$notif_resp" | grep -q '"gameType":"truth_dare"'; then
   ok "The notification payload carries gameType (per-game feed badge)"
 else
   nok "notification data missing gameType: $(echo "$notif_resp" | head -c 120)"
+fi
+# H1b: SESSION_H is a FREE game (wager 0) — the body must say "FREE" and the
+# payload must carry wager 0 (200_minigame_wager_notice).
+if echo "$notif_resp" | grep -q '"body":"FREE"'; then
+  ok "The FREE (0-wager) invite notification body says FREE (200_minigame_wager_notice)"
+else
+  nok "FREE-game notification body not FREE: $(echo "$notif_resp" | head -c 120)"
+fi
+if echo "$notif_resp" | grep -q '"wager":0'; then
+  ok "The FREE-game notification payload carries wager 0"
+else
+  nok "FREE-game notification data missing wager: $(echo "$notif_resp" | head -c 120)"
+fi
+# H1b2: the DIRECT free-game invite carries the inviter username and no group
+# name (SESSION_H is a direct session by A).
+if echo "$notif_resp" | grep -q '"inviterName":"user_opt016_a"'; then
+  ok "The direct-invite notification carries the inviter username (user_opt016_a)"
+else
+  nok "Direct-invite notification missing inviterName: $(echo "$notif_resp" | head -c 120)"
+fi
+if echo "$notif_resp" | grep -q '"groupName":null'; then
+  ok "The direct-invite notification carries groupName null"
+else
+  nok "Direct-invite notification groupName not null: $(echo "$notif_resp" | head -c 120)"
+fi
+
+# H1e: a GROUP invite (SESSION_ID, group "Invite Test") must carry the GROUP
+# NAME so the invitee sees "from <group>" on the accept surface.
+notif_g=$(curl -s -X GET "$SUPABASE_URL/rest/v1/notifications?user_id=eq.$UUID_C&type=eq.minigame_invite&data->>sessionId=eq.$SESSION_ID&order=created_at.desc&limit=1&select=data,body" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_C" | norm_json)
+if echo "$notif_g" | grep -q '"groupName":"Invite Test"'; then
+  ok "The group-invite notification carries the group name (Invite Test)"
+else
+  nok "Group-invite notification missing groupName: $(echo "$notif_g" | head -c 120)"
+fi
+
+# H1c: a WAGERED direct invite must state the exact amount in the body
+# ("{N} shards.") and carry the wager in the payload — the invitee knows up
+# front how many shards will be taken.
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
+  "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_wager\":25,\"p_invitees\":[\"$UUID_C\"]}")
+SESSION_W=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_W" ]; then
+  ok "Wagered direct questions session created for the wager-notice check ($SESSION_W)"
+else
+  nok "Wagered direct create failed: $(echo "$resp" | head -c 120)"
+fi
+notif_w=$(curl -s -X GET "$SUPABASE_URL/rest/v1/notifications?user_id=eq.$UUID_C&type=eq.minigame_invite&data->>sessionId=eq.$SESSION_W&order=created_at.desc&limit=1&select=data,body" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_C" | norm_json)
+if echo "$notif_w" | grep -q '"body":"25 shards."'; then
+  ok "The wagered (25) invite notification body states the exact cost: \"25 shards.\""
+else
+  nok "Wagered notification body missing the amount: $(echo "$notif_w" | head -c 120)"
+fi
+if echo "$notif_w" | grep -q '"wager":25'; then
+  ok "The wagered notification payload carries wager 25"
+else
+  nok "Wagered notification data missing wager 25: $(echo "$notif_w" | head -c 120)"
+fi
+# H1d: a DIRECT invite must carry the inviter's username (user_search_view) so
+# the accept surface can show who invited you; groupName must be null.
+if echo "$notif_w" | grep -q '"inviterName":"user_opt016_a"'; then
+  ok "The direct-invite notification carries the inviter username (user_opt016_a)"
+else
+  nok "Direct-invite notification missing inviterName: $(echo "$notif_w" | head -c 120)"
+fi
+if echo "$notif_w" | grep -q '"groupName":null'; then
+  ok "The direct-invite notification carries groupName null"
+else
+  nok "Direct-invite notification groupName not null: $(echo "$notif_w" | head -c 120)"
 fi
 
 # H2: the session row carries the server-computed auto_name (partida-N).

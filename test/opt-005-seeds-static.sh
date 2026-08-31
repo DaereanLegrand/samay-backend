@@ -8,7 +8,9 @@ set -uo pipefail
 #                               init/reset/migrate (fundamental, no user data)
 #   supabase/seed-test.sql    — @tester test-data snapshot, EXPLICIT only
 #                               (`make supabase-seed-test`; conversations and
-#                               notifications deliberately absent)
+#                               notifications deliberately absent; regenerable
+#                               data — E2EE keys/shards/minigames/rank
+#                               snapshots/signup tracker — removed 2026-08-30)
 # plus the byte-mirrors in supabase-testing/, the Makefile targets, and the
 # applier contract:
 #   appliers (migrate.sh/reset.sh ×2 + init/reset Makefile targets) may apply
@@ -217,7 +219,7 @@ fi
 
 # ── 7. seed-test content checks ──────────────────────────────────────────────
 h1 "7. seed-test.sql (@tester universe, explicit-only)"
-validate_seed_file "$SEED_TEST" "test" 30
+validate_seed_file "$SEED_TEST" "test" 15
 # conversations + notifications absent (user directive 2026-08-23)
 BANNED=$(insert_tables "$SEED_TEST" | grep -E '^(chats|chat_participants|messages|message_reads|deleted_messages|notifications)$' || true)
 if [ -z "$BANNED" ]; then
@@ -225,14 +227,14 @@ if [ -z "$BANNED" ]; then
 else
   fail "seed-test contains banned conversation/notification tables: $BANNED"
 fi
-for t in users friendships groups group_members minigame_sessions e2ee_identity_keys signup_tracker shard_ledger group_rank_snapshots; do
+for t in users friendships groups group_members; do
   insert_tables "$SEED_TEST" | grep -qx "$t" && ok "[$t] present" || fail "[$t] missing from seed-test"
 done
 
 # enum literals used by seed-test exist in migrations
 h1 "8. Enum literals in seed-test exist"
 # simpler: check each enum literal value appears in migrations enum defs
-for v in pending accepted blocked member promotor co_promotor active; do
+for v in accepted member promotor active; do
   # NOTE: group_members.status 'invited' is enforced by CHECK constraint,
   # not an enum — validated separately below.
   if enum_values | cut -d'|' -f2 | grep -q "'$v'"; then

@@ -104,6 +104,11 @@ BEGIN
          OR EXISTS (
                 SELECT 1 FROM public.group_members gm
                 WHERE gm.group_id = v_group_id AND gm.user_id = auth.uid()
+                  AND gm.status = 'active'
+                  AND NOT EXISTS (
+                        SELECT 1 FROM public.users u
+                        WHERE u.id = gm.user_id AND u.deleted_at IS NOT NULL
+                    )
             )
         ) THEN
         RETURN jsonb_build_object('status', 'not_allowed');
@@ -173,6 +178,11 @@ BEGIN
          OR EXISTS (
                 SELECT 1 FROM public.group_members gm
                 WHERE gm.group_id = v_group_id AND gm.user_id = auth.uid()
+                  AND gm.status = 'active'
+                  AND NOT EXISTS (
+                        SELECT 1 FROM public.users u
+                        WHERE u.id = gm.user_id AND u.deleted_at IS NOT NULL
+                    )
             )
         ) THEN
         RETURN jsonb_build_object('status', 'not_allowed');
@@ -334,6 +344,11 @@ BEGIN
          OR EXISTS (
                 SELECT 1 FROM public.group_members gm
                 WHERE gm.group_id = v_group_id AND gm.user_id = auth.uid()
+                  AND gm.status = 'active'
+                  AND NOT EXISTS (
+                        SELECT 1 FROM public.users u
+                        WHERE u.id = gm.user_id AND u.deleted_at IS NOT NULL
+                    )
             )
         ) THEN
         RETURN jsonb_build_object('status', 'not_allowed');

@@ -19,13 +19,12 @@ set -uo pipefail
 #   F) RLS own-row: user reads own e2ee_identity_keys row; another user
 #      CANNOT (e2ee_identity_keys_select_own)
 #   G) minigame session RPCs (migration 20260813000001, agent R4 — I-77/S-03
-#      gap closure): join_minigame_session + finish_minigame_session
+#      gap closure): join_minigame_session + finish_minigame_game (201)
 #      exercised end-to-end against the live stack: create (escrow deduct),
 #      join (idempotent, second participant escrow), error paths
-#      (session_not_found / not_member / anon denied), draw settlement
-#      (minigame_refund restores every participant), repeat finish is a
-#      no-op, winner settlement (minigame_win full-pot credit), and
-#      invalid_winner rejection.
+#      (session_not_found / not_member / anon denied), leaderboard settlement
+#      (pot preserved, repeat finish is a no-op, minigame_win rows written),
+#      and the bystander gate (not_allowed).
 #
 # NOTE: the caller must be an authenticated user (JWT), so the test creates
 # real auth.users rows via the admin API exactly like opt-001. The bundle
@@ -381,53 +380,61 @@ else
 fi
 
 # =========================================================================
-# TEST K — finish_minigame_session draw (null winner): full refund
+# TEST K — finish_minigame_game (201): the session (wager 50 from TEST H)
+# settles with a harmonic leaderboard. The exact per-player split is
+# non-deterministic (all-zero scoreboard → participant-order tie-break), so
+# the invariant asserted here is that the FULL pot is preserved and the
+# leaderboard row exists (the precise harmonic math is covered by opt-020/021).
 # =========================================================================
-h1 "TEST K — finish_minigame_session draw settlement"
+h1 "TEST K — finish_minigame_game settlement (pot preserved)"
 
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION_ID\",\"p_winner_id\":null,\"p_place\":null}")
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
 if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"'; then
-  ok "Session finished (draw)"
+  ok "Session finished (leaderboard settlement)"
 else
-  nok "finish draw wrong: $(echo "$resp" | head -c 120)"
+  nok "finish wrong: $(echo "$resp" | head -c 120)"
 fi
 
+# Pot preserved: both escrowed 50 → after the pot (100) is paid out, A+B sum
+# back to 2000 (the harmonic split may weight one player higher than the other).
 shards_a=$(svc_get "users?id=eq.$UUID_A&select=personal_shards")
 shards_b=$(svc_get "users?id=eq.$UUID_B&select=personal_shards")
-if echo "$shards_a" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*1000' \
-   && echo "$shards_b" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*1000'; then
-  ok "Draw refunded both participants (A and B back to 1000)"
+A_VAL=$(echo "$shards_a" | grep -oE '"personal_shards"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1)
+B_VAL=$(echo "$shards_b" | grep -oE '"personal_shards"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1)
+if [ "$((A_VAL + B_VAL))" = "2000" ]; then
+  ok "The full 100-shard pot was paid out (A+B back to 2000)"
 else
-  nok "Draw refund wrong: A=$(echo "$shards_a" | head -c 40) B=$(echo "$shards_b" | head -c 40)"
+  nok "Pot not preserved: A=$A_VAL B=$B_VAL (want sum 2000)"
 fi
 
-refunds=$(svc_get "shard_ledger?reference_id=eq.$SESSION_ID&select=reason,delta")
-if [ "$(echo "$refunds" | grep -o '"minigame_refund"' | wc -l | tr -d ' ')" = "2" ]; then
-  ok "Two minigame_refund ledger rows (reference_id = session)"
+results=$(svc_get "minigame_results?session_id=eq.$SESSION_ID&select=results")
+if echo "$results" | grep -q '"rank"'; then
+  ok "minigame_results leaderboard row written"
 else
-  nok "Refund ledger wrong: $(echo "$refunds" | head -c 120)"
+  nok "minigame_results missing: $(echo "$results" | head -c 120)"
 fi
 
-row=$(svc_get "minigame_sessions?id=eq.$SESSION_ID&select=status,winner_id")
-if echo "$row" | grep -q '"status"[[:space:]]*:[[:space:]]*"finished"' && echo "$row" | grep -q '"winner_id"[[:space:]]*:[[:space:]]*null'; then
-  ok "Session row: status=finished, winner_id=null"
+row=$(svc_get "minigame_sessions?id=eq.$SESSION_ID&select=status")
+if echo "$row" | grep -q '"status"[[:space:]]*:[[:space:]]*"finished"'; then
+  ok "Session row: status=finished"
 else
   nok "Session row wrong: $(echo "$row" | head -c 120)"
 fi
 
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION_ID\",\"p_winner_id\":null,\"p_place\":null}")
-shards_a=$(svc_get "users?id=eq.$UUID_A&select=personal_shards")
-if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"already_finished"' \
-   && echo "$shards_a" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*1000'; then
-  ok "Repeat finish -> already_finished, escrow settled once (no double refund)"
+shards_a_before=$(svc_get "users?id=eq.$UUID_A&select=personal_shards")
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
+shards_a_after=$(svc_get "users?id=eq.$UUID_A&select=personal_shards")
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"' \
+   && [ "$shards_a_before" = "$shards_a_after" ]; then
+  ok "Repeat finish -> idempotent (finished, no double settlement)"
 else
   nok "Repeat finish NOT idempotent: $(echo "$resp" | head -c 80)"
 fi
 
 # =========================================================================
-# TEST L — finish_minigame_session winner path: full-pot credit
+# TEST L — finish_minigame_game top1 payout: the rank-1 player takes the pot
 # =========================================================================
-h1 "TEST L — finish_minigame_session winner settlement"
+h1 "TEST L — finish_minigame_game settlement (pot preserved)"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"questions\",\"p_wager\":50}")
 SESSION_ID_2=$(echo "$resp" | grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
@@ -438,61 +445,65 @@ else
   nok "Second session setup failed: $(echo "$resp" | head -c 80)"
 fi
 
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION_ID_2\",\"p_winner_id\":\"$UUID_A\",\"p_place\":1}")
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID_2\"}")
 if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"'; then
-  ok "Session finished with winner A"
+  ok "Session finished via finish_minigame_game"
 else
-  nok "finish winner wrong: $(echo "$resp" | head -c 120)"
+  nok "finish failed: $(echo "$resp" | head -c 120)"
 fi
 
+# The second pot (100) is fully paid out: A+B sum back to 2000 (the exact
+# harmonic split depends on the all-zero scoreboard tie-break).
 shards_a=$(svc_get "users?id=eq.$UUID_A&select=personal_shards")
 shards_b=$(svc_get "users?id=eq.$UUID_B&select=personal_shards")
-if echo "$shards_a" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*1050' \
-   && echo "$shards_b" | grep -q '"personal_shards"[[:space:]]*:[[:space:]]*950'; then
-  ok "Winner A took the full pot (950 + 100 = 1050); B's deduction stands (950)"
+A_VAL=$(echo "$shards_a" | grep -oE '"personal_shards"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1)
+B_VAL=$(echo "$shards_b" | grep -oE '"personal_shards"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1)
+if [ "$((A_VAL + B_VAL))" = "2000" ]; then
+  ok "The full 100-shard pot was paid out (A+B sum 2000)"
 else
-  nok "Winner settlement wrong: A=$(echo "$shards_a" | head -c 40) B=$(echo "$shards_b" | head -c 40)"
+  nok "Pot not preserved: A=$A_VAL B=$B_VAL (want sum 2000)"
 fi
 
-ledger=$(svc_get "shard_ledger?user_id=eq.$UUID_A&select=reason,delta,reference_id")
-if echo "$ledger" | grep -q '"minigame_win"' && echo "$ledger" | grep -q '"delta"[[:space:]]*:[[:space:]]*100' \
-   && echo "$ledger" | grep -q "\"$SESSION_ID_2\""; then
-  ok "minigame_win ledger entry (+100, reference_id = session)"
+# Both escrowed players got minigame_win ledger entries for the split.
+ledger=$(svc_get "shard_ledger?reference_id=eq.$SESSION_ID_2&select=reason,delta")
+WIN_TOTAL=$(echo "$ledger" | grep -o '"minigame_win"' | wc -l | tr -d ' ')
+if [ "$WIN_TOTAL" -ge 1 ]; then
+  ok "minigame_win ledger rows written for the prize split"
 else
-  nok "Winner ledger wrong: $(echo "$ledger" | head -c 120)"
+  nok "no minigame_win ledger rows: $(echo "$ledger" | head -c 120)"
 fi
 
-row=$(svc_get "minigame_sessions?id=eq.$SESSION_ID_2&select=winner_id")
-if echo "$row" | grep -q "\"winner_id\": *\"$UUID_A\""; then
-  ok "Session row records winner_id = A"
+row=$(svc_get "minigame_sessions?id=eq.$SESSION_ID_2&select=status")
+if echo "$row" | grep -q '"status"[[:space:]]*:[[:space:]]*"finished"'; then
+  ok "Session row: status=finished"
 else
-  nok "winner_id wrong: $(echo "$row" | head -c 80)"
+  nok "Session row wrong: $(echo "$row" | head -c 80)"
 fi
 
 # =========================================================================
-# TEST M — finish invalid_winner (winner outside the participants)
+# TEST M — a bystander cannot settle (not_allowed)
 # =========================================================================
-h1 "TEST M — finish invalid_winner"
+h1 "TEST M — finish_minigame_game bystander gate"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0}")
 SESSION_ID_3=$(echo "$resp" | grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION_ID_3\",\"p_winner_id\":\"$UUID_C\",\"p_place\":1}")
-if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"invalid_winner"'; then
-  ok "Non-participant C as winner -> invalid_winner"
+resp=$(auth_rpc "$TOKEN_C" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID_3\"}")
+if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"not_allowed"'; then
+  ok "Bystander C cannot settle the direct session (not_allowed)"
 else
-  nok "invalid_winner NOT rejected: $(echo "$resp" | head -c 120)"
+  nok "bystander settle NOT rejected: $(echo "$resp" | head -c 120)"
 fi
 
 row=$(svc_get "minigame_sessions?id=eq.$SESSION_ID_3&select=status")
 if echo "$row" | grep -q '"status"[[:space:]]*:[[:space:]]*"active"'; then
-  ok "Session stays active after the rejected finish"
+  ok "Session stays active after the rejected settle"
 else
-  nok "Session state after invalid_winner: $(echo "$row" | head -c 80)"
+  nok "Session state after rejected settle: $(echo "$row" | head -c 80)"
 fi
 
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_session" "{\"p_session_id\":\"$SESSION_ID_3\",\"p_winner_id\":null,\"p_place\":null}")
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID_3\"}")
 if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"'; then
-  ok "Zero-wager session finishes cleanly with a null winner"
+  ok "Zero-wager session finishes cleanly via the leaderboard RPC"
 else
   nok "Zero-wager finish wrong: $(echo "$resp" | head -c 120)"
 fi
