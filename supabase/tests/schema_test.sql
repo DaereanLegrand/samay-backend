@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(873);
+SELECT plan(880);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3600,6 +3600,39 @@ SELECT ok(
        AND pg_get_functiondef(p.oid) LIKE '%finish_minigame_game%'
      FROM pg_proc p WHERE proname = 'get_minigame_game_state'),
     'get_minigame_game_state lazy-flips an expired async timer to finished (202_minigame_play_v2)'
+);
+
+-- ======================================================================
+-- SECTION 49m: host-device-confirmed countdown (203_minigame_host_start,
+-- 2026-08-31) — start_minigame_match flips countdown → playing, creator-only.
+-- ======================================================================
+SELECT has_function('start_minigame_match', ARRAY['uuid'],
+    'start_minigame_match(p_session_id uuid) exists (203_minigame_host_start)');
+SELECT is_definer('public', 'start_minigame_match', ARRAY['uuid'],
+    'start_minigame_match is SECURITY DEFINER');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%not_creator%'
+       AND pg_get_functiondef(p.oid) LIKE '%''playing''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''countdown''%'
+     FROM pg_proc p WHERE proname = 'start_minigame_match'),
+    'start_minigame_match is creator-only (not_creator) and flips countdown → playing'
+);
+SELECT function_privs_are('public', 'start_minigame_match', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'start_minigame_match is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'start_minigame_match', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'start_minigame_match is authenticated-EXECUTABLE');
+
+-- There is NO countdown_ends_at deadline (the countdown is host-device based):
+-- init must not seed it and get must not lazy-flip on it.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) NOT LIKE '%countdown_ends_at%'
+     FROM pg_proc p WHERE proname = 'init_minigame_game_state'),
+    'init_minigame_game_state does NOT seed countdown_ends_at (host-device countdown, 203)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) NOT LIKE '%countdown_ends_at%'
+     FROM pg_proc p WHERE proname = 'get_minigame_game_state'),
+    'get_minigame_game_state has NO countdown lazy-flip (host confirms via start_minigame_match, 203)'
 );
 
 -- Realtime membership for the live aliases + answers.

@@ -86,13 +86,14 @@ svc_delete() {
     -H "Authorization: Bearer $SERVICE_KEY" -H "Prefer: return=minimal" 2>/dev/null
 }
 
-# Wait for the 190 countdown to flip to playing (the lazy get-flip after the
-# 5s deadline) so reveal/advance can proceed.
+# Wait for the host-confirmed countdown to flip to playing: the HOST's device
+# calls start_minigame_match (203_minigame_host_start) once its own 5s
+# device-clock countdown ends. No server timer / lazy get-flip.
 wait_playing() {
   local sid=$1 token=$2 tries=0
   while [ "$tries" -lt 20 ]; do
-    resp=$(auth_rpc "$token" "get_minigame_game_state" "{\"p_session_id\":\"$sid\"}")
-    if echo "$resp" | grep -q '"phase":"playing"'; then
+    resp=$(auth_rpc "$token" "start_minigame_match" "{\"p_session_id\":\"$sid\"}")
+    if echo "$resp" | grep -q '"status":"started"'; then
       return 0
     fi
     sleep 0.5

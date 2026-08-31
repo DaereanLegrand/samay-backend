@@ -372,7 +372,6 @@ BEGIN
         'judge_index', 0,
         'round', 0,
         'phase', 'countdown',
-        'countdown_ends_at', now() + interval '5 seconds',
         'subject_id', v_participants[v_random_index],
         'next_subject_id', v_participants[v_next_index],
         'prompt_type', NULL,
@@ -1545,7 +1544,6 @@ DECLARE
     v_participants uuid[];
     v_row jsonb;
     v_phase text;
-    v_deadline text;
     v_play_mode text;
     v_async_ends_at text;
 BEGIN
@@ -1583,24 +1581,18 @@ BEGIN
         RETURN jsonb_build_object('status', 'not_allowed');
     END IF;
 
-    -- 4. Lazy countdown flip (190) + async timer lazy-flip (202): an async
-    --    session past async_ends_at settles on read.
+    -- 4. Async timer lazy-flip (202): an async session past async_ends_at
+    --    settles on read. (There is NO countdown lazy-flip — the countdown
+    --    is HOST-DEVICE based since 203_minigame_host_start: the host's
+    --    device calls start_minigame_match to flip countdown → playing.)
     SELECT m.state ->> 'phase',
-           m.state ->> 'countdown_ends_at',
            m.state ->> 'play_mode',
            m.state ->> 'async_ends_at'
-        INTO v_phase, v_deadline, v_play_mode, v_async_ends_at
+        INTO v_phase, v_play_mode, v_async_ends_at
         FROM public.minigame_game_state m
         WHERE m.session_id = p_session_id;
 
-    IF v_phase = 'countdown' AND v_deadline IS NOT NULL
-       AND (v_deadline)::timestamptz <= now() THEN
-        UPDATE public.minigame_game_state
-        SET state = state
-                    - 'countdown_ends_at'
-                    || jsonb_build_object('phase', 'playing')
-        WHERE session_id = p_session_id;
-    ELSIF COALESCE(v_play_mode, 'by_turns') = 'async'
+    IF COALESCE(v_play_mode, 'by_turns') = 'async'
           AND v_async_ends_at IS NOT NULL
           AND (v_async_ends_at)::timestamptz <= now()
           AND v_phase = 'playing' THEN

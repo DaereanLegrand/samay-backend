@@ -99,12 +99,14 @@ auth_status() {
     -H "Content-Type: application/json" -d "$d"
 }
 
-# Wait for the 190 countdown to flip to playing (the lazy get-flip).
+# Wait for the host-confirmed countdown to flip to playing: the HOST's device
+# calls start_minigame_match (203_minigame_host_start) once its own 5s
+# device-clock countdown ends. There is no server timer / lazy get-flip.
 wait_playing() {
   local sid=$1 token=$2 tries=0
   while [ "$tries" -lt 20 ]; do
-    resp=$(auth_rpc "$token" "get_minigame_game_state" "{\"p_session_id\":\"$sid\"}")
-    if echo "$resp" | grep -q '"phase":"playing"'; then
+    resp=$(auth_rpc "$token" "start_minigame_match" "{\"p_session_id\":\"$sid\"}")
+    if echo "$resp" | grep -q '"status":"started"'; then
       return 0
     fi
     sleep 0.5
@@ -735,6 +737,70 @@ if echo "$resp" | grep -q '"count":2' && echo "$resp" | grep -q '"list":'; then
   ok "mirrored reactions carry {\"list\":[...],\"count\":2}"
 else
   nok "reactions mirror missing list/count=2: $(echo "$resp" | head -c 300)"
+fi
+
+# =========================================================================
+# TEST I — host-confirmed countdown (203_minigame_host_start): start_minigame_match
+# is creator-only, cancel resets, and start flips countdown → playing.
+# =========================================================================
+h1 "TEST I — host-confirmed countdown (start_minigame_match / cancel)"
+
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
+  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\"],\"p_rounds\":2,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\"}")
+SESSION4_ID=$(echo "$resp" | sed -n 's/.*"sessionId": "\([0-9a-f-]*\)".*/\1/p')
+[ -z "$SESSION4_ID" ] && SESSION4_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION4_ID" ]; then
+  ok "cancel/start session created ($SESSION4_ID)"
+else
+  nok "cancel/start session create failed: $(echo "$resp" | head -c 120)"
+fi
+INVITE_B4=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION4_ID&invitee_id=eq.$UUID_B" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_B4\"}" > /dev/null
+resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION4_ID\"}")
+if echo "$resp" | grep -q '"status":"started"'; then
+  ok "I: init seeded the countdown phase"
+else
+  nok "I: init failed: $(echo "$resp" | head -c 120)"
+fi
+
+# Non-creator cannot start (creator-only).
+resp=$(auth_rpc "$TOKEN_B" "start_minigame_match" "{\"p_session_id\":\"$SESSION4_ID\"}")
+if echo "$resp" | grep -q '"status":"not_creator"'; then
+  ok "I: non-creator start_minigame_match denied (not_creator)"
+else
+  nok "I: non-creator start NOT denied: $resp"
+fi
+
+# Host cancel resets to setup (not playing).
+resp=$(auth_rpc "$TOKEN_A" "cancel_minigame_start" "{\"p_session_id\":\"$SESSION4_ID\"}")
+if echo "$resp" | grep -q '"status":"cancelled"'; then
+  ok "I: host cancel resets the countdown (cancelled)"
+else
+  nok "I: host cancel failed: $(echo "$resp" | head -c 120)"
+fi
+resp=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$SESSION4_ID\"}")
+if echo "$resp" | grep -q '"phase":"setup"' || echo "$resp" | grep -q '"state":{}'; then
+  ok "I: after cancel the state is back to setup (no playing)"
+else
+  nok "I: state after cancel is not setup: $(echo "$resp" | head -c 160)"
+fi
+
+# Re-init, then the HOST's start_minigame_match flips to playing.
+resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION4_ID\"}")
+resp=$(auth_rpc "$TOKEN_A" "start_minigame_match" "{\"p_session_id\":\"$SESSION4_ID\"}")
+if echo "$resp" | grep -q '"status":"started"' && echo "$resp" | grep -q '"phase":"playing"'; then
+  ok "I: host start_minigame_match flips countdown → playing"
+else
+  nok "I: host start failed: $(echo "$resp" | head -c 160)"
+fi
+
+# Re-start on an already-playing row is idempotent (started).
+resp=$(auth_rpc "$TOKEN_A" "start_minigame_match" "{\"p_session_id\":\"$SESSION4_ID\"}")
+if echo "$resp" | grep -q '"status":"started"'; then
+  ok "I: re-start on playing is idempotent (started)"
+else
+  nok "I: re-start NOT idempotent: $(echo "$resp" | head -c 160)"
 fi
 
 # =========================================================================

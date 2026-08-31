@@ -1,29 +1,33 @@
 -- Samay — 190_minigame_countdown/countdown.sql
--- Pre-play countdown + server-authoritative "next turn" (2026-08-30).
+-- Pre-play countdown, HOST-DEVICE based (2026-08-31, 203_minigame_host_start).
 --
--- The partida lobby now waits a fixed 5s countdown after the host taps Start
--- before the play screen opens for EVERY participant. The DB row is the
--- single source of truth — there is no wall-clock agreement to coordinate:
+-- The partida lobby waits a fixed 5s countdown after the host taps Start
+-- before the play screen opens for EVERY participant. There is NO server
+-- timer, NO cron, NO countdown_ends_at deadline — every device runs its own
+-- 5s countdown from its internal clock, started by the server's phase signal:
 --
 --   * init_minigame_game_state (CREATE OR REPLACE) seeds phase='countdown'
---     with countdown_ends_at = now() + 5s. That IS the server's
---     "start countdown" signal — every lobby sees it stream in on the
---     existing minigame_game_state realtime channel and renders the overlay.
---   * get_minigame_game_state (CREATE OR REPLACE) performs a LAZY flip: on
---     read, if phase='countdown' and countdown_ends_at <= now(), it UPDATEs
---     phase='playing' and returns the advanced row. The UPDATE streams back
---     over the same channel = the server's "countdown ended" signal, so every
---     client navigates to the play screen together. Crash-safe and fully
---     synchronous — no cron, no background workers; a crashed mid-countdown
---     state self-heals on the next read.
---   * cancel_minigame_start(uuid) — NEW SECURITY DEFINER RPC, CREATOR-ONLY
---     (participants[0], backend-enforced): resets the game-state row back to a
---     setup skeleton so every participant stays on the match (lobby) screen.
---     The ready map is preserved (host cancels, everyone keeps their ready).
+--     (no deadline). That IS the server's "start countdown" signal — every
+--     lobby sees it stream in on the existing minigame_game_state realtime
+--     channel and renders the on-device countdown overlay.
+--   * start_minigame_match(p_session_id) — NEW SECURITY DEFINER RPC
+--     (203_minigame_host_start), CREATOR-ONLY: the HOST's device calls it
+--     when its own countdown reaches 0 (no cancel). It flips phase
+--     countdown → playing; the UPDATE streams back over the same channel =
+--     the authoritative "match is starting" signal, so every client
+--     navigates to the play screen together.
+--   * cancel_minigame_start(uuid) — SECURITY DEFINER RPC, CREATOR-ONLY
+--     (participants[0], backend-enforced): the HOST's cancel. Resets the
+--     game-state row back to a setup skeleton so every participant stays on
+--     the match (lobby) screen. The ready map is preserved.
 --   * advance_minigame_turn (CREATE OR REPLACE) now rejects a mid-countdown
 --     turn with the typed 'countdown_pending' status and re-draws a fresh
 --     server-random next_subject_id on every advance (the "who's next"
 --     indicator, authoritative like the current subject).
+--
+-- Non-host clients show a 10s "waiting for the host" watchdog after their
+-- own countdown reaches 1; if neither start nor cancel arrives, they surface
+-- a host-error (client-side, 2026-08-31).
 --
 -- Posture mirrors 100/140/150/180: FORCE RLS, mutations through SECURITY
 -- DEFINER RPCs only, PUBLIC EXECUTE revoked, authenticated + service_role.
@@ -31,9 +35,10 @@
 -- ======================================================================
 -- init_minigame_game_state(uuid) — CREATE OR REPLACE (same signature).
 -- The lobby -> countdown -> playing transition. Seeds the random first
--- subject AND the server-authoritative next_subject_id, plus the countdown
--- deadline. Creator-only (participants[0]) enforced server-side; idempotent
--- for an already-in-progress row (countdown OR playing). Ready map clears.
+-- subject AND the server-authoritative next_subject_id. Creator-only
+-- (participants[0]) enforced server-side; idempotent for an already-in-
+-- progress row (countdown OR playing). Ready map clears. There is NO
+-- countdown deadline — the countdown is on-device, host-confirmed.
 -- ======================================================================
 CREATE OR REPLACE FUNCTION public.init_minigame_game_state(p_session_id uuid) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
@@ -126,10 +131,6 @@ BEGIN
         'judge_index', 0,
         'round', 0,
         'phase', 'countdown',
-        -- The deadline as a native timestamptz: jsonb serializes it as ISO
-        -- 8601 with the session timezone offset, which both Postgres
-        -- (::timestamptz) and Dart (DateTime.tryParse) round-trip exactly.
-        'countdown_ends_at', now() + interval '5 seconds',
         'subject_id', v_participants[v_random_index],
         'next_subject_id', v_participants[v_next_index],
         'prompt_type', NULL,
@@ -170,7 +171,6 @@ DECLARE
     v_participants uuid[];
     v_row jsonb;
     v_phase text;
-    v_deadline text;
 BEGIN
     -- 1. Authentication gate.
     IF auth.uid() IS NULL THEN
@@ -201,23 +201,13 @@ BEGIN
         RETURN jsonb_build_object('status', 'not_allowed');
     END IF;
 
-    -- 4. Lazy countdown flip (synchronous, no background worker): if the row
-    --    is still in countdown and the deadline has passed, advance it. The
-    --    UPDATE touches updated_at via the touch trigger, so the realtime
-    --    channel streams the playing state to every participant.
-    SELECT m.state ->> 'phase', m.state ->> 'countdown_ends_at'
-        INTO v_phase, v_deadline
+    -- 4. (No countdown lazy-flip — the countdown is HOST-DEVICE based since
+    --    203_minigame_host_start: the host's device calls start_minigame_match
+    --    to flip countdown → playing. The async-timer lazy-flip lives in 202.)
+    SELECT m.state ->> 'phase'
+        INTO v_phase
         FROM public.minigame_game_state m
         WHERE m.session_id = p_session_id;
-
-    IF v_phase = 'countdown' AND v_deadline IS NOT NULL
-       AND (v_deadline)::timestamptz <= now() THEN
-        UPDATE public.minigame_game_state
-        SET state = state
-                    - 'countdown_ends_at'
-                    || jsonb_build_object('phase', 'playing')
-        WHERE session_id = p_session_id;
-    END IF;
 
     -- 5. Read the (possibly advanced) state row.
     SELECT to_jsonb(m) INTO v_row
