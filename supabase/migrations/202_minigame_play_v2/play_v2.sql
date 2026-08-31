@@ -229,6 +229,30 @@ CREATE POLICY mgs_bundles_insert_own ON public.minigame_e2ee_bundles
         )
     );
 
+-- The upsert-conflict leg of putE2eeBundle: when the (session,sender,recipient)
+-- row already exists, PostgREST issues an UPDATE — under FORCE RLS that needs
+-- its own policy. Same participant-only predicate as the INSERT policy (sender
+-- = auth.uid(), both sender and recipient in the session's participants).
+CREATE POLICY mgs_bundles_update_own ON public.minigame_e2ee_bundles
+    FOR UPDATE TO authenticated USING (
+        sender_id = auth.uid()
+        AND EXISTS (
+            SELECT 1 FROM public.minigame_sessions s
+            WHERE s.id = session_id
+              AND auth.uid() = ANY (s.participants)
+              AND recipient_id = ANY (s.participants)
+        )
+    )
+    WITH CHECK (
+        sender_id = auth.uid()
+        AND EXISTS (
+            SELECT 1 FROM public.minigame_sessions s
+            WHERE s.id = session_id
+              AND auth.uid() = ANY (s.participants)
+              AND recipient_id = ANY (s.participants)
+        )
+    );
+
 -- A recipient reads only bundles addressed to them.
 CREATE POLICY mgs_bundles_read_recipient ON public.minigame_e2ee_bundles
     FOR SELECT TO authenticated USING (recipient_id = auth.uid());
@@ -1926,5 +1950,11 @@ GRANT ALL ON TABLE public.minigame_answers TO service_role;
 
 REVOKE ALL ON TABLE public.minigame_e2ee_bundles FROM anon;
 REVOKE ALL ON TABLE public.minigame_e2ee_bundles FROM authenticated;
-GRANT SELECT, INSERT ON TABLE public.minigame_e2ee_bundles TO authenticated;
+-- UPDATE: putE2eeBundle uses `.upsert(onConflict: session_id,sender_id,recipient_id)`,
+-- which PostgREST executes as INSERT-then-UPDATE-on-conflict — without the UPDATE
+-- privilege (and an UPDATE policy under FORCE RLS) every re-delivery of a bundle
+-- row failed with 42501 "permission denied for table minigame_e2ee_bundles"
+-- (2026-08-31 on-device fix). DELETE stays withheld: bundles are additive and
+-- retained for the session's lifetime (no-wipe directive).
+GRANT SELECT, INSERT, UPDATE ON TABLE public.minigame_e2ee_bundles TO authenticated;
 GRANT ALL ON TABLE public.minigame_e2ee_bundles TO service_role;

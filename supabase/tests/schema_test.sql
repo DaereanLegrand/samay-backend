@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(871);
+SELECT plan(872);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3507,8 +3507,18 @@ SELECT policies_are('minigame_aliases', ARRAY['mgs_aliases_read'],
     'minigame_aliases has exactly the participant-read policy (202_minigame_play_v2)');
 SELECT policies_are('minigame_answers', ARRAY['mgs_answers_read'],
     'minigame_answers has exactly the participant-read policy (202_minigame_play_v2)');
-SELECT policies_are('minigame_e2ee_bundles', ARRAY['mgs_bundles_insert_own', 'mgs_bundles_read_recipient'],
-    'minigame_e2ee_bundles has the own-insert + recipient-read policies (202_minigame_play_v2)');
+SELECT policies_are('minigame_e2ee_bundles', ARRAY['mgs_bundles_insert_own', 'mgs_bundles_update_own', 'mgs_bundles_read_recipient'],
+    'minigame_e2ee_bundles has the own-insert + own-update + recipient-read policies (202_minigame_play_v2)');
+-- The upsert-conflict leg of putE2eeBundle needs UPDATE privilege + policy
+-- (2026-08-31 on-device 42501 fix). DELETE stays withheld — bundles are
+-- additive/retained (no-wipe directive).
+SELECT ok(
+    (SELECT bool_and(privilege_type IN ('SELECT', 'INSERT', 'UPDATE'))
+     FROM information_schema.role_table_grants
+     WHERE table_schema = 'public' AND table_name = 'minigame_e2ee_bundles'
+       AND grantee = 'authenticated'),
+    'authenticated has exactly SELECT/INSERT/UPDATE on minigame_e2ee_bundles (no DELETE, 202)'
+);
 
 SELECT has_function('submit_minigame_answer', ARRAY['uuid', 'text', 'text'],
     'submit_minigame_answer(p_session_id uuid, p_answer_ciphertext text, p_image_storage_path text) exists (202_minigame_play_v2)');

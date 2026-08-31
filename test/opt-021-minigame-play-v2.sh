@@ -630,6 +630,38 @@ else
   nok "participant A→B bundle INSERT returned $code (expected 201)"
 fi
 
+# H3b: the putE2eeBundle upsert leg — re-POSTing the SAME (session,sender,
+# recipient) key must UPDATE the row (PostgREST upsert = INSERT-then-UPDATE on
+# conflict). Without the UPDATE grant + mgs_bundles_update_own policy this
+# returns 42501 (2026-08-31 on-device fix).
+code=$(auth_status "PATCH" "minigame_e2ee_bundles?session_id=eq.$SESSION3_ID&sender_id=eq.$UUID_A&recipient_id=eq.$UUID_B" "$TOKEN_A" \
+  "{\"bundle_ciphertext\":\"enc_ok_v2\"}")
+if [ "$code" = "200" ] || [ "$code" = "204" ]; then
+  ok "participant A→B bundle UPDATE accepted ($code) — upsert conflict leg"
+else
+  nok "participant A→B bundle UPDATE returned $code (expected 200/204)"
+fi
+
+# H3c: the UPDATE leg is participant-only too — the invited member C cannot
+# UPDATE a bundle row addressed to them (sender != auth.uid()) → 403.
+code=$(auth_status "PATCH" "minigame_e2ee_bundles?session_id=eq.$SESSION3_ID&sender_id=eq.$UUID_A&recipient_id=eq.$UUID_C" "$TOKEN_C" \
+  "{\"bundle_ciphertext\":\"forged\"}")
+if [ "$code" = "403" ]; then
+  ok "invited member denied bundle UPDATE (sender != auth.uid() → 403)"
+else
+  nok "invited member bundle UPDATE returned $code (expected 403)"
+fi
+
+# H3d: the UPDATE leg is participant-only for the RECIPIENT too — a
+# participant cannot UPDATE a row addressed to a non-participant → 403.
+code=$(auth_status "PATCH" "minigame_e2ee_bundles?session_id=eq.$SESSION3_ID&sender_id=eq.$UUID_A&recipient_id=eq.$UUID_C" "$TOKEN_A" \
+  "{\"bundle_ciphertext\":\"enc_to_nonparticipant\"}")
+if [ "$code" = "403" ]; then
+  ok "participant UPDATE to non-participant denied (recipient not in participants → 403)"
+else
+  nok "participant UPDATE to non-participant returned $code (expected 403)"
+fi
+
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION3_ID\"}")
 if echo "$resp" | grep -q '"status":"started"'; then
   ok "direct async init started"
