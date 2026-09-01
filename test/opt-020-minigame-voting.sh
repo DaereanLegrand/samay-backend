@@ -40,7 +40,7 @@ cleanup() {
   done
   [ -n "${GROUP_ID:-}" ] && curl -s -X DELETE "$SUPABASE_URL/rest/v1/groups?id=eq.$GROUP_ID" \
     -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" > /dev/null 2>&1 || true
-  for sid in ${SESSION_ID:-} ${SESSION2_ID:-}; do
+  for sid in ${SESSION_ID:-} ${SESSION2_ID:-} ${GSESSION_ID:-}; do
     [ -n "$sid" ] && svc_delete "minigame_reactions?session_id=eq.$sid" > /dev/null 2>&1 || true
     [ -n "$sid" ] && svc_delete "minigame_results?session_id=eq.$sid" > /dev/null 2>&1 || true
     [ -n "$sid" ] && svc_delete "minigame_game_state?session_id=eq.$sid" > /dev/null 2>&1 || true
@@ -353,6 +353,119 @@ if echo "$resp" | grep -q '"score":2'; then
   ok "round record scored 2 (reaction count)"
 else
   nok "expected score:2 in the round record: $(echo "$resp" | head -c 200)"
+fi
+
+# =========================================================================
+# TEST G — reactor-side Pasar (204_minigame_pasar): a voter passes instead of
+# emoji-reacting; the subject scores emoji_count - 0.5 per passer; passers
+# count as "reacted" for the all-reacted auto-advance. Uses a DEDICATED
+# session so it never consumes rounds from TEST E's auto-finish flow.
+# =========================================================================
+h1 "TEST G — reactor Pasar (pass counts toward advance + scores -0.5 to the subject)"
+
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":2,\"p_prize_positions\":3}")
+GSESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+if echo "$resp" | grep -q '"status":"created"' && [ -n "$GSESSION_ID" ]; then
+  ok "G: dedicated Pasar session created ($GSESSION_ID)"
+else
+  nok "G: create failed: $(echo "$resp" | head -c 160)"
+fi
+GINVITE_B=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$GSESSION_ID&invitee_id=eq.$UUID_B" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+GINVITE_C=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$GSESSION_ID&invitee_id=eq.$UUID_C" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$GINVITE_B\"}" > /dev/null
+auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$GINVITE_C\"}" > /dev/null
+info "G: B + C accepted the Pasar-session invites (3 participants)"
+
+resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$GSESSION_ID\"}")
+if echo "$resp" | grep -q '"status":"started"'; then
+  ok "G: init started"
+else
+  nok "G: init failed: $(echo "$resp" | head -c 120)"
+fi
+if wait_playing "$GSESSION_ID" "$TOKEN_A"; then
+  ok "G: countdown flipped to playing"
+else
+  nok "G: countdown never flipped"
+fi
+
+resp=$(auth_rpc "$TOKEN_A" "reveal_minigame_prompt" \
+  "{\"p_session_id\":\"$GSESSION_ID\",\"p_prompt_type\":\"verdad\"}")
+GSUB=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$GSESSION_ID\"}" \
+  | grep -o '"subject_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+GSTOKEN=$([ "$GSUB" = "$UUID_A" ] && echo "$TOKEN_A" || ([ "$GSUB" = "$UUID_B" ] && echo "$TOKEN_B" || echo "$TOKEN_C"))
+GV1=$([ "$GSUB" = "$UUID_A" ] && echo "$UUID_B" || echo "$UUID_A")
+GV1T=$([ "$GV1" = "$UUID_A" ] && echo "$TOKEN_A" || echo "$TOKEN_B")
+GV2=$([ "$GSUB" = "$UUID_B" ] && echo "$UUID_C" || echo "$UUID_C")
+[ "$GSUB" = "$UUID_A" ] && GV2="$UUID_C"
+[ "$GSUB" = "$UUID_C" ] && GV2="$UUID_B"
+GV2T=$([ "$GV2" = "$UUID_B" ] && echo "$TOKEN_B" || echo "$TOKEN_C")
+info "G: round subject=$GSUB, voters=$GV1/$GV2"
+
+# A pass BEFORE the subject answers is still rejected (answer-first applies).
+resp=$(auth_rpc "$GV2T" "submit_minigame_reaction" \
+  "{\"p_session_id\":\"$GSESSION_ID\",\"p_reaction\":\"pasar\"}")
+if echo "$resp" | grep -q '"status":"answer_pending"'; then
+  ok "G: reactor pass before the answer rejected (answer_pending)"
+else
+  nok "G: pass before answer NOT rejected: $resp"
+fi
+
+# The subject can never pass their own round (own_round gate holds for pass).
+resp=$(auth_rpc "$GSTOKEN" "submit_minigame_reaction" \
+  "{\"p_session_id\":\"$GSESSION_ID\",\"p_reaction\":\"pasar\"}")
+if echo "$resp" | grep -q '"status":"own_round"'; then
+  ok "G: subject own-round pass rejected (own_round)"
+else
+  nok "G: subject own-round pass NOT rejected: $resp"
+fi
+
+# The subject answers, then VOTER1 emoji-reacts and VOTER2 PASSES. VOTER2's
+# pass is the last required action → auto-advance; the round scores 0.5
+# (1 emoji - 0.5 for the pass).
+resp=$(auth_rpc "$GSTOKEN" "submit_minigame_answer" \
+  "{\"p_session_id\":\"$GSESSION_ID\",\"p_answer_ciphertext\":\"cipher_g_$GSUB\"}")
+if echo "$resp" | grep -q '"status":"submitted"'; then
+  ok "G: subject answer submitted"
+else
+  nok "G: subject answer failed: $(echo "$resp" | head -c 120)"
+fi
+
+resp=$(auth_rpc "$GV1T" "submit_minigame_reaction" \
+  "{\"p_session_id\":\"$GSESSION_ID\",\"p_reaction\":\"heart\"}")
+if echo "$resp" | grep -q '"status":"submitted"'; then
+  ok "G: VOTER1 emoji-voted (heart)"
+else
+  nok "G: VOTER1 emoji vote failed: $(echo "$resp" | head -c 120)"
+fi
+
+# VOTER2 passes on the answered round — the last required action advances.
+resp=$(auth_rpc "$GV2T" "submit_minigame_reaction" \
+  "{\"p_session_id\":\"$GSESSION_ID\",\"p_reaction\":\"pasar\"}")
+if echo "$resp" | grep -q '"status":"advanced"'; then
+  ok "G: reactor pass auto-advanced the round (passer counts as reacted)"
+else
+  nok "G: pass auto-advance failed: $(echo "$resp" | head -c 160)"
+fi
+
+# The round record carries 0.5 (1 emoji - 0.5 pass).
+resp=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$GSESSION_ID\"}")
+if echo "$resp" | grep -q '"score":0.5'; then
+  ok "G: round scored 0.5 (1 emoji - 0.5 pass)"
+else
+  nok "G: expected score 0.5: $(echo "$resp" | head -c 240)"
+fi
+
+# The final leaderboard carries the fractional total (0.5 for the subject's
+# single scored round — the other two players have no rounds → 0). The game
+# is not finished yet (round_target 2) — no results row expected.
+results=$(svc_get "minigame_results?session_id=eq.$GSESSION_ID&select=results" 2>/dev/null || true)
+if [ "$results" = "[]" ] || [ -z "$results" ] || echo "$results" | grep -q '"message"'; then
+  ok "G: no results row yet (game still active, target 2)"
+else
+  nok "G: unexpected results row while active: $results"
 fi
 
 # =========================================================================

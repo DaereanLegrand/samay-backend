@@ -24,6 +24,9 @@ set -uo pipefail
 #      only writers. An INVITED group member is denied from every play RPC and
 #      from RLS reads; a kicked participant loses all access; mgs_bundles_insert_own
 #      is participant-only; the reactions mirror carries a distinct-voter count.
+#   J) REACTOR PASAR (204_minigame_pasar): a voter passes on an async reactable
+#      round via react_minigame_round ('pasar' → NULL-reaction pass marker); the
+#      mirror carries the pass count; the subject scores -0.5 per passer.
 #
 # Usage: bash test/opt-021-minigame-play-v2.sh
 # Requires the stack with migration 202 applied.
@@ -41,7 +44,7 @@ cleanup() {
   done
   [ -n "${GROUP_ID:-}" ] && curl -s -X DELETE "$SUPABASE_URL/rest/v1/groups?id=eq.$GROUP_ID" \
     -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" > /dev/null 2>&1 || true
-  for sid in ${SESSION_ID:-} ${SESSION2_ID:-} ${SESSION3_ID:-}; do
+  for sid in ${SESSION_ID:-} ${SESSION2_ID:-} ${SESSION3_ID:-} ${SESSION5_ID:-}; do
     [ -n "$sid" ] && svc_delete "minigame_reactions?session_id=eq.$sid" > /dev/null 2>&1 || true
     [ -n "$sid" ] && svc_delete "minigame_results?session_id=eq.$sid" > /dev/null 2>&1 || true
     [ -n "$sid" ] && svc_delete "minigame_answers?session_id=eq.$sid" > /dev/null 2>&1 || true
@@ -801,6 +804,93 @@ if echo "$resp" | grep -q '"status":"started"'; then
   ok "I: re-start on playing is idempotent (started)"
 else
   nok "I: re-start NOT idempotent: $(echo "$resp" | head -c 160)"
+fi
+
+# =========================================================================
+# TEST J — reactor-side Pasar (204_minigame_pasar) on an async reactable round
+# =========================================================================
+h1 "TEST J — reactor Pasar on an async reactable round"
+
+# Fresh direct async session (3 participants: A + B + C), per-player target 1,
+# deadline ~2min out so the game stays alive while we react.
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
+  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":2,\"p_prize_positions\":3,\"p_play_mode\":\"async\",\"p_async_rounds_per_player\":1,\"p_async_ends_at\":\"$(date -u -v+180S +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+180 seconds' +%Y-%m-%dT%H:%M:%SZ)\"}")
+SESSION5_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION5_ID" ]; then
+  ok "J: direct async session created ($SESSION5_ID)"
+else
+  nok "J: async create failed: $(echo "$resp" | head -c 160)"
+fi
+INVITE_B5=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION5_ID&invitee_id=eq.$UUID_B" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+INVITE_C5=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION5_ID&invitee_id=eq.$UUID_C" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_B5\"}" > /dev/null
+auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_C5\"}" > /dev/null
+info "J: B + C accepted the async invites (3 participants)"
+
+resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION5_ID\"}")
+if echo "$resp" | grep -q '"status":"started"'; then
+  ok "J: async init started"
+else
+  nok "J: async init failed: $(echo "$resp" | head -c 120)"
+fi
+if wait_playing "$SESSION5_ID" "$TOKEN_A"; then
+  ok "J: async countdown flipped to playing"
+else
+  nok "J: async countdown never flipped"
+fi
+
+# A completes their single async round (round 1).
+resp=$(auth_rpc "$TOKEN_A" "submit_minigame_async_answer" \
+  "{\"p_session_id\":\"$SESSION5_ID\",\"p_prompt_type\":\"verdad\",\"p_answer_ciphertext\":\"async_j_a1\"}")
+if echo "$resp" | grep -q '"status":"submitted"'; then
+  ok "J: A submitted their async round"
+else
+  nok "J: A async answer failed: $(echo "$resp" | head -c 160)"
+fi
+
+# B passes on A's completed round; C emoji-reacts. The mirror carries both.
+resp=$(auth_rpc "$TOKEN_B" "react_minigame_round" \
+  "{\"p_session_id\":\"$SESSION5_ID\",\"p_round\":1,\"p_reaction\":\"pasar\"}")
+if echo "$resp" | grep -q '"status":"submitted"'; then
+  ok "J: B passed on A's completed round (react_minigame_round pasar)"
+else
+  nok "J: B pass failed: $(echo "$resp" | head -c 160)"
+fi
+
+resp=$(auth_rpc "$TOKEN_C" "react_minigame_round" \
+  "{\"p_session_id\":\"$SESSION5_ID\",\"p_round\":1,\"p_reaction\":\"heart\"}")
+if echo "$resp" | grep -q '"status":"submitted"'; then
+  ok "J: C emoji-reacted on A's round"
+else
+  nok "J: C emoji react failed: $(echo "$resp" | head -c 160)"
+fi
+
+# The mirror carries the pass count alongside the emoji list + voter count.
+resp=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$SESSION5_ID\"}")
+if echo "$resp" | grep -q '"pass":1' && echo "$resp" | grep -q '"count":2' && echo "$resp" | grep -q '"list":'; then
+  ok "J: reactions mirror carries {\"list\",\"count\":2,\"pass\":1}"
+else
+  nok "J: reactions mirror missing pass/count/list: $(echo "$resp" | head -c 300)"
+fi
+
+# A (the round's subject) cannot pass their OWN round via the async path.
+resp=$(auth_rpc "$TOKEN_A" "react_minigame_round" \
+  "{\"p_session_id\":\"$SESSION5_ID\",\"p_round\":1,\"p_reaction\":\"pasar\"}")
+if echo "$resp" | grep -q '"status":"own_round"'; then
+  ok "J: subject own-round pass rejected (own_round)"
+else
+  nok "J: subject own-round pass NOT rejected: $resp"
+fi
+
+# An invalid emoji key is still rejected (pasar is the only new wire value).
+resp=$(auth_rpc "$TOKEN_B" "react_minigame_round" \
+  "{\"p_session_id\":\"$SESSION5_ID\",\"p_round\":1,\"p_reaction\":\"bogus\"}")
+if echo "$resp" | grep -q '"status":"invalid_reaction"'; then
+  ok "J: invalid reaction still rejected (invalid_reaction)"
+else
+  nok "J: invalid_reaction NOT rejected: $resp"
 fi
 
 # =========================================================================

@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(881);
+SELECT plan(893);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3788,6 +3788,96 @@ SELECT ok(
         AND policyname = 'storage_objects_minigame_images_insert')
         ~ 'storage\.foldername\((storage\.)?objects\.name\)',
     'storage_objects_minigame_images_insert qualifies objects.name in the path foldername (2026-09-01)'
+);
+
+-- ======================================================================
+-- SECTION 49n: reactor-side Pasar (migration 204_minigame_pasar,
+-- 2026-09-01) — a NON-subject passes instead of emoji-reacting:
+--   * minigame_reactions.reaction is NULLABLE (NULL = the pass marker) with a
+--     CHECK keeping the six emoji values or NULL; the (session, round, voter)
+--     PK still guarantees one action per voter per round.
+--   * submit_minigame_reaction / react_minigame_round accept 'pasar' (upsert
+--     a NULL-reaction row) and mirror a `pass` count into state.reactions.
+--   * _minigame_advance_round scores emoji_count - pass_count/2 (integer-
+--     normalized when integral; -1 when the round had ZERO emojis).
+--   * finish_minigame_game settles fractional by_turns + async scores.
+SELECT ok(
+    (SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+     WHERE c.relname = 'minigame_reactions' AND a.attname = 'reaction' AND a.attnotnull) = 0,
+    'minigame_reactions.reaction is NULLABLE (NULL = reactor Pasar, 204_minigame_pasar)'
+);
+SELECT col_has_check('minigame_reactions', 'reaction',
+    'minigame_reactions.reaction has a CHECK (NULL or six emojis, 204_minigame_pasar)');
+SELECT ok(
+    (SELECT convalidated
+       FROM pg_constraint
+      WHERE conrelid = 'minigame_reactions'::regclass
+        AND conname = 'mgs_reaction_value_check') = true,
+    'mgs_reaction_value_check is validated (204_minigame_pasar)'
+);
+SELECT ok(
+    (SELECT pg_get_constraintdef(oid) LIKE '%reaction IS NULL%'
+       AND pg_get_constraintdef(oid) LIKE '%''disgust''%'
+       AND pg_get_constraintdef(oid) LIKE '%''heart''%'
+     FROM pg_constraint
+     WHERE conrelid = 'minigame_reactions'::regclass
+       AND conname = 'mgs_reaction_value_check'),
+    'mgs_reaction_value_check allows NULL + the six emoji wire values (204_minigame_pasar)'
+);
+
+-- submit_minigame_reaction accepts 'pasar' and stores a NULL-reaction row.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''pasar''%'
+       AND pg_get_functiondef(p.oid) LIKE '%NULLIF(p_reaction, ''pasar'')%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction accepts ''pasar'' and stores a NULL pass marker (204_minigame_pasar)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''pass''%'
+       AND pg_get_functiondef(p.oid) LIKE '%r.reaction IS NULL%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction mirrors a ''pass'' count (reaction IS NULL) into state.reactions (204_minigame_pasar)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''pass''%'
+       AND pg_get_functiondef(p.oid) LIKE '%r.reaction IS NULL%'
+     FROM pg_proc p WHERE proname = 'react_minigame_round'),
+    'react_minigame_round mirrors a ''pass'' count (async reactable rounds, 204_minigame_pasar)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''pasar''%'
+       AND pg_get_functiondef(p.oid) LIKE '%NULLIF(p_reaction, ''pasar'')%'
+     FROM pg_proc p WHERE proname = 'react_minigame_round'),
+    'react_minigame_round accepts ''pasar'' (async reactable rounds, 204_minigame_pasar)'
+);
+
+-- The scoring math: emoji_count - pass_count/2, integer-normalized when
+-- integral, with the -1 no-reactions penalty retained.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%FILTER (WHERE reaction IS NULL)%'
+       AND pg_get_functiondef(p.oid) LIKE '%pass_count::numeric / 2%'
+       AND pg_get_functiondef(p.oid) LIKE '%trunc(v_score)%'
+     FROM pg_proc p WHERE proname = '_minigame_advance_round'),
+    '_minigame_advance_round scores emoji_count - pass_count/2 (integer-normalized, 204_minigame_pasar)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%v_reaction_count = 0%'
+       AND pg_get_functiondef(p.oid) LIKE '%v_score := -1%'
+     FROM pg_proc p WHERE proname = '_minigame_advance_round'),
+    '_minigame_advance_round keeps the -1 no-reactions penalty (204_minigame_pasar)'
+);
+
+-- finish_minigame_game settles fractional scores (numeric, not ::int).
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%(rr ->> ''score'')::numeric%'
+     FROM pg_proc p WHERE proname = 'finish_minigame_game'),
+    'finish_minigame_game reads by_turns round scores as numeric (fractional allowed, 204_minigame_pasar)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%pass_count%'
+       OR pg_get_functiondef(p.oid) LIKE '%r.reaction IS NULL%'
+     FROM pg_proc p WHERE proname = 'finish_minigame_game'),
+    'finish_minigame_game async settlement accounts for reactor passers (204_minigame_pasar)'
 );
 
 SELECT * FROM finish();
