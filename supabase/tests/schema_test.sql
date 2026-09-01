@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(880);
+SELECT plan(881);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3776,6 +3776,19 @@ SELECT policies_are('storage', 'objects',
           'storage_objects_public_read_avatars_groups',
           'storage_objects_update_own'],
     'storage.objects carries the minigame_images select + insert policies (2026-08-31)');
+
+-- The insert policy must read the object PATH (storage.objects.name), NOT the
+-- correlated minigame_sessions.name column (partida name — NULL/empty for most
+-- sessions). The 2026-09-01 column-shadow bug made foldername(name) resolve to
+-- the session name → ''::uuid cast fails → every dare-with-image upload 403'd.
+SELECT ok(
+    (SELECT with_check FROM pg_policies
+      WHERE schemaname = 'storage'
+        AND tablename = 'objects'
+        AND policyname = 'storage_objects_minigame_images_insert')
+        ~ 'storage\.foldername\((storage\.)?objects\.name\)',
+    'storage_objects_minigame_images_insert qualifies objects.name in the path foldername (2026-09-01)'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

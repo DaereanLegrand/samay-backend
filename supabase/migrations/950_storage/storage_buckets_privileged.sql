@@ -73,8 +73,15 @@ CREATE POLICY storage_objects_minigame_images_select
 
 -- 2.2c Minigame-images INSERT — participant-only upload. The object path is
 --     <sessionId>/<round>/<uuid>.bin, so the session id is the FIRST path
---     segment (storage.foldername(name))[1]; the caller must own the object
---     AND be a participant of that session.
+--     segment (storage.foldername(storage.objects.name))[1]; the caller must
+--     own the object AND be a participant of that session.
+--     QUALIFICATION FIX (2026-09-01): the subquery's `name` was previously
+--     UNQUALIFIED, so inside the subquery it resolved to the correlated
+--     `minigame_sessions.name` (the partida-name column — NULL/empty for most
+--     sessions) instead of `storage.objects.name` (the object path). Every
+--     dare-with-image upload then hit "new row violates row-level security
+--     policy" (403): foldername('') → {""} → ''::uuid cast fails → policy
+--     false. Qualified to storage.objects.name.
 DROP POLICY IF EXISTS storage_objects_minigame_images_insert ON storage.objects;
 CREATE POLICY storage_objects_minigame_images_insert
     ON storage.objects FOR INSERT TO authenticated
@@ -83,7 +90,7 @@ CREATE POLICY storage_objects_minigame_images_insert
         AND owner_id = auth.jwt() ->> 'sub'
         AND EXISTS (
             SELECT 1 FROM public.minigame_sessions s
-            WHERE s.id = (storage.foldername(name))[1]::uuid
+            WHERE s.id = (storage.foldername(storage.objects.name))[1]::uuid
               AND auth.uid() = ANY (s.participants)
         )
     );
