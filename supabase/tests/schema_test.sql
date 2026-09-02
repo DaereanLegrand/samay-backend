@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(893);
+SELECT plan(903);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3789,6 +3789,66 @@ SELECT ok(
         ~ 'storage\.foldername\((storage\.)?objects\.name\)',
     'storage_objects_minigame_images_insert qualifies objects.name in the path foldername (2026-09-01)'
 );
+
+-- ======================================================================
+-- SECTION 49o: lobby invite RPC (migration 205_minigame_invite_lobby,
+-- 2026-09-01) — invite_minigame_players(p_session_id, p_invitees) invites
+-- players into an ALREADY-CREATED session from the partida lobby (the
+-- 2026-09-01 flow: create with zero invitees, then the HOST invites while
+-- waiting). Mirrors the create-time validation block (blocked/deleted +
+-- friends-only privacy, player-cap re-check) but is CREATOR-ONLY
+-- (`participants[1]` gate, like Start/Remove) and idempotent (skips
+-- self / already-participant / already-pending invitees — the
+-- (session_id, invitee_id) UNIQUE keeps the table clean). The existing
+-- notify_minigame_invite AFTER-INSERT trigger fires for each new row, so
+-- notifications work unchanged.
+-- ======================================================================
+SELECT has_function('invite_minigame_players', ARRAY['uuid', 'uuid[]'],
+    'invite_minigame_players(p_session_id uuid, p_invitees uuid[]) exists (205_minigame_invite_lobby)');
+SELECT is_definer('public', 'invite_minigame_players', ARRAY['uuid', 'uuid[]']::name[],
+    'invite_minigame_players is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'invite_minigame_players'),
+    'invite_minigame_players sets search_path = "" (I-31 pattern)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''not_authenticated''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''session_not_found''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''session_not_active''%'
+     FROM pg_proc p WHERE proname = 'invite_minigame_players'),
+    'invite_minigame_players returns typed lifecycle statuses (I-57 contract)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''not_creator''%'
+       AND pg_get_functiondef(p.oid) LIKE '%participants[1] <> v_current_user%'
+     FROM pg_proc p WHERE proname = 'invite_minigame_players'),
+    'invite_minigame_players is CREATOR-ONLY via participants[1] (not_creator)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.friendships%'
+       AND pg_get_functiondef(p.oid) LIKE '%minigame_invite_friends_only%'
+       AND pg_get_functiondef(p.oid) LIKE '%''invitee_friends_only''%'
+     FROM pg_proc p WHERE proname = 'invite_minigame_players'),
+    'invite_minigame_players enforces blocked + friends-only invite privacy server-side'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%v_player_limit%'
+       AND pg_get_functiondef(p.oid) LIKE '%''player_limit_reached''%'
+     FROM pg_proc p WHERE proname = 'invite_minigame_players'),
+    'invite_minigame_players re-checks the frozen player cap (player_limit_reached)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%public.minigame_invites%'
+       AND pg_get_functiondef(p.oid) LIKE '%t.v <> ALL (v_participants)%'
+       AND pg_get_functiondef(p.oid) LIKE '%t.v <> ALL (v_pending)%'
+     FROM pg_proc p WHERE proname = 'invite_minigame_players'),
+    'invite_minigame_players inserts pending rows and skips self / already-participant / already-pending invitees idempotently'
+);
+SELECT function_privs_are('public', 'invite_minigame_players', ARRAY['uuid', 'uuid[]']::name[], 'public', ARRAY[]::name[],
+    'invite_minigame_players is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'invite_minigame_players', ARRAY['uuid', 'uuid[]']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'invite_minigame_players is authenticated-EXECUTABLE');
 
 -- ======================================================================
 -- SECTION 49n: reactor-side Pasar (migration 204_minigame_pasar,

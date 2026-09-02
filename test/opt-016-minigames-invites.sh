@@ -461,6 +461,119 @@ else
 fi
 
 # =========================================================================
+# TEST I — invite_minigame_players (205_minigame_invite_lobby, 2026-09-01)
+# The 2026-09-01 flow: a session is created with ZERO invitees, then the
+# HOST invites players from the partida lobby while waiting. The new RPC:
+#   I1) the creator invites into an existing session (ok + pending rows)
+#   I2) re-inviting already-pending invitees is IDEMPOTENT (invited 0)
+#   I3) a NON-creator (B, not yet a participant) is rejected: not_creator
+#   I4) already-participant invitees are skipped (B accepts, then re-invite)
+#   I5) the friends-only privacy gate still applies (D opts in, A not a friend)
+#   I6) the frozen player cap is re-checked (player_limit_reached)
+#   I7) the invite dispatches the minigame_invite notification unchanged
+# =========================================================================
+h1 "TEST I — lobby invite RPC (invite_minigame_players)"
+
+# I1: A creates a DIRECT session with ZERO invitees, then invites B + C.
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
+  "{\"p_group_id\":null,\"p_game_type\":\"poke_chain\",\"p_wager\":0,\"p_invitees\":[]}")
+SESSION_I=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_I" ]; then
+  ok "Lobby-flow direct session created with zero invitees ($SESSION_I)"
+else
+  nok "Zero-invitee create failed: $(echo "$resp" | head -c 120)"
+fi
+
+resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
+  "{\"p_session_id\":\"$SESSION_I\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
+INVITED_I=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
+if echo "$resp" | grep -q '"status":"ok"'; then
+  ok "invite_minigame_players returned ok (lobby invite)"
+else
+  nok "invite_minigame_players failed: $(echo "$resp" | head -c 120)"
+fi
+if [ "$INVITED_I" = "2" ]; then ok "lobby invite invited 2 players (B, C)"; else nok "invited count != 2: $resp"; fi
+
+# The invite rows landed (pending) — the invitee-side read (ms_read_invitee).
+resp=$(auth_get "$TOKEN_C" "minigame_invites?select=id,status&session_id=eq.$SESSION_I")
+if echo "$resp" | grep -q '"status":"pending"'; then
+  ok "C has a pending invite row for the lobby-invited session"
+else
+  nok "C has no pending invite row: $(echo "$resp" | head -c 100)"
+fi
+
+# I2: re-inviting B + C (already pending) is idempotent — invited 0.
+resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
+  "{\"p_session_id\":\"$SESSION_I\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
+INVITED_I2=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
+if echo "$resp" | grep -q '"status":"ok"' && [ "$INVITED_I2" = "0" ]; then
+  ok "Re-inviting already-pending players is idempotent (invited 0)"
+else
+  nok "Re-invite not idempotent: $(echo "$resp" | head -c 120)"
+fi
+
+# I3: B (not the creator, not yet a participant) cannot invite.
+resp=$(auth_rpc "$TOKEN_B" "invite_minigame_players" \
+  "{\"p_session_id\":\"$SESSION_I\",\"p_invitees\":[\"$UUID_D\"]}")
+if echo "$resp" | grep -q '"status":"not_creator"'; then
+  ok "Non-creator B is rejected: not_creator"
+else
+  nok "Non-creator invite not rejected: $(echo "$resp" | head -c 120)"
+fi
+
+# I4: B accepts, becomes a participant; re-inviting B is skipped (invited 0).
+INVITE_IB=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION_I&invitee_id=eq.$UUID_B" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+resp=$(auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_IB\"}")
+if echo "$resp" | grep -q '"status":"accepted"'; then ok "B accepted the lobby invite"; else nok "B accept failed: $(echo "$resp" | head -c 100)"; fi
+resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
+  "{\"p_session_id\":\"$SESSION_I\",\"p_invitees\":[\"$UUID_B\"]}")
+INVITED_I4=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
+if echo "$resp" | grep -q '"status":"ok"' && [ "$INVITED_I4" = "0" ]; then
+  ok "Re-inviting an already-participant is skipped (invited 0)"
+else
+  nok "Already-participant re-invite not skipped: $(echo "$resp" | head -c 120)"
+fi
+
+# I5: friends-only privacy still enforced by the lobby RPC. D opts in and is
+# not A's friend -> invitee_friends_only.
+auth_rpc "$TOKEN_D" "set_minigame_invite_friends_only" "{\"p_value\":true}" >/dev/null
+resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
+  "{\"p_session_id\":\"$SESSION_I\",\"p_invitees\":[\"$UUID_D\"]}")
+if echo "$resp" | grep -q '"status":"invitee_friends_only"'; then
+  ok "Friends-only privacy enforced by the lobby RPC (invitee_friends_only)"
+else
+  nok "Lobby invite to friends-only user not rejected: $(echo "$resp" | head -c 120)"
+fi
+
+# I6: frozen player cap re-checked — A + 8 cap-fillers > free 8.
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
+  "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_wager\":0,\"p_invitees\":[]}")
+SESSION_I6=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+# Reuse the 9 seeded cap-filler users (TEST G6) — invite 8 of them.
+CAP8=""
+for i in 1 2 3 4 5 6 7 8; do
+  CAP8="$CAP8\"aaaaaaaa-aaaa-aaaa-aaaa-00000000000$i\","
+done
+CAP8="${CAP8%,}"
+resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
+  "{\"p_session_id\":\"$SESSION_I6\",\"p_invitees\":[$CAP8]}")
+if echo "$resp" | grep -q '"status":"player_limit_reached"'; then
+  ok "Over-cap lobby invite rejected: player_limit_reached"
+else
+  nok "Over-cap lobby invite not rejected: $(echo "$resp" | head -c 120)"
+fi
+
+# I7: the lobby invite dispatched a minigame_invite notification to C.
+notif_i=$(curl -s -X GET "$SUPABASE_URL/rest/v1/notifications?user_id=eq.$UUID_C&type=eq.minigame_invite&data->>sessionId=eq.$SESSION_I&order=created_at.desc&limit=1&select=data" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_C" | norm_json)
+if echo "$notif_i" | grep -q "$SESSION_I"; then
+  ok "Lobby invite dispatched a minigame_invite notification to C"
+else
+  nok "No lobby-invite notification for C: $(echo "$notif_i" | head -c 120)"
+fi
+
+# =========================================================================
 h1 "RESULTS"
 echo "  Passed: $PASS"
 echo "  Failed: $FAIL"
