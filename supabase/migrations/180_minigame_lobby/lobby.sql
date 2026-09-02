@@ -63,6 +63,19 @@ END
 $$;
 
 -- ======================================================================
+-- REPLICA IDENTITY FULL on minigame_sessions (2026-09-02).
+-- The lobby roster streams participant join/remove as `participants` array
+-- UPDATEs on the session row. With the default replica identity (primary
+-- key only) a realtime UPDATE payload carries just the PK + changed column,
+-- so a client that missed the session row's cached value (fresh match, the
+-- session created after this client opened the lobby) cannot reconcile the
+-- roster — it saw a stale "3" while the server had 4. FULL identity ships
+-- the entire new row on every UPDATE, so the roster diff always has the
+-- authoritative participants array to compare against.
+-- ======================================================================
+ALTER TABLE ONLY public.minigame_sessions REPLICA IDENTITY FULL;
+
+-- ======================================================================
 -- set_minigame_ready(uuid, boolean)
 -- Server-side intent handler for the Ready toggle: validates standing
 -- (auth + participant/invitee/group-member + active session), then upserts

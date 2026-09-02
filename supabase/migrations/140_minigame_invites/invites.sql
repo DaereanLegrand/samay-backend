@@ -368,8 +368,13 @@ $$;
 
 -- ======================================================================
 -- decline_minigame_invite(uuid)
--- The invitee declines a pending invite (idempotent; accepted invites
--- cannot be declined).
+-- The invitee declines a pending invite. The row is DELETED — a declined
+-- invite is indistinguishable from one that never existed (2026-09-02 user
+-- directive: "declined must delete the invite like it never happened").
+-- This is what makes RE-INVITE a plain fresh INSERT: the (session_id,
+-- invitee_id) UNIQUE is satisfied because the old row is gone, so the host
+-- can invite the same player again and invite_minigame_players fires the
+-- INSERT-time notification unchanged. Accepted invites cannot be declined.
 -- ======================================================================
 CREATE FUNCTION public.decline_minigame_invite(p_invite_id uuid) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
@@ -377,7 +382,6 @@ CREATE FUNCTION public.decline_minigame_invite(p_invite_id uuid) RETURNS jsonb
     AS $$
 DECLARE
     v_current_user uuid;
-    v_invitee_id uuid;
     v_invite_status public.mini_game_invite_status;
 BEGIN
     v_current_user := auth.uid();
@@ -385,25 +389,24 @@ BEGIN
         RETURN jsonb_build_object('status', 'not_authenticated');
     END IF;
 
-    SELECT invitee_id, status
-        INTO v_invitee_id, v_invite_status
+    -- Only the invitee may decline their own invite (the invitee_id filter
+    -- folds the ownership gate into the lookup — a foreign row reads as
+    -- not_found).
+    SELECT status
+        INTO v_invite_status
         FROM public.minigame_invites
-        WHERE id = p_invite_id
+        WHERE id = p_invite_id AND invitee_id = v_current_user
         FOR UPDATE;
-    IF NOT FOUND OR v_invitee_id <> v_current_user THEN
+    IF NOT FOUND THEN
         RETURN jsonb_build_object('status', 'invite_not_found');
     END IF;
 
-    IF v_invite_status = 'declined' THEN
-        RETURN jsonb_build_object('status', 'declined');
-    END IF;
     IF v_invite_status = 'accepted' THEN
         RETURN jsonb_build_object('status', 'already_accepted');
     END IF;
 
-    UPDATE public.minigame_invites
-    SET status = 'declined', decided_at = now()
-    WHERE id = p_invite_id;
+    DELETE FROM public.minigame_invites
+    WHERE id = p_invite_id AND invitee_id = v_current_user;
 
     RETURN jsonb_build_object('status', 'declined');
 END;

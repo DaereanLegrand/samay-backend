@@ -10,10 +10,15 @@ set -uo pipefail
 #      an accepted friend
 #   D) accept_minigame_invite joins the participant list (escrow on wager)
 #   E) a finished session cannot be accepted (session_finished)
-#   F) decline_minigame_invite flips pending -> declined
+#   F) decline_minigame_invite DELETES the invite row (2026-09-02 — a declined
+#      invite is indistinguishable from one that never existed; re-decline is
+#      invite_not_found)
 #   H) invite notifications: direct invites notify with gameType/sessionName;
 #      the wager is stated explicitly in body/data and the inviter/group name
 #      is carried for the accept surfaces (200_minigame_invite_notice)
+#   J) re-invite after DECLINE / KICK is a plain fresh invite (invited 1, fresh
+#      pending row, INSERT notification, RLS restored, participants grow) —
+#      no special resend path; a still-pending invitee re-invite stays idempotent
 #
 # Usage: bash test/opt-016-minigames-invites.sh
 # Requires the stack with migration 140 applied (supabase db reset).
@@ -277,6 +282,24 @@ if echo "$resp" | grep -q '"status":"declined"'; then
   ok "C declined the invite"
 else
   nok "decline failed: $(echo "$resp" | head -c 100)"
+fi
+
+# F2: the declined invite row is GONE — a declined invite is indistinguishable
+# from one that never existed (2026-09-02 user directive). Re-inviting C later
+# is therefore a plain fresh INSERT.
+resp=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?session_id=eq.$SESSION4&invitee_id=eq.$UUID_C&select=id" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY")
+if ! echo "$resp" | grep -q '"id"'; then
+  ok "declining DELETED the invite row (no lingering declined state)"
+else
+  nok "invite row still present after decline: $(echo "$resp" | head -c 80)"
+fi
+# F3: declining again is idempotent (row already gone → invite_not_found).
+resp=$(auth_rpc "$TOKEN_C" "decline_minigame_invite" "{\"p_invite_id\":\"$INVITE4\"}")
+if echo "$resp" | grep -q '"status":"invite_not_found"'; then
+  ok "re-declining a deleted invite returns invite_not_found (idempotent)"
+else
+  nok "re-decline expected invite_not_found: $(echo "$resp" | head -c 100)"
 fi
 
 # =========================================================================
@@ -571,6 +594,123 @@ if echo "$notif_i" | grep -q "$SESSION_I"; then
   ok "Lobby invite dispatched a minigame_invite notification to C"
 else
   nok "No lobby-invite notification for C: $(echo "$notif_i" | head -c 120)"
+fi
+
+# =========================================================================
+# TEST J — re-invite after decline / after kick (2026-09-02).
+# A declined invite DELETES its row, so a re-invite is a plain fresh INSERT
+# (no UNIQUE conflict, notification fires). A kick ALSO deletes the invite
+# row (remove_minigame_participant), so re-inviting a kicked player is the
+# same fresh INSERT — they read the session again (RLS restored) and can
+# accept, growing the participants array. There is NO special "resend": a
+# re-invite is byte-for-byte the same as the first invite.
+# =========================================================================
+h1 "TEST J — re-invite after decline / kick (fresh invite, no resend path)"
+
+# J1: A invites C (who already declined SESSION4) into a NEW session; the
+#     previous declined row is gone, so the re-invite is a fresh pending row.
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
+  "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
+SESSION_J1=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_J1" ]; then
+  ok "New session created for the re-invite check ($SESSION_J1)"
+else
+  nok "Re-invite session create failed: $(echo "$resp" | head -c 120)"
+fi
+
+# J1a: C declines J1, then A re-invites C via invite_minigame_players.
+INVITE_J1=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?session_id=eq.$SESSION_J1&invitee_id=eq.$UUID_C&select=id" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+auth_rpc "$TOKEN_C" "decline_minigame_invite" "{\"p_invite_id\":\"$INVITE_J1\"}" > /dev/null
+resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
+  "{\"p_session_id\":\"$SESSION_J1\",\"p_invitees\":[\"$UUID_C\"]}")
+INVITED_J1=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
+if echo "$resp" | grep -q '"status":"ok"' && [ "$INVITED_J1" = "1" ]; then
+  ok "Re-inviting after DECLINE is a fresh insert (invited 1)"
+else
+  nok "Re-invite after decline expected invited 1: $(echo "$resp" | head -c 120)"
+fi
+INVITE_J1b=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?session_id=eq.$SESSION_J1&invitee_id=eq.$UUID_C&select=id,status" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY")
+if echo "$INVITE_J1b" | grep -q '"status":"pending"'; then
+  ok "The re-invite row is a brand-new pending invite (identical to the first)"
+else
+  nok "Re-invite row not pending: $(echo "$INVITE_J1b" | head -c 120)"
+fi
+notif_j1=$(curl -s -X GET "$SUPABASE_URL/rest/v1/notifications?user_id=eq.$UUID_C&type=eq.minigame_invite&data->>sessionId=eq.$SESSION_J1&order=created_at.desc&limit=1&select=data" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_C" | norm_json)
+if echo "$notif_j1" | grep -q "$SESSION_J1"; then
+  ok "The re-invite dispatched a minigame_invite notification (INSERT trigger fires)"
+else
+  nok "No notification for the re-invite: $(echo "$notif_j1" | head -c 120)"
+fi
+
+# J2: kick → re-invite → the kicked player reads the session again + accepts
+#     → participants array grows. remove_minigame_participant deletes the
+#     invite row, so the re-invite is again a plain fresh INSERT.
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
+  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
+SESSION_J2=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+# B and C accept → participants = A, B, C.
+for uid in $UUID_B $UUID_C; do
+  INVITE_J2=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?session_id=eq.$SESSION_J2&invitee_id=eq.$uid&select=id" \
+    -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+  if [ "$uid" = "$UUID_B" ]; then
+    auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_J2\"}" > /dev/null
+  else
+    auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_J2\"}" > /dev/null
+  fi
+done
+# A (creator) kicks C.
+auth_rpc "$TOKEN_A" "remove_minigame_participant" "{\"p_session_id\":\"$SESSION_J2\",\"p_user_id\":\"$UUID_C\"}" > /dev/null
+# C (kicked, invite row deleted) can no longer read the session (RLS).
+resp=$(auth_get "$TOKEN_C" "minigame_sessions?id=eq.$SESSION_J2&select=id")
+if echo "$resp" | grep -q '"id"'; then
+  nok "Kicked C can still read the session (RLS leak)"
+else
+  ok "Kicked C loses RLS read on the session (invite row deleted)"
+fi
+
+# A re-invites C (invite row was deleted by the kick → fresh insert).
+resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
+  "{\"p_session_id\":\"$SESSION_J2\",\"p_invitees\":[\"$UUID_C\"]}")
+INVITED_J2=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
+if echo "$resp" | grep -q '"status":"ok"' && [ "$INVITED_J2" = "1" ]; then
+  ok "Re-inviting after KICK is a fresh insert (invited 1)"
+else
+  nok "Re-invite after kick expected invited 1: $(echo "$resp" | head -c 120)"
+fi
+
+# C can read the session again (RLS restored via the fresh pending row).
+resp=$(auth_get "$TOKEN_C" "minigame_sessions?id=eq.$SESSION_J2&select=id,participants")
+if echo "$resp" | grep -q "\"id\":\"$SESSION_J2\""; then
+  ok "Kicked C re-invited can read the session again (RLS restored)"
+else
+  nok "Re-invited C cannot read the session: $(echo "$resp" | head -c 120)"
+fi
+
+# C accepts → participants grow to include C.
+INVITE_J2b=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?session_id=eq.$SESSION_J2&invitee_id=eq.$UUID_C&select=id" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+resp=$(auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_J2b\"}")
+if echo "$resp" | grep -q '"status":"accepted"'; then ok "Kicked C accepted the re-invite"; else nok "C re-accept failed: $(echo "$resp" | head -c 100)"; fi
+resp=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_sessions?id=eq.$SESSION_J2&select=participants" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY")
+if echo "$resp" | grep -q "$UUID_C"; then
+  ok "Kicked-and-re-invited C is back in the participants array (roster grows)"
+else
+  nok "C not in participants after re-accept: $(echo "$resp" | head -c 120)"
+fi
+
+# J3: re-inviting a STILL-PENDING invitee stays idempotent (invited 0) —
+#     the fresh pending row from J2 is still there.
+resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
+  "{\"p_session_id\":\"$SESSION_J2\",\"p_invitees\":[\"$UUID_C\"]}")
+INVITED_J3=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
+if echo "$resp" | grep -q '"status":"ok"' && [ "$INVITED_J3" = "0" ]; then
+  ok "Re-inviting a still-pending invitee stays idempotent (invited 0)"
+else
+  nok "Still-pending re-invite not idempotent: $(echo "$resp" | head -c 120)"
 fi
 
 # =========================================================================

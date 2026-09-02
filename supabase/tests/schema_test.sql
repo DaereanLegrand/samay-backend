@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(903);
+SELECT plan(909);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -1741,6 +1741,13 @@ SELECT ok(
      FROM pg_proc WHERE proname = 'decline_minigame_invite'),
     'decline_minigame_invite sets search_path = "" (I-31 pattern)'
 );
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%DELETE FROM public.minigame_invites%'
+       AND pg_get_functiondef(p.oid) LIKE '%invitee_id = v_current_user%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%status = ''''declined''''%'
+     FROM pg_proc p WHERE proname = 'decline_minigame_invite'),
+    'decline_minigame_invite DELETEs the row (a declined invite is indistinguishable from one that never existed — 2026-09-02 user directive)'
+);
 SELECT function_privs_are('public', 'decline_minigame_invite', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
     'decline_minigame_invite is not PUBLIC-EXECUTABLE');
 SELECT function_privs_are('public', 'decline_minigame_invite', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
@@ -3260,6 +3267,10 @@ SELECT ok(
             WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='minigame_sessions'),
     'minigame_sessions joins supabase_realtime (participant join/remove streams live to the lobby, 180_minigame_lobby)'
 );
+SELECT ok(
+    (SELECT relreplident = 'f' FROM pg_class WHERE oid = 'public.minigame_sessions'::regclass),
+    'minigame_sessions has REPLICA IDENTITY FULL (full-row realtime UPDATE payloads — the roster diff always has the authoritative participants array, 2026-09-02)'
+);
 
 -- SECTION 49h: Minigame game-state at creation (migration
 -- 191_minigame_game_state_at_creation, 2026-08-30) — the minigame_game_state
@@ -3938,6 +3949,47 @@ SELECT ok(
        OR pg_get_functiondef(p.oid) LIKE '%r.reaction IS NULL%'
      FROM pg_proc p WHERE proname = 'finish_minigame_game'),
     'finish_minigame_game async settlement accounts for reactor passers (204_minigame_pasar)'
+);
+
+-- ======================================================================
+-- SECTION 49p: decline-deletes + re-invite + roster realtime hardening
+-- (2026-09-02 user directive).
+--   * decline_minigame_invite DELETEs the invite row — a declined invite is
+--     indistinguishable from one that never existed, so the (session_id,
+--     invitee_id) UNIQUE is free for a fresh re-invite and
+--     invite_minigame_players fires the INSERT-time notification unchanged.
+--   * invite_minigame_players therefore needs NO re-open logic: a declined
+--     (or kicked, row deleted by remove_minigame_participant) invitee is a
+--     plain fresh INSERT on re-invite; only a still-PENDING row is skipped
+--     idempotently (205 idempotency preserved).
+--   * minigame_sessions carries REPLICA IDENTITY FULL so participant
+--     join/remove UPDATE payloads ship the whole row — the roster diff has
+--     the authoritative participants array even on a fresh match.
+-- ======================================================================
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%DELETE FROM public.minigame_invites%'
+       AND pg_get_functiondef(p.oid) LIKE '%''declined''%'
+       AND pg_get_functiondef(p.oid) LIKE '%invitee_id = v_current_user%'
+     FROM pg_proc p WHERE proname = 'decline_minigame_invite'),
+    'decline_minigame_invite deletes the row and stays invitee-only (49p)'
+);
+SELECT ok(
+    (SELECT NOT pg_get_functiondef(p.oid) LIKE '%UPDATE public.minigame_invites%'
+       AND pg_get_functiondef(p.oid) LIKE '%DELETE FROM public.minigame_invites%'
+     FROM pg_proc p WHERE proname = 'decline_minigame_invite'),
+    'decline_minigame_invite never UPDATEs a row (only DELETE — no lingering declined state, 49p)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%t.v <> ALL (v_pending)%'
+       AND pg_get_functiondef(p.oid) LIKE '%INSERT INTO public.minigame_invites%'
+       AND NOT pg_get_functiondef(p.oid) LIKE '%ON CONFLICT%'
+       AND NOT pg_get_functiondef(p.oid) LIKE '%UPDATE public.minigame_invites%'
+     FROM pg_proc p WHERE proname = 'invite_minigame_players'),
+    'invite_minigame_players stays pure-INSERT idempotent (skips only pending; a deleted row is re-insertable, 49p)'
+);
+SELECT ok(
+    (SELECT relreplident = 'f' FROM pg_class WHERE oid = 'public.minigame_sessions'::regclass),
+    'minigame_sessions has REPLICA IDENTITY FULL (realtime roster reliability, 49p)'
 );
 
 SELECT * FROM finish();
