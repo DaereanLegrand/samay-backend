@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(909);
+SELECT plan(921);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3949,6 +3949,65 @@ SELECT ok(
        OR pg_get_functiondef(p.oid) LIKE '%r.reaction IS NULL%'
      FROM pg_proc p WHERE proname = 'finish_minigame_game'),
     'finish_minigame_game async settlement accounts for reactor passers (204_minigame_pasar)'
+);
+
+-- ======================================================================
+-- SECTION 49q: round-key request ring (migration 206_minigame_key_request,
+-- 2026-09-03) — a participant whose device-local E2EE state was WIPED
+-- (reinstall / data clear regenerated the identity) flags itself in
+-- `state.key_requests` (jsonb uuid[] INSIDE the game-state payload), and ANY
+-- other participant who still holds the key history re-wraps `K_0..K_<latest>`
+-- to its CURRENT identity via the existing bundle seam, then clears the flag.
+-- The server only brokers the marker — it never sees a round key.
+--   * request_minigame_round_keys(uuid) — participant-only, active session;
+--     appends the caller to state.key_requests (dedup).
+--   * resolve_minigame_key_request(uuid, uuid) — participant-only, never
+--     self-clear; removes p_requester from state.key_requests (idempotent).
+-- ======================================================================
+SELECT has_function('request_minigame_round_keys', ARRAY['uuid'],
+    'request_minigame_round_keys(p_session_id uuid) exists (206_minigame_key_request)');
+SELECT is_definer('public', 'request_minigame_round_keys', ARRAY['uuid']::name[],
+    'request_minigame_round_keys is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'request_minigame_round_keys'),
+    'request_minigame_round_keys sets search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'request_minigame_round_keys', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'request_minigame_round_keys is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'request_minigame_round_keys', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'request_minigame_round_keys is authenticated-EXECUTABLE');
+SELECT has_function('resolve_minigame_key_request', ARRAY['uuid', 'uuid'],
+    'resolve_minigame_key_request(p_session_id uuid, p_requester uuid) exists (206_minigame_key_request)');
+SELECT is_definer('public', 'resolve_minigame_key_request', ARRAY['uuid', 'uuid']::name[],
+    'resolve_minigame_key_request is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'resolve_minigame_key_request'),
+    'resolve_minigame_key_request sets search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'resolve_minigame_key_request', ARRAY['uuid', 'uuid']::name[], 'public', ARRAY[]::name[],
+    'resolve_minigame_key_request is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'resolve_minigame_key_request', ARRAY['uuid', 'uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'resolve_minigame_key_request is authenticated-EXECUTABLE');
+
+-- The request RPC appends to the state payload's key_requests marker and is
+-- participant-only on the WRITE path (an invitee / group member never flags).
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%key_requests%'
+       AND pg_get_functiondef(p.oid) LIKE '%auth.uid() = ANY (v_participants)%'
+       AND pg_get_functiondef(p.oid) LIKE '%''not_allowed''%'
+     FROM pg_proc p WHERE proname = 'request_minigame_round_keys'),
+    'request_minigame_round_keys appends to state.key_requests with a participant-only gate (206)'
+);
+-- The resolve RPC never lets a requester clear its own flag and removes only
+-- the served peer from the marker (idempotent array rebuild).
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%self_resolve%'
+       AND pg_get_functiondef(p.oid) LIKE '%jsonb_array_elements%'
+       AND pg_get_functiondef(p.oid) LIKE '%auth.uid() = p_requester%'
+     FROM pg_proc p WHERE proname = 'resolve_minigame_key_request'),
+    'resolve_minigame_key_request is never self-clearing and rebuilds the marker without the served peer (206)'
 );
 
 -- ======================================================================
