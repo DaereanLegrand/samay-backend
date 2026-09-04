@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(921);
+SELECT plan(934);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -4049,6 +4049,128 @@ SELECT ok(
 SELECT ok(
     (SELECT relreplident = 'f' FROM pg_class WHERE oid = 'public.minigame_sessions'::regclass),
     'minigame_sessions has REPLICA IDENTITY FULL (realtime roster reliability, 49p)'
+);
+
+-- ======================================================================
+-- SECTION 49r: per-tap reaction event (migration 207_minigame_reaction_event,
+-- 2026-09-03) — a same-emoji RE-TAP leaves state.reactions byte-identical
+-- (the upsert keeps created_at), so the realtime mirror cannot signal "tapped
+-- again" on its own. Both reaction RPCs therefore bump a monotonic
+-- state.reactions_seq and record the last tap as state.reactions_event
+-- {seq, round, reaction, voter_id} in the SAME atomic UPDATE that rewrites
+-- the mirror — every device gets the exact tapped emoji per tap even when the
+-- tally content is unchanged. The seq is session-global (never reset on round
+-- advance); a round change is carried by the event's own `round` field.
+-- ======================================================================
+-- submit_minigame_reaction (current by_turns round): writes the seq path.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''{reactions_seq}''%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction bumps state.reactions_seq (207_minigame_reaction_event)'
+);
+-- …and records reactions_event with a seq key.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''{reactions_event}''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''seq''%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction records state.reactions_event.seq (207_minigame_reaction_event)'
+);
+-- …and the event carries the tapped emoji + voter (NULL for a reactor Pasar).
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''voter_id''%'
+       AND pg_get_functiondef(p.oid) LIKE '%NULLIF(p_reaction, ''pasar'')%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction records the tapped emoji + voter in reactions_event (NULL on Pasar, 207_minigame_reaction_event)'
+);
+-- The seq bumps monotonically on EVERY write (a same-emoji re-tap included):
+-- the inline formula is (old seq) + 1 evaluated against the pre-UPDATE row.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%COALESCE((state ->> ''reactions_seq'')::bigint, 0)) + 1%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction increments reactions_seq monotonically on every write (207_minigame_reaction_event)'
+);
+
+-- react_minigame_round (async reactable round): the same seq + event writes.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''{reactions_seq}''%'
+       AND pg_get_functiondef(p.oid) LIKE '%COALESCE((state ->> ''reactions_seq'')::bigint, 0)) + 1%'
+     FROM pg_proc p WHERE proname = 'react_minigame_round'),
+    'react_minigame_round bumps state.reactions_seq monotonically (async reactable rounds, 207_minigame_reaction_event)'
+);
+-- …records reactions_event carrying the TARGET round (p_round — the async
+-- round may differ from the session''s current round).
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''{reactions_event}''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''round'', p_round%'
+       AND pg_get_functiondef(p.oid) LIKE '%''voter_id''%'
+     FROM pg_proc p WHERE proname = 'react_minigame_round'),
+    'react_minigame_round records reactions_event with the target round + voter (207_minigame_reaction_event)'
+);
+
+-- _minigame_advance_round does NOT reset the sequence: it clears only the
+-- round-scoped reactions/answer fields, leaving reactions_seq monotonic and
+-- the last event in place (a stale round-N event is ignored client-side by
+-- its own `round` field). Asserting the advance never touches the counter.
+SELECT ok(
+    (SELECT NOT pg_get_functiondef(p.oid) LIKE '%reactions_seq%'
+     FROM pg_proc p WHERE proname = '_minigame_advance_round'),
+    '_minigame_advance_round never resets reactions_seq (session-global counter, 207_minigame_reaction_event)'
+);
+
+-- The reaction RPC bodies keep their exact 204 gates (the 207 change is
+-- additive — the seq/event fold into the existing mirror UPDATE). Spot-check
+-- that submit_minigame_reaction still gates on the subject answer.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%answer_pending%'
+       AND pg_get_functiondef(p.oid) LIKE '%own_round%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction keeps the 202 answer-first + own-round gates (207 is additive)'
+);
+
+-- Emoji ↔ Pasar exclusivity (2026-09-04): once a voter has acted they cannot
+-- switch to the OTHER mode. submit_minigame_reaction rejects a Pasar when the
+-- voter already emoji-reacted (already_reacted) and rejects an emoji when the
+-- voter already passed (already_passed); emoji → emoji re-votes stay allowed.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%already_reacted%'
+       AND pg_get_functiondef(p.oid) LIKE '%already_passed%'
+       AND pg_get_functiondef(p.oid) LIKE '%SELECT reaction INTO v_existing%'
+       AND pg_get_functiondef(p.oid) LIKE '%p_reaction = ''pasar''%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction enforces emoji ↔ Pasar exclusivity per voter (207, 2026-09-04)'
+);
+-- The mirror carries the per-voter action map (voter_id → emoji wire or null
+-- for a pass) inside state.reactions.<subject>, so clients grey out the OTHER
+-- mode once a voter has acted.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''voters''%'
+       AND pg_get_functiondef(p.oid) LIKE '%jsonb_object_agg(r.voter_id::text, r.reaction)%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction mirrors the per-voter action map under state.reactions.<subject>.voters (207, 2026-09-04)'
+);
+
+-- react_minigame_round (async reactable round): the SAME exclusivity gates +
+-- per-voter voters mirror.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%already_reacted%'
+       AND pg_get_functiondef(p.oid) LIKE '%already_passed%'
+       AND pg_get_functiondef(p.oid) LIKE '%SELECT reaction INTO v_existing%'
+     FROM pg_proc p WHERE proname = 'react_minigame_round'),
+    'react_minigame_round enforces emoji ↔ Pasar exclusivity per voter (async reactable rounds, 207, 2026-09-04)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''voters''%'
+       AND pg_get_functiondef(p.oid) LIKE '%jsonb_object_agg(r.voter_id::text, r.reaction)%'
+     FROM pg_proc p WHERE proname = 'react_minigame_round'),
+    'react_minigame_round mirrors the per-voter action map (async reactable rounds, 207, 2026-09-04)'
+);
+-- Emoji → emoji re-votes remain possible (the upsert replaces): assert the RPC
+-- still upserts rather than rejecting a same-mode change.
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%ON CONFLICT (session_id, round, voter_id) DO UPDATE%'
+       AND pg_get_functiondef(p.oid) LIKE '%SET reaction = EXCLUDED.reaction%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction still allows emoji → emoji re-votes (upsert replaces, 207 exclusivity is cross-mode only)'
 );
 
 SELECT * FROM finish();
