@@ -13,8 +13,9 @@ set -uo pipefail
 #      host row can never be removed (host_not_removable)
 #   F) converting an ACCEPTED guest to staff is seat-neutral: their invite is
 #      deleted and the seat moves into event_hosts (no double count)
-#   G) host AND staff are attendees: rotate_qr_token issues them a token
-#      (no longer not_invited) and a host/staff can validate a staff token
+#   G) host AND staff are attendees: get_my_code issues staff B their own
+#      attendance code (no not_invited) and host A validates it once with
+#      validate_code (event_attendances marker; re-validate → already_scanned)
 #   H) event_hosts RLS: host/staff read all rows of their event; an outsider
 #      reads zero rows
 #
@@ -132,12 +133,12 @@ EV1=$(echo "$resp" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 if [ -n "$EV1" ]; then ok "Host A created event $EV1 at capacity 7"; else nok "Event EV1 create failed: $(echo "$resp" | head -c 160)"; fi
 
 # EV2 is created INSIDE the QR activation window (starts 10 min ago, ends in
-# 2h) so rotate_qr_token / validate_qr_token accept it.
+# 2h) so get_my_code / validate_code accept it.
 START2=$(date -u -v-10M +%Y-%m-%dT%H:%M:%SZ)
 END2=$(date -u -v+2H +%Y-%m-%dT%H:%M:%SZ)
 resp=$(rpc_create_event "$TOKEN_A" "$BASE,\"p_starts_at\":\"$START2\",\"p_ends_at\":\"$END2\",\"p_capacity\":7}")
 EV2=$(echo "$resp" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-if [ -n "$EV2" ]; then ok "Host A created live-window event $EV2 (rotate/validate usable)"; else nok "Event EV2 create failed: $(echo "$resp" | head -c 160)"; fi
+if [ -n "$EV2" ]; then ok "Host A created live-window event $EV2 (code issue/validate usable)"; else nok "Event EV2 create failed: $(echo "$resp" | head -c 160)"; fi
 
 # =========================================================================
 # TEST A — host designates B + C as staff; host/staff read the roster
@@ -340,7 +341,7 @@ if [ -n "$EV2" ]; then
 fi
 
 # =========================================================================
-# TEST G — staff/host are attendees: rotate + validate their own pattern
+# TEST G — staff/host are attendees: issue + validate their own code
 # =========================================================================
 h1 "TEST G — staff generate + are validated (attendee parity)"
 if [ -n "$EV2" ]; then
@@ -351,20 +352,20 @@ if [ -n "$EV2" ]; then
     nok "B designate on EV2 failed: $(echo "$resp" | head -c 160)"
   fi
 
-  resp=$(auth_rpc "$TOKEN_B" "rotate_qr_token" "{\"p_event_id\":\"$EV2\"}")
-  if echo "$resp" | grep -q '"status":"ok"' && echo "$resp" | grep -q '"token":"'; then
-    ok "Staff B can rotate an attendance token (no not_invited)"
+  resp=$(auth_rpc "$TOKEN_B" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
+  if echo "$resp" | grep -q '"status":"ok"' && echo "$resp" | grep -q '"code":"'; then
+    ok "Staff B can issue an attendance code (no not_invited)"
   else
-    nok "Staff B rotate failed: $(echo "$resp" | head -c 160)"
+    nok "Staff B get_my_code failed: $(echo "$resp" | head -c 160)"
   fi
-  BTOKEN=$(echo "$resp" | grep -o '"token":"[^"]*"' | head -1 | cut -d'"' -f4)
+  BCODE=$(echo "$resp" | grep -o '"code":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-  if [ -n "$BTOKEN" ]; then
-    resp=$(auth_rpc "$TOKEN_A" "validate_qr_token" "{\"p_event_id\":\"$EV2\",\"p_token\":\"$BTOKEN\"}")
+  if [ -n "$BCODE" ]; then
+    resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$BCODE\"}")
     if echo "$resp" | grep -q '"status":"confirmed"'; then
-      ok "Host A validated staff B's token (confirmed)"
+      ok "Host A validated staff B's code (confirmed)"
     else
-      nok "validate staff token failed: $(echo "$resp" | head -c 160)"
+      nok "validate staff code failed: $(echo "$resp" | head -c 160)"
     fi
 
     att=$(svc_get "event_attendances?event_id=eq.$EV2&user_id=eq.$UUID_B&select=id")
@@ -374,19 +375,19 @@ if [ -n "$EV2" ]; then
       nok "event_attendances missing for B: $att"
     fi
 
-    resp=$(auth_rpc "$TOKEN_A" "validate_qr_token" "{\"p_event_id\":\"$EV2\",\"p_token\":\"$BTOKEN\"}")
+    resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$BCODE\"}")
     if echo "$resp" | grep -q 'already_scanned'; then
-      ok "Re-validating the same token → already_scanned (no double count)"
+      ok "Re-validating the same code → already_scanned (no double count)"
     else
       nok "Re-validate not blocked: $(echo "$resp" | head -c 160)"
     fi
   fi
 
-  resp=$(auth_rpc "$TOKEN_A" "rotate_qr_token" "{\"p_event_id\":\"$EV2\"}")
+  resp=$(auth_rpc "$TOKEN_A" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
   if echo "$resp" | grep -q '"status":"ok"'; then
-    ok "Host A (host role) can also generate their own attendance token"
+    ok "Host A (host role) can also generate their own attendance code"
   else
-    nok "Host A rotate failed: $(echo "$resp" | head -c 160)"
+    nok "Host A get_my_code failed: $(echo "$resp" | head -c 160)"
   fi
 fi
 

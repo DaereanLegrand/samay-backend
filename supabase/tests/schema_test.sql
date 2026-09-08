@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(953);
+SELECT plan(940);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -38,7 +38,8 @@ SELECT has_type('preshard_remainder_action');
 SELECT has_type('feature_request_status');
 
 -- ============================================================
--- SECTION 3: Tables — original 30 (migration 20260510000001)
+-- SECTION 3: Tables — 29 (migration 20260510000001);
+-- the legacy static QR-token table was removed 2026-09-08 (superseded by the code flow)
 -- ============================================================
 SELECT has_table('users');
 SELECT has_table('cosmetics');
@@ -52,7 +53,6 @@ SELECT has_table('group_rank_snapshots');
 SELECT has_table('events');
 SELECT has_table('event_hosts');
 SELECT has_table('event_invites');
-SELECT has_table('event_qr_tokens');
 SELECT has_table('event_attendances');
 SELECT has_table('event_photos');
 SELECT has_table('event_photo_likes');
@@ -319,57 +319,50 @@ SELECT ok(
 );
 
 -- ============================================================
--- SECTION 21d: Events swirl attendance code (migration
--- 060_events/07_swirl.sql, 2026-09-08) — authenticator-style 24-hex code
--- derived from a per-attendee secret + 30-s window (event_swirl_code), issued
--- to attendees (get_my_swirl_code) and validated host/staff-only ONCE
--- (validate_swirl_code). Behavior: opt-027. Here: presence + ACL posture
+-- SECTION 21d: Events attendance code (migration
+-- 060_events/07_code.sql, 2026-09-08) — authenticator-style 24-hex code
+-- derived from a per-attendee secret + 30-s window (event_code), issued
+-- to attendees (get_my_code) and validated host/staff-only ONCE
+-- (validate_code). Behavior: opt-027. Here: presence + ACL posture
 -- (SECURITY DEFINER, PUBLIC revoked, zero client table grants) + FORCE RLS.
 -- ============================================================
-SELECT has_table('event_swirl_keys',
-    'event_swirl_keys exists (060_events/07 swirl secrets)');
+SELECT has_table('event_code_keys',
+    'event_code_keys exists (060_events/07 code secrets)');
 SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_swirl_keys'::regclass),
-    'event_swirl_keys has FORCE ROW LEVEL SECURITY (secrets RPC-only)'
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_code_keys'::regclass),
+    'event_code_keys has FORCE ROW LEVEL SECURITY (secrets RPC-only)'
 );
 SELECT ok(
     (SELECT count(*)::int FROM pg_policies
-     WHERE schemaname = 'public' AND tablename = 'event_swirl_keys') = 0,
-    'event_swirl_keys has NO client RLS policies (only the SECURITY DEFINER RPC touches it)'
+     WHERE schemaname = 'public' AND tablename = 'event_code_keys') = 0,
+    'event_code_keys has NO client RLS policies (only the SECURITY DEFINER RPC touches it)'
 );
 SELECT ok(
     (SELECT count(*)::int FROM pg_constraint
-     WHERE conname = 'event_swirl_keys_event_id_user_id_key') = 1,
-    'event_swirl_keys has a UNIQUE (event_id, user_id) key (one secret per attendee)'
+     WHERE conname = 'event_code_keys_event_id_user_id_key') = 1,
+    'event_code_keys has a UNIQUE (event_id, user_id) key (one secret per attendee)'
 );
-SELECT has_function('event_swirl_code', ARRAY['text', 'bigint'],
-    'event_swirl_code(text, bigint) exists (060_events/07 code derivation)');
-SELECT has_function('get_my_swirl_code', ARRAY['uuid'],
-    'get_my_swirl_code(uuid) exists (060_events/07 swirl issue)');
-SELECT has_function('validate_swirl_code', ARRAY['uuid', 'text'],
-    'validate_swirl_code(uuid, text) exists (060_events/07 swirl validate)');
+SELECT has_function('event_code', ARRAY['text', 'bigint'],
+    'event_code(text, bigint) exists (060_events/07 code derivation)');
+SELECT has_function('get_my_code', ARRAY['uuid'],
+    'get_my_code(uuid) exists (060_events/07 code issue)');
+SELECT has_function('validate_code', ARRAY['uuid', 'text'],
+    'validate_code(uuid, text) exists (060_events/07 code validate)');
 
 SELECT ok(
     (SELECT count(*) FROM pg_catalog.pg_proc p
      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public'
-       AND p.proname IN ('event_swirl_code', 'get_my_swirl_code',
-                         'validate_swirl_code')
+       AND p.proname IN ('event_code', 'get_my_code',
+                         'validate_code')
        AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 3,
-    'swirl RPC family has no PUBLIC/anon EXECUTE (authenticated/service_role only)'
+    'code RPC family has no PUBLIC/anon EXECUTE (authenticated/service_role only)'
 );
 
-SELECT has_trigger('event_invites', 'swirl_key_purge_on_invite_delete',
-    'event_invites purge trigger removes swirl keys on invite-row deletion (declined/converted)');
-SELECT has_trigger('event_hosts', 'swirl_key_purge_on_host_delete',
-    'event_hosts purge trigger removes swirl keys on staff removal');
-
--- ============================================================
--- SECTION 22: RLS Policies — event_qr_tokens (Edge Function writes only)
--- ============================================================
-SELECT policies_are('event_qr_tokens', ARRAY[
-    'eqt_read_own'
-], 'event_qr_tokens has SELECT-only RLS (Edge Function writes)');
+SELECT has_trigger('event_invites', 'code_key_purge_on_invite_delete',
+    'event_invites purge trigger removes code keys on invite-row deletion (declined/converted)');
+SELECT has_trigger('event_hosts', 'code_key_purge_on_host_delete',
+    'event_hosts purge trigger removes code keys on staff removal');
 
 -- ============================================================
 -- SECTION 23: RLS Policies — event_attendances
@@ -688,8 +681,8 @@ SELECT ok(
     'admin_users has the system admin row (from auto-applied seed-config)'
 );
 SELECT ok(
-    (SELECT count(*) = 47 FROM app_config),
-    'app_config has 47 tuning rows (from auto-applied seed-config; +3 minigame player caps, 2026-08-27, +4 events capacity keys 2026-09-08, +1 swirl.window_seconds 2026-09-08)'
+    (SELECT count(*) = 43 FROM app_config),
+    'app_config has 43 tuning rows (from auto-applied seed-config; +3 minigame player caps, 2026-08-27, +4 events capacity keys 2026-09-08, +1 code.window_seconds 2026-09-08, −3 legacy QR-token/config rows removed 2026-09-08)'
 );
 
 -- ============================================================
@@ -819,10 +812,6 @@ SELECT ok(
 SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_invites'::regclass),
     'event_invites has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_qr_tokens'::regclass),
-    'event_qr_tokens has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
 );
 SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_attendances'::regclass),
@@ -1282,24 +1271,6 @@ SELECT ok(
 );
 
 -- ============================================================
--- SECTION 44: QR validate RPC (migration 20260809000005, agent I-57) —
--- validate_qr_token: SECURITY DEFINER + SET search_path = '' + FOR UPDATE
--- serialization, PUBLIC EXECUTE revoked, authenticated-only EXECUTE
--- (I-31 hardening pattern; QRSC validator contract).
--- ============================================================
-SELECT has_function('validate_qr_token', ARRAY['uuid', 'text'],
-    'validate_qr_token(p_event_id uuid, p_token text) exists (migration 20260809000005)');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'validate_qr_token'),
-    'validate_qr_token sets search_path = '''' (migration 20260809000005)'
-);
-SELECT function_privs_are('public', 'validate_qr_token', ARRAY['uuid', 'text']::name[], 'public', ARRAY[]::name[],
-    'validate_qr_token is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'validate_qr_token', ARRAY['uuid', 'text']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'validate_qr_token is authenticated-EXECUTABLE');
-
--- ============================================================
 -- SECTION 45: create_minigame_session RPC (migration 20260809000006,
 -- agent I-63 + 140_minigame_invites 2026-08-26) — GMCR/GWAG foundation:
 -- SECURITY DEFINER + SET search_path = '' (I-31 pattern), membership gate
@@ -1422,11 +1393,12 @@ SELECT ok(
 --        exact column projection + types + jsonb defaults; fetch_prekey_bundle
 --        SECURITY DEFINER (is_definer — Section 41 asserts search_path +
 --        grants only).
---   46e. RPC completeness: validate_qr_token SECURITY DEFINER (Section 44
---        gap — prosecdef was not asserted); is_group_member helper
+--   46e. RPC completeness: is_group_member helper
 --        (20260809000002 §11.1) existence + SECURITY DEFINER + STABLE +
 --        search_path hardening (used by create_minigame_session and
---        group_members_read_same).
+--        group_members_read_same). (The legacy QR-token prosecdef check that
+--        lived here was removed 2026-09-08 with the static QR-token surface —
+--        the code family's posture is pinned in Section 21d.)
 -- ============================================================
 
 -- 46a: trigger → function bindings
@@ -1557,8 +1529,6 @@ SELECT is_definer('public', 'fetch_prekey_bundle', ARRAY['uuid'],
     'fetch_prekey_bundle is SECURITY DEFINER');
 
 -- 46e: RPC completeness
-SELECT is_definer('public', 'validate_qr_token', ARRAY['uuid', 'text'],
-    'validate_qr_token is SECURITY DEFINER (migration 20260809000005)');
 SELECT has_function('is_group_member', ARRAY['uuid'],
     'is_group_member(p_group_id uuid) exists (migration 20260809000002 §11.1)');
 SELECT is_definer('public', 'is_group_member', ARRAY['uuid'],
@@ -1662,7 +1632,7 @@ SELECT ok(
      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public'
        AND p.proname IN ('donate_shards_to_group', 'fetch_prekey_bundle',
-                         'validate_qr_token', 'create_minigame_session',
+                         'validate_code', 'create_minigame_session',
                          'join_minigame_session', 'finish_minigame_game')
        AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) = 6,
     'authenticated can EXECUTE the 6 client RPCs'
@@ -2249,22 +2219,6 @@ SELECT ok(
     (SELECT count(*) FROM cron.job WHERE jobname = 'ranks-recalculate') = 1,
     'ranks-recalculate cron job exists (GRCK Step 0, ranks.update_cron)'
 );
-
--- ============================================================
--- SECTION 53: rotate_qr_token RPC (migration 20260814000004)
--- ============================================================
-SELECT has_function('rotate_qr_token', ARRAY['uuid'],
-    'rotate_qr_token(p_event_id uuid) exists');
-SELECT is((SELECT prosecdef FROM pg_proc WHERE proname = 'rotate_qr_token'),
-    true, 'rotate_qr_token is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY(proconfig) FROM pg_proc WHERE proname = 'rotate_qr_token'),
-    'rotate_qr_token sets search_path = '''' (I-31 pattern)'
-);
-SELECT function_privs_are('public', 'rotate_qr_token', ARRAY['uuid']::name[], 'anon', ARRAY[]::name[],
-    'anon has NO EXECUTE on rotate_qr_token');
-SELECT function_privs_are('public', 'rotate_qr_token', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'rotate_qr_token is authenticated-EXECUTABLE');
 
 -- ============================================================
 -- SECTION 54: Notification producer triggers (migration 20260814000005)

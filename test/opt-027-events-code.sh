@@ -1,12 +1,12 @@
 #!/bin/bash
 set -uo pipefail
 # =============================================================================
-# [OPT-027] Events — Bespoke animated swirl attendance code (Stage 4)
-# Verifies the swirl attendance-code surface (060_events/07_swirl.sql):
-#   A) get_my_swirl_code issues a per-attendee secret + a deterministic 24-hex
+# [OPT-027] Events — Rotating attendance code (Stage 4)
+# Verifies the attendance-code surface (060_events/07_code.sql):
+#   A) get_my_code issues a per-attendee secret + a deterministic 24-hex
 #      code for the current 30-s time window (authenticator style)
 #   B) the code is STABLE within the window and DIFFERS across users; the
-#      event_swirl_code helper reproduces the server code and the next window
+#      event_code helper reproduces the server code and the next window
 #      yields a different code
 #   C) gates: an outsider is not_invited for issue; only host/staff can
 #      validate (not_host); a non-attendee cannot get a code
@@ -20,7 +20,7 @@ set -uo pipefail
 # SELF-CONTAINED (opt-024/025/026 pattern): creates its own auth users +
 # events with fixed UUIDs; cleans up on exit.
 #
-# Usage: bash test/opt-027-events-swirl.sh
+# Usage: bash test/opt-027-events-code.sh
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
@@ -127,10 +127,10 @@ else
   nok "Failed to get auth tokens"
 fi
 
-BASE='{"p_name":"Swirl","p_description":null,"p_type":"casual","p_cover_url":null,"p_group_id":null,"p_location_name":null,"p_location_lat":null,"p_location_lng":null,"p_join_mode":"open","p_preshards_pool":0,"p_preshards_cap_per_user":null,"p_preshards_remainder_action":null'
+BASE='{"p_name":"Code","p_description":null,"p_type":"casual","p_cover_url":null,"p_group_id":null,"p_location_name":null,"p_location_lat":null,"p_location_lng":null,"p_join_mode":"open","p_preshards_pool":0,"p_preshards_cap_per_user":null,"p_preshards_remainder_action":null'
 
-# EV2 is created INSIDE the swirl activation window (starts 10 min ago, ends in
-# 2h) so swirl codes issue + validate.
+# EV2 is created INSIDE the code activation window (starts 10 min ago, ends in
+# 2h) so codes issue + validate.
 START2=$(date -u -v-10M +%Y-%m-%dT%H:%M:%SZ)
 END2=$(date -u -v+2H +%Y-%m-%dT%H:%M:%SZ)
 resp=$(rpc_create_event "$TOKEN_A" "$BASE,\"p_starts_at\":\"$START2\",\"p_ends_at\":\"$END2\",\"p_capacity\":7}")
@@ -174,12 +174,12 @@ if [ -n "$EV2" ]; then
 fi
 
 # =========================================================================
-# TEST A/B — swirl code issuance + determinism + per-user distinctness
+# TEST A/B — code issuance + determinism + per-user distinctness
 # =========================================================================
-h1 "TEST A/B — get_my_swirl_code (24-hex, 30-s window, deterministic)"
+h1 "TEST A/B — get_my_code (24-hex, 30-s window, deterministic)"
 SECRET_A="" CODE_A="" SECRET_H="" CODE_H="" CTR_A=""
 if [ -n "$EV2" ]; then
-  resp=$(auth_rpc "$TOKEN_A" "get_my_swirl_code" "{\"p_event_id\":\"$EV2\"}")
+  resp=$(auth_rpc "$TOKEN_A" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
   CODE_A=$(field_of "$resp" code)
   SECRET_A=$(field_of "$resp" secret)
   CTR_A=$(num_field_of "$resp" counter)
@@ -189,10 +189,10 @@ if [ -n "$EV2" ]; then
      && [ "$WS" = "30" ] && [ -n "$CTR_A" ]; then
     ok "Host A got a 24-hex code + 64-hex secret (30-s window, counter $CTR_A)"
   else
-    nok "get_my_swirl_code(A) malformed: $resp"
+    nok "get_my_code(A) malformed: $resp"
   fi
 
-  resp2=$(auth_rpc "$TOKEN_A" "get_my_swirl_code" "{\"p_event_id\":\"$EV2\"}")
+  resp2=$(auth_rpc "$TOKEN_A" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
   CODE_A2=$(field_of "$resp2" code)
   if [ -n "$CODE_A" ] && [ "$CODE_A" = "$CODE_A2" ]; then
     ok "Two calls inside the same window return the SAME code (no rotation churn)"
@@ -200,7 +200,7 @@ if [ -n "$EV2" ]; then
     nok "Code changed between same-window calls: $CODE_A vs $CODE_A2"
   fi
 
-  resp=$(auth_rpc "$TOKEN_H" "get_my_swirl_code" "{\"p_event_id\":\"$EV2\"}")
+  resp=$(auth_rpc "$TOKEN_H" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
   CODE_H=$(field_of "$resp" code)
   SECRET_H=$(field_of "$resp" secret)
   if echo "$CODE_H" | grep -qE '^[0-9a-f]{24}$' && [ "$CODE_H" != "$CODE_A" ] \
@@ -211,19 +211,19 @@ if [ -n "$EV2" ]; then
   fi
 
   if [ -n "$SECRET_A" ] && [ -n "$CTR_A" ]; then
-    derived=$(svc_rpc "event_swirl_code" "{\"p_secret\":\"$SECRET_A\",\"p_counter\":$CTR_A}")
+    derived=$(svc_rpc "event_code" "{\"p_secret\":\"$SECRET_A\",\"p_counter\":$CTR_A}")
     deriv_code=$(echo "$derived" | tr -d '"')
     if echo "$derived" | grep -qE '^"?[0-9a-f]{24}"?$'; then
-      ok "event_swirl_code helper reproduces a 24-hex code"
+      ok "event_code helper reproduces a 24-hex code"
     else
-      nok "event_swirl_code helper output odd: $derived"
+      nok "event_code helper output odd: $derived"
     fi
     if [ "$deriv_code" = "$CODE_A" ]; then
       ok "Server-derived code for window $CTR_A == the code the app shows (server-authoritative)"
     else
       nok "Derivation mismatch: helper=$deriv_code code=$CODE_A"
     fi
-    next=$(svc_rpc "event_swirl_code" "{\"p_secret\":\"$SECRET_A\",\"p_counter\":$((CTR_A + 1))}")
+    next=$(svc_rpc "event_code" "{\"p_secret\":\"$SECRET_A\",\"p_counter\":$((CTR_A + 1))}")
     next_code=$(echo "$next" | tr -d '"')
     if [ -n "$next_code" ] && [ "$next_code" != "$CODE_A" ]; then
       ok "The NEXT 30-s window derives a DIFFERENT code (regeneration by time)"
@@ -238,21 +238,21 @@ fi
 # =========================================================================
 h1 "TEST C — outsider/attendee gates"
 if [ -n "$EV2" ] && [ -n "$CODE_A" ]; then
-  resp=$(auth_rpc "$TOKEN_X" "get_my_swirl_code" "{\"p_event_id\":\"$EV2\"}")
+  resp=$(auth_rpc "$TOKEN_X" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
   if echo "$resp" | grep -q 'not_invited'; then
-    ok "Outsider X cannot issue a swirl code (not_invited)"
+    ok "Outsider X cannot issue a code (not_invited)"
   else
     nok "X issue not rejected: $resp"
   fi
 
-  resp=$(auth_rpc "$TOKEN_X" "validate_swirl_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_A\"}")
+  resp=$(auth_rpc "$TOKEN_X" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_A\"}")
   if echo "$resp" | grep -q 'not_host'; then
     ok "Outsider X cannot validate a code (not_host)"
   else
     nok "X validate not rejected: $resp"
   fi
 
-  resp=$(auth_rpc "$TOKEN_H" "validate_swirl_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_A\"}")
+  resp=$(auth_rpc "$TOKEN_H" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_A\"}")
   if echo "$resp" | grep -q 'not_host'; then
     ok "Attendee H (not host/staff) cannot validate (not_host)"
   else
@@ -265,13 +265,13 @@ fi
 # =========================================================================
 h1 "TEST D — not_in_window on a future event"
 if [ -n "$EVF" ]; then
-  resp=$(auth_rpc "$TOKEN_A" "get_my_swirl_code" "{\"p_event_id\":\"$EVF\"}")
+  resp=$(auth_rpc "$TOKEN_A" "get_my_code" "{\"p_event_id\":\"$EVF\"}")
   if echo "$resp" | grep -q 'not_in_window'; then
     ok "Issue before the activation window → not_in_window"
   else
     nok "Future-event issue not blocked: $resp"
   fi
-  resp=$(auth_rpc "$TOKEN_A" "validate_swirl_code" "{\"p_event_id\":\"$EVF\",\"p_code\":\"000000000000000000000000\"}")
+  resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EVF\",\"p_code\":\"000000000000000000000000\"}")
   if echo "$resp" | grep -q 'not_in_window'; then
     ok "Validate before the activation window → not_in_window"
   else
@@ -285,18 +285,18 @@ fi
 h1 "TEST E — staff attendee parity + single confirmation"
 CODE_B=""
 if [ -n "$EV2" ]; then
-  resp=$(auth_rpc "$TOKEN_B" "get_my_swirl_code" "{\"p_event_id\":\"$EV2\"}")
+  resp=$(auth_rpc "$TOKEN_B" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
   CODE_B=$(field_of "$resp" code)
   if echo "$CODE_B" | grep -qE '^[0-9a-f]{24}$'; then
-    ok "Staff B (no invite row) issues their own swirl code"
+    ok "Staff B (no invite row) issues their own code"
   else
     nok "Staff B code issue failed: $resp"
   fi
 
   if [ -n "$CODE_B" ]; then
-    resp=$(auth_rpc "$TOKEN_A" "validate_swirl_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_B\"}")
+    resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_B\"}")
     if echo "$resp" | grep -q '"status":"confirmed"'; then
-      ok "Host A confirmed staff B from their swirl code (confirmed)"
+      ok "Host A confirmed staff B from their code (confirmed)"
     else
       nok "Confirm staff B failed: $resp"
     fi
@@ -306,7 +306,7 @@ if [ -n "$EV2" ]; then
     else
       nok "event_attendances missing for B: $att"
     fi
-    resp=$(auth_rpc "$TOKEN_A" "validate_swirl_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_B\"}")
+    resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_B\"}")
     if echo "$resp" | grep -q 'already_scanned'; then
       ok "Re-validating B's same-window code → already_scanned (single confirmation)"
     else
@@ -320,9 +320,9 @@ fi
 # =========================================================================
 h1 "TEST F — guest confirmation (invite → attended)"
 if [ -n "$EV2" ] && [ -n "$CODE_H" ]; then
-  resp=$(auth_rpc "$TOKEN_A" "validate_swirl_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_H\"}")
+  resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_H\"}")
   if echo "$resp" | grep -q '"status":"confirmed"'; then
-    ok "Host A confirmed guest H from their swirl code (confirmed)"
+    ok "Host A confirmed guest H from their code (confirmed)"
   else
     nok "Confirm guest H failed: $resp"
   fi
@@ -332,17 +332,17 @@ if [ -n "$EV2" ] && [ -n "$CODE_H" ]; then
   else
     nok "H invite not attended: $inv"
   fi
-  resp=$(auth_rpc "$TOKEN_A" "validate_swirl_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_H\"}")
+  resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$CODE_H\"}")
   if echo "$resp" | grep -q 'already_scanned'; then
     ok "Re-validating H's same-window code → already_scanned"
   else
     nok "H re-validate not blocked: $resp"
   fi
 
-  fresh=$(auth_rpc "$TOKEN_H" "get_my_swirl_code" "{\"p_event_id\":\"$EV2\"}")
+  fresh=$(auth_rpc "$TOKEN_H" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
   FRESH_H=$(field_of "$fresh" code)
   if [ -n "$FRESH_H" ]; then
-    resp=$(auth_rpc "$TOKEN_A" "validate_swirl_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$FRESH_H\"}")
+    resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$FRESH_H\"}")
     if echo "$resp" | grep -q 'already_scanned'; then
       ok "A fresh H code (new window) still cannot double-confirm (already_scanned)"
     else
@@ -356,13 +356,13 @@ fi
 # =========================================================================
 h1 "TEST G — invalid codes rejected"
 if [ -n "$EV2" ]; then
-  resp=$(auth_rpc "$TOKEN_A" "validate_swirl_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"nothex!\"}")
+  resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"nothex!\"}")
   if echo "$resp" | grep -q 'invalid_code'; then
     ok "Malformed code rejected (invalid_code)"
   else
     nok "Malformed code accepted: $resp"
   fi
-  resp=$(auth_rpc "$TOKEN_A" "validate_swirl_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"aaaaaaaaaaaaaaaaaaaaaaaa\"}")
+  resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"aaaaaaaaaaaaaaaaaaaaaaaa\"}")
   if echo "$resp" | grep -q 'invalid_code'; then
     ok "Well-formed but unmatched code rejected (invalid_code)"
   else
@@ -371,13 +371,13 @@ if [ -n "$EV2" ]; then
 fi
 
 # =========================================================================
-# TEST H — the swirl secret never leaks through REST
+# TEST H — the code secret never leaks through REST
 # =========================================================================
 h1 "TEST H — secret is not readable via REST"
 if [ -n "$EV2" ] && [ -n "$SECRET_A" ]; then
-  leak=$(auth_get "$TOKEN_A" "event_swirl_keys?event_id=eq.$EV2")
+  leak=$(auth_get "$TOKEN_A" "event_code_keys?event_id=eq.$EV2")
   if ! echo "$leak" | grep -q "$SECRET_A"; then
-    ok "Attendee A cannot read swirl secrets through the REST surface"
+    ok "Attendee A cannot read code secrets through the REST surface"
   else
     nok "Secret leaked via REST: $leak"
   fi

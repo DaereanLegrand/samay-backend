@@ -19,10 +19,8 @@ INSERT INTO app_config (key, value, description, default_value) VALUES
     ('economy.preshards_vip_monthly', '10000', 'Preshards granted monthly to VIP users', '10000'),
     ('economy.group_donation_min', '1', 'Minimum shards a user can donate to a group in one action', '1'),
     ('economy.group_shard_boost_days', '14', 'Days a group shard donation (boost) remains active before expiring', '14'),
-    ('qr.activation_minutes_before', '30', 'Minutes before event start that attendance QR activates', '30'),
-    ('qr.token_valid_seconds', '15', 'Server-side token validity window (seconds)', '15'),
-    ('qr.display_countdown_seconds', '15', 'Countdown shown to user before QR visually refreshes', '15'),
-    ('swirl.window_seconds', '30', 'Time window (seconds) each swirl attendance code is valid (authenticator style)', '30'),
+    ('qr.activation_minutes_before', '30', 'Minutes before event start that the attendance code activates', '30'),
+    ('code.window_seconds', '30', 'Time window (seconds) each attendance code is valid (authenticator style)', '30'),
     ('chat.message_cap', '1000', 'Max messages retained per chat (rolling window)', '1000'),
     ('events.free_daily_limit', '3', 'Max events a free user can create per day', '3'),
     ('events.pro_daily_limit', '10', 'Max events a PRO user can create per day', '10'),
@@ -55,8 +53,6 @@ INSERT INTO app_config (key, value, description, default_value) VALUES
     ('events.status_poll_cron', '* * * * *', 'Cron expression for polling upcoming -> live and live -> ended transitions', '* * * * *'),
     ('security.max_events_per_minute', '3', 'Rapid creation flag threshold', '3'),
     ('security.max_concurrent_event_invites', '50', 'Max pending invites per user', '50'),
-    ('security.max_qr_token_rotations', '20', 'Max rotations per user per event', '20'),
-    ('security.max_failed_qr_validations', '5', 'Max failed attempts per token', '5'),
     ('app.search_debounce_ms', '300', 'Debounce delay (ms) for search/invite screens (PERF-05/L-24; fallback 300 in lib)', '300'),
     ('ranking.anonymize_names', 'true', 'Censor user names on the public ranking unless the profile is public', 'true')
 ON CONFLICT (key) DO NOTHING;
