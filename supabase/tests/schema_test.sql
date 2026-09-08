@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(943);
+SELECT plan(953);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -317,6 +317,52 @@ SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_hosts'::regclass),
     'event_hosts keeps FORCE ROW LEVEL SECURITY (RPC writes still RLS-checked reads)'
 );
+
+-- ============================================================
+-- SECTION 21d: Events swirl attendance code (migration
+-- 060_events/07_swirl.sql, 2026-09-08) — authenticator-style 24-hex code
+-- derived from a per-attendee secret + 30-s window (event_swirl_code), issued
+-- to attendees (get_my_swirl_code) and validated host/staff-only ONCE
+-- (validate_swirl_code). Behavior: opt-027. Here: presence + ACL posture
+-- (SECURITY DEFINER, PUBLIC revoked, zero client table grants) + FORCE RLS.
+-- ============================================================
+SELECT has_table('event_swirl_keys',
+    'event_swirl_keys exists (060_events/07 swirl secrets)');
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_swirl_keys'::regclass),
+    'event_swirl_keys has FORCE ROW LEVEL SECURITY (secrets RPC-only)'
+);
+SELECT ok(
+    (SELECT count(*)::int FROM pg_policies
+     WHERE schemaname = 'public' AND tablename = 'event_swirl_keys') = 0,
+    'event_swirl_keys has NO client RLS policies (only the SECURITY DEFINER RPC touches it)'
+);
+SELECT ok(
+    (SELECT count(*)::int FROM pg_constraint
+     WHERE conname = 'event_swirl_keys_event_id_user_id_key') = 1,
+    'event_swirl_keys has a UNIQUE (event_id, user_id) key (one secret per attendee)'
+);
+SELECT has_function('event_swirl_code', ARRAY['text', 'bigint'],
+    'event_swirl_code(text, bigint) exists (060_events/07 code derivation)');
+SELECT has_function('get_my_swirl_code', ARRAY['uuid'],
+    'get_my_swirl_code(uuid) exists (060_events/07 swirl issue)');
+SELECT has_function('validate_swirl_code', ARRAY['uuid', 'text'],
+    'validate_swirl_code(uuid, text) exists (060_events/07 swirl validate)');
+
+SELECT ok(
+    (SELECT count(*) FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname IN ('event_swirl_code', 'get_my_swirl_code',
+                         'validate_swirl_code')
+       AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 3,
+    'swirl RPC family has no PUBLIC/anon EXECUTE (authenticated/service_role only)'
+);
+
+SELECT has_trigger('event_invites', 'swirl_key_purge_on_invite_delete',
+    'event_invites purge trigger removes swirl keys on invite-row deletion (declined/converted)');
+SELECT has_trigger('event_hosts', 'swirl_key_purge_on_host_delete',
+    'event_hosts purge trigger removes swirl keys on staff removal');
 
 -- ============================================================
 -- SECTION 22: RLS Policies — event_qr_tokens (Edge Function writes only)
@@ -642,8 +688,8 @@ SELECT ok(
     'admin_users has the system admin row (from auto-applied seed-config)'
 );
 SELECT ok(
-    (SELECT count(*) = 46 FROM app_config),
-    'app_config has 46 tuning rows (from auto-applied seed-config; +3 minigame player caps, 2026-08-27, +4 events capacity keys 2026-09-08)'
+    (SELECT count(*) = 47 FROM app_config),
+    'app_config has 47 tuning rows (from auto-applied seed-config; +3 minigame player caps, 2026-08-27, +4 events capacity keys 2026-09-08, +1 swirl.window_seconds 2026-09-08)'
 );
 
 -- ============================================================

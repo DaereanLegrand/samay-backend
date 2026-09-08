@@ -22,6 +22,7 @@ INSERT INTO app_config (key, value, description, default_value) VALUES
     ('qr.activation_minutes_before', '30', 'Minutes before event start that attendance QR activates', '30'),
     ('qr.token_valid_seconds', '15', 'Server-side token validity window (seconds)', '15'),
     ('qr.display_countdown_seconds', '15', 'Countdown shown to user before QR visually refreshes', '15'),
+    ('swirl.window_seconds', '30', 'Time window (seconds) each swirl attendance code is valid (authenticator style)', '30'),
     ('chat.message_cap', '1000', 'Max messages retained per chat (rolling window)', '1000'),
     ('events.free_daily_limit', '3', 'Max events a free user can create per day', '3'),
     ('events.pro_daily_limit', '10', 'Max events a PRO user can create per day', '10'),
