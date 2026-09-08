@@ -11,8 +11,11 @@ set -uo pipefail
 #      (BEFORE INSERT OR UPDATE OF preshards_pool; pool>0 -> true)
 #   D) RLS read access: non-member CANNOT see a group-scoped event;
 #      member CAN; public event (group_id IS NULL) readable by anyone
-#   E) host insert into event_hosts works (creator branch of
-#      ep_insert_host, migration 20260809000002 §8); non-creator denied
+#   E) event_hosts writes are RPC-only (ep_insert_host dropped in
+#      060_events/06_staff.sql — the legacy creator/host INSERT branch
+#      bypassed the capacity contract; create_event + designate_event_staff
+#      are the only writers now), so a direct INSERT is RLS-denied even for
+#      the creator; the host row is seeded via service_role for TEST F
 #   F) update event as host works (events_update_host); non-host
 #      update is RLS-filtered away
 #
@@ -247,24 +250,18 @@ else
 fi
 
 # =========================================================================
-# TEST E — event_hosts insert (creator branch, ep_insert_host)
+# TEST E — event_hosts writes are RPC-only (ep_insert_host dropped)
 # =========================================================================
-h1 "TEST E — host insert into event_hosts"
+h1 "TEST E — direct event_hosts INSERT denied (RPC-only writes)"
 
 resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/event_hosts" -H "apikey: $ANON_KEY" \
   -H "Authorization: Bearer $TOKEN_A" -H "Content-Type: application/json" \
   -H "Prefer: return=minimal" \
   -d "{\"event_id\":\"$EV_JUERGA\",\"user_id\":\"$UUID_A\",\"role\":\"host\"}")
-if [ -z "$resp" ]; then
-  ok "Creator A inserted own event_hosts row (ep_insert_host creator branch)"
+if echo "$resp" | grep -qE '(42501|violates row-level security|PGRST)'; then
+  ok "Creator A direct INSERT denied (ep_insert_host dropped — RPC-only writes)"
 else
-  nok "Creator A host insert failed: $(echo "$resp" | head -c 80)"
-fi
-cnt=$(svc_get "event_hosts?event_id=eq.$EV_JUERGA&user_id=eq.$UUID_A&select=id" | grep -c '"id"' || true)
-if [ "$cnt" -ge 1 ]; then
-  ok "event_hosts row persisted"
-else
-  nok "event_hosts row missing"
+  nok "Creator A host insert NOT denied: $(echo "$resp" | head -c 80)"
 fi
 
 resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/event_hosts" -H "apikey: $ANON_KEY" \
@@ -272,9 +269,19 @@ resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/event_hosts" -H "apikey: $ANON_KEY
   -H "Prefer: return=minimal" \
   -d "{\"event_id\":\"$EV_JUERGA\",\"user_id\":\"$UUID_B\",\"role\":\"staff\"}")
 if echo "$resp" | grep -qE '(42501|violates row-level security|PGRST)'; then
-  ok "Non-creator B CANNOT insert host row (RLS)"
+  ok "Non-creator B direct INSERT denied (no INSERT policy on event_hosts)"
 else
   nok "Non-creator B host insert NOT denied: $(echo "$resp" | head -c 80)"
+fi
+
+# Seed A's host row via service_role (bypasses RLS) so TEST F's host UPDATE
+# (events_update_host needs an event_hosts row) still exercises the host path.
+resp=$(svc_post "event_hosts" "{\"event_id\":\"$EV_JUERGA\",\"user_id\":\"$UUID_A\",\"role\":\"host\"}")
+cnt=$(svc_get "event_hosts?event_id=eq.$EV_JUERGA&user_id=eq.$UUID_A&select=id" | grep -c '"id"' || true)
+if [ "$cnt" -ge 1 ]; then
+  ok "Host row seeded via service_role (create_event/designate RPC writers)"
+else
+  nok "event_hosts row missing"
 fi
 
 # =========================================================================

@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(938);
+SELECT plan(943);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -245,10 +245,17 @@ SELECT policies_are('events', ARRAY[
 -- ============================================================
 -- SECTION 20: RLS Policies — event_hosts (no recursion)
 -- ============================================================
+-- 060_events/06_staff.sql (Stage 3): ep_insert_host was DROPPED (its
+-- creator/host INSERT branch bypassed the frozen capacity — event_hosts
+-- writes are exclusively the create_event / designate_event_staff SECURITY
+-- DEFINER RPCs). ep_read_event_access opens the FULL roster to the event's
+-- hosts/staff (via the security-barrier event_host_access_view, because a
+-- direct self-referencing SELECT policy recurses infinitely); ep_read_own
+-- stays for everyone else.
 SELECT policies_are('event_hosts', ARRAY[
     'ep_read_own',
-    'ep_insert_host'
-], 'event_hosts has expected RLS policies (no recursion)');
+    'ep_read_event_access'
+], 'event_hosts has expected RLS policies (ep_insert_host dropped — RPC-only writes)');
 
 -- ============================================================
 -- SECTION 21: RLS Policies — event_invites
@@ -280,6 +287,35 @@ SELECT ok(
                          'decline_event_invite')
        AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 3,
     'event invite RPC family has no PUBLIC/anon EXECUTE (authenticated + service_role only)'
+);
+
+-- ============================================================
+-- SECTION 21c: Events staff RPC family + roster view (migration
+-- 060_events/06_staff.sql, 2026-09-08) — the host designates/removes staff
+-- (capacity + conversion semantics) and hosts/staff read the full roster.
+-- Behavior: opt-026. Here: presence + ACL posture (SECURITY DEFINER, PUBLIC
+-- revoked) + the recursion-free roster view exists.
+-- ============================================================
+SELECT has_function('designate_event_staff', ARRAY['uuid', 'uuid[]'],
+    'designate_event_staff(uuid, uuid[]) exists (060_events/06 staff)');
+SELECT has_function('remove_event_staff', ARRAY['uuid', 'uuid'],
+    'remove_event_staff(uuid, uuid) exists (060_events/06 staff)');
+
+SELECT ok(
+    (SELECT count(*) FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname IN ('designate_event_staff', 'remove_event_staff')
+       AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 2,
+    'staff RPC family has no PUBLIC/anon EXECUTE (authenticated + service_role only)'
+);
+
+SELECT has_view('public', 'event_host_access_view',
+    'event_host_access_view (security-barrier event_hosts projection) exists — recursion-free roster read');
+
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_hosts'::regclass),
+    'event_hosts keeps FORCE ROW LEVEL SECURITY (RPC writes still RLS-checked reads)'
 );
 
 -- ============================================================
