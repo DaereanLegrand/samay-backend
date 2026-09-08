@@ -46,6 +46,13 @@ nok() { echo "  ❌ FAIL: $1"; ((FAIL++)); }
 info(){ echo "    ℹ️  $1"; }
 h1()  { echo ""; echo "━━━ $1 ━━━"; }
 
+# PostgREST RPC responses carry whitespace after JSON punctuation (`{"id": "…"}`);
+# greps in this file expect compact JSON, so normalize before use (opt-016
+# pattern — added 2026-09-08 after the reset surfaced the spacing drift).
+norm_json() {
+  sed -E 's/([][,{}:])[[:space:]]+/\1/g; s/[[:space:]]+([][,{}:])/\1/g'
+}
+
 anon_post() {
   curl -s -X POST "$SUPABASE_URL/rest/v1/$1" -H "apikey: $ANON_KEY" \
     -H "Content-Type: application/json" -H "Prefer: return=minimal" -d "$2"
@@ -71,12 +78,12 @@ svc_delete_quiet() {
 rpc_create_event() {
   local t=$1; shift
   curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/create_event" -H "apikey: $ANON_KEY" \
-    -H "Authorization: Bearer $t" -H "Content-Type: application/json" -d "$1"
+    -H "Authorization: Bearer $t" -H "Content-Type: application/json" -d "$1" | norm_json
 }
 rpc_seats_used() {
   curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/event_seats_used" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Content-Type: application/json" \
-    -d "$1"
+    -d "$1" | norm_json
 }
 
 h1 "SETUP: users A (free) + B (outsider)"

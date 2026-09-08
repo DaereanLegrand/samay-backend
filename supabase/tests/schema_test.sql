@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(934);
+SELECT plan(938);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -255,8 +255,32 @@ SELECT policies_are('event_hosts', ARRAY[
 -- ============================================================
 SELECT policies_are('event_invites', ARRAY[
     'ei_read_own',
-    'ei_update_own'
-], 'event_invites has expected RLS policies');
+    'ei_read_event_access'
+], 'event_invites has expected RLS policies (own-row read + host/staff event-read; ei_update_own dropped for the SECURITY DEFINER invite family)');
+
+-- ============================================================
+-- SECTION 21b: Events manual invites RPC family (migration
+-- 060_events/05_manual_invites.sql, 2026-09-08) — host invites specific
+-- guests (search + multi-select), invitees accept/decline, frozen capacity
+-- is seat-reservation-enforced while inviting. Behavior: opt-025. Here:
+-- presence + ACL posture (SECURITY DEFINER, PUBLIC revoked).
+-- ============================================================
+SELECT has_function('invite_event_guests', ARRAY['uuid', 'uuid[]'],
+    'invite_event_guests(uuid, uuid[]) exists (060_events/05 manual invites)');
+SELECT has_function('accept_event_invite', ARRAY['uuid'],
+    'accept_event_invite(uuid) exists (060_events/05 manual invites)');
+SELECT has_function('decline_event_invite', ARRAY['uuid'],
+    'decline_event_invite(uuid) exists (060_events/05 manual invites)');
+
+SELECT ok(
+    (SELECT count(*) FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname IN ('invite_event_guests', 'accept_event_invite',
+                         'decline_event_invite')
+       AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 3,
+    'event invite RPC family has no PUBLIC/anon EXECUTE (authenticated + service_role only)'
+);
 
 -- ============================================================
 -- SECTION 22: RLS Policies — event_qr_tokens (Edge Function writes only)
@@ -582,8 +606,8 @@ SELECT ok(
     'admin_users has the system admin row (from auto-applied seed-config)'
 );
 SELECT ok(
-    (SELECT count(*) = 42 FROM app_config),
-    'app_config has 42 tuning rows (from auto-applied seed-config; +3 minigame player caps, 2026-08-27)'
+    (SELECT count(*) = 46 FROM app_config),
+    'app_config has 46 tuning rows (from auto-applied seed-config; +3 minigame player caps, 2026-08-27, +4 events capacity keys 2026-09-08)'
 );
 
 -- ============================================================
