@@ -158,8 +158,8 @@ CREATE POLICY eph_insert_own ON public.event_photos FOR INSERT WITH CHECK (((upl
           WHERE ((group_members.group_id = events.group_id) AND (group_members.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
            FROM public.event_invites
           WHERE ((event_invites.event_id = events.id) AND (event_invites.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
-           FROM public.event_promotores
-          WHERE ((event_promotores.event_id = events.id) AND (event_promotores.user_id = auth.uid()))))))))));
+           FROM public.event_hosts
+          WHERE ((event_hosts.event_id = events.id) AND (event_hosts.user_id = auth.uid()))))))))));
 
 
 --
@@ -174,8 +174,8 @@ CREATE POLICY eph_read_access ON public.event_photos FOR SELECT USING ((EXISTS (
           WHERE ((group_members.group_id = events.group_id) AND (group_members.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
            FROM public.event_invites
           WHERE ((event_invites.event_id = events.id) AND (event_invites.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
-           FROM public.event_promotores
-          WHERE ((event_promotores.event_id = events.id) AND (event_promotores.user_id = auth.uid())))))))));
+           FROM public.event_hosts
+          WHERE ((event_hosts.event_id = events.id) AND (event_hosts.user_id = auth.uid())))))))));
 
 
 --
@@ -200,8 +200,8 @@ CREATE POLICY epl_insert_own ON public.event_photo_likes FOR INSERT WITH CHECK (
                   WHERE ((group_members.group_id = events.group_id) AND (group_members.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
                    FROM public.event_invites
                   WHERE ((event_invites.event_id = events.id) AND (event_invites.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
-                   FROM public.event_promotores
-                  WHERE ((event_promotores.event_id = events.id) AND (event_promotores.user_id = auth.uid())))))))))))));
+                   FROM public.event_hosts
+                  WHERE ((event_hosts.event_id = events.id) AND (event_hosts.user_id = auth.uid())))))))))))));
 
 
 --
@@ -218,8 +218,8 @@ CREATE POLICY epl_read_access ON public.event_photo_likes FOR SELECT USING ((EXI
                   WHERE ((group_members.group_id = events.group_id) AND (group_members.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
                    FROM public.event_invites
                   WHERE ((event_invites.event_id = events.id) AND (event_invites.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
-                   FROM public.event_promotores
-                  WHERE ((event_promotores.event_id = events.id) AND (event_promotores.user_id = auth.uid()))))))))))));
+                   FROM public.event_hosts
+                  WHERE ((event_hosts.event_id = events.id) AND (event_hosts.user_id = auth.uid()))))))))))));
 
 
 --

@@ -67,7 +67,7 @@ BEGIN
 
     -- Participant gate: the messages_read_participant set (direct → chat
     -- participants; group → group_members via chats.reference_id; event →
-    -- event_invites OR event_promotores). Cross-chat ids are ignored by the
+    -- event_invites OR event_hosts). Cross-chat ids are ignored by the
     -- chat_id predicate below.
     IF NOT EXISTS (
         SELECT 1 FROM public.chats
@@ -86,7 +86,7 @@ BEGIN
                     WHERE event_id = chats.reference_id AND user_id = v_me
                 )
                 OR EXISTS (
-                    SELECT 1 FROM public.event_promotores
+                    SELECT 1 FROM public.event_hosts
                     WHERE event_id = chats.reference_id AND user_id = v_me
                 )
             ))

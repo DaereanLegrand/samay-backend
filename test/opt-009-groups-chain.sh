@@ -6,11 +6,11 @@ set -uo pipefail
 # Verifies the group membership/leadership contract end-to-end:
 #   A) member-list visibility joins through user_search_view (all members'
 #      usernames resolve — the `users` join is RLS-blocked to the caller)
-#   B) chain of command: only the promotor manages promotors; co_promotors
-#      manage members/co_promotors; members manage nothing
-#   C) transfer_promotor RPC: promotor-only, atomic role swap
-#   D) promotor banned -> leadership auto-passes to a co_promotor
-#   E) promotor account soft-deleted -> leadership auto-passes to an active
+#   B) chain of command: only the host manages hosts; staff
+#      manage members/staff; members manage nothing
+#   C) transfer_host RPC: host-only, atomic role swap
+#   D) host banned -> leadership auto-passes to a staff
+#   E) host account soft-deleted -> leadership auto-passes to an active
 #      member (invited members are skipped)
 #
 # Usage: bash test/opt-009-groups-chain.sh
@@ -134,14 +134,14 @@ else
 fi
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Chain Test\",\"description\":\"d\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}" >/dev/null
-add_member "$TA" "$UUID_A" "promotor" "active"
+add_member "$TA" "$UUID_A" "host" "active"
 add_member "$TA" "$UUID_B" "member" "active"
 add_member "$TA" "$UUID_C" "member" "active"
 add_member "$TA" "$UUID_D" "member" "invited"
-if [ "$(role_of "$TA" "$UUID_A")" = "promotor" ]; then
-  ok "creator is promotor"
+if [ "$(role_of "$TA" "$UUID_A")" = "host" ]; then
+  ok "creator is host"
 else
-  nok "creator not promotor"
+  nok "creator not host"
 fi
 
 # ---------------------------------------------------------------------------
@@ -160,50 +160,50 @@ fi
 # ---------------------------------------------------------------------------
 h1 "B) chain of command (roles)"
 # ---------------------------------------------------------------------------
-# A promotes B to co_promotor
-auth_patch "$TA" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_B" '{"role":"co_promotor"}' >/dev/null
-if [ "$(role_of "$TA" "$UUID_B")" = "co_promotor" ]; then
-  ok "promotor promotes member -> co_promotor"
+# A promotes B to staff
+auth_patch "$TA" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_B" '{"role":"staff"}' >/dev/null
+if [ "$(role_of "$TA" "$UUID_B")" = "staff" ]; then
+  ok "host promotes member -> staff"
 else
   nok "promote member failed"
 fi
 
-# B (co_promotor) tries to demote the promotor -> MUST be rejected
+# B (staff) tries to demote the host -> MUST be rejected
 auth_patch "$TB" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_A" '{"role":"member"}' >/dev/null
-if [ "$(role_of "$TA" "$UUID_A")" = "promotor" ]; then
-  ok "co_promotor CANNOT demote the promotor (role unchanged)"
+if [ "$(role_of "$TA" "$UUID_A")" = "host" ]; then
+  ok "staff CANNOT demote the host (role unchanged)"
 else
-  nok "co_promotor demoted the promotor — chain of command broken"
+  nok "staff demoted the host — chain of command broken"
 fi
 
-# B (co_promotor) tries to kick the promotor -> MUST be rejected
+# B (staff) tries to kick the host -> MUST be rejected
 auth_delete "$TB" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_A" >/dev/null
-if [ "$(role_of "$TA" "$UUID_A")" = "promotor" ]; then
-  ok "co_promotor CANNOT kick the promotor (row survives)"
+if [ "$(role_of "$TA" "$UUID_A")" = "host" ]; then
+  ok "staff CANNOT kick the host (row survives)"
 else
-  nok "co_promotor kicked the promotor — chain of command broken"
+  nok "staff kicked the host — chain of command broken"
 fi
 
-# B (co_promotor) promotes member C -> allowed
-auth_patch "$TB" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_C" '{"role":"co_promotor"}' >/dev/null
-if [ "$(role_of "$TA" "$UUID_C")" = "co_promotor" ]; then
-  ok "co_promotor promotes member -> co_promotor"
+# B (staff) promotes member C -> allowed
+auth_patch "$TB" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_C" '{"role":"staff"}' >/dev/null
+if [ "$(role_of "$TA" "$UUID_C")" = "staff" ]; then
+  ok "staff promotes member -> staff"
 else
   nok "co-promote member failed"
 fi
 
-# B (co_promotor) demotes co_promotor C back -> allowed
+# B (staff) demotes staff C back -> allowed
 auth_patch "$TB" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_C" '{"role":"member"}' >/dev/null
 if [ "$(role_of "$TA" "$UUID_C")" = "member" ]; then
-  ok "co_promotor demotes co_promotor -> member"
+  ok "staff demotes staff -> member"
 else
   nok "co-demote failed"
 fi
 
-# B (co_promotor) kicks member C -> allowed
+# B (staff) kicks member C -> allowed
 auth_delete "$TB" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_C" >/dev/null
 if [ "$(role_of "$TA" "$UUID_C")" = "" ]; then
-  ok "co_promotor kicks member"
+  ok "staff kicks member"
 else
   nok "co-kick failed"
 fi
@@ -219,49 +219,49 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-h1 "C) transfer_promotor RPC"
+h1 "C) transfer_host RPC"
 # ---------------------------------------------------------------------------
-OUT=$(auth_rpc "$TB" "transfer_promotor" "{\"p_group_id\":\"$GROUP_ID\",\"p_new_promotor_id\":\"$UUID_C\"}")
-if [ "$(role_of "$TA" "$UUID_B")" = "co_promotor" ] && [ "$(role_of "$TA" "$UUID_A")" = "promotor" ]; then
-  ok "non-promotor transfer rejected (roles unchanged)"
+OUT=$(auth_rpc "$TB" "transfer_host" "{\"p_group_id\":\"$GROUP_ID\",\"p_new_host_id\":\"$UUID_C\"}")
+if [ "$(role_of "$TA" "$UUID_B")" = "staff" ] && [ "$(role_of "$TA" "$UUID_A")" = "host" ]; then
+  ok "non-host transfer rejected (roles unchanged)"
 else
-  nok "co_promotor transferred leadership: $OUT"
+  nok "staff transferred leadership: $OUT"
 fi
 
-OUT=$(auth_rpc "$TA" "transfer_promotor" "{\"p_group_id\":\"$GROUP_ID\",\"p_new_promotor_id\":\"$UUID_C\"}")
-if [ "$(role_of "$TA" "$UUID_C")" = "promotor" ] && [ "$(role_of "$TA" "$UUID_A")" = "co_promotor" ]; then
-  ok "transfer swaps roles atomically (C promotor, A co_promotor)"
+OUT=$(auth_rpc "$TA" "transfer_host" "{\"p_group_id\":\"$GROUP_ID\",\"p_new_host_id\":\"$UUID_C\"}")
+if [ "$(role_of "$TA" "$UUID_C")" = "host" ] && [ "$(role_of "$TA" "$UUID_A")" = "staff" ]; then
+  ok "transfer swaps roles atomically (C host, A staff)"
 else
   nok "transfer failed: $OUT"
 fi
 
-# Deterministic state for D: A (co_promotor) demotes B to member
+# Deterministic state for D: A (staff) demotes B to member
 auth_patch "$TA" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_B" '{"role":"member"}' >/dev/null
 if [ "$(role_of "$TA" "$UUID_B")" = "member" ]; then
-  ok "co_promotor A demotes co_promotor B (state prep)"
+  ok "staff A demotes staff B (state prep)"
 else
   nok "state prep demote failed"
 fi
 
 # ---------------------------------------------------------------------------
-h1 "D) promotor banned -> leadership passes to a co_promotor"
+h1 "D) host banned -> leadership passes to a staff"
 # ---------------------------------------------------------------------------
 svc_patch "users?id=eq.$UUID_C" '{"banned_at":"2026-08-16T00:00:00Z","ban_reason":"opt009 test"}' >/dev/null
-if [ "$(role_of "$TA" "$UUID_A")" = "promotor" ] && [ "$(role_of "$TA" "$UUID_C")" = "member" ]; then
-  ok "banned promotor demoted to member; co_promotor A auto-promoted"
+if [ "$(role_of "$TA" "$UUID_A")" = "host" ] && [ "$(role_of "$TA" "$UUID_C")" = "member" ]; then
+  ok "banned host demoted to member; staff A auto-promoted"
 else
   nok "ban chain: A=$(role_of "$TA" "$UUID_A") C=$(role_of "$TA" "$UUID_C")"
 fi
 svc_patch "users?id=eq.$UUID_C" '{"banned_at":null}' >/dev/null
 
 # ---------------------------------------------------------------------------
-h1 "E) promotor account soft-deleted -> leadership passes to an active member"
+h1 "E) host account soft-deleted -> leadership passes to an active member"
 # ---------------------------------------------------------------------------
-# A (promotor) promotes B to co_promotor first (deterministic successor)
-auth_patch "$TA" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_B" '{"role":"co_promotor"}' >/dev/null
+# A (host) promotes B to staff first (deterministic successor)
+auth_patch "$TA" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_B" '{"role":"staff"}' >/dev/null
 svc_patch "users?id=eq.$UUID_A" '{"deleted_at":"2026-08-16T00:00:00Z"}' >/dev/null
-if [ "$(role_of "$TA" "$UUID_B")" = "promotor" ] && [ "$(role_of "$TA" "$UUID_D")" = "member" ]; then
-  ok "deleted promotor's leadership passed to co_promotor B (invited D skipped)"
+if [ "$(role_of "$TA" "$UUID_B")" = "host" ] && [ "$(role_of "$TA" "$UUID_D")" = "member" ]; then
+  ok "deleted host's leadership passed to staff B (invited D skipped)"
 else
   nok "delete chain: B=$(role_of "$TA" "$UUID_B") D=$(role_of "$TA" "$UUID_D")"
 fi

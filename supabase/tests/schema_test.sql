@@ -50,7 +50,7 @@ SELECT has_table('group_members');
 SELECT has_table('group_shard_contributions');
 SELECT has_table('group_rank_snapshots');
 SELECT has_table('events');
-SELECT has_table('event_promotores');
+SELECT has_table('event_hosts');
 SELECT has_table('event_invites');
 SELECT has_table('event_qr_tokens');
 SELECT has_table('event_attendances');
@@ -211,26 +211,26 @@ SELECT policies_are('friendships', ARRAY[
 SELECT policies_are('groups', ARRAY[
     'groups_read_member',
     'groups_read_own',
-    'groups_update_promotor',
+    'groups_update_host',
     'groups_insert_own',
     'groups_delete_own'
 ], 'groups has expected RLS policies');
 
 -- ============================================================
 -- SECTION 18: RLS Policies — group_members (no recursion)
--- Migration 20260809000002 (I-32): insert_creator → insert_promotor
--- (creator self-insert + promotor invites), read_same restored via
+-- Migration 20260809000002 (I-32): insert_creator → insert_host
+-- (creator self-insert + host invites), read_same restored via
 -- SECURITY DEFINER is_group_member() (member lists), update_own_status
 -- added (invitees accept their own invite; role pinned to 'member').
 -- ============================================================
 SELECT policies_are('group_members', ARRAY[
     'group_members_read_own',
     'group_members_read_same',
-    'group_members_insert_promotor',
+    'group_members_insert_host',
     'group_members_delete_own',
-    'group_members_delete_promotor',
+    'group_members_delete_host',
     'group_members_update_own_status',
-    'group_members_update_promotor'
+    'group_members_update_host'
 ], 'group_members has expected RLS policies (no recursion)');
 
 -- ============================================================
@@ -238,17 +238,17 @@ SELECT policies_are('group_members', ARRAY[
 -- ============================================================
 SELECT policies_are('events', ARRAY[
     'events_read_access',
-    'events_update_promotor',
+    'events_update_host',
     'events_insert_own'
 ], 'events has expected RLS policies');
 
 -- ============================================================
--- SECTION 20: RLS Policies — event_promotores (no recursion)
+-- SECTION 20: RLS Policies — event_hosts (no recursion)
 -- ============================================================
-SELECT policies_are('event_promotores', ARRAY[
+SELECT policies_are('event_hosts', ARRAY[
     'ep_read_own',
-    'ep_insert_promotor'
-], 'event_promotores has expected RLS policies (no recursion)');
+    'ep_insert_host'
+], 'event_hosts has expected RLS policies (no recursion)');
 
 -- ============================================================
 -- SECTION 21: RLS Policies — event_invites
@@ -707,8 +707,8 @@ SELECT ok(
     'events has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_promotores'::regclass),
-    'event_promotores has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_hosts'::regclass),
+    'event_hosts has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
 );
 SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_invites'::regclass),
@@ -1402,8 +1402,8 @@ SELECT col_is_unique('event_attendances', ARRAY['event_id', 'user_id'],
     'event_attendances has UNIQUE (event_id, user_id)');
 SELECT col_is_unique('user_cosmetics', ARRAY['user_id', 'cosmetic_id'],
     'user_cosmetics has UNIQUE (user_id, cosmetic_id)');
-SELECT col_is_unique('event_promotores', ARRAY['event_id', 'user_id'],
-    'event_promotores has UNIQUE (event_id, user_id) (opt-002 promotor contract)');
+SELECT col_is_unique('event_hosts', ARRAY['event_id', 'user_id'],
+    'event_hosts has UNIQUE (event_id, user_id) (opt-002 host contract)');
 SELECT col_is_unique('event_invites', ARRAY['event_id', 'user_id'],
     'event_invites has UNIQUE (event_id, user_id)');
 SELECT col_is_unique('chat_participants', ARRAY['chat_id', 'user_id'],
@@ -2208,52 +2208,52 @@ SELECT has_trigger('feature_requests', 'notify_feature_request_trigger',
 -- ============================================================
 -- SECTION 55: Group chain of command (migration 20260816000001)
 -- ============================================================
-SELECT has_function('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[],
-    'transfer_promotor exists (OPT-009 — atomic promotor handover)');
-SELECT is_definer('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[],
-    'transfer_promotor is SECURITY DEFINER');
+SELECT has_function('public', 'transfer_host', ARRAY['uuid', 'uuid']::name[],
+    'transfer_host exists (OPT-009 — atomic host handover)');
+SELECT is_definer('public', 'transfer_host', ARRAY['uuid', 'uuid']::name[],
+    'transfer_host is SECURITY DEFINER');
 SELECT ok(
     (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'transfer_promotor'),
-    'transfer_promotor sets search_path = '''' (I-31 pattern)'
+     FROM pg_proc WHERE proname = 'transfer_host'),
+    'transfer_host sets search_path = '''' (I-31 pattern)'
 );
-SELECT function_privs_are('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[], 'public', ARRAY[]::name[],
-    'transfer_promotor is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'transfer_promotor is authenticated-EXECUTABLE');
+SELECT function_privs_are('public', 'transfer_host', ARRAY['uuid', 'uuid']::name[], 'public', ARRAY[]::name[],
+    'transfer_host is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'transfer_host', ARRAY['uuid', 'uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'transfer_host is authenticated-EXECUTABLE');
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%co_promotor%'
-       AND pg_get_functiondef(p.oid) LIKE '%not_promotor%'
-       AND pg_get_functiondef(p.oid) LIKE '%role = ''promotor''%'
-     FROM pg_proc p WHERE proname = 'transfer_promotor'),
-    'transfer_promotor is promotor-only and demotes self + promotes successor'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%staff%'
+       AND pg_get_functiondef(p.oid) LIKE '%not_host%'
+       AND pg_get_functiondef(p.oid) LIKE '%role = ''host''%'
+     FROM pg_proc p WHERE proname = 'transfer_host'),
+    'transfer_host is host-only and demotes self + promotes successor'
 );
 SELECT has_function('public', 'promote_next_member', ARRAY['uuid']::name[],
     'promote_next_member exists (OPT-009 — successor pick)');
 SELECT is_definer('public', 'promote_next_member', ARRAY['uuid']::name[],
     'promote_next_member is SECURITY DEFINER');
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%role = ''co_promotor''%'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%role = ''staff''%'
        AND pg_get_functiondef(p.oid) LIKE '%random()%'
        AND pg_get_functiondef(p.oid) LIKE '%status = ''active''%'
      FROM pg_proc p WHERE proname = 'promote_next_member'),
-    'promote_next_member prefers co_promotors, random pick, active-only'
+    'promote_next_member prefers staff, random pick, active-only'
 );
-SELECT has_function('public', 'reassign_group_promotor', ARRAY[]::name[],
-    'reassign_group_promotor exists (OPT-009 — ban/delete leadership pass)');
-SELECT is_definer('public', 'reassign_group_promotor', ARRAY[]::name[],
-    'reassign_group_promotor is SECURITY DEFINER');
+SELECT has_function('public', 'reassign_group_host', ARRAY[]::name[],
+    'reassign_group_host exists (OPT-009 — ban/delete leadership pass)');
+SELECT is_definer('public', 'reassign_group_host', ARRAY[]::name[],
+    'reassign_group_host is SECURITY DEFINER');
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%banned_at%'
        AND pg_get_functiondef(p.oid) LIKE '%deleted_at%'
        AND pg_get_functiondef(p.oid) LIKE '%promote_next_member%'
-     FROM pg_proc p WHERE proname = 'reassign_group_promotor'),
-    'reassign_group_promotor demotes banned/deleted promotors and passes leadership'
+     FROM pg_proc p WHERE proname = 'reassign_group_host'),
+    'reassign_group_host demotes banned/deleted hosts and passes leadership'
 );
-SELECT has_trigger('group_members', 'reassign_group_promotor_delete_trigger',
-    'group_members has the promotor-reassignment delete trigger');
-SELECT has_trigger('users', 'reassign_group_promotor_user_trigger',
-    'users has the promotor-reassignment ban/delete trigger');
+SELECT has_trigger('group_members', 'reassign_group_host_delete_trigger',
+    'group_members has the host-reassignment delete trigger');
+SELECT has_trigger('users', 'reassign_group_host_user_trigger',
+    'users has the host-reassignment ban/delete trigger');
 
 -- ============================================================
 -- SECTION 56: Group chat E2EE support (migrations 20260817000001

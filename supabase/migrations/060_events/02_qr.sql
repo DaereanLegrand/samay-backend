@@ -201,16 +201,16 @@ DECLARE
     v_token_row RECORD;
     v_invite RECORD;
 BEGIN
-    -- 1. Scanner-role check (QRSC: promotor/co_promotor only). auth.uid()
+    -- 1. Scanner-role check (QRSC: host/staff only). auth.uid()
     --    resolves in the auth schema by explicit qualification; anon callers
     --    (auth.uid() = NULL) fail this gate.
     IF NOT EXISTS (
-        SELECT 1 FROM public.event_promotores
+        SELECT 1 FROM public.event_hosts
         WHERE event_id = p_event_id
           AND user_id = auth.uid()
-          AND role IN ('promotor', 'co_promotor')
+          AND role IN ('host', 'staff')
     ) THEN
-        RETURN jsonb_build_object('status', 'not_promotor');
+        RETURN jsonb_build_object('status', 'not_host');
     END IF;
 
     -- 2. Event window (QEDG §Function 2 step 2): status IN ('upcoming','live')

@@ -151,10 +151,10 @@ else
 fi
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Vote Test\",\"description\":\"d\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}" >/dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" >/dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" >/dev/null
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_B\",\"role\":\"member\",\"status\":\"active\"}" >/dev/null
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_C\",\"role\":\"member\",\"status\":\"active\"}" >/dev/null
-info "Group created; A (promotor) + B + C (members) active; D is NOT a member (bystander)"
+info "Group created; A (host) + B + C (members) active; D is NOT a member (bystander)"
 
 # =========================================================================
 # TEST A — create with rounds + prize positions

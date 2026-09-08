@@ -24,7 +24,7 @@ BEGIN
         DELETE FROM public.group_members WHERE user_id = expired_user.id;
 
         -- Remove event associations
-        DELETE FROM public.event_promotores WHERE user_id = expired_user.id;
+        DELETE FROM public.event_hosts WHERE user_id = expired_user.id;
         DELETE FROM public.event_invites WHERE user_id = expired_user.id;
 
         -- Delete user (cascade handles remaining)

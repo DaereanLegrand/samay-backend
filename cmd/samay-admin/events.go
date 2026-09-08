@@ -34,13 +34,13 @@ var eventsListCmd = &cobra.Command{
 				return err
 			}
 		}
-		promotor, _ := cmd.Flags().GetString("promotor")
+		host, _ := cmd.Flags().GetString("host")
 		ctx, cancel := rootCtx()
 		defer cancel()
 		data, err := ops.ListEvents(ctx, dbClient, ops.ListEventsParams{
 			Status:   status,
 			Type:     eventType,
-			Promotor: promotor,
+			Host: host,
 		})
 		if err != nil {
 			return err
@@ -156,7 +156,7 @@ var eventsDistributeShardsCmd = &cobra.Command{
 func init() {
 	eventsListCmd.Flags().String("status", "", "filter by status (draft|upcoming|live|ended|cancelled)")
 	eventsListCmd.Flags().String("type", "", "filter by type (casual|juerga|tono)")
-	eventsListCmd.Flags().String("promotor", "", "filter by promotor user_id")
+	eventsListCmd.Flags().String("host", "", "filter by host user_id")
 
 	eventsFeatureCmd.Flags().String("expires", "", "feature expiry date YYYY-MM-DD (required)")
 	_ = eventsFeatureCmd.MarkFlagRequired("expires")
@@ -180,7 +180,7 @@ func init() {
 
 func eventsTableBuilder(data any) ([]string, [][]string) {
 	events := data.([]db.Event)
-	headers := []string{"ID", "NAME", "TYPE", "STATUS", "STARTS_AT", "PROMOTOR", "POOL", "FEATURED"}
+	headers := []string{"ID", "NAME", "TYPE", "STATUS", "STARTS_AT", "HOST", "POOL", "FEATURED"}
 	rows := make([][]string, 0, len(events))
 	for _, e := range events {
 		rows = append(rows, []string{

@@ -17,6 +17,7 @@ CREATE TABLE public.users (
     preshards integer DEFAULT 0 NOT NULL,
     subscription_tier public.subscription_tier DEFAULT 'free'::public.subscription_tier NOT NULL,
     subscription_expires_at timestamp with time zone,
+    entitlement_tier public.entitlement_tier DEFAULT 'free'::public.entitlement_tier NOT NULL,
     notification_preferences jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -149,6 +150,7 @@ BEGIN
         NEW.preshards := 0;
         NEW.subscription_tier := 'free'::public.subscription_tier;
         NEW.subscription_expires_at := NULL;
+        NEW.entitlement_tier := 'free'::public.entitlement_tier;
         NEW.banned_at := NULL;
         NEW.ban_reason := NULL;
         NEW.deleted_at := NULL;
@@ -159,6 +161,7 @@ BEGIN
         AND NEW.preshards = OLD.preshards
         AND NEW.subscription_tier = OLD.subscription_tier
         AND NEW.subscription_expires_at IS NOT DISTINCT FROM OLD.subscription_expires_at
+        AND NEW.entitlement_tier = OLD.entitlement_tier
         AND NEW.banned_at IS NOT DISTINCT FROM OLD.banned_at
         AND NEW.ban_reason IS NOT DISTINCT FROM OLD.ban_reason
         AND NEW.date_of_birth IS NOT DISTINCT FROM OLD.date_of_birth
@@ -170,7 +173,7 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    RAISE EXCEPTION 'users protected columns (personal_shards, preshards, subscription_tier, subscription_expires_at, banned_at, ban_reason, deleted_at, date_of_birth) may only be changed by a privileged role';
+    RAISE EXCEPTION 'users protected columns (personal_shards, preshards, subscription_tier, subscription_expires_at, entitlement_tier, banned_at, ban_reason, deleted_at, date_of_birth) may only be changed by a privileged role';
 END;
 $$;
 
@@ -318,12 +321,14 @@ BEGIN
         id, username, avatar_url, date_of_birth, bio,
         banned_at, ban_reason, deleted_at,
         personal_shards, preshards, subscription_tier, subscription_expires_at,
+        entitlement_tier,
         interest_tags, discovery_opt_in, read_receipts_enabled, profile_public,
         created_at, updated_at
     ) VALUES (
         v_uid, v_username, NULL, p_date_of_birth, NULL,
         NULL, NULL, NULL,
         COALESCE(v_shards, 0), 0, 'free', NULL,
+        'free',
         '{}', false, true, false,
         now(), now()
     );

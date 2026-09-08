@@ -312,11 +312,11 @@ CREATE FUNCTION public.promote_next_member(p_group_id uuid) RETURNS void
 DECLARE
     v_next uuid;
 BEGIN
-    -- Prefer a co-promotor; fall back to a random ACTIVE member. Invited
+    -- Prefer a staff; fall back to a random ACTIVE member. Invited
     -- members (status <> 'active') never receive leadership.
     SELECT user_id INTO v_next
     FROM public.group_members
-    WHERE group_id = p_group_id AND status = 'active' AND role = 'co_promotor'
+    WHERE group_id = p_group_id AND status = 'active' AND role = 'staff'
     ORDER BY random()
     LIMIT 1;
 
@@ -329,7 +329,7 @@ BEGIN
     END IF;
 
     IF v_next IS NOT NULL THEN
-        UPDATE public.group_members SET role = 'promotor'
+        UPDATE public.group_members SET role = 'host'
         WHERE group_id = p_group_id AND user_id = v_next;
     END IF;
 END;
@@ -338,29 +338,29 @@ $$;
 
 --
 
--- Name: reassign_group_promotor(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: reassign_group_host(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.reassign_group_promotor() RETURNS trigger
+CREATE FUNCTION public.reassign_group_host() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO ''
     AS $$
 DECLARE
     gid uuid;
 BEGIN
-    -- Promotor membership row deleted (kick is RLS-blocked for everyone but
-    -- the promotor itself, so this is: promotor leaves, hard-delete cron,
+    -- Host membership row deleted (kick is RLS-blocked for everyone but
+    -- the host itself, so this is: host leaves, hard-delete cron,
     -- or account-delete cascade) → pass leadership on. Note: plpgsql does
     -- NOT short-circuit AND/OR conditions, so the OLD.role access must live
     -- in a DELETE-only branch (this function also fires on users UPDATE).
     IF TG_OP = 'DELETE' THEN
-        IF OLD.role = 'promotor' THEN
+        IF OLD.role = 'host' THEN
             PERFORM public.promote_next_member(OLD.group_id);
         END IF;
         RETURN OLD;
     END IF;
 
-    -- Promotor banned or soft-deleted → demote to member + pass leadership.
+    -- Host banned or soft-deleted → demote to member + pass leadership.
     -- (Fires only on banned_at/deleted_at column updates; the demotion
     -- below is a group_members UPDATE, so there is no recursion.)
     IF TG_OP = 'UPDATE' THEN
@@ -368,10 +368,10 @@ BEGIN
            OR (NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL) THEN
             FOR gid IN
                 SELECT group_id FROM public.group_members
-                WHERE user_id = NEW.id AND role = 'promotor'
+                WHERE user_id = NEW.id AND role = 'host'
             LOOP
                 UPDATE public.group_members SET role = 'member'
-                WHERE group_id = gid AND user_id = NEW.id AND role = 'promotor';
+                WHERE group_id = gid AND user_id = NEW.id AND role = 'host';
                 PERFORM public.promote_next_member(gid);
             END LOOP;
         END IF;
@@ -385,10 +385,10 @@ $$;
 
 --
 
--- Name: transfer_promotor(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+-- Name: transfer_host(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.transfer_promotor(p_group_id uuid, p_new_promotor_id uuid) RETURNS jsonb
+CREATE FUNCTION public.transfer_host(p_group_id uuid, p_new_host_id uuid) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO ''
     AS $$
@@ -407,25 +407,25 @@ BEGIN
     IF v_actor_role IS NULL THEN
         RAISE EXCEPTION 'not_a_member';
     END IF;
-    IF v_actor_role <> 'promotor' THEN
-        RAISE EXCEPTION 'not_promotor';
+    IF v_actor_role <> 'host' THEN
+        RAISE EXCEPTION 'not_host';
     END IF;
 
     SELECT role INTO v_new_role
     FROM public.group_members
-    WHERE group_id = p_group_id AND user_id = p_new_promotor_id AND status = 'active';
+    WHERE group_id = p_group_id AND user_id = p_new_host_id AND status = 'active';
 
     IF v_new_role IS NULL THEN
         RAISE EXCEPTION 'new_member_not_found';
     END IF;
 
     -- Single transaction: demote self, promote the successor. Idempotent —
-    -- a successor who is already promotor leaves exactly one promotor.
-    UPDATE public.group_members SET role = 'co_promotor'
-    WHERE group_id = p_group_id AND user_id = auth.uid() AND role = 'promotor';
+    -- a successor who is already host leaves exactly one host.
+    UPDATE public.group_members SET role = 'staff'
+    WHERE group_id = p_group_id AND user_id = auth.uid() AND role = 'host';
 
-    UPDATE public.group_members SET role = 'promotor'
-    WHERE group_id = p_group_id AND user_id = p_new_promotor_id;
+    UPDATE public.group_members SET role = 'host'
+    WHERE group_id = p_group_id AND user_id = p_new_host_id;
 
     RETURN jsonb_build_object('status', 'ok');
 END;
@@ -496,18 +496,18 @@ CREATE TRIGGER groups_updated_at BEFORE UPDATE ON public.groups FOR EACH ROW EXE
 
 --
 
--- Name: group_members reassign_group_promotor_delete_trigger; Type: TRIGGER; Schema: public; Owner: -
+-- Name: group_members reassign_group_host_delete_trigger; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER reassign_group_promotor_delete_trigger AFTER DELETE ON public.group_members FOR EACH ROW EXECUTE FUNCTION public.reassign_group_promotor();
+CREATE TRIGGER reassign_group_host_delete_trigger AFTER DELETE ON public.group_members FOR EACH ROW EXECUTE FUNCTION public.reassign_group_host();
 
 
 --
 
--- Name: users reassign_group_promotor_user_trigger; Type: TRIGGER; Schema: public; Owner: -
+-- Name: users reassign_group_host_user_trigger; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER reassign_group_promotor_user_trigger AFTER UPDATE OF banned_at, deleted_at ON public.users FOR EACH ROW EXECUTE FUNCTION public.reassign_group_promotor();
+CREATE TRIGGER reassign_group_host_user_trigger AFTER UPDATE OF banned_at, deleted_at ON public.users FOR EACH ROW EXECUTE FUNCTION public.reassign_group_host();
 
 
 --
@@ -527,22 +527,22 @@ CREATE POLICY group_members_delete_own ON public.group_members FOR DELETE USING 
 
 --
 
--- Name: group_members group_members_delete_promotor; Type: POLICY; Schema: public; Owner: -
+-- Name: group_members group_members_delete_host; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY group_members_delete_promotor ON public.group_members FOR DELETE USING ((EXISTS ( SELECT 1
+CREATE POLICY group_members_delete_host ON public.group_members FOR DELETE USING ((EXISTS ( SELECT 1
    FROM public.group_members gm2
-  WHERE ((gm2.group_id = group_members.group_id) AND (gm2.user_id = auth.uid()) AND ((gm2.role = 'promotor'::public.group_role) OR ((gm2.role = 'co_promotor'::public.group_role) AND (group_members.role <> 'promotor'::public.group_role)))))));
+  WHERE ((gm2.group_id = group_members.group_id) AND (gm2.user_id = auth.uid()) AND ((gm2.role = 'host'::public.group_role) OR ((gm2.role = 'staff'::public.group_role) AND (group_members.role <> 'host'::public.group_role)))))));
 
 
 --
 
--- Name: group_members group_members_insert_promotor; Type: POLICY; Schema: public; Owner: -
+-- Name: group_members group_members_insert_host; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY group_members_insert_promotor ON public.group_members FOR INSERT WITH CHECK ((((role = 'member'::public.group_role) AND (status = ANY (ARRAY['active'::text, 'invited'::text])) AND (EXISTS ( SELECT 1
+CREATE POLICY group_members_insert_host ON public.group_members FOR INSERT WITH CHECK ((((role = 'member'::public.group_role) AND (status = ANY (ARRAY['active'::text, 'invited'::text])) AND (EXISTS ( SELECT 1
    FROM public.group_members gm2
-  WHERE ((gm2.group_id = group_members.group_id) AND (gm2.user_id = auth.uid()) AND (gm2.role = ANY (ARRAY['promotor'::public.group_role, 'co_promotor'::public.group_role])))))) OR ((user_id = auth.uid()) AND (EXISTS ( SELECT 1
+  WHERE ((gm2.group_id = group_members.group_id) AND (gm2.user_id = auth.uid()) AND (gm2.role = ANY (ARRAY['host'::public.group_role, 'staff'::public.group_role])))))) OR ((user_id = auth.uid()) AND (EXISTS ( SELECT 1
    FROM public.groups
   WHERE ((groups.id = group_members.group_id) AND (groups.created_by_user_id = auth.uid())))))));
 
@@ -573,14 +573,14 @@ CREATE POLICY group_members_update_own_status ON public.group_members FOR UPDATE
 
 --
 
--- Name: group_members group_members_update_promotor; Type: POLICY; Schema: public; Owner: -
+-- Name: group_members group_members_update_host; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY group_members_update_promotor ON public.group_members FOR UPDATE USING ((EXISTS ( SELECT 1
+CREATE POLICY group_members_update_host ON public.group_members FOR UPDATE USING ((EXISTS ( SELECT 1
    FROM public.group_members gm2
-  WHERE ((gm2.group_id = group_members.group_id) AND (gm2.user_id = auth.uid()) AND (gm2.role = ANY (ARRAY['promotor'::public.group_role, 'co_promotor'::public.group_role])) AND ((gm2.role = 'promotor'::public.group_role) OR (group_members.role <> 'promotor'::public.group_role)))))) WITH CHECK ((EXISTS ( SELECT 1
+  WHERE ((gm2.group_id = group_members.group_id) AND (gm2.user_id = auth.uid()) AND (gm2.role = ANY (ARRAY['host'::public.group_role, 'staff'::public.group_role])) AND ((gm2.role = 'host'::public.group_role) OR (group_members.role <> 'host'::public.group_role)))))) WITH CHECK ((EXISTS ( SELECT 1
    FROM public.group_members gm2
-  WHERE ((gm2.group_id = group_members.group_id) AND (gm2.user_id = auth.uid()) AND ((gm2.role = 'promotor'::public.group_role) OR ((gm2.role = 'co_promotor'::public.group_role) AND (group_members.role = ANY (ARRAY['member'::public.group_role, 'co_promotor'::public.group_role]))))))));
+  WHERE ((gm2.group_id = group_members.group_id) AND (gm2.user_id = auth.uid()) AND ((gm2.role = 'host'::public.group_role) OR ((gm2.role = 'staff'::public.group_role) AND (group_members.role = ANY (ARRAY['member'::public.group_role, 'staff'::public.group_role]))))))));
 
 
 --
@@ -640,12 +640,12 @@ CREATE POLICY groups_read_own ON public.groups FOR SELECT USING ((created_by_use
 
 --
 
--- Name: groups groups_update_promotor; Type: POLICY; Schema: public; Owner: -
+-- Name: groups groups_update_host; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY groups_update_promotor ON public.groups FOR UPDATE USING ((EXISTS ( SELECT 1
+CREATE POLICY groups_update_host ON public.groups FOR UPDATE USING ((EXISTS ( SELECT 1
    FROM public.group_members
-  WHERE ((group_members.group_id = groups.id) AND (group_members.user_id = auth.uid()) AND (group_members.role = ANY (ARRAY['promotor'::public.group_role, 'co_promotor'::public.group_role]))))));
+  WHERE ((group_members.group_id = groups.id) AND (group_members.user_id = auth.uid()) AND (group_members.role = ANY (ARRAY['host'::public.group_role, 'staff'::public.group_role]))))));
 
 
 --
@@ -706,22 +706,22 @@ GRANT ALL ON FUNCTION public.promote_next_member(p_group_id uuid) TO service_rol
 
 --
 
--- Name: FUNCTION reassign_group_promotor(); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION reassign_group_host(); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.reassign_group_promotor() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.reassign_group_promotor() TO authenticated;
-GRANT ALL ON FUNCTION public.reassign_group_promotor() TO service_role;
+REVOKE ALL ON FUNCTION public.reassign_group_host() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.reassign_group_host() TO authenticated;
+GRANT ALL ON FUNCTION public.reassign_group_host() TO service_role;
 
 
 --
 
--- Name: FUNCTION transfer_promotor(p_group_id uuid, p_new_promotor_id uuid); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION transfer_host(p_group_id uuid, p_new_host_id uuid); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.transfer_promotor(p_group_id uuid, p_new_promotor_id uuid) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.transfer_promotor(p_group_id uuid, p_new_promotor_id uuid) TO authenticated;
-GRANT ALL ON FUNCTION public.transfer_promotor(p_group_id uuid, p_new_promotor_id uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.transfer_host(p_group_id uuid, p_new_host_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.transfer_host(p_group_id uuid, p_new_host_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.transfer_host(p_group_id uuid, p_new_host_id uuid) TO service_role;
 
 
 --

@@ -35,7 +35,7 @@ CREATE POLICY storage_objects_public_read_avatars_groups
 --     Access predicate = the event_photos row is visible to the caller:
 --     public.event_photos is FORCE RLS with eph_read_access (migration
 --     20260809000002 §9 — group_id IS NULL OR group member OR invitee OR
---     promotor), and RLS applies inside policy subqueries, so the EXISTS
+--     host), and RLS applies inside policy subqueries, so the EXISTS
 --     transitively enforces the canonical event-access predicate without
 --     duplicating it. Recursion-safe: eph_read_access's chain terminates on
 --     column checks / is_group_member (SECURITY DEFINER, RLS-bypassing) and

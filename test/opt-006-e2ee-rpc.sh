@@ -271,14 +271,14 @@ else
 fi
 
 # =========================================================================
-# TEST G — minigame RPC setup: group + memberships (A promotor, B member)
+# TEST G — minigame RPC setup: group + memberships (A host, B member)
 # =========================================================================
 h1 "TEST G — minigame setup (group + memberships)"
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Minigame Opt Test\",\"created_by_user_id\":\"$UUID_A\"}" > /dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\"}" > /dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\"}" > /dev/null
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_B\",\"role\":\"member\"}" > /dev/null
-ok "Group + memberships provisioned (A promotor, B member, C non-member)"
+ok "Group + memberships provisioned (A host, B member, C non-member)"
 
 # =========================================================================
 # TEST H — create_minigame_session escrow (wager 50, initiator A)

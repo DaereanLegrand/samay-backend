@@ -38,12 +38,25 @@ CREATE TYPE public.cosmetic_type AS ENUM (
 
 --
 
+-- Name: entitlement_tier; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.entitlement_tier AS ENUM (
+    'free',
+    't2',
+    't1',
+    't0'
+);
+
+
+--
+
 -- Name: event_role; Type: TYPE; Schema: public; Owner: -
 --
 
 CREATE TYPE public.event_role AS ENUM (
-    'promotor',
-    'co_promotor'
+    'host',
+    'staff'
 );
 
 
@@ -104,8 +117,8 @@ CREATE TYPE public.friendship_status AS ENUM (
 
 CREATE TYPE public.group_role AS ENUM (
     'member',
-    'promotor',
-    'co_promotor'
+    'host',
+    'staff'
 );
 
 

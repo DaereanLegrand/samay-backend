@@ -41,7 +41,7 @@ cleanup() {
   for uid in $UUID_A $UUID_B $UUID_C; do
     svc_delete "minigame_invites?or=(invitee_id.eq.$uid,created_by.eq.$uid)" > /dev/null 2>&1 || true
   done
-  # The group must go BEFORE its promotor user row.
+  # The group must go BEFORE its host user row.
   [ -n "${GROUP_ID:-}" ] && curl -s -X DELETE "$SUPABASE_URL/rest/v1/groups?id=eq.$GROUP_ID" \
     -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" > /dev/null 2>&1 || true
   # Game-state rows cascade from the session, but clear leftovers directly.
@@ -149,9 +149,9 @@ else
 fi
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Play Test\",\"description\":\"d\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}" >/dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" >/dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" >/dev/null
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_B\",\"role\":\"member\",\"status\":\"active\"}" >/dev/null
-info "Group created; A (promotor) + B (member) active; C is NOT a member (bystander)"
+info "Group created; A (host) + B (member) active; C is NOT a member (bystander)"
 
 # =========================================================================
 # TEST A — get on a fresh session is not_started

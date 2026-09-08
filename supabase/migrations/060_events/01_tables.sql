@@ -35,19 +35,19 @@ ALTER TABLE ONLY public.event_invites FORCE ROW LEVEL SECURITY;
 
 --
 
--- Name: event_promotores; Type: TABLE; Schema: public; Owner: -
+-- Name: event_hosts; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.event_promotores (
+CREATE TABLE public.event_hosts (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     event_id uuid NOT NULL,
     user_id uuid NOT NULL,
-    role public.event_role DEFAULT 'promotor'::public.event_role NOT NULL,
+    role public.event_role DEFAULT 'host'::public.event_role NOT NULL,
     preshards_contributed integer DEFAULT 0 NOT NULL,
     added_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-ALTER TABLE ONLY public.event_promotores FORCE ROW LEVEL SECURITY;
+ALTER TABLE ONLY public.event_hosts FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -74,13 +74,15 @@ CREATE TABLE public.events (
     preshards_cap_per_user integer,
     preshards_remainder_action public.preshard_remainder_action,
     dynamic_qr_enabled boolean DEFAULT false NOT NULL,
+    capacity integer NOT NULL,
     invite_token text DEFAULT (gen_random_uuid())::text NOT NULL,
     status public.event_status DEFAULT 'draft'::public.event_status NOT NULL,
     featured boolean DEFAULT false NOT NULL,
     featured_until timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT check_casual_no_preshards CHECK (((type <> 'casual'::public.event_type) OR (preshards_pool = 0)))
+    CONSTRAINT check_casual_no_preshards CHECK (((type <> 'casual'::public.event_type) OR (preshards_pool = 0))),
+    CONSTRAINT check_capacity_range CHECK ((capacity >= 1) AND (capacity <= 1120))
 );
 
 ALTER TABLE ONLY public.events FORCE ROW LEVEL SECURITY;
@@ -124,20 +126,20 @@ ALTER TABLE ONLY public.event_invites
 
 --
 
--- Name: event_promotores event_promotores_event_id_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: event_hosts event_hosts_event_id_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.event_promotores
-    ADD CONSTRAINT event_promotores_event_id_user_id_key UNIQUE (event_id, user_id);
+ALTER TABLE ONLY public.event_hosts
+    ADD CONSTRAINT event_hosts_event_id_user_id_key UNIQUE (event_id, user_id);
 
 
 --
 
--- Name: event_promotores event_promotores_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: event_hosts event_hosts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.event_promotores
-    ADD CONSTRAINT event_promotores_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.event_hosts
+    ADD CONSTRAINT event_hosts_pkey PRIMARY KEY (id);
 
 
 --
@@ -205,20 +207,20 @@ ALTER TABLE ONLY public.event_invites
 
 --
 
--- Name: event_promotores event_promotores_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: event_hosts event_hosts_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.event_promotores
-    ADD CONSTRAINT event_promotores_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.event_hosts
+    ADD CONSTRAINT event_hosts_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id) ON DELETE CASCADE;
 
 
 --
 
--- Name: event_promotores event_promotores_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: event_hosts event_hosts_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.event_promotores
-    ADD CONSTRAINT event_promotores_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.event_hosts
+    ADD CONSTRAINT event_hosts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -273,18 +275,18 @@ CREATE INDEX idx_event_invites_user ON public.event_invites USING btree (user_id
 
 --
 
--- Name: idx_event_promotores_event; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_event_hosts_event; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_event_promotores_event ON public.event_promotores USING btree (event_id);
+CREATE INDEX idx_event_hosts_event ON public.event_hosts USING btree (event_id);
 
 
 --
 
--- Name: idx_event_promotores_user; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_event_hosts_user; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_event_promotores_user ON public.event_promotores USING btree (user_id);
+CREATE INDEX idx_event_hosts_user ON public.event_hosts USING btree (user_id);
 
 
 --
@@ -384,8 +386,8 @@ CREATE POLICY ea_read_access ON public.event_attendances FOR SELECT USING (((use
   WHERE ((events.id = event_attendances.event_id) AND ((EXISTS ( SELECT 1
            FROM public.group_members
           WHERE ((group_members.group_id = events.group_id) AND (group_members.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
-           FROM public.event_promotores
-          WHERE ((event_promotores.event_id = events.id) AND (event_promotores.user_id = auth.uid()))))))))));
+           FROM public.event_hosts
+          WHERE ((event_hosts.event_id = events.id) AND (event_hosts.user_id = auth.uid()))))))))));
 
 
 --
@@ -406,22 +408,22 @@ CREATE POLICY ei_update_own ON public.event_invites FOR UPDATE USING ((user_id =
 
 --
 
--- Name: event_promotores ep_insert_promotor; Type: POLICY; Schema: public; Owner: -
+-- Name: event_hosts ep_insert_host; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ep_insert_promotor ON public.event_promotores FOR INSERT WITH CHECK ((((user_id = auth.uid()) AND (EXISTS ( SELECT 1
+CREATE POLICY ep_insert_host ON public.event_hosts FOR INSERT WITH CHECK ((((user_id = auth.uid()) AND (EXISTS ( SELECT 1
    FROM public.events
-  WHERE ((events.id = event_promotores.event_id) AND (events.created_by_user_id = auth.uid()))))) OR (EXISTS ( SELECT 1
-   FROM public.event_promotores ep2
-  WHERE ((ep2.event_id = event_promotores.event_id) AND (ep2.user_id = auth.uid()) AND (ep2.role = 'promotor'::public.event_role))))));
+  WHERE ((events.id = event_hosts.event_id) AND (events.created_by_user_id = auth.uid()))))) OR (EXISTS ( SELECT 1
+   FROM public.event_hosts ep2
+  WHERE ((ep2.event_id = event_hosts.event_id) AND (ep2.user_id = auth.uid()) AND (ep2.role = 'host'::public.event_role))))));
 
 
 --
 
--- Name: event_promotores ep_read_own; Type: POLICY; Schema: public; Owner: -
+-- Name: event_hosts ep_read_own; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ep_read_own ON public.event_promotores FOR SELECT USING ((user_id = auth.uid()));
+CREATE POLICY ep_read_own ON public.event_hosts FOR SELECT USING ((user_id = auth.uid()));
 
 
 --
@@ -440,10 +442,10 @@ ALTER TABLE public.event_invites ENABLE ROW LEVEL SECURITY;
 
 --
 
--- Name: event_promotores; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: event_hosts; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
-ALTER TABLE public.event_promotores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_hosts ENABLE ROW LEVEL SECURITY;
 
 --
 
@@ -470,18 +472,18 @@ CREATE POLICY events_read_access ON public.events FOR SELECT USING (((group_id I
   WHERE ((group_members.group_id = events.group_id) AND (group_members.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
    FROM public.event_invites
   WHERE ((event_invites.event_id = events.id) AND (event_invites.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
-   FROM public.event_promotores
-  WHERE ((event_promotores.event_id = events.id) AND (event_promotores.user_id = auth.uid()))))));
+   FROM public.event_hosts
+  WHERE ((event_hosts.event_id = events.id) AND (event_hosts.user_id = auth.uid()))))));
 
 
 --
 
--- Name: events events_update_promotor; Type: POLICY; Schema: public; Owner: -
+-- Name: events events_update_host; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY events_update_promotor ON public.events FOR UPDATE USING ((EXISTS ( SELECT 1
-   FROM public.event_promotores
-  WHERE ((event_promotores.event_id = events.id) AND (event_promotores.user_id = auth.uid())))));
+CREATE POLICY events_update_host ON public.events FOR UPDATE USING ((EXISTS ( SELECT 1
+   FROM public.event_hosts
+  WHERE ((event_hosts.event_id = events.id) AND (event_hosts.user_id = auth.uid())))));
 
 
 --
@@ -515,12 +517,12 @@ GRANT ALL ON TABLE public.event_invites TO service_role;
 
 --
 
--- Name: TABLE event_promotores; Type: ACL; Schema: public; Owner: -
+-- Name: TABLE event_hosts; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.event_promotores TO anon;
-GRANT ALL ON TABLE public.event_promotores TO authenticated;
-GRANT ALL ON TABLE public.event_promotores TO service_role;
+GRANT ALL ON TABLE public.event_hosts TO anon;
+GRANT ALL ON TABLE public.event_hosts TO authenticated;
+GRANT ALL ON TABLE public.event_hosts TO service_role;
 
 
 --

@@ -147,7 +147,7 @@ for pair in "A $UUID_A user_a_opt011 $EMAIL_A" "B $UUID_B user_b_opt011 $EMAIL_B
 done
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Reads Test\",\"created_by_user_id\":\"$UUID_A\"}"
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}"
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}"
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_B\",\"role\":\"member\",\"status\":\"active\"}"
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_C\",\"role\":\"member\",\"status\":\"active\"}"
 svc_post "chats" "{\"id\":\"$CHAT_GROUP\",\"type\":\"group\",\"reference_id\":\"$GROUP_ID\"}"

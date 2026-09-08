@@ -85,8 +85,8 @@ func newRouter() *gin.Engine {
 	}
 
 	// Post-MVP namespaces (spec §2/§3): the surface exists so the API contract is
-	// complete; the actual handlers land with the promotor/venue phases.
-	r.Any(apiBase+"/promotor/*any", notImplemented)
+	// complete; the actual handlers land with the host/venue phases.
+	r.Any(apiBase+"/host/*any", notImplemented)
 	r.Any(apiBase+"/venue/*any", notImplemented)
 
 	return r
@@ -430,7 +430,7 @@ func listEventsHandler(c *gin.Context) {
 	data, err := ops.ListEvents(opsCtx(), dbClient, ops.ListEventsParams{
 		Status:   status,
 		Type:     eventType,
-		Promotor: c.Query("promotor"),
+		Host: c.Query("host"),
 	})
 	if err != nil {
 		writeError(c, err)

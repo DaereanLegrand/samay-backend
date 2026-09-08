@@ -28,7 +28,7 @@ CREATE FUNCTION public.distribute_shards(p_event_id uuid) RETURNS jsonb
     AS $$
 DECLARE
     v_event RECORD;
-    v_promotor RECORD;
+    v_host RECORD;
     v_attendee RECORD;
     v_total_invitees INT;
     v_confirmed_attendees INT;
@@ -53,15 +53,15 @@ BEGIN
     SELECT COUNT(*) INTO v_confirmed_attendees FROM public.event_attendances WHERE event_id = p_event_id;
 
     IF v_confirmed_attendees = 0 THEN
-        FOR v_promotor IN
+        FOR v_host IN
             SELECT user_id, preshards_contributed
-            FROM public.event_promotores
+            FROM public.event_hosts
             WHERE event_id = p_event_id AND preshards_contributed > 0
         LOOP
-            UPDATE public.users SET preshards = preshards + v_promotor.preshards_contributed
-            WHERE id = v_promotor.user_id;
+            UPDATE public.users SET preshards = preshards + v_host.preshards_contributed
+            WHERE id = v_host.user_id;
             INSERT INTO public.preshard_ledger (user_id, delta, reason, reference_id)
-            VALUES (v_promotor.user_id, v_promotor.preshards_contributed, 'event_pool_returned', p_event_id);
+            VALUES (v_host.user_id, v_host.preshards_contributed, 'event_pool_returned', p_event_id);
         END LOOP;
         UPDATE public.events SET preshards_pool = 0, preshards_distributed = true WHERE id = p_event_id;
         RETURN jsonb_build_object('status', 'completed', 'attendees', 0, 'action', 'full_return');
@@ -94,18 +94,18 @@ BEGIN
                 UPDATE public.event_attendances SET shards_received = shards_received + v_extra WHERE event_id = p_event_id AND user_id = v_attendee.user_id;
             END LOOP;
         ELSE
-            FOR v_promotor IN SELECT user_id, preshards_contributed FROM public.event_promotores WHERE event_id = p_event_id AND preshards_contributed > 0 LOOP
-                v_return_amount := floor(v_remainder * v_promotor.preshards_contributed / NULLIF(v_event.preshards_pool, 0));
+            FOR v_host IN SELECT user_id, preshards_contributed FROM public.event_hosts WHERE event_id = p_event_id AND preshards_contributed > 0 LOOP
+                v_return_amount := floor(v_remainder * v_host.preshards_contributed / NULLIF(v_event.preshards_pool, 0));
                 IF v_return_amount > 0 THEN
-                    UPDATE public.users SET preshards = preshards + v_return_amount WHERE id = v_promotor.user_id;
-                    INSERT INTO public.preshard_ledger (user_id, delta, reason, reference_id) VALUES (v_promotor.user_id, v_return_amount, 'event_pool_returned', p_event_id);
+                    UPDATE public.users SET preshards = preshards + v_return_amount WHERE id = v_host.user_id;
+                    INSERT INTO public.preshard_ledger (user_id, delta, reason, reference_id) VALUES (v_host.user_id, v_return_amount, 'event_pool_returned', p_event_id);
                 END IF;
             END LOOP;
         END IF;
     END IF;
 
-    FOR v_promotor IN SELECT user_id, preshards_contributed FROM public.event_promotores WHERE event_id = p_event_id AND preshards_contributed > 0 LOOP
-        INSERT INTO public.preshard_ledger (user_id, delta, reason, reference_id) VALUES (v_promotor.user_id, -v_promotor.preshards_contributed, 'event_pool_consumed', p_event_id);
+    FOR v_host IN SELECT user_id, preshards_contributed FROM public.event_hosts WHERE event_id = p_event_id AND preshards_contributed > 0 LOOP
+        INSERT INTO public.preshard_ledger (user_id, delta, reason, reference_id) VALUES (v_host.user_id, -v_host.preshards_contributed, 'event_pool_consumed', p_event_id);
     END LOOP;
 
     UPDATE public.events SET preshards_pool = 0, preshards_distributed = true WHERE id = p_event_id;

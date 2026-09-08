@@ -150,7 +150,7 @@ fi
 # Group creation in GroupService.createGroup order: groups → group_members
 # (creator, status default 'active') → chats (type='group', reference_id).
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Opt010 Group\",\"created_by_user_id\":\"$UUID_A\"}" > /dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" > /dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" > /dev/null
 svc_post "chats" "{\"id\":\"$CHAT_GROUP\",\"type\":\"group\",\"reference_id\":\"$GROUP_ID\"}" > /dev/null
 ok "Group + creator membership + group chat seeded (createGroup order)"
 

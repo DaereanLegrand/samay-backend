@@ -136,9 +136,9 @@ else
 fi
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"KeyRing Test\",\"description\":\"d\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}" >/dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" >/dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" >/dev/null
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_B\",\"role\":\"member\",\"status\":\"active\"}" >/dev/null
-info "Group created; A (promotor) + B (member) active; C is a group MEMBER but NOT a participant (ring must deny C)"
+info "Group created; A (host) + B (member) active; C is a group MEMBER but NOT a participant (ring must deny C)"
 
 # =========================================================================
 # TEST A/B — a playing by_turns session with A(host) + B(participant);

@@ -11,9 +11,9 @@ set -uo pipefail
 #      (BEFORE INSERT OR UPDATE OF preshards_pool; pool>0 -> true)
 #   D) RLS read access: non-member CANNOT see a group-scoped event;
 #      member CAN; public event (group_id IS NULL) readable by anyone
-#   E) promotor insert into event_promotores works (creator branch of
-#      ep_insert_promotor, migration 20260809000002 §8); non-creator denied
-#   F) update event as promotor works (events_update_promotor); non-promotor
+#   E) host insert into event_hosts works (creator branch of
+#      ep_insert_host, migration 20260809000002 §8); non-creator denied
+#   F) update event as host works (events_update_host); non-host
 #      update is RLS-filtered away
 #
 # SELF-CONTAINED: creates its own rows with fixed UUIDs (svc_* setup), exactly
@@ -102,7 +102,7 @@ svc_delete_quiet() {
 }
 
 # ---------------------------------------------------------------------------
-# Setup: test users + group (A = creator/promotor, B = unrelated outsider)
+# Setup: test users + group (A = creator/host, B = unrelated outsider)
 # ---------------------------------------------------------------------------
 h1 "SETUP: users + group"
 
@@ -138,8 +138,8 @@ else
 fi
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Opt002 Group\",\"created_by_user_id\":\"$UUID_A\"}" > /dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" > /dev/null
-ok "Created group $GROUP_ID with User A as promotor member"
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" > /dev/null
+ok "Created group $GROUP_ID with User A as host member"
 
 # =========================================================================
 # TEST A — service_role creates a juerga event with ALL fields
@@ -247,69 +247,69 @@ else
 fi
 
 # =========================================================================
-# TEST E — event_promotores insert (creator branch, ep_insert_promotor)
+# TEST E — event_hosts insert (creator branch, ep_insert_host)
 # =========================================================================
-h1 "TEST E — promotor insert into event_promotores"
+h1 "TEST E — host insert into event_hosts"
 
-resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/event_promotores" -H "apikey: $ANON_KEY" \
+resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/event_hosts" -H "apikey: $ANON_KEY" \
   -H "Authorization: Bearer $TOKEN_A" -H "Content-Type: application/json" \
   -H "Prefer: return=minimal" \
-  -d "{\"event_id\":\"$EV_JUERGA\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\"}")
+  -d "{\"event_id\":\"$EV_JUERGA\",\"user_id\":\"$UUID_A\",\"role\":\"host\"}")
 if [ -z "$resp" ]; then
-  ok "Creator A inserted own event_promotores row (ep_insert_promotor creator branch)"
+  ok "Creator A inserted own event_hosts row (ep_insert_host creator branch)"
 else
-  nok "Creator A promotor insert failed: $(echo "$resp" | head -c 80)"
+  nok "Creator A host insert failed: $(echo "$resp" | head -c 80)"
 fi
-cnt=$(svc_get "event_promotores?event_id=eq.$EV_JUERGA&user_id=eq.$UUID_A&select=id" | grep -c '"id"' || true)
+cnt=$(svc_get "event_hosts?event_id=eq.$EV_JUERGA&user_id=eq.$UUID_A&select=id" | grep -c '"id"' || true)
 if [ "$cnt" -ge 1 ]; then
-  ok "event_promotores row persisted"
+  ok "event_hosts row persisted"
 else
-  nok "event_promotores row missing"
+  nok "event_hosts row missing"
 fi
 
-resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/event_promotores" -H "apikey: $ANON_KEY" \
+resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/event_hosts" -H "apikey: $ANON_KEY" \
   -H "Authorization: Bearer $TOKEN_B" -H "Content-Type: application/json" \
   -H "Prefer: return=minimal" \
-  -d "{\"event_id\":\"$EV_JUERGA\",\"user_id\":\"$UUID_B\",\"role\":\"co_promotor\"}")
+  -d "{\"event_id\":\"$EV_JUERGA\",\"user_id\":\"$UUID_B\",\"role\":\"staff\"}")
 if echo "$resp" | grep -qE '(42501|violates row-level security|PGRST)'; then
-  ok "Non-creator B CANNOT insert promotor row (RLS)"
+  ok "Non-creator B CANNOT insert host row (RLS)"
 else
-  nok "Non-creator B promotor insert NOT denied: $(echo "$resp" | head -c 80)"
+  nok "Non-creator B host insert NOT denied: $(echo "$resp" | head -c 80)"
 fi
 
 # =========================================================================
-# TEST F — update event as promotor works; non-promotor filtered
+# TEST F — update event as host works; non-host filtered
 # =========================================================================
-h1 "TEST F — event update (events_update_promotor)"
+h1 "TEST F — event update (events_update_host)"
 
 resp=$(auth_patch_repr "$TOKEN_A" "events?id=eq.$EV_JUERGA" '{"name":"Juerga Opt-002 Renamed"}')
 if echo "$resp" | grep -q '"name":"Juerga Opt-002 Renamed"'; then
-  ok "Promotor A CAN update event name"
+  ok "Host A CAN update event name"
 else
-  nok "Promotor A update failed: $(echo "$resp" | head -c 80)"
+  nok "Host A update failed: $(echo "$resp" | head -c 80)"
 fi
 
 # Trigger fires on UPDATE OF preshards_pool: 5000 -> 0 -> dynamic_qr false.
 resp=$(auth_patch_repr "$TOKEN_A" "events?id=eq.$EV_JUERGA" '{"preshards_pool":0}')
 qr=$(svc_get "events?id=eq.$EV_JUERGA&select=dynamic_qr_enabled")
 if echo "$qr" | grep -q '"dynamic_qr_enabled":false'; then
-  ok "Promotor A pool update 5000->0 flipped dynamic_qr_enabled to false (trigger)"
+  ok "Host A pool update 5000->0 flipped dynamic_qr_enabled to false (trigger)"
 else
   nok "dynamic_qr_enabled not false after pool->0: $qr"
 fi
 resp=$(auth_patch_repr "$TOKEN_A" "events?id=eq.$EV_JUERGA" '{"preshards_pool":5000}')
 qr=$(svc_get "events?id=eq.$EV_JUERGA&select=dynamic_qr_enabled")
 if echo "$qr" | grep -q '"dynamic_qr_enabled":true'; then
-  ok "Promotor A pool update 0->5000 flipped dynamic_qr_enabled to true (trigger)"
+  ok "Host A pool update 0->5000 flipped dynamic_qr_enabled to true (trigger)"
 else
   nok "dynamic_qr_enabled not true after pool->5000: $qr"
 fi
 
 resp=$(auth_patch_repr "$TOKEN_B" "events?id=eq.$EV_JUERGA" '{"name":"Hacked"}')
 if [ "$resp" = "[]" ] || [ -z "$resp" ] || echo "$resp" | grep -qE '(42501|permission denied)'; then
-  ok "Non-promotor B UPDATE is RLS-filtered (no rows affected)"
+  ok "Non-host B UPDATE is RLS-filtered (no rows affected)"
 else
-  nok "Non-promotor B UPDATE not blocked: $(echo "$resp" | head -c 80)"
+  nok "Non-host B UPDATE not blocked: $(echo "$resp" | head -c 80)"
 fi
 
 # =========================================================================
