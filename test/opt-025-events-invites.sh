@@ -342,6 +342,54 @@ if [ -n "$EV" ]; then
   fi
 fi
 
+# =========================================================================
+# TEST H — attendee-side roster (060_events/09_attendee_roster.sql): event
+# members (invitees of any standing) read the organizer roster (event_hosts)
+# and the event's CONFIRMED invite rows only — other people's pending invites
+# stay invisible. Outsider reads zero rows everywhere.
+# =========================================================================
+h1 "TEST H — attendee roster: members see organizers + confirmed, not pending"
+if [ -n "$EV" ]; then
+  # D (accepted attendee) reads event_invites → own accepted row only (the
+  # other rows are still pending → hidden). No recursion, no pending leak.
+  rows=$(auth_get "$TOKEN_D" "event_invites?event_id=eq.$EV&select=user_id,status")
+  n=$(echo "$rows" | grep -o '"user_id"' | wc -l | tr -d ' ')
+  pend=$(echo "$rows" | grep -o 'pending' | wc -l | tr -d ' ')
+  if [ "$n" -eq 1 ] && echo "$rows" | grep -q '"status":"accepted"'; then
+    ok "Accepted attendee D sees ONLY their confirmed row ($n invite rows, no pending)"
+  else
+    nok "D roster unexpected: $rows"
+  fi
+
+  # B (still PENDING) reads event_invites → own pending row + D's confirmed
+  # row (2 rows total); the other pending guests stay hidden.
+  rows=$(auth_get "$TOKEN_B" "event_invites?event_id=eq.$EV&select=user_id,status")
+  n=$(echo "$rows" | grep -o '"user_id"' | wc -l | tr -d ' ')
+  pend=$(echo "$rows" | grep -o 'pending' | wc -l | tr -d ' ')
+  if [ "$n" -eq 2 ] && [ "$pend" -eq 1 ] && echo "$rows" | grep -q '"status":"accepted"'; then
+    ok "Pending invitee B sees own pending + D's accepted (2 rows, others' pending hidden)"
+  else
+    nok "B roster unexpected: $rows"
+  fi
+
+  # D (member) reads the organizer roster event_hosts → host A's row.
+  rows=$(auth_get "$TOKEN_D" "event_hosts?event_id=eq.$EV&select=user_id,role")
+  n=$(echo "$rows" | grep -o '"user_id"' | wc -l | tr -d ' ')
+  if [ "$n" -ge 1 ] && echo "$rows" | grep -q '"role":"host"'; then
+    ok "Member D reads the organizer roster ($n event_hosts row(s))"
+  else
+    nok "D event_hosts roster unexpected: $rows"
+  fi
+
+  # Outsider X reads zero invite rows AND zero event_hosts rows (no leak).
+  rows=$(auth_get "$TOKEN_X" "event_hosts?event_id=eq.$EV&select=user_id")
+  if [ -z "$(echo "$rows" | grep -o '"user_id"')" ]; then
+    ok "Outsider X reads no event_hosts rows (RLS)"
+  else
+    nok "Outsider X leaked event_hosts rows: $rows"
+  fi
+fi
+
 echo ""
 echo "═══════════════════════════════════════════"
 echo "  RESULTS: PASS=$PASS FAIL=$FAIL"

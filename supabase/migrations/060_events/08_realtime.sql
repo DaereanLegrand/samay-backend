@@ -1,0 +1,22 @@
+-- Samay baseline — 060_events/08_realtime.sql
+--
+-- Events guest-roster realtime (2026-09-09): the event detail's host/staff
+-- guest roster (eventGuestsProvider) was a stale client cache with no push
+-- seam — an invitee accepting/declining on their OWN device never reached the
+-- host's open screen (only a manual re-fetch could). Fix, matching the
+-- friendships / group_members / minigame_sessions pattern:
+--
+--   * event_invites gets REPLICA IDENTITY FULL so UPDATE/DELETE realtime
+--     payloads carry the FULL row (the client filters the channel on
+--     `event_id = <uuid>`, which needs event_id present in the record).
+--   * the publication membership add lives in 960_realtime (the central
+--     supabase_realtime registry), guarded and idempotent.
+--
+-- Delivery is RLS-gated like every realtime table: a subscriber only receives
+-- event_invites rows it may SELECT — the event's hosts/staff (policy
+-- ei_read_event_access, 05_manual_invites) for the whole roster, an invitee
+-- only their own row (ei_read_own). The host/staff client invalidates
+-- eventGuestsProvider(event_id) on every INSERT/UPDATE/DELETE for that event,
+-- so the roster stays authoritative without pull-to-refresh.
+
+ALTER TABLE ONLY public.event_invites REPLICA IDENTITY FULL;

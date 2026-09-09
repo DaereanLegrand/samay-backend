@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(940);
+SELECT plan(947);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -254,16 +254,18 @@ SELECT policies_are('events', ARRAY[
 -- stays for everyone else.
 SELECT policies_are('event_hosts', ARRAY[
     'ep_read_own',
-    'ep_read_event_access'
-], 'event_hosts has expected RLS policies (ep_insert_host dropped — RPC-only writes)');
+    'ep_read_event_access',
+    'ep_read_member_roster'
+], 'event_hosts has expected RLS policies (ep_insert_host dropped — RPC-only writes; ep_read_member_roster opens the organizer roster to event members, 09_attendee_roster.sql)');
 
 -- ============================================================
 -- SECTION 21: RLS Policies — event_invites
 -- ============================================================
 SELECT policies_are('event_invites', ARRAY[
     'ei_read_own',
-    'ei_read_event_access'
-], 'event_invites has expected RLS policies (own-row read + host/staff event-read; ei_update_own dropped for the SECURITY DEFINER invite family)');
+    'ei_read_event_access',
+    'ei_read_confirmed_roster'
+], 'event_invites has expected RLS policies (own-row read + host/staff event-read + member confirmed-roster read; ei_update_own dropped for the SECURITY DEFINER invite family)');
 
 -- ============================================================
 -- SECTION 21b: Events manual invites RPC family (migration
@@ -363,6 +365,63 @@ SELECT has_trigger('event_invites', 'code_key_purge_on_invite_delete',
     'event_invites purge trigger removes code keys on invite-row deletion (declined/converted)');
 SELECT has_trigger('event_hosts', 'code_key_purge_on_host_delete',
     'event_hosts purge trigger removes code keys on staff removal');
+
+-- SECTION 21e: Events guest-roster realtime (060_events/08_realtime.sql +
+-- 960_realtime, 2026-09-09) — event_invites joins supabase_realtime with
+-- REPLICA IDENTITY FULL so the host/staff guest roster on the event detail
+-- live-updates when an invitee accepts/declines on their own device (client
+-- invalidates eventGuestsProvider on every row event for the event). Delivery
+-- stays RLS-gated: hosts/staff get full-roster rows, invitees their own.
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'event_invites'
+    ),
+    'event_invites joins the supabase_realtime publication (guest-roster live updates, 060_events/08_realtime.sql)'
+);
+SELECT is(
+    (SELECT relreplident FROM pg_class WHERE oid = 'public.event_invites'::regclass),
+    'f',
+    'event_invites has REPLICA IDENTITY FULL (full-row realtime UPDATE/DELETE payloads, 060_events/08_realtime.sql)'
+);
+
+-- SECTION 21f: Attendee-side event roster (060_events/09_attendee_roster.sql,
+-- 2026-09-09) — event members (invitees of any standing) read the organizer
+-- roster (`event_hosts`) and the event's CONFIRMED invite rows only; other
+-- people's pending invites stay host/own-only. The membership check rides a
+-- security-barrier view (recursion-free); event_hosts joins supabase_realtime
+-- with REPLICA IDENTITY FULL so the organizer roster streams live. Behavior:
+-- opt-025 TEST H. Here: view + policy + realtime posture.
+SELECT has_view('public', 'event_roster_membership_view',
+    'event_roster_membership_view (security-barrier caller invite projection) exists — recursion-free member check');
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'event_hosts'
+          AND policyname = 'ep_read_member_roster'
+    ),
+    'event_hosts has ep_read_member_roster (members read the organizer roster)'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'event_invites'
+          AND policyname = 'ei_read_confirmed_roster'
+    ),
+    'event_invites has ei_read_confirmed_roster (members read accepted/attended rows only)'
+);
+SELECT is(
+    (SELECT relreplident FROM pg_class WHERE oid = 'public.event_hosts'::regclass),
+    'f',
+    'event_hosts has REPLICA IDENTITY FULL (full-row realtime payloads for the organizer roster, 060_events/09_attendee_roster.sql)'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'event_hosts'
+    ),
+    'event_hosts joins the supabase_realtime publication (organizer roster streams live to members, 060_events/09_attendee_roster.sql)'
+);
 
 -- ============================================================
 -- SECTION 23: RLS Policies — event_attendances
