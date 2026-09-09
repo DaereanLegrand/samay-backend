@@ -29,9 +29,15 @@
 --     (hosts view "who is host/staff" on the detail screen). A direct
 --     self-referencing event_hosts policy would recurse infinitely (verified
 --     in-repo), so the membership check goes through a security-barrier view
---     `event_host_access_view` (view runs as its owner postgres, which has
---     rolbypassrls — the view is NOT granted to any role, so no client can
---     query it directly; only the policy subquery reaches it).
+--     `event_host_access_view` that projects ONLY the caller's own rows
+--     (`user_id = auth.uid()`). SELECT is granted to the API roles so policy
+--     evaluation works on a PRISTINE schema (fresh init/apply): an ungranted
+--     view makes every event_hosts read fail with "permission denied for
+--     view" (the old volume only worked because default privileges had
+--     auto-granted the view when it was applied later). Because the view is
+--     filtered to the caller and runs as its owner (rolbypassrls), no client
+--     can ever see another event's roster through it — full-roster reads
+--     still go through event_hosts + the ep_read_event_access policy.
 --   * The code-family RPCs (get_my_code / validate_code in 07_code.sql)
 --     treat event_hosts members (host + staff) as attendees: they may
 --     generate their own attendance code and be validated/confirmed like
@@ -41,12 +47,15 @@
 
 -- ======================================================================
 -- event_host_access_view — security-barrier projection of event_hosts used
--- ONLY by the ep_read_event_access policy (recursion workaround). No grants:
--- invisible to anon/authenticated/service_role through PostgREST.
+-- ONLY by the ep_read_event_access policy (recursion workaround). Filters to
+-- the caller's own rows (`user_id = auth.uid()`); SELECT is granted to the
+-- API roles so policy evaluation works on a pristine schema, while no client
+-- can read any roster but their own through the view.
 -- ======================================================================
 CREATE OR REPLACE VIEW public.event_host_access_view WITH (security_barrier='true') AS
 SELECT event_id, user_id, role
-FROM public.event_hosts;
+FROM public.event_hosts
+WHERE user_id = auth.uid();
 
 -- ======================================================================
 -- designate_event_staff(uuid, uuid[])
@@ -253,6 +262,18 @@ CREATE POLICY ep_read_event_access ON public.event_hosts FOR SELECT USING (
           AND eh.user_id = auth.uid()
     )
 );
+
+-- The policy references event_host_access_view, so the API roles MUST hold
+-- SELECT on it — on a pristine schema (fresh init/apply) an ungranted view
+-- makes every event_hosts read fail with "permission denied for view". Safe
+-- because the view projects only `user_id = auth.uid()` rows: no client can
+-- see any roster but their own through it (full-roster reads go through
+-- event_hosts + the policy above). REVOKE FROM PUBLIC keeps it off anon-able
+-- default ACLs; anon SELECT returns zero rows (auth.uid() is NULL).
+REVOKE ALL ON public.event_host_access_view FROM PUBLIC;
+GRANT SELECT ON public.event_host_access_view TO anon;
+GRANT SELECT ON public.event_host_access_view TO authenticated;
+GRANT SELECT ON public.event_host_access_view TO service_role;
 
 -- ======================================================================
 -- ACLs — hardened posture (no PUBLIC; authenticated + service_role only).
