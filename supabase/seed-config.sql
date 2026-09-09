@@ -20,7 +20,7 @@ INSERT INTO app_config (key, value, description, default_value) VALUES
     ('economy.group_donation_min', '1', 'Minimum shards a user can donate to a group in one action', '1'),
     ('economy.group_shard_boost_days', '14', 'Days a group shard donation (boost) remains active before expiring', '14'),
     ('qr.activation_minutes_before', '30', 'Minutes before event start that the attendance code activates', '30'),
-    ('code.window_seconds', '30', 'Time window (seconds) each attendance code is valid (authenticator style)', '30'),
+    ('code.window_seconds', '10', 'Time window (seconds) each attendance code is valid (authenticator style)', '10'),
     ('chat.message_cap', '1000', 'Max messages retained per chat (rolling window)', '1000'),
     ('events.free_daily_limit', '3', 'Max events a free user can create per day', '3'),
     ('events.pro_daily_limit', '10', 'Max events a PRO user can create per day', '10'),

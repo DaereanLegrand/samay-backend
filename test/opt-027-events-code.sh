@@ -4,7 +4,7 @@ set -uo pipefail
 # [OPT-027] Events — Rotating attendance code (Stage 4)
 # Verifies the attendance-code surface (060_events/07_code.sql):
 #   A) get_my_code issues a per-attendee secret + a deterministic 24-hex
-#      code for the current 30-s time window (authenticator style)
+#      code for the current 10-s time window (authenticator style)
 #   B) the code is STABLE within the window and DIFFERS across users; the
 #      event_code helper reproduces the server code and the next window
 #      yields a different code
@@ -176,7 +176,7 @@ fi
 # =========================================================================
 # TEST A/B — code issuance + determinism + per-user distinctness
 # =========================================================================
-h1 "TEST A/B — get_my_code (24-hex, 30-s window, deterministic)"
+h1 "TEST A/B — get_my_code (24-hex, 10-s window, deterministic)"
 SECRET_A="" CODE_A="" SECRET_H="" CODE_H="" CTR_A=""
 if [ -n "$EV2" ]; then
   resp=$(auth_rpc "$TOKEN_A" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
@@ -186,8 +186,8 @@ if [ -n "$EV2" ]; then
   WS=$(num_field_of "$resp" windowSeconds)
   if echo "$CODE_A" | grep -qE '^[0-9a-f]{24}$' \
      && echo "$SECRET_A" | grep -qE '^[0-9a-f]{64}$' \
-     && [ "$WS" = "30" ] && [ -n "$CTR_A" ]; then
-    ok "Host A got a 24-hex code + 64-hex secret (30-s window, counter $CTR_A)"
+     && [ "$WS" = "10" ] && [ -n "$CTR_A" ]; then
+    ok "Host A got a 24-hex code + 64-hex secret (10-s window, counter $CTR_A)"
   else
     nok "get_my_code(A) malformed: $resp"
   fi
@@ -226,7 +226,7 @@ if [ -n "$EV2" ]; then
     next=$(svc_rpc "event_code" "{\"p_secret\":\"$SECRET_A\",\"p_counter\":$((CTR_A + 1))}")
     next_code=$(echo "$next" | tr -d '"')
     if [ -n "$next_code" ] && [ "$next_code" != "$CODE_A" ]; then
-      ok "The NEXT 30-s window derives a DIFFERENT code (regeneration by time)"
+      ok "The NEXT 10-s window derives a DIFFERENT code (regeneration by time)"
     else
       nok "Next-window code did not change: $next"
     fi

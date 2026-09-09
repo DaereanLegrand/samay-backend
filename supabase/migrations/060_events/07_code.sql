@@ -44,7 +44,7 @@
 --     This file only pins the code the attendee display must encode and the
 --     authoritative server validation.
 --
--- Config: code.window_seconds (seed 30) is added in seed-config.sql; the
+-- Config: code.window_seconds (seed 10) is added in seed-config.sql; the
 -- activation window reuses qr.activation_minutes_before (seed 30).
 
 -- ======================================================================
