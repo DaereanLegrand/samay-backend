@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(953);
+SELECT plan(956);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3743,6 +3743,21 @@ SELECT ok(
        AND pg_get_functiondef(p.oid) LIKE '%ON CONFLICT (session_id, participant_id) DO UPDATE%'
      FROM pg_proc p WHERE proname = 'set_minigame_alias'),
     'set_minigame_alias upserts one temp nickname per (session, participant)'
+);
+-- 208_minigame_alias_unique: session-unique, case-insensitive nicknames.
+SELECT ok(
+    to_regclass('public.minigame_aliases_session_alias_uniq') IS NOT NULL,
+    'minigame_aliases has a session+alias index (208_minigame_alias_unique)');
+SELECT ok(
+    (SELECT indisunique FROM pg_index
+      WHERE indexrelid = 'minigame_aliases_session_alias_uniq'::regclass),
+    'the nickname index is UNIQUE (session_id, lower(btrim(alias))) (208_minigame_alias_unique)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%alias_taken%'
+       AND pg_get_functiondef(p.oid) LIKE '%lower(btrim(alias))%'
+     FROM pg_proc p WHERE proname = 'set_minigame_alias'),
+    'set_minigame_alias rejects a taken nickname (case-insensitive, 208_minigame_alias_unique)'
 );
 
 -- The answer-first reaction gate (202): the subject cannot react to their own
