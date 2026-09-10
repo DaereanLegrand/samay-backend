@@ -64,6 +64,12 @@ norm_json() {
   sed -E 's/([][,{}:])[[:space:]]+/\1/g; s/[[:space:]]+([][,{}:])/\1/g'
 }
 
+# The 207 server reaction spam gate drops a same-voter write inside 250 ms of
+# the previous ACCEPTED write (status `too_fast`). API-level cases model
+# DELIBERATE spaced taps (the real client's tap timer is 350 ms), so sleep just
+# past the server window between consecutive accepted taps by the same voter.
+tap_wait() { sleep 0.3; }
+
 auth_rpc() {
   local t=$1 f=$2 d=$3
   curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/$f" -H "apikey: $ANON_KEY" \
@@ -306,6 +312,7 @@ else
 fi
 
 # VOTER1 re-votes (heart -> excited) — replaces, count stays 1 (distinct).
+tap_wait
 resp=$(auth_rpc "$V1TOKEN" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"excited\"}")
 resp=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")

@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(947);
+SELECT plan(953);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -326,7 +326,9 @@ SELECT ok(
 -- derived from a per-attendee secret + 30-s window (event_code), issued
 -- to attendees (get_my_code) and validated host/staff-only ONCE
 -- (validate_code). Behavior: opt-027. Here: presence + ACL posture
--- (SECURITY DEFINER, PUBLIC revoked, zero client table grants) + FORCE RLS.
+-- (SECURITY DEFINER, PUBLIC revoked, zero client table grants) + FORCE RLS,
+-- and (2026-09-09 security fix) the CONFIRMED-invite attendee gate — a PENDING
+-- invitee is not an attendee (no code, never confirmable).
 -- ============================================================
 SELECT has_table('event_code_keys',
     'event_code_keys exists (060_events/07 code secrets)');
@@ -360,6 +362,19 @@ SELECT ok(
        AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 3,
     'code RPC family has no PUBLIC/anon EXECUTE (authenticated/service_role only)'
 );
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%AND status = ''accepted''%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%status = ''attended''%'
+       AND pg_get_functiondef(p.oid) LIKE '%not_invited%'
+     FROM pg_proc p WHERE proname = 'get_my_code'),
+    'get_my_code requires an ACCEPTED invite (accepted-only; attended/pending → not_invited, 2026-09-10)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%status = ''accepted'' OR status = ''attended''%'
+       AND pg_get_functiondef(p.oid) LIKE '%not_invited%'
+     FROM pg_proc p WHERE proname = 'validate_code'),
+    'validate_code refuses to confirm a PENDING invitee (CONFIRMED-invite gate, 2026-09-09)'
+);
 
 SELECT has_trigger('event_invites', 'code_key_purge_on_invite_delete',
     'event_invites purge trigger removes code keys on invite-row deletion (declined/converted)');
@@ -386,14 +401,24 @@ SELECT is(
 );
 
 -- SECTION 21f: Attendee-side event roster (060_events/09_attendee_roster.sql,
--- 2026-09-09) — event members (invitees of any standing) read the organizer
--- roster (`event_hosts`) and the event's CONFIRMED invite rows only; other
--- people's pending invites stay host/own-only. The membership check rides a
--- security-barrier view (recursion-free); event_hosts joins supabase_realtime
--- with REPLICA IDENTITY FULL so the organizer roster streams live. Behavior:
--- opt-025 TEST H. Here: view + policy + realtime posture.
+-- 2026-09-09, tightened 2026-09-09) — event members read the organizer roster
+-- (`event_hosts`) and the event's CONFIRMED invite rows only; other people's
+-- pending invites stay host/own-only. Membership is CONFIRMED only
+-- (accepted/attended): a PENDING invitee reads no roster (security fix,
+-- 2026-09-09) and keeps `ei_read_own` for the accept/decline card. The
+-- membership check rides a security-barrier view (recursion-free); event_hosts
+-- joins supabase_realtime with REPLICA IDENTITY FULL so the organizer roster
+-- streams live. Behavior: opt-025 TEST H. Here: view + policy + realtime
+-- posture.
 SELECT has_view('public', 'event_roster_membership_view',
     'event_roster_membership_view (security-barrier caller invite projection) exists — recursion-free member check');
+SELECT ok(
+    (SELECT pg_get_viewdef('public.event_roster_membership_view'::regclass, true)
+            LIKE '%status = ''accepted''::invite_status%'
+       AND pg_get_viewdef('public.event_roster_membership_view'::regclass, true)
+            LIKE '%status = ''attended''::invite_status%'),
+    'event_roster_membership_view projects only CONFIRMED (accepted/attended) memberships — pending invitees read no roster (2026-09-09)'
+);
 SELECT ok(
     EXISTS (
         SELECT 1 FROM pg_policies
@@ -421,6 +446,26 @@ SELECT ok(
         WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'event_hosts'
     ),
     'event_hosts joins the supabase_realtime publication (organizer roster streams live to members, 060_events/09_attendee_roster.sql)'
+);
+
+-- SECTION 21g: Attendance realtime (060_events/08_realtime.sql +
+-- 960_realtime, 2026-09-10, Task C) — event_attendances joins
+-- supabase_realtime with REPLICA IDENTITY FULL so a scan that confirms the
+-- caller (guest OR host/staff — only this table records a host/staff member)
+-- flips an already-open detail/QR screen to the terminal "Ya te registraste"
+-- state (client invalidates myAttendanceProvider on every row event). Delivery
+-- stays RLS-gated (ea_read_access).
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'event_attendances'
+    ),
+    'event_attendances joins the supabase_realtime publication (assist flip streams live, 060_events/08_realtime.sql)'
+);
+SELECT is(
+    (SELECT relreplident FROM pg_class WHERE oid = 'public.event_attendances'::regclass),
+    'f',
+    'event_attendances has REPLICA IDENTITY FULL (full-row realtime payloads for the assist flip, 060_events/08_realtime.sql)'
 );
 
 -- ============================================================
@@ -3998,6 +4043,8 @@ SELECT ok(
 );
 SELECT col_has_check('minigame_reactions', 'reaction',
     'minigame_reactions.reaction has a CHECK (NULL or six emojis, 204_minigame_pasar)');
+SELECT has_column('minigame_reactions', 'last_tap_at',
+    'minigame_reactions.last_tap_at drives the server reaction spam gate (207, 2026-09-09)');
 SELECT ok(
     (SELECT convalidated
        FROM pg_constraint
@@ -4246,17 +4293,23 @@ SELECT ok(
     'submit_minigame_reaction keeps the 202 answer-first + own-round gates (207 is additive)'
 );
 
--- Emoji ↔ Pasar exclusivity (2026-09-04): once a voter has acted they cannot
--- switch to the OTHER mode. submit_minigame_reaction rejects a Pasar when the
--- voter already emoji-reacted (already_reacted) and rejects an emoji when the
--- voter already passed (already_passed); emoji → emoji re-votes stay allowed.
+-- Emoji ↔ Pasar exclusivity (2026-09-04, corrected 2026-09-09): once a voter
+-- has acted they cannot switch to the OTHER mode. A Pasar row stores a NULL
+-- reaction, so cross-mode is detected by ROW EXISTENCE — submit_minigame_reaction
+-- rejects a Pasar when the voter already holds an EMOJI row (already_reacted)
+-- and rejects an emoji when the voter holds a PASS row (reaction IS NULL,
+-- already_passed); fresh voters and same-mode re-votes stay allowed. The
+-- per-voter last_tap_at + 250 ms `too_fast` gate bounds spam server-side.
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%already_reacted%'
        AND pg_get_functiondef(p.oid) LIKE '%already_passed%'
-       AND pg_get_functiondef(p.oid) LIKE '%SELECT reaction INTO v_existing%'
+       AND pg_get_functiondef(p.oid) LIKE '%reaction IS NULL%'
+       AND pg_get_functiondef(p.oid) LIKE '%reaction IS NOT NULL%'
+       AND pg_get_functiondef(p.oid) LIKE '%too_fast%'
+       AND pg_get_functiondef(p.oid) LIKE '%last_tap_at%'
        AND pg_get_functiondef(p.oid) LIKE '%p_reaction = ''pasar''%'
      FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
-    'submit_minigame_reaction enforces emoji ↔ Pasar exclusivity per voter (207, 2026-09-04)'
+    'submit_minigame_reaction enforces emoji ↔ Pasar exclusivity by row existence + the 250 ms spam gate (207, fixed 2026-09-09)'
 );
 -- The mirror carries the per-voter action map (voter_id → emoji wire or null
 -- for a pass) inside state.reactions.<subject>, so clients grey out the OTHER
@@ -4268,14 +4321,17 @@ SELECT ok(
     'submit_minigame_reaction mirrors the per-voter action map under state.reactions.<subject>.voters (207, 2026-09-04)'
 );
 
--- react_minigame_round (async reactable round): the SAME exclusivity gates +
--- per-voter voters mirror.
+-- react_minigame_round (async reactable round): the SAME corrected
+-- row-existence exclusivity + spam gate + per-voter voters mirror.
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%already_reacted%'
        AND pg_get_functiondef(p.oid) LIKE '%already_passed%'
-       AND pg_get_functiondef(p.oid) LIKE '%SELECT reaction INTO v_existing%'
+       AND pg_get_functiondef(p.oid) LIKE '%reaction IS NULL%'
+       AND pg_get_functiondef(p.oid) LIKE '%reaction IS NOT NULL%'
+       AND pg_get_functiondef(p.oid) LIKE '%too_fast%'
+       AND pg_get_functiondef(p.oid) LIKE '%last_tap_at%'
      FROM pg_proc p WHERE proname = 'react_minigame_round'),
-    'react_minigame_round enforces emoji ↔ Pasar exclusivity per voter (async reactable rounds, 207, 2026-09-04)'
+    'react_minigame_round enforces emoji ↔ Pasar exclusivity by row existence + the 250 ms spam gate (async reactable rounds, 207, fixed 2026-09-09)'
 );
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%''voters''%'

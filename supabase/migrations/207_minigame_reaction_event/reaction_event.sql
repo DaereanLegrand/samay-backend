@@ -34,16 +34,31 @@
 -- SELECT for the counter — the RPC bodies keep their exact 204 behavior apart
 -- from the additions below.
 --
--- Emoji ↔ Pasar exclusivity (2026-09-04 user directive): a voter who has
--- already emoji-reacted can no longer Pasar and a voter who has already
--- PASSED can no longer emoji-react — the server rejects the cross-mode switch
--- (already_reacted / already_passed). Emoji → emoji re-votes remain allowed.
+-- Emoji ↔ Pasar exclusivity + controlled-spam gate (2026-09-04 directive,
+-- corrected 2026-09-09). A Pasar row stores a NULL reaction (204), so "no row
+-- yet" and "already passed" MUST be told apart by row EXISTENCE, never by the
+-- reaction value. A voter who has already emoji-reacted can choose another
+-- emoji OR re-tap the SAME emoji (the upsert replaces; every accepted tap
+-- bumps the seq/event so every device can animate) but can no longer Pasar
+-- (already_reacted). A voter who PASSED has every option locked: an emoji tap
+-- returns already_passed. A FRESH voter taps freely. Same-mode re-taps are
+-- bounded server-side by a per-voter min-interval (`last_tap_at`, 250 ms)
+-- returning `too_fast` with NO write / no seq bump; the client's 350 ms tap
+-- timer is the primary spam gate and this is the API-layer backstop.
 -- The mirror also carries a per-voter `voters` map (voter_id → emoji wire, or
 -- json null for a pass) inside `state.reactions.<subject>`, so every client
--- greys out the OTHER mode on its own deck once it has acted.
+-- greys out the LOCKED mode on its own deck once it has acted.
 --
 -- Posture mirrors 204: CREATE OR REPLACE of the existing signatures, SECURITY
--- DEFINER, search_path='', no privilege changes.
+-- DEFINER, search_path='', no privilege changes (the additive column inherits
+-- the table's RLS; only the SECURITY DEFINER RPCs write it).
+
+-- ======================================================================
+-- 0. Additive: per-(session, round, voter) time of the last ACCEPTED
+--    reaction write. Drives the server controlled-spam gate; NULL = none yet.
+-- ======================================================================
+ALTER TABLE public.minigame_reactions
+    ADD COLUMN IF NOT EXISTS last_tap_at timestamp with time zone;
 
 -- ======================================================================
 -- 1. submit_minigame_reaction(uuid, text) — CREATE OR REPLACE (201 sig)
@@ -65,7 +80,7 @@ DECLARE
     v_answer jsonb;
     v_reacted_count integer;
     v_required_count integer;
-    v_existing text;
+    v_last_tap timestamp with time zone;
     v_row jsonb;
 BEGIN
     -- 1. Authentication gate.
@@ -127,31 +142,54 @@ BEGIN
         RETURN jsonb_build_object('status', 'invalid_reaction');
     END IF;
 
-    -- 6b. Emoji ↔ Pasar exclusivity (2026-09-04 user directive): a voter who
-    --    has already emoji-reacted cannot switch to Pasar (already_reacted),
-    --    and a voter who has already PASSED cannot switch to an emoji
-    --    (already_passed). Emoji → emoji re-votes stay allowed (the upsert
-    --    replaces); a repeated same-mode tap is an idempotent upsert.
-    SELECT reaction INTO v_existing
-    FROM public.minigame_reactions
-    WHERE session_id = p_session_id AND round = v_round AND voter_id = auth.uid();
+    -- 6b. Emoji ↔ Pasar exclusivity (2026-09-09 fix). A Pasar row stores a
+    --    NULL reaction (204), so "no row yet" and "already passed" are told
+    --    apart by row EXISTENCE, never by the reaction value. A Pasar tap that
+    --    finds an EMOJI row is a cross-mode switch (already_reacted); a
+    --    re-pasar over an existing pass row is an idempotent no-op that stays
+    --    allowed. An emoji tap that finds a PASS row (reaction IS NULL) is a
+    --    cross-mode switch (already_passed). A fresh voter and an emoji voter
+    --    tap freely — same-emoji re-taps and emoji → emoji re-votes stay
+    --    allowed (the upsert replaces).
     IF p_reaction = 'pasar' THEN
-        IF v_existing IS NOT NULL THEN
+        IF EXISTS (
+            SELECT 1 FROM public.minigame_reactions
+            WHERE session_id = p_session_id AND round = v_round
+              AND voter_id = auth.uid() AND reaction IS NOT NULL
+        ) THEN
             RETURN jsonb_build_object('status', 'already_reacted');
         END IF;
     ELSE
-        IF v_existing IS NULL THEN
+        IF EXISTS (
+            SELECT 1 FROM public.minigame_reactions
+            WHERE session_id = p_session_id AND round = v_round
+              AND voter_id = auth.uid() AND reaction IS NULL
+        ) THEN
             RETURN jsonb_build_object('status', 'already_passed');
         END IF;
+    END IF;
+
+    -- 6c. Controlled-spam server threshold: at most ONE accepted reaction
+    --    write per voter per round inside the 250 ms window (the client's tap
+    --    timer is 350 ms, so a well-behaved device never trips this). No
+    --    write, no seq bump, no event — the tapper's device already animated
+    --    its own tap locally.
+    SELECT last_tap_at INTO v_last_tap
+    FROM public.minigame_reactions
+    WHERE session_id = p_session_id AND round = v_round AND voter_id = auth.uid();
+    IF v_last_tap IS NOT NULL
+       AND clock_timestamp() - v_last_tap < interval '250 milliseconds' THEN
+        RETURN jsonb_build_object('status', 'too_fast');
     END IF;
 
     -- 7. Persist the vote (idempotent upsert). A 'pasar' stores NULL
     --    reaction — the pass marker — so one (session, round, voter) row
     --    holds exactly one action (emoji or pass).
-    INSERT INTO public.minigame_reactions (session_id, round, voter_id, reaction)
-    VALUES (p_session_id, v_round, auth.uid(), NULLIF(p_reaction, 'pasar'))
+    INSERT INTO public.minigame_reactions (session_id, round, voter_id, reaction, last_tap_at)
+    VALUES (p_session_id, v_round, auth.uid(), NULLIF(p_reaction, 'pasar'), clock_timestamp())
     ON CONFLICT (session_id, round, voter_id) DO UPDATE
-        SET reaction = EXCLUDED.reaction;
+        SET reaction = EXCLUDED.reaction,
+            last_tap_at = clock_timestamp();
 
     -- 8. Mirror into the state payload (realtime): the ordered emoji list +
     --    distinct-voter count + `pass` count + the per-voter `voters` map +
@@ -245,7 +283,7 @@ DECLARE
     v_participants uuid[];
     v_answer jsonb;
     v_subject_id uuid;
-    v_existing text;
+    v_last_tap timestamp with time zone;
     v_row jsonb;
 BEGIN
     -- 1. Authentication gate.
@@ -294,28 +332,46 @@ BEGIN
         RETURN jsonb_build_object('status', 'invalid_reaction');
     END IF;
 
-    -- 6b. Emoji ↔ Pasar exclusivity (2026-09-04 user directive) — the same
-    --    contract as submit_minigame_reaction on the async path: a voter who
-    --    already emoji-reacted cannot Pasar (already_reacted) and a voter who
-    --    already passed cannot emoji-react (already_passed).
-    SELECT reaction INTO v_existing
-    FROM public.minigame_reactions
-    WHERE session_id = p_session_id AND round = p_round AND voter_id = auth.uid();
+    -- 6b. Emoji ↔ Pasar exclusivity (2026-09-09 fix) — the same corrected
+    --    contract as submit_minigame_reaction on the async reactable-round
+    --    path: a Pasar tap that finds an EMOJI row is already_reacted; an
+    --    emoji tap that finds a PASS row (reaction IS NULL) is already_passed.
+    --    A fresh voter and an emoji voter tap freely (same-emoji re-taps +
+    --    emoji → emoji re-votes allowed).
     IF p_reaction = 'pasar' THEN
-        IF v_existing IS NOT NULL THEN
+        IF EXISTS (
+            SELECT 1 FROM public.minigame_reactions
+            WHERE session_id = p_session_id AND round = p_round
+              AND voter_id = auth.uid() AND reaction IS NOT NULL
+        ) THEN
             RETURN jsonb_build_object('status', 'already_reacted');
         END IF;
     ELSE
-        IF v_existing IS NULL THEN
+        IF EXISTS (
+            SELECT 1 FROM public.minigame_reactions
+            WHERE session_id = p_session_id AND round = p_round
+              AND voter_id = auth.uid() AND reaction IS NULL
+        ) THEN
             RETURN jsonb_build_object('status', 'already_passed');
         END IF;
     END IF;
 
+    -- 6c. Controlled-spam server threshold (same contract as the by_turns
+    --    path): one accepted reaction write per voter per round inside 250 ms.
+    SELECT last_tap_at INTO v_last_tap
+    FROM public.minigame_reactions
+    WHERE session_id = p_session_id AND round = p_round AND voter_id = auth.uid();
+    IF v_last_tap IS NOT NULL
+       AND clock_timestamp() - v_last_tap < interval '250 milliseconds' THEN
+        RETURN jsonb_build_object('status', 'too_fast');
+    END IF;
+
     -- 7. Persist the vote. A 'pasar' stores NULL — the pass marker.
-    INSERT INTO public.minigame_reactions (session_id, round, voter_id, reaction)
-    VALUES (p_session_id, p_round, auth.uid(), NULLIF(p_reaction, 'pasar'))
+    INSERT INTO public.minigame_reactions (session_id, round, voter_id, reaction, last_tap_at)
+    VALUES (p_session_id, p_round, auth.uid(), NULLIF(p_reaction, 'pasar'), clock_timestamp())
     ON CONFLICT (session_id, round, voter_id) DO UPDATE
-        SET reaction = EXCLUDED.reaction;
+        SET reaction = EXCLUDED.reaction,
+            last_tap_at = clock_timestamp();
 
     -- 8. Mirror into the state payload (realtime): the reactions tally under
     --    the round's subject (incl. the per-voter action map) + the per-tap
