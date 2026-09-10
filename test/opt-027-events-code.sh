@@ -437,14 +437,10 @@ if [ -n "$EV2" ] && [ -n "$CODE_H" ]; then
   fi
 
   fresh=$(auth_rpc "$TOKEN_H" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
-  FRESH_H=$(field_of "$fresh" code)
-  if [ -n "$FRESH_H" ]; then
-    resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$FRESH_H\"}")
-    if echo "$resp" | grep -q 'already_scanned'; then
-      ok "A fresh H code (new window) still cannot double-confirm (already_scanned)"
-    else
-      nok "Fresh-code double confirm not blocked: $resp"
-    fi
+  if echo "$fresh" | grep -q 'not_invited'; then
+    ok "An already-attended H can no longer mint a code (not_invited)"
+  else
+    nok "Attended H still mints a code: $fresh"
   fi
 fi
 

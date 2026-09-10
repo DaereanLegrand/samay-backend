@@ -148,17 +148,18 @@ BEGIN
         RETURN jsonb_build_object('status', 'not_in_window');
     END IF;
 
-    -- Attendee gate (mirrors 060_events/06_staff.sql): host, staff OR a
-    -- CONFIRMED invite (accepted/attended; declined invites are deleted). A
-    -- PENDING invitee is NOT an attendee — they may only accept/decline, never
-    -- mint a code (2026-09-09 security fix).
+    -- Attendee gate (mirrors 060_events/06_staff.sql): host, staff OR an
+    -- ACCEPTED invite. ONLY `accepted` mints a code (2026-09-10 directive): a
+    -- merely-pending invitee may only accept/decline, and an already-attended
+    -- user is in the terminal state and mints no further code. Declined invites
+    -- are deleted, so they have no row and are likewise not_invited.
     IF NOT EXISTS (
         SELECT 1 FROM public.event_hosts
         WHERE event_id = p_event_id AND user_id = v_me
     ) AND NOT EXISTS (
         SELECT 1 FROM public.event_invites
         WHERE event_id = p_event_id AND user_id = v_me
-          AND (status = 'accepted' OR status = 'attended')
+          AND status = 'accepted'
     ) THEN
         RETURN jsonb_build_object('status', 'not_invited');
     END IF;
@@ -273,10 +274,13 @@ BEGIN
     WHERE event_id = p_event_id AND user_id = v_uid
     FOR UPDATE;
 
-    -- 6. Attendee still valid (host/staff or CONFIRMED invite)? A revoked
-    --    attendee (declined invite / removed staff — keys purged) answers
-    --    not_invited, and a PENDING invitee can never be confirmed by a scan
-    --    (2026-09-09 security fix).
+    -- 6. Attendee still valid (host/staff or a live ACCEPTED/ATTENDED invite)?
+    --    A PENDING invitee can never be confirmed by a scan (2026-09-09). An
+    --    already-attended target stays in this set on purpose so the scan
+    --    reaches step 7 and answers `already_scanned` (never `not_invited`);
+    --    a revoked attendee (declined invite / removed staff — keys purged)
+    --    has no row and answers not_invited. NOTE: `get_my_code` is stricter
+    --    (only `accepted` mints) — this set is about who a scan may recognize.
     IF NOT EXISTS (
         SELECT 1 FROM public.event_hosts
         WHERE event_id = p_event_id AND user_id = v_uid
