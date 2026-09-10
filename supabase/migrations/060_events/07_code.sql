@@ -9,6 +9,10 @@
 --
 -- Model / decisions:
 --
+--   * Attendee = host/staff (event_hosts) OR a CONFIRMED invite
+--     (event_invites.status IN ('accepted','attended')). A PENDING invitee is
+--     NOT an attendee (2026-09-09 security fix): they may only accept or
+--     decline, cannot mint a code, and can never be confirmed by a scan.
 --   * event_code_keys(event_id, user_id, secret) — ONE long-lived random
 --     32-byte secret per (event, attendee), issued lazily on first fetch
 --     inside the activation window. No per-window token rows accumulate; the
@@ -18,7 +22,7 @@
 --     Domain-separated per the crypto policy (approved: HMAC-SHA256). Codes
 --     are 24 lowercase hex = 96 bits, unguessable, carry NO identity.
 --   * get_my_code(p_event_id) — attendee-side issue. Gates: activation window
---     (qr.activation_minutes_before) + host/staff/invite attendee membership.
+--     (qr.activation_minutes_before) + host/staff/CONFIRMED-invite membership.
 --     Issues the secret on first call; returns {code, secret, counter,
 --     windowSeconds, windowStart, windowEnd, serverNowMs} for the CURRENT 30-s
 --     window. `serverNowMs` is the server's own UTC epoch milliseconds at
@@ -144,15 +148,17 @@ BEGIN
         RETURN jsonb_build_object('status', 'not_in_window');
     END IF;
 
-    -- Attendee gate (mirrors 060_events/06_staff.sql): host, staff OR a live
-    -- invite (declined invites are deleted). Everyone on the event holds
-    -- their own code.
+    -- Attendee gate (mirrors 060_events/06_staff.sql): host, staff OR a
+    -- CONFIRMED invite (accepted/attended; declined invites are deleted). A
+    -- PENDING invitee is NOT an attendee — they may only accept/decline, never
+    -- mint a code (2026-09-09 security fix).
     IF NOT EXISTS (
         SELECT 1 FROM public.event_hosts
         WHERE event_id = p_event_id AND user_id = v_me
     ) AND NOT EXISTS (
         SELECT 1 FROM public.event_invites
         WHERE event_id = p_event_id AND user_id = v_me
+          AND (status = 'accepted' OR status = 'attended')
     ) THEN
         RETURN jsonb_build_object('status', 'not_invited');
     END IF;
@@ -267,14 +273,17 @@ BEGIN
     WHERE event_id = p_event_id AND user_id = v_uid
     FOR UPDATE;
 
-    -- 6. Attendee still valid (host/staff or live invite)? A revoked attendee
-    --    (declined invite / removed staff — keys purged) answers not_invited.
+    -- 6. Attendee still valid (host/staff or CONFIRMED invite)? A revoked
+    --    attendee (declined invite / removed staff — keys purged) answers
+    --    not_invited, and a PENDING invitee can never be confirmed by a scan
+    --    (2026-09-09 security fix).
     IF NOT EXISTS (
         SELECT 1 FROM public.event_hosts
         WHERE event_id = p_event_id AND user_id = v_uid
     ) AND NOT EXISTS (
         SELECT 1 FROM public.event_invites
         WHERE event_id = p_event_id AND user_id = v_uid
+          AND (status = 'accepted' OR status = 'attended')
     ) THEN
         RETURN jsonb_build_object('status', 'not_invited');
     END IF;

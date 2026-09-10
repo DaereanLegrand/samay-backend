@@ -9,7 +9,8 @@ set -uo pipefail
 #      event_code helper reproduces the server code and the next window
 #      yields a different code
 #   C) gates: an outsider is not_invited for issue; only host/staff can
-#      validate (not_host); a non-attendee cannot get a code
+#      validate (not_host); a non-attendee cannot get a code; a PENDING
+#      invitee is NOT an attendee — no code, never confirmable (2026-09-09)
 #   D) not_in_window before activation (qr.activation_minutes_before)
 #   E) staff are attendees (issue their own code; host confirms them once)
 #   F) guest confirmation flips event_invites to attended, recorded in
@@ -33,11 +34,12 @@ UUID_A="66666666-6666-6666-6666-66666667a001"
 UUID_B="66666666-6666-6666-6666-66666667b002"
 UUID_H="66666666-6666-6666-6666-66666667c003"
 UUID_X="66666666-6666-6666-6666-66666667d004"
+UUID_P="66666666-6666-6666-6666-66666667e005"
 
 cleanup() {
   svc_delete_quiet "events?created_by_user_id=eq.$UUID_A"
-  svc_delete_quiet "users?id=in.($UUID_A,$UUID_B,$UUID_H,$UUID_X)"
-  for uid in $UUID_A $UUID_B $UUID_H $UUID_X; do
+  svc_delete_quiet "users?id=in.($UUID_A,$UUID_B,$UUID_H,$UUID_X,$UUID_P)"
+  for uid in $UUID_A $UUID_B $UUID_H $UUID_X $UUID_P; do
     curl -s -X DELETE "$SUPABASE_URL/auth/v1/admin/users/$uid" \
       -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" > /dev/null 2>&1 || true
   done
@@ -64,6 +66,11 @@ svc_get() {
 svc_delete_quiet() {
   curl -s -X DELETE "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Prefer: return=minimal" > /dev/null 2>&1 || true
+}
+svc_patch() {
+  curl -s -X PATCH "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
+    -H "Authorization: Bearer $SERVICE_KEY" -H "Content-Type: application/json" \
+    -H "Prefer: return=minimal" -d "$2" 2>/dev/null
 }
 auth_get() {
   local t=$1; shift
@@ -102,7 +109,7 @@ trap cleanup EXIT
 cleanup
 
 i=0
-for uid in $UUID_A $UUID_B $UUID_H $UUID_X; do
+for uid in $UUID_A $UUID_B $UUID_H $UUID_X $UUID_P; do
   i=$((i + 1))
   curl -s -X POST "$SUPABASE_URL/auth/v1/admin/users" \
     -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" \
@@ -121,8 +128,10 @@ TOKEN_A=$(token_of 1)
 TOKEN_B=$(token_of 2)
 TOKEN_H=$(token_of 3)
 TOKEN_X=$(token_of 4)
-if [ -n "$TOKEN_A" ] && [ -n "$TOKEN_B" ] && [ -n "$TOKEN_H" ] && [ -n "$TOKEN_X" ]; then
-  ok "Obtained auth tokens (A host, B staff, H guest, X outsider)"
+TOKEN_P=$(token_of 5)
+if [ -n "$TOKEN_A" ] && [ -n "$TOKEN_B" ] && [ -n "$TOKEN_H" ] && [ -n "$TOKEN_X" ] \
+   && [ -n "$TOKEN_P" ]; then
+  ok "Obtained auth tokens (A host, B staff, H guest, X outsider, P pending)"
 else
   nok "Failed to get auth tokens"
 fi
@@ -170,6 +179,13 @@ if [ -n "$EV2" ]; then
     fi
   else
     nok "H invite row not found"
+  fi
+
+  resp=$(auth_rpc "$TOKEN_A" "invite_event_guests" "{\"p_event_id\":\"$EV2\",\"p_invitees\":[\"$UUID_P\"]}")
+  if echo "$resp" | grep -q '"invited":1'; then
+    ok "A invited P to $EV2 (left PENDING on purpose)"
+  else
+    nok "invite P failed: $resp"
   fi
 fi
 
@@ -275,6 +291,69 @@ if [ -n "$EV2" ] && [ -n "$CODE_A" ]; then
     ok "Attendee H (not host/staff) cannot validate (not_host)"
   else
     nok "H validate not rejected: $resp"
+  fi
+fi
+
+# =========================================================================
+# TEST C2 — a PENDING invitee is NOT an attendee (2026-09-09 security fix)
+# A pending invitee may only accept/decline: no code, and never confirmable.
+# =========================================================================
+h1 "TEST C2 — pending invitee cannot mint or be confirmed"
+if [ -n "$EV2" ]; then
+  # Fresh pending invitee P cannot issue a code.
+  resp=$(auth_rpc "$TOKEN_P" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
+  if echo "$resp" | grep -q 'not_invited'; then
+    ok "Pending invitee P cannot issue a code (not_invited)"
+  else
+    nok "Pending P issue not rejected: $resp"
+  fi
+
+  # Leak scenario: mint a code while temporarily accepted, then revert the
+  # invite to pending. A leaked/rotated code must never confirm a pending
+  # invitee (no event_attendances row, invite stays pending).
+  P_INVITE=$(svc_get "event_invites?event_id=eq.$EV2&user_id=eq.$UUID_P&select=id")
+  P_INVITE=$(field_of "$P_INVITE" id)
+  P_CODE=""
+  if [ -n "$P_INVITE" ]; then
+    resp=$(auth_rpc "$TOKEN_P" "accept_event_invite" "{\"p_invite_id\":\"$P_INVITE\"}")
+    if echo "$resp" | grep -q '"status":"accepted"'; then
+      resp=$(auth_rpc "$TOKEN_P" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
+      P_CODE=$(field_of "$resp" code)
+    fi
+  fi
+  if echo "$P_CODE" | grep -qE '^[0-9a-f]{24}$'; then
+    ok "P minted a code while temporarily accepted (leak scenario seeded)"
+  else
+    nok "P leak-scenario code not minted: $resp"
+  fi
+  svc_patch "event_invites?event_id=eq.$EV2&user_id=eq.$UUID_P" '{"status":"pending"}'
+
+  resp=$(auth_rpc "$TOKEN_P" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
+  if echo "$resp" | grep -q 'not_invited'; then
+    ok "Reverted-to-pending P can no longer issue a code (not_invited)"
+  else
+    nok "Pending P issue not rejected after revert: $resp"
+  fi
+
+  if [ -n "$P_CODE" ]; then
+    resp=$(auth_rpc "$TOKEN_A" "validate_code" "{\"p_event_id\":\"$EV2\",\"p_code\":\"$P_CODE\"}")
+    if echo "$resp" | grep -q 'not_invited'; then
+      ok "Host cannot confirm a pending invitee from a leaked code (not_invited)"
+    else
+      nok "Pending P code was confirmable: $resp"
+    fi
+    att=$(svc_get "event_attendances?event_id=eq.$EV2&user_id=eq.$UUID_P&select=id")
+    if ! echo "$att" | grep -q '"id"'; then
+      ok "No event_attendances row written for pending P"
+    else
+      nok "event_attendances row leaked for P: $att"
+    fi
+    inv=$(svc_get "event_invites?event_id=eq.$EV2&user_id=eq.$UUID_P&select=status")
+    if echo "$inv" | grep -q '"status":"pending"'; then
+      ok "P's invite row stays pending after the refused scan"
+    else
+      nok "P invite not pending: $inv"
+    fi
   fi
 fi
 

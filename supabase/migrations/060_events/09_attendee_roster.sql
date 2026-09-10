@@ -1,8 +1,8 @@
 -- Samay baseline — 060_events/09_attendee_roster.sql
 --
 -- Attendee-side event roster (2026-09-09): everyone who BELONGS to an event
--- (an invitee — pending/accepted/attended — or a host/staff member) can see
--- who is in it:
+-- as a CONFIRMED member (an invitee with status accepted/attended, or a
+-- host/staff member) can see who is in it:
 --
 --   * the organizer roster (`event_hosts` = host + staff) reads for members,
 --     and
@@ -10,6 +10,11 @@
 --     accepted/attended) reads for members — other people's PENDING invites
 --     stay host/staff-visible and own-row-only (privacy: "confirmed people
 --     only", directive 2026-09-09).
+--
+-- A PENDING invitee is NOT a member (2026-09-09 security fix): they cannot
+-- read the organizer roster nor the confirmed-attendee roster. They still read
+-- their OWN pending row through `ei_read_own` to render the accept/decline
+-- card.
 --
 -- Both lists stream live via supabase_realtime (guests already joined in
 -- 08_realtime.sql; event_hosts joins here) so an accepted attendee's detail
@@ -31,14 +36,17 @@
 
 -- ======================================================================
 -- event_roster_membership_view — security-barrier projection: the events the
--- CALLER belongs to as an invitee (any status). Owner-run base read (postgres
--- bypasses event_invites RLS) + caller filter, so policies referencing it are
+-- CALLER belongs to as a CONFIRMED invitee (accepted/attended only). A pending
+-- invitee projects NO membership, so the member-read policies below deny them
+-- the organizer + attendee rosters. Owner-run base read (postgres bypasses
+-- event_invites RLS) + caller filter, so policies referencing it are
 -- recursion-free and leak nothing.
 -- ======================================================================
 CREATE VIEW public.event_roster_membership_view WITH (security_barrier='true') AS
 SELECT event_id
 FROM public.event_invites
-WHERE user_id = auth.uid();
+WHERE user_id = auth.uid()
+  AND (status = 'accepted' OR status = 'attended');
 
 REVOKE ALL ON public.event_roster_membership_view FROM PUBLIC;
 GRANT SELECT ON public.event_roster_membership_view TO anon;
@@ -52,9 +60,10 @@ GRANT SELECT ON public.event_roster_membership_view TO service_role;
 ALTER TABLE ONLY public.event_hosts REPLICA IDENTITY FULL;
 
 -- ======================================================================
--- event_hosts RLS: members (invitees of any standing) read the organizer
--- roster. Hosts/staff already read it via ep_read_event_access; ep_read_own
--- stays. OR'd with the existing policies, so this only WIDENS reads.
+-- event_hosts RLS: CONFIRMED members (accepted/attended invitees) read the
+-- organizer roster. Hosts/staff already read it via ep_read_event_access;
+-- ep_read_own stays. A PENDING invitee projects no membership, so this policy
+-- does not widen reads for them (2026-09-09).
 -- ======================================================================
 CREATE POLICY ep_read_member_roster ON public.event_hosts FOR SELECT USING (
     EXISTS (
@@ -64,11 +73,12 @@ CREATE POLICY ep_read_member_roster ON public.event_hosts FOR SELECT USING (
 );
 
 -- ======================================================================
--- event_invites RLS: members read the event's CONFIRMED rows (accepted /
--- attended) — "who is going". Pending rows of OTHER people stay invisible to
--- members (ei_read_own shows only your own pending). Hosts/staff already read
--- every row via ei_read_event_access; OR'd, so reads only widen for the
--- accepted/attended subset.
+-- event_invites RLS: CONFIRMED members read the event's CONFIRMED rows
+-- (accepted / attended) — "who is going". Pending rows of OTHER people stay
+-- invisible to members (ei_read_own shows only your own pending), and a
+-- PENDING invitee projects no membership so reads no confirmed row either.
+-- Hosts/staff already read every row via ei_read_event_access; OR'd, so reads
+-- only widen for the confirmed-member × accepted/attended subset.
 -- ======================================================================
 CREATE POLICY ei_read_confirmed_roster ON public.event_invites FOR SELECT USING (
     status IN ('accepted', 'attended')

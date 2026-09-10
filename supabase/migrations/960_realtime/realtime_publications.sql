@@ -37,5 +37,14 @@ BEGIN
                  WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='event_hosts') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.event_hosts;
   END IF;
+  -- event_attendances (060_events/08_realtime.sql, 2026-09-10): the scanner's
+  -- confirmation of the caller (guest or host/staff) streams live to an open
+  -- detail/QR screen, which flips to the terminal "Ya te registraste" state.
+  -- RLS still gates delivery (ea_read_access: own row everywhere, plus all the
+  -- event's rows for host/staff/group members).
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables
+                 WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='event_attendances') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.event_attendances;
+  END IF;
 END
 $$;

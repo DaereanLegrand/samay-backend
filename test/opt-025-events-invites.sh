@@ -343,33 +343,42 @@ if [ -n "$EV" ]; then
 fi
 
 # =========================================================================
-# TEST H — attendee-side roster (060_events/09_attendee_roster.sql): event
-# members (invitees of any standing) read the organizer roster (event_hosts)
-# and the event's CONFIRMED invite rows only — other people's pending invites
-# stay invisible. Outsider reads zero rows everywhere.
+# TEST H — attendee-side roster (060_events/09_attendee_roster.sql, tightened
+# 2026-09-09): only CONFIRMED event members (accepted/attended invitees) read
+# the organizer roster (event_hosts) and the event's CONFIRMED invite rows —
+# a PENDING invitee is NOT a member: they read only their OWN pending row
+# (ei_read_own) and no organizer roster. Outsider reads zero rows.
 # =========================================================================
-h1 "TEST H — attendee roster: members see organizers + confirmed, not pending"
+h1 "TEST H — attendee roster: confirmed members only, pending excluded"
 if [ -n "$EV" ]; then
   # D (accepted attendee) reads event_invites → own accepted row only (the
   # other rows are still pending → hidden). No recursion, no pending leak.
   rows=$(auth_get "$TOKEN_D" "event_invites?event_id=eq.$EV&select=user_id,status")
   n=$(echo "$rows" | grep -o '"user_id"' | wc -l | tr -d ' ')
-  pend=$(echo "$rows" | grep -o 'pending' | wc -l | tr -d ' ')
   if [ "$n" -eq 1 ] && echo "$rows" | grep -q '"status":"accepted"'; then
     ok "Accepted attendee D sees ONLY their confirmed row ($n invite rows, no pending)"
   else
     nok "D roster unexpected: $rows"
   fi
 
-  # B (still PENDING) reads event_invites → own pending row + D's confirmed
-  # row (2 rows total); the other pending guests stay hidden.
+  # B (still PENDING) reads event_invites → ONLY their own pending row
+  # (ei_read_own); D's confirmed row and the other pending rows stay hidden
+  # because a pending invitee projects no membership.
   rows=$(auth_get "$TOKEN_B" "event_invites?event_id=eq.$EV&select=user_id,status")
   n=$(echo "$rows" | grep -o '"user_id"' | wc -l | tr -d ' ')
-  pend=$(echo "$rows" | grep -o 'pending' | wc -l | tr -d ' ')
-  if [ "$n" -eq 2 ] && [ "$pend" -eq 1 ] && echo "$rows" | grep -q '"status":"accepted"'; then
-    ok "Pending invitee B sees own pending + D's accepted (2 rows, others' pending hidden)"
+  if [ "$n" -eq 1 ] && echo "$rows" | grep -q '"status":"pending"' \
+     && ! echo "$rows" | grep -q '"status":"accepted"'; then
+    ok "Pending invitee B sees ONLY own pending row (no confirmed roster)"
   else
     nok "B roster unexpected: $rows"
+  fi
+
+  # B (pending) reads NO organizer roster (event_hosts) — not a member.
+  rows=$(auth_get "$TOKEN_B" "event_hosts?event_id=eq.$EV&select=user_id")
+  if [ -z "$(echo "$rows" | grep -o '"user_id"')" ]; then
+    ok "Pending invitee B reads no organizer roster (RLS)"
+  else
+    nok "Pending invitee B leaked event_hosts rows: $rows"
   fi
 
   # D (member) reads the organizer roster event_hosts → host A's row.
