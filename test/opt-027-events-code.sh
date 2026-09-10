@@ -192,6 +192,24 @@ if [ -n "$EV2" ]; then
     nok "get_my_code(A) malformed: $resp"
   fi
 
+  # Server clock anchor (2026-09-09): get_my_code returns the SERVER's current
+  # time in ms so the device can offset its (possibly skewed) wall clock and
+  # derive the same rotation lattice as the server — no device-epoch counters.
+  SNOW=$(num_field_of "$resp" serverNowMs)
+  WSTART=$(num_field_of "$resp" windowStart)
+  WEND=$(num_field_of "$resp" windowEnd)
+  if [ -n "$SNOW" ] && echo "$SNOW" | grep -qE '^[0-9]+$'; then
+    ok "get_my_code returns serverNowMs as a number ($SNOW)"
+  else
+    nok "serverNowMs missing/not a number: $resp"
+  fi
+  if [ -n "$SNOW" ] && [ -n "$WSTART" ] && [ -n "$WEND" ] \
+     && [ "$SNOW" -ge $((WSTART * 1000)) ] && [ "$SNOW" -lt $((WEND * 1000)) ]; then
+    ok "serverNowMs is inside the issued window (windowStart*1000 <= serverNowMs < windowEnd*1000)"
+  else
+    nok "serverNowMs outside its window: serverNowMs=$SNOW start=$WSTART end=$WEND"
+  fi
+
   resp2=$(auth_rpc "$TOKEN_A" "get_my_code" "{\"p_event_id\":\"$EV2\"}")
   CODE_A2=$(field_of "$resp2" code)
   if [ -n "$CODE_A" ] && [ "$CODE_A" = "$CODE_A2" ]; then

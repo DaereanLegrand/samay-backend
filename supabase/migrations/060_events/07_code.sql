@@ -20,8 +20,12 @@
 --   * get_my_code(p_event_id) — attendee-side issue. Gates: activation window
 --     (qr.activation_minutes_before) + host/staff/invite attendee membership.
 --     Issues the secret on first call; returns {code, secret, counter,
---     windowSeconds, windowStart,
---     windowEnd} for the CURRENT 30-s window. The secret is returned so the
+--     windowSeconds, windowStart, windowEnd, serverNowMs} for the CURRENT 30-s
+--     window. `serverNowMs` is the server's own UTC epoch milliseconds at
+--     issue, and is STABLE within the transaction (now() is transaction-time),
+--     so it is consistent with `counter`. The device anchors its (possibly
+--     skewed) wall clock to it and derives every later window on the server's
+--     lattice. The secret is returned so the
 --     device derives codes LOCALLY (offline, seamless regeneration) — it is
 --     never logged, never persisted by the app, and is scoped to one
 --     (event, user).
@@ -93,7 +97,8 @@ $$;
 -- ======================================================================
 -- get_my_code(uuid) — attendee-side code issue
 -- Returns jsonb:
---   ok {code, secret, counter, windowSeconds, windowStart, windowEnd} |
+--   ok {code, secret, counter, windowSeconds, windowStart, windowEnd,
+--       serverNowMs} |
 --   not_authenticated | not_in_window | not_invited
 -- ======================================================================
 CREATE FUNCTION public.get_my_code(p_event_id uuid) RETURNS jsonb
@@ -108,6 +113,11 @@ DECLARE
     v_secret text;
     v_counter bigint;
     v_start bigint;
+    -- ONE captured timestamp for the whole issue: counter, window bounds and
+    -- serverNowMs all derive from it, so windowStart*1000 <= serverNowMs <
+    -- windowEnd*1000 holds strictly (a second now() call could round across a
+    -- boundary and leave the returned "server now" outside its own window).
+    v_now_ms bigint := (extract(epoch FROM now()) * 1000)::bigint;
 BEGIN
     IF v_me IS NULL THEN
         RETURN jsonb_build_object('status', 'not_authenticated');
@@ -159,8 +169,10 @@ BEGIN
         RETURNING secret INTO v_secret;
     END IF;
 
-    -- Current time window (UTC epoch counter).
-    v_counter := floor(extract(epoch FROM now()) / v_window)::bigint;
+    -- Current time window (UTC epoch counter), all derived from the single
+    -- captured `v_now_ms` so the returned serverNowMs is inside [v_start,
+    -- v_start + v_window) by construction.
+    v_counter := (v_now_ms / 1000) / v_window;
     v_start := v_counter * v_window;
 
     RETURN jsonb_build_object(
@@ -170,7 +182,8 @@ BEGIN
         'counter', v_counter,
         'windowSeconds', v_window,
         'windowStart', v_start,
-        'windowEnd', v_start + v_window
+        'windowEnd', v_start + v_window,
+        'serverNowMs', v_now_ms
     );
 END;
 $$;
