@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(956);
+SELECT plan(960);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -4361,6 +4361,46 @@ SELECT ok(
        AND pg_get_functiondef(p.oid) LIKE '%SET reaction = EXCLUDED.reaction%'
      FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
     'submit_minigame_reaction still allows emoji → emoji re-votes (upsert replaces, 207 exclusivity is cross-mode only)'
+);
+
+-- ======================================================================
+-- SECTION 49s: get_minigame_invite_context (209_minigame_invite_context,
+-- 2026-09-11) — the pending-invite lobby shows ONLY the inviter
+-- ("INVITADO POR" + avatar), never the participant roster, so the invitee's
+-- accept surface cannot flash the player list before accepting.
+--   * SECURITY DEFINER + locked search_path + invitee-scoped
+--     (`invitee_id = auth.uid()`); non-invitees get `invite_not_found`.
+--   * Resolves the inviter through the security-barrier `user_search_view`
+--     by `created_by`; the function never reads `participants` (no roster
+--     leak by construction).
+-- ======================================================================
+SELECT has_function('get_minigame_invite_context', ARRAY['uuid'],
+    'get_minigame_invite_context(uuid) exists (209_minigame_invite_context)');
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%SECURITY DEFINER%'
+       AND pg_get_functiondef(p.oid) LIKE '%SET search_path TO ''''%'
+       AND pg_get_functiondef(p.oid) LIKE '%invitee_id = auth.uid()%'
+       AND pg_get_functiondef(p.oid) LIKE '%invite_not_found%'
+     FROM pg_proc p WHERE proname = 'get_minigame_invite_context'),
+    'get_minigame_invite_context is SECURITY DEFINER, invitee-scoped, invite_not_found on miss (209)'
+);
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%user_search_view%'
+       AND pg_get_functiondef(p.oid) LIKE '%created_by%'
+       AND NOT pg_get_functiondef(p.oid) LIKE '%participants%'
+     FROM pg_proc p WHERE proname = 'get_minigame_invite_context'),
+    'get_minigame_invite_context resolves ONLY the inviter (never the participants roster, 209)'
+);
+
+SELECT ok(
+    (SELECT NOT has_function_privilege('anon', p.oid, 'EXECUTE')
+       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = 'get_minigame_invite_context'),
+    'get_minigame_invite_context is authenticated-only (PUBLIC/anon revoked, 209)'
 );
 
 SELECT * FROM finish();
