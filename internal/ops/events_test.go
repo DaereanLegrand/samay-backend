@@ -34,14 +34,14 @@ func TestListEvents_PathConstruction(t *testing.T) {
 			notWant: []string{"status=eq.", "created_by_user_id=eq."},
 		},
 		{
-			name:    "promotor filter",
-			params:  ListEventsParams{Promotor: "user-1"},
+			name:    "host filter",
+			params:  ListEventsParams{Host: "user-1"},
 			want:    []string{"created_by_user_id=eq.user-1"},
 			notWant: []string{"status=eq.", "type=eq."},
 		},
 		{
 			name:   "all filters",
-			params: ListEventsParams{Status: "live", Type: "tono", Promotor: "user-2"},
+			params: ListEventsParams{Status: "live", Type: "tono", Host: "user-2"},
 			want:   []string{"status=eq.live", "type=eq.tono", "created_by_user_id=eq.user-2"},
 		},
 	}
@@ -110,7 +110,7 @@ func TestListEvents_PropagatesRequestError(t *testing.T) {
 func TestGetEvent_PrimaryAndSecondarySelects(t *testing.T) {
 	client, srv, log := newRoutingClient(map[string]string{
 		"/rest/v1/events":            `[{"id":"e1","name":"Juerga","status":"upcoming"}]`,
-		"/rest/v1/event_promotores":  `[{"id":"p1","event_id":"e1","user_id":"u1","role":"main","preshards_contributed":50}]`,
+		"/rest/v1/event_hosts":  `[{"id":"p1","event_id":"e1","user_id":"u1","role":"main","preshards_contributed":50}]`,
 		"/rest/v1/event_attendances": `[]`,
 	})
 	defer srv.Close()
@@ -123,26 +123,26 @@ func TestGetEvent_PrimaryAndSecondarySelects(t *testing.T) {
 	if detail.Event.ID != "e1" || detail.Event.Name != "Juerga" {
 		t.Errorf("unexpected event: %+v", detail.Event)
 	}
-	if len(detail.Promotores) != 1 || detail.Promotores[0].PreshardsContributed != 50 {
-		t.Errorf("unexpected promotores: %+v", detail.Promotores)
+	if len(detail.Hosts) != 1 || detail.Hosts[0].PreshardsContributed != 50 {
+		t.Errorf("unexpected hosts: %+v", detail.Hosts)
 	}
 
 	if got := countRequests(log, "GET", "/rest/v1/events"); got != 1 {
 		t.Errorf("expected 1 primary events select, got %d", got)
 	}
-	if got := countRequests(log, "GET", "/rest/v1/event_promotores"); got != 1 {
-		t.Errorf("expected 1 promotores select, got %d", got)
+	if got := countRequests(log, "GET", "/rest/v1/event_hosts"); got != 1 {
+		t.Errorf("expected 1 hosts select, got %d", got)
 	}
 	for _, want := range []string{"id=eq.e1", "limit=1"} {
 		assertContains(t, firstRequestOf(log, "GET", "/rest/v1/events").Path, want)
 	}
-	assertContains(t, firstRequestOf(log, "GET", "/rest/v1/event_promotores").Path, "event_id=eq.e1")
+	assertContains(t, firstRequestOf(log, "GET", "/rest/v1/event_hosts").Path, "event_id=eq.e1")
 }
 
 func TestGetEvent_NotFound(t *testing.T) {
 	client, srv, _ := newRoutingClient(map[string]string{
 		"/rest/v1/events":           `[]`,
-		"/rest/v1/event_promotores": `[]`,
+		"/rest/v1/event_hosts": `[]`,
 	})
 	defer srv.Close()
 
@@ -247,7 +247,7 @@ func TestCancelEvent_AlreadyCancelledIsIdempotent(t *testing.T) {
 func TestCancelEvent_ReturnsPoolAndAudits(t *testing.T) {
 	client, srv, log := newRoutingClient(map[string]string{
 		"/rest/v1/events":           `[{"id":"e1","status":"upcoming","preshards_pool":100}]`,
-		"/rest/v1/event_promotores": `[{"id":"p1","event_id":"e1","user_id":"u1","preshards_contributed":25},{"id":"p2","event_id":"e1","user_id":"u2","preshards_contributed":0}]`,
+		"/rest/v1/event_hosts": `[{"id":"p1","event_id":"e1","user_id":"u1","preshards_contributed":25},{"id":"p2","event_id":"e1","user_id":"u2","preshards_contributed":0}]`,
 		"/rest/v1/preshard_ledger":  `{}`,
 		"/rest/v1/admin_audit_log":  `{}`,
 	})
@@ -261,7 +261,7 @@ func TestCancelEvent_ReturnsPoolAndAudits(t *testing.T) {
 	if got := countRequests(log, "GET", "/rest/v1/events"); got != 1 {
 		t.Errorf("expected 1 status read, got %d", got)
 	}
-	if got := countRequests(log, "GET", "/rest/v1/event_promotores"); got != 1 {
+	if got := countRequests(log, "GET", "/rest/v1/event_hosts"); got != 1 {
 		t.Errorf("expected 1 pool read, got %d", got)
 	}
 	if got := countRequests(log, "POST", "/rest/v1/preshard_ledger"); got != 1 {

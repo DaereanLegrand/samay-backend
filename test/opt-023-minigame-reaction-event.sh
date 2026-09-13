@@ -27,7 +27,7 @@ PASS=0
 FAIL=0
 
 cleanup() {
-  for sid in ${SESSION_ID:-} ${ASESSION_ID:-} ${ESESSION_ID:-}; do
+  for sid in ${SESSION_ID:-} ${ASESSION_ID:-} ${ESESSION_ID:-} ${FSESSION_ID:-}; do
     [ -n "$sid" ] && svc_delete "minigame_reactions?session_id=eq.$sid" > /dev/null 2>&1 || true
     [ -n "$sid" ] && svc_delete "minigame_answers?session_id=eq.$sid" > /dev/null 2>&1 || true
     [ -n "$sid" ] && svc_delete "minigame_results?session_id=eq.$sid" > /dev/null 2>&1 || true
@@ -54,6 +54,12 @@ h1()   { echo ""; echo "━━━ $1 ━━━"; }
 norm_json() {
   sed -E 's/[[:space:]]+//g'
 }
+
+# The 207 server reaction spam gate rejects a same-voter write inside 250 ms of
+# the previous ACCEPTED write (status `too_fast`). These API-level cases model
+# DELIBERATE spaced taps (the real client's tap timer is 350 ms), so sleep just
+# past the server window between consecutive taps by the same voter.
+tap_wait() { sleep 0.3; }
 
 auth_rpc() {
   local t=$1 f=$2 d=$3
@@ -143,9 +149,9 @@ else
 fi
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"ReactionEvent Test\",\"description\":\"d\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}" >/dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" >/dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" >/dev/null
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_B\",\"role\":\"member\",\"status\":\"active\"}" >/dev/null
-info "Group created; A (promotor) + B + C (members) active"
+info "Group created; A (host) + B + C (members) active"
 
 # =========================================================================
 # TEST A/B — by_turns: same-emoji re-tap bumps seq + event carries voter/emoji
@@ -201,6 +207,7 @@ fi
 # VOTER1 re-taps the SAME emoji (heart again) → the tally mirror is unchanged
 # but seq advances to 2 and a fresh event records the tap (this is the
 # diff-invisible case the migration exists to signal).
+tap_wait
 resp=$(auth_rpc "$V1TOKEN" "submit_minigame_reaction" "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"heart\"}")
 S2=$(seq_of "$resp")
 EV2=$(event_of "$resp")
@@ -211,6 +218,7 @@ else
 fi
 
 # VOTER1 changes emoji (heart → excited) → seq 3.
+tap_wait
 resp=$(auth_rpc "$V1TOKEN" "submit_minigame_reaction" "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"excited\"}")
 S3=$(seq_of "$resp")
 EV3=$(event_of "$resp")
@@ -277,6 +285,7 @@ fi
 
 # B re-taps the same heart on the async round → seq advances to 2 (same-emoji
 # re-tap signalled on the async path too).
+tap_wait
 resp=$(auth_rpc "$TOKEN_B" "react_minigame_round" \
   "{\"p_session_id\":\"$ASESSION_ID\",\"p_round\":1,\"p_reaction\":\"heart\"}")
 ASEQ2=$(seq_of "$resp")
@@ -304,6 +313,7 @@ else
 fi
 
 # Emoji → emoji re-vote remains allowed (upsert replaces) and bumps the seq.
+tap_wait
 resp=$(auth_rpc "$TOKEN_B" "react_minigame_round" \
   "{\"p_session_id\":\"$ASESSION_ID\",\"p_round\":1,\"p_reaction\":\"excited\"}")
 XSEQ=$(seq_of "$resp")
@@ -383,6 +393,85 @@ if echo "$VOTERS" | grep -q "\"$EVPASS\":null"; then
   ok "E: voters mirror carries the passer as null ($EVPASS)"
 else
   nok "E: voters mirror wrong: $VOTERS"
+fi
+
+# =========================================================================
+# TEST F — controlled spam: the server drops a same-voter write inside the
+# 250 ms window (`too_fast`, no write / no seq bump) while a FRESH voter's
+# emoji and a spaced re-tap both succeed. Dedicated 3-participant by_turns
+# session (A host + B + C) so a single voter's taps stay below the 2-voter
+# advance threshold.
+# =========================================================================
+h1 "TEST F — controlled spam gate (too_fast inside the window)"
+
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\"}")
+FSESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+if echo "$resp" | grep -q '"status":"created"' && [ -n "$FSESSION_ID" ]; then
+  ok "F: dedicated by_turns session created ($FSESSION_ID)"
+else
+  nok "F: create failed: $(echo "$resp" | head -c 160)"
+fi
+FINVITE_B=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$FSESSION_ID&invitee_id=eq.$UUID_B" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+FINVITE_C=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$FSESSION_ID&invitee_id=eq.$UUID_C" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$FINVITE_B\"}" > /dev/null
+auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$FINVITE_C\"}" > /dev/null
+resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$FSESSION_ID\"}")
+if echo "$resp" | grep -q '"status":"started"'; then ok "F: init started"; else nok "F: init failed: $(echo "$resp" | head -c 160)"; fi
+if wait_playing "$FSESSION_ID" "$TOKEN_A"; then ok "F: countdown flipped"; else nok "F: never flipped"; fi
+
+# Resolve subject (A/B/C) → the OTHER two are the voters.
+FSUBJ=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$FSESSION_ID\"}" \
+  | grep -o '"subject_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+FST=$([ "$FSUBJ" = "$UUID_A" ] && echo "$TOKEN_A" || ([ "$FSUBJ" = "$UUID_B" ] && echo "$TOKEN_B" || echo "$TOKEN_C"))
+FV=$([ "$FSUBJ" = "$UUID_A" ] && echo "$UUID_B" || echo "$UUID_A")
+FVT=$([ "$FV" = "$UUID_A" ] && echo "$TOKEN_A" || echo "$TOKEN_B")
+info "F: subject=$FSUBJ, spamming voter=$FV"
+
+resp=$(auth_rpc "$FST" "reveal_minigame_prompt" "{\"p_session_id\":\"$FSESSION_ID\",\"p_prompt_type\":\"verdad\"}")
+resp=$(auth_rpc "$FST" "submit_minigame_answer" "{\"p_session_id\":\"$FSESSION_ID\",\"p_answer_ciphertext\":\"cipher_f_$FSUBJ\"}")
+if echo "$resp" | grep -q '"status":"submitted"'; then ok "F: subject answered"; else nok "F: answer failed: $(echo "$resp" | head -c 160)"; fi
+
+# Fresh voter: the first emoji tap is ACCEPTED (the corrected exclusivity — a
+# no-row voter is not "already passed").
+resp=$(auth_rpc "$FVT" "submit_minigame_reaction" "{\"p_session_id\":\"$FSESSION_ID\",\"p_reaction\":\"heart\"}")
+FSEQ=$(seq_of "$resp")
+if echo "$resp" | grep -q '"status":"submitted"' && [ "$FSEQ" = "1" ]; then
+  ok "F: fresh voter emoji accepted (seq=1)"
+else
+  nok "F: fresh voter emoji rejected: $(echo "$resp" | head -c 160)"
+fi
+
+# Immediately re-tap the SAME emoji: inside the 250 ms window → too_fast, with
+# NO write (mirror + seq untouched).
+resp=$(auth_rpc "$FVT" "submit_minigame_reaction" "{\"p_session_id\":\"$FSESSION_ID\",\"p_reaction\":\"heart\"}")
+if echo "$resp" | grep -q '"status":"too_fast"'; then
+  ok "F: same-voter re-tap inside the window dropped (too_fast)"
+else
+  nok "F: spam gate did not fire: $(echo "$resp" | head -c 160)"
+fi
+
+# After the window a same-emoji re-tap is accepted again (controlled spam).
+tap_wait
+resp=$(auth_rpc "$FVT" "submit_minigame_reaction" "{\"p_session_id\":\"$FSESSION_ID\",\"p_reaction\":\"heart\"}")
+FSEQ2=$(seq_of "$resp")
+if echo "$resp" | grep -q '"status":"submitted"' && [ "$FSEQ2" = "2" ]; then
+  ok "F: spaced same-emoji re-tap accepted (seq=2)"
+else
+  nok "F: spaced re-tap failed: seq=$FSEQ2 $(echo "$resp" | head -c 160)"
+fi
+
+# The mirror still holds exactly ONE reaction for the round (the upsert keeps
+# one row per voter — spam never inflates the tally or the advance count).
+TLIST=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$FSESSION_ID\"}" \
+  | grep -o '"list":\[[^]]*\]' | head -1)
+FHEARTS=$(echo "$TLIST" | grep -o '"heart"' | wc -l | tr -d ' ')
+if [ "$FHEARTS" = "1" ]; then
+  ok "F: tally holds exactly one heart after spam (one row per voter)"
+else
+  nok "F: tally inflated by spam: $TLIST"
 fi
 
 # =========================================================================

@@ -168,8 +168,8 @@ info "app_config rows: $cfg_count, cosmetics rows: $cos_count, group_rank_snapsh
 # Create a group for membership tests
 GROUP_ID="33333333-3333-3333-3333-333333333333"
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Test Group\",\"created_by_user_id\":\"$UUID_A\"}" > /dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\"}" > /dev/null
-info "Created test group $GROUP_ID with User A as promotor"
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\"}" > /dev/null
+info "Created test group $GROUP_ID with User A as host"
 
 # Verify group data was inserted
 group_count=$(svc_get "groups?id=eq.$GROUP_ID&select=id" | grep -c '"id"' || true)
@@ -396,8 +396,8 @@ resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/groups" \
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
   -H "Content-Type: application/json" -H "Prefer: return=minimal" \
   -d "{\"id\":\"$GID_I\",\"name\":\"guard-probe\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}")
-# promotor membership (the groups_update_promotor policy requires it)
-svc_post "group_members" "{\"id\":\"$MID_I\",\"group_id\":\"$GID_I\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" >/dev/null
+# host membership (the groups_update_host policy requires it)
+svc_post "group_members" "{\"id\":\"$MID_I\",\"group_id\":\"$GID_I\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" >/dev/null
 resp=$(curl -s -X PATCH "$SUPABASE_URL/rest/v1/groups?id=eq.$GID_I" \
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
   -H "Content-Type: application/json" -d '{"group_shards": 5000}')

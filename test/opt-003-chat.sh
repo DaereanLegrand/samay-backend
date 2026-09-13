@@ -9,7 +9,7 @@ set -uo pipefail
 #      device, E2EE-ARCHITECTURE §6.6)
 #   C) RLS: group member reads messages (messages_read_participant);
 #      non-member CANNOT read (PGRST204/empty)
-#   D) event chat: promotor reads; non-invited non-member cannot
+#   D) event chat: host reads; non-invited non-member cannot
 #   E) message_cap rolling-window behavior stays inert below the cap
 #      (insert 3 -> all 3 present; app_config chat.message_cap = 1000).
 #      The full-cap behavior + trigger EXISTENCE are asserted in the pgTAP
@@ -106,7 +106,7 @@ svc_delete_quiet() {
 }
 
 # ---------------------------------------------------------------------------
-# Setup: users A (group member + event promotor) and B (outsider)
+# Setup: users A (group member + event host) and B (outsider)
 # ---------------------------------------------------------------------------
 h1 "SETUP: users + group + event"
 
@@ -141,12 +141,12 @@ else
 fi
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Opt003 Group\",\"created_by_user_id\":\"$UUID_A\"}" > /dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" > /dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" > /dev/null
 svc_post "events" "{\"id\":\"$EVENT_ID\",\"name\":\"Opt003 Event\",\"type\":\"juerga\",\
 \"created_by_user_id\":\"$UUID_A\",\"starts_at\":\"2026-12-31T23:00:00Z\",\
 \"ends_at\":\"2027-01-01T05:00:00Z\",\"preshards_pool\":0,\"status\":\"upcoming\"}" > /dev/null
-svc_post "event_promotores" "{\"event_id\":\"$EVENT_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\"}" > /dev/null
-ok "Group + event + promotor seeded (A member/promotor, B outsider)"
+svc_post "event_hosts" "{\"event_id\":\"$EVENT_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\"}" > /dev/null
+ok "Group + event + host seeded (A member/host, B outsider)"
 
 # =========================================================================
 # TEST A — chats creation (type group + event, w/ reference_id)
@@ -210,20 +210,20 @@ else
 fi
 
 # =========================================================================
-# TEST D — event chat: promotor reads; outsider cannot
+# TEST D — event chat: host reads; outsider cannot
 # =========================================================================
 h1 "TEST D — messages_read_participant (event chat)"
 
 resp=$(auth_get "$TOKEN_A" "messages?chat_id=eq.$CHAT_EVENT&select=id,content")
 if echo "$resp" | grep -q "\"content\":\"$ENV_E\""; then
-  ok "Event promotor A reads event-chat message"
+  ok "Event host A reads event-chat message"
 else
-  nok "Promotor read failed: $(echo "$resp" | head -c 80)"
+  nok "Host read failed: $(echo "$resp" | head -c 80)"
 fi
 
 resp=$(auth_get "$TOKEN_B" "messages?chat_id=eq.$CHAT_EVENT&select=id,content")
 if [ "$resp" = "[]" ] || echo "$resp" | grep -qE '(42501|permission denied|PGRST204)'; then
-  ok "Outsider B CANNOT read event-chat message (not invited/promotor/member)"
+  ok "Outsider B CANNOT read event-chat message (not invited/host/member)"
 else
   nok "Outsider B CAN read event-chat message: $(echo "$resp" | head -c 60)"
 fi

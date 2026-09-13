@@ -323,7 +323,7 @@ BEGIN
             SELECT user_id FROM public.event_invites
             WHERE event_id = v_reference_id AND status <> 'declined'
             UNION
-            SELECT user_id FROM public.event_promotores
+            SELECT user_id FROM public.event_hosts
             WHERE event_id = v_reference_id
         LOOP
             IF v_recipient <> NEW.sender_id THEN

@@ -234,7 +234,7 @@ done
 # enum literals used by seed-test exist in migrations
 h1 "8. Enum literals in seed-test exist"
 # simpler: check each enum literal value appears in migrations enum defs
-for v in accepted member promotor active; do
+for v in accepted member host active; do
   # NOTE: group_members.status 'invited' is enforced by CHECK constraint,
   # not an enum — validated separately below.
   if enum_values | cut -d'|' -f2 | grep -q "'$v'"; then

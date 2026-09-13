@@ -13,7 +13,7 @@ import (
 var featureRequestsCmd = &cobra.Command{
 	Use:   "feature-requests",
 	Short: "Inspect feature requests",
-	Long:  "List feature requests submitted by promotors.",
+	Long:  "List feature requests submitted by hosts.",
 }
 
 var featureRequestsListCmd = &cobra.Command{

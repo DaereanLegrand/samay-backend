@@ -52,7 +52,7 @@ INSERT INTO public.groups (id,name,description,cover_url,created_by_user_id,grou
 
 
 -- ── group_members ──
-INSERT INTO public.group_members (id,group_id,user_id,role,joined_at,status) VALUES ('6f61ba24-9e43-4d82-87df-46c46b9bcc05','63ff0f12-a827-48eb-b9c7-762a61259973','9bb9e190-da36-42ec-952e-26dca8ec51ba','promotor','2026-08-17 00:46:00.841462+00','active') ON CONFLICT DO NOTHING;
+INSERT INTO public.group_members (id,group_id,user_id,role,joined_at,status) VALUES ('6f61ba24-9e43-4d82-87df-46c46b9bcc05','63ff0f12-a827-48eb-b9c7-762a61259973','9bb9e190-da36-42ec-952e-26dca8ec51ba','host','2026-08-17 00:46:00.841462+00','active') ON CONFLICT DO NOTHING;
 INSERT INTO public.group_members (id,group_id,user_id,role,joined_at,status) VALUES ('c61221a5-5a51-4b00-aeab-877cc7a3fa17','63ff0f12-a827-48eb-b9c7-762a61259973','c5c2cba7-c25b-45c8-a4f3-a33b3cbe0227','member','2026-08-17 00:46:21.576166+00','active') ON CONFLICT DO NOTHING;
 INSERT INTO public.group_members (id,group_id,user_id,role,joined_at,status) VALUES ('b805a75c-18e7-4c7d-b8fe-86b0623c2b59','63ff0f12-a827-48eb-b9c7-762a61259973','6f8108f5-3964-45df-82a1-76a5d9185c10','member','2026-08-17 00:46:22.003472+00','active') ON CONFLICT DO NOTHING;
 INSERT INTO public.group_members (id,group_id,user_id,role,joined_at,status) VALUES ('db222bf1-0553-421e-8e70-b8d09ce5610d','63ff0f12-a827-48eb-b9c7-762a61259973','e5b725d6-b491-4f36-9528-278363846697','member','2026-08-17 00:46:22.277518+00','active') ON CONFLICT DO NOTHING;

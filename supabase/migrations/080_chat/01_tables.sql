@@ -491,8 +491,8 @@ CREATE POLICY chats_read_participant ON public.chats FOR SELECT USING ((((type =
   WHERE ((group_members.group_id = chats.reference_id) AND (group_members.user_id = auth.uid()) AND (group_members.status = 'active'::text))))) OR ((type = 'event'::public.chat_type) AND ((EXISTS ( SELECT 1
    FROM public.event_invites
   WHERE ((event_invites.event_id = chats.reference_id) AND (event_invites.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
-   FROM public.event_promotores
-  WHERE ((event_promotores.event_id = chats.reference_id) AND (event_promotores.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
+   FROM public.event_hosts
+  WHERE ((event_hosts.event_id = chats.reference_id) AND (event_hosts.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
    FROM (public.group_members gm
      JOIN public.events e ON ((e.group_id = gm.group_id)))
   WHERE ((e.id = chats.reference_id) AND (gm.user_id = auth.uid()))))))));
@@ -551,8 +551,8 @@ CREATE POLICY message_reads_insert_own ON public.message_reads FOR INSERT WITH C
           WHERE ((group_members.group_id = c.reference_id) AND (group_members.user_id = auth.uid()) AND (group_members.status = 'active'::text))))) OR ((c.type = 'event'::public.chat_type) AND ((EXISTS ( SELECT 1
            FROM public.event_invites
           WHERE ((event_invites.event_id = c.reference_id) AND (event_invites.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
-           FROM public.event_promotores
-          WHERE ((event_promotores.event_id = c.reference_id) AND (event_promotores.user_id = auth.uid()))))))))))));
+           FROM public.event_hosts
+          WHERE ((event_hosts.event_id = c.reference_id) AND (event_hosts.user_id = auth.uid()))))))))))));
 
 
 --
@@ -570,8 +570,8 @@ CREATE POLICY message_reads_select_participant ON public.message_reads FOR SELEC
           WHERE ((group_members.group_id = c.reference_id) AND (group_members.user_id = auth.uid()) AND (group_members.status = 'active'::text))))) OR ((c.type = 'event'::public.chat_type) AND ((EXISTS ( SELECT 1
            FROM public.event_invites
           WHERE ((event_invites.event_id = c.reference_id) AND (event_invites.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
-           FROM public.event_promotores
-          WHERE ((event_promotores.event_id = c.reference_id) AND (event_promotores.user_id = auth.uid())))))))))));
+           FROM public.event_hosts
+          WHERE ((event_hosts.event_id = c.reference_id) AND (event_hosts.user_id = auth.uid())))))))))));
 
 
 --
@@ -595,8 +595,8 @@ CREATE POLICY messages_insert_participant ON public.messages FOR INSERT WITH CHE
           WHERE ((group_members.group_id = chats.reference_id) AND (group_members.user_id = auth.uid()) AND (group_members.status = 'active'::text))))) OR ((chats.type = 'event'::public.chat_type) AND ((EXISTS ( SELECT 1
            FROM public.event_invites
           WHERE ((event_invites.event_id = chats.reference_id) AND (event_invites.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
-           FROM public.event_promotores
-          WHERE ((event_promotores.event_id = chats.reference_id) AND (event_promotores.user_id = auth.uid()))))))))))));
+           FROM public.event_hosts
+          WHERE ((event_hosts.event_id = chats.reference_id) AND (event_hosts.user_id = auth.uid()))))))))))));
 
 
 --
@@ -613,8 +613,8 @@ CREATE POLICY messages_read_participant ON public.messages FOR SELECT USING ((EX
           WHERE ((group_members.group_id = chats.reference_id) AND (group_members.user_id = auth.uid()) AND (group_members.status = 'active'::text))))) OR ((chats.type = 'event'::public.chat_type) AND ((EXISTS ( SELECT 1
            FROM public.event_invites
           WHERE ((event_invites.event_id = chats.reference_id) AND (event_invites.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
-           FROM public.event_promotores
-          WHERE ((event_promotores.event_id = chats.reference_id) AND (event_promotores.user_id = auth.uid())))))))))));
+           FROM public.event_hosts
+          WHERE ((event_hosts.event_id = chats.reference_id) AND (event_hosts.user_id = auth.uid())))))))))));
 
 
 --

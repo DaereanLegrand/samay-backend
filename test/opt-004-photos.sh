@@ -129,7 +129,7 @@ else
 fi
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Opt004 Group\",\"created_by_user_id\":\"$UUID_A\"}" > /dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" > /dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" > /dev/null
 svc_post "events" "{\"id\":\"$EVENT_ID\",\"name\":\"Opt004 Event\",\"type\":\"casual\",\
 \"created_by_user_id\":\"$UUID_A\",\"group_id\":\"$GROUP_ID\",\"join_mode\":\"approval\",\
 \"starts_at\":\"2026-12-31T23:00:00Z\",\"ends_at\":\"2027-01-01T02:00:00Z\",\

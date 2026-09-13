@@ -321,7 +321,7 @@ func TestAdminOpsError_ReturnsGeneric500(t *testing.T) {
 	}
 }
 
-func TestPromotorAndVenueNamespaces_Return501(t *testing.T) {
+func TestHostAndVenueNamespaces_Return501(t *testing.T) {
 	t.Setenv("ADMIN_API_KEY", testAdminKey)
 	r := newTestRouter(t, jsonStub(`[]`))
 
@@ -329,9 +329,9 @@ func TestPromotorAndVenueNamespaces_Return501(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/api/v1/promotor/events"},
-		{http.MethodPost, "/api/v1/promotor/events"},
-		{http.MethodGet, "/api/v1/promotor/paid-events/00000000-0000-0000-0000-000000000005"},
+		{http.MethodGet, "/api/v1/host/events"},
+		{http.MethodPost, "/api/v1/host/events"},
+		{http.MethodGet, "/api/v1/host/paid-events/00000000-0000-0000-0000-000000000005"},
 		{http.MethodGet, "/api/v1/venue/profile"},
 		{http.MethodPost, "/api/v1/venue/checkin"},
 	}

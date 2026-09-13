@@ -71,6 +71,12 @@ norm_json() {
   sed -E 's/[[:space:]]+//g'
 }
 
+# The 207 server reaction spam gate drops a same-voter write inside 250 ms of
+# the previous ACCEPTED write (status `too_fast`). API-level cases model
+# DELIBERATE spaced taps (the real client's tap timer is 350 ms), so sleep just
+# past the server window between consecutive accepted taps by the same voter.
+tap_wait() { sleep 0.3; }
+
 auth_rpc() {
   local t=$1 f=$2 d=$3
   curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/$f" -H "apikey: $ANON_KEY" \
@@ -165,9 +171,9 @@ else
 fi
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"PlayV2 Test\",\"description\":\"d\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}" >/dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" >/dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" >/dev/null
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_B\",\"role\":\"member\",\"status\":\"active\"}" >/dev/null
-info "Group created; A (promotor) + B (member) active; C is NOT a member (bystander)"
+info "Group created; A (host) + B (member) active; C is NOT a member (bystander)"
 
 # =========================================================================
 # TEST A — create with play_mode + anonymous
@@ -725,6 +731,7 @@ if echo "$resp" | grep -q '"status":"submitted"'; then
 else
   nok "C react failed: $(echo "$resp" | head -c 160)"
 fi
+tap_wait
 resp=$(auth_rpc "$TOKEN_C" "react_minigame_round" \
   "{\"p_session_id\":\"$SESSION3_ID\",\"p_round\":1,\"p_reaction\":\"excited\"}")
 if echo "$resp" | grep -q '"status":"submitted"'; then

@@ -13,12 +13,12 @@ import (
 type ListEventsParams struct {
 	Status   string
 	Type     string
-	Promotor string
+	Host string
 }
 
 type EventDetail struct {
 	Event              db.Event           `json:"event"`
-	Promotores         []db.EventPromotor `json:"promotores"`
+	Hosts         []db.EventHost `json:"hosts"`
 	ConfirmedAttendees int                `json:"confirmed_attendees"`
 	PreshardPoolStatus string             `json:"preshard_pool_status"`
 }
@@ -33,18 +33,18 @@ func ListEvents(ctx context.Context, client *db.DBClient, params ListEventsParam
 	if params.Type != "" {
 		qb.Eq("type", params.Type)
 	}
-	if params.Promotor != "" {
-		qb.Eq("created_by_user_id", params.Promotor)
+	if params.Host != "" {
+		qb.Eq("created_by_user_id", params.Host)
 	}
 	return db.List[db.Event](ctx, client, "events", qb)
 }
 
-// GetEvent returns the event plus its promotores enrichment. The promotores
+// GetEvent returns the event plus its hosts enrichment. The hosts
 // query is best-effort: on failure the detail is returned with a joined
 // error (errors.Join) so the caller can render the primary result while the
 // failure stays explicit.
 func GetEvent(ctx context.Context, client *db.DBClient, eventID string) (*EventDetail, error) {
-	body, err := client.Select(ctx, "events", "*,event_promotores(*),event_attendances(id)&id=eq."+eventID, 1, 0)
+	body, err := client.Select(ctx, "events", "*,event_hosts(*),event_attendances(id)&id=eq."+eventID, 1, 0)
 	if err != nil {
 		return nil, fmt.Errorf("get event: %w", err)
 	}
@@ -56,19 +56,19 @@ func GetEvent(ctx context.Context, client *db.DBClient, eventID string) (*EventD
 		return nil, fmt.Errorf("event not found: %s: %w", eventID, ErrNotFound)
 	}
 
-	var promotores []db.EventPromotor
+	var hosts []db.EventHost
 	var detailErrs []error
 
-	promoBody, err := client.Select(ctx, "event_promotores", "id,event_id,user_id,role,preshards_contributed,added_at&event_id=eq."+eventID, 50, 0)
+	promoBody, err := client.Select(ctx, "event_hosts", "id,event_id,user_id,role,preshards_contributed,added_at&event_id=eq."+eventID, 50, 0)
 	if err != nil {
-		detailErrs = append(detailErrs, fmt.Errorf("get event: fetch promotores: %w", err))
-	} else if err := json.Unmarshal(promoBody, &promotores); err != nil {
-		detailErrs = append(detailErrs, fmt.Errorf("get event: unmarshal promotores: %w", err))
+		detailErrs = append(detailErrs, fmt.Errorf("get event: fetch hosts: %w", err))
+	} else if err := json.Unmarshal(promoBody, &hosts); err != nil {
+		detailErrs = append(detailErrs, fmt.Errorf("get event: unmarshal hosts: %w", err))
 	}
 
 	return &EventDetail{
 		Event:      events[0],
-		Promotores: promotores,
+		Hosts: hosts,
 	}, errors.Join(detailErrs...)
 }
 
@@ -148,22 +148,22 @@ func CancelEvent(ctx context.Context, client *db.DBClient, eventID, reason, admi
 		return nil
 	}
 
-	// The promotores pool decides who gets refunded — a failed read means we
+	// The hosts pool decides who gets refunded — a failed read means we
 	// cannot know the refunds, so this is a hard error, not best-effort.
-	pool, err := client.Select(ctx, "event_promotores",
+	pool, err := client.Select(ctx, "event_hosts",
 		"id,user_id,preshards_contributed&event_id=eq."+eventID, 100, 0)
 	if err != nil {
-		return fmt.Errorf("cancel event: fetch promotores: %w", err)
+		return fmt.Errorf("cancel event: fetch hosts: %w", err)
 	}
-	var promotores []db.EventPromotor
-	if err := json.Unmarshal(pool, &promotores); err != nil {
-		return fmt.Errorf("cancel event: unmarshal promotores: %w", err)
+	var hosts []db.EventHost
+	if err := json.Unmarshal(pool, &hosts); err != nil {
+		return fmt.Errorf("cancel event: unmarshal hosts: %w", err)
 	}
 
-	// Every promotore still gets its refund attempt; failed inserts are
+	// Every hoste still gets its refund attempt; failed inserts are
 	// joined and surfaced so the operator sees exactly who was not refunded.
 	var refundErr error
-	for _, p := range promotores {
+	for _, p := range hosts {
 		if p.PreshardsContributed <= 0 {
 			continue
 		}

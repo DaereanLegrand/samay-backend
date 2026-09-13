@@ -15,8 +15,8 @@
 ## EEDG workflow (when functions land)
 
 1. Create a function directory: `supabase/functions/<function-name>/index.ts`
-   (e.g. `event-status-poll`, `shard-distribution`, `qr-token-manager`,
-   `validate-attendance`, `push-notifier`, `revenuecat-webhook`).
+   (e.g. `event-status-poll`, `shard-distribution`,
+   `push-notifier`, `revenuecat-webhook`).
 2. Deploy from the stack root with the Supabase CLI:
    ```bash
    cd supabase

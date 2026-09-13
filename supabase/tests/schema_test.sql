@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(934);
+SELECT plan(953);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -38,7 +38,8 @@ SELECT has_type('preshard_remainder_action');
 SELECT has_type('feature_request_status');
 
 -- ============================================================
--- SECTION 3: Tables — original 30 (migration 20260510000001)
+-- SECTION 3: Tables — 29 (migration 20260510000001);
+-- the legacy static QR-token table was removed 2026-09-08 (superseded by the code flow)
 -- ============================================================
 SELECT has_table('users');
 SELECT has_table('cosmetics');
@@ -50,9 +51,8 @@ SELECT has_table('group_members');
 SELECT has_table('group_shard_contributions');
 SELECT has_table('group_rank_snapshots');
 SELECT has_table('events');
-SELECT has_table('event_promotores');
+SELECT has_table('event_hosts');
 SELECT has_table('event_invites');
-SELECT has_table('event_qr_tokens');
 SELECT has_table('event_attendances');
 SELECT has_table('event_photos');
 SELECT has_table('event_photo_likes');
@@ -211,26 +211,26 @@ SELECT policies_are('friendships', ARRAY[
 SELECT policies_are('groups', ARRAY[
     'groups_read_member',
     'groups_read_own',
-    'groups_update_promotor',
+    'groups_update_host',
     'groups_insert_own',
     'groups_delete_own'
 ], 'groups has expected RLS policies');
 
 -- ============================================================
 -- SECTION 18: RLS Policies — group_members (no recursion)
--- Migration 20260809000002 (I-32): insert_creator → insert_promotor
--- (creator self-insert + promotor invites), read_same restored via
+-- Migration 20260809000002 (I-32): insert_creator → insert_host
+-- (creator self-insert + host invites), read_same restored via
 -- SECURITY DEFINER is_group_member() (member lists), update_own_status
 -- added (invitees accept their own invite; role pinned to 'member').
 -- ============================================================
 SELECT policies_are('group_members', ARRAY[
     'group_members_read_own',
     'group_members_read_same',
-    'group_members_insert_promotor',
+    'group_members_insert_host',
     'group_members_delete_own',
-    'group_members_delete_promotor',
+    'group_members_delete_host',
     'group_members_update_own_status',
-    'group_members_update_promotor'
+    'group_members_update_host'
 ], 'group_members has expected RLS policies (no recursion)');
 
 -- ============================================================
@@ -238,32 +238,235 @@ SELECT policies_are('group_members', ARRAY[
 -- ============================================================
 SELECT policies_are('events', ARRAY[
     'events_read_access',
-    'events_update_promotor',
+    'events_update_host',
     'events_insert_own'
 ], 'events has expected RLS policies');
 
 -- ============================================================
--- SECTION 20: RLS Policies — event_promotores (no recursion)
+-- SECTION 20: RLS Policies — event_hosts (no recursion)
 -- ============================================================
-SELECT policies_are('event_promotores', ARRAY[
+-- 060_events/06_staff.sql (Stage 3): ep_insert_host was DROPPED (its
+-- creator/host INSERT branch bypassed the frozen capacity — event_hosts
+-- writes are exclusively the create_event / designate_event_staff SECURITY
+-- DEFINER RPCs). ep_read_event_access opens the FULL roster to the event's
+-- hosts/staff (via the security-barrier event_host_access_view, because a
+-- direct self-referencing SELECT policy recurses infinitely); ep_read_own
+-- stays for everyone else.
+SELECT policies_are('event_hosts', ARRAY[
     'ep_read_own',
-    'ep_insert_promotor'
-], 'event_promotores has expected RLS policies (no recursion)');
+    'ep_read_event_access',
+    'ep_read_member_roster'
+], 'event_hosts has expected RLS policies (ep_insert_host dropped — RPC-only writes; ep_read_member_roster opens the organizer roster to event members, 09_attendee_roster.sql)');
 
 -- ============================================================
 -- SECTION 21: RLS Policies — event_invites
 -- ============================================================
 SELECT policies_are('event_invites', ARRAY[
     'ei_read_own',
-    'ei_update_own'
-], 'event_invites has expected RLS policies');
+    'ei_read_event_access',
+    'ei_read_confirmed_roster'
+], 'event_invites has expected RLS policies (own-row read + host/staff event-read + member confirmed-roster read; ei_update_own dropped for the SECURITY DEFINER invite family)');
 
 -- ============================================================
--- SECTION 22: RLS Policies — event_qr_tokens (Edge Function writes only)
+-- SECTION 21b: Events manual invites RPC family (migration
+-- 060_events/05_manual_invites.sql, 2026-09-08) — host invites specific
+-- guests (search + multi-select), invitees accept/decline, frozen capacity
+-- is seat-reservation-enforced while inviting. Behavior: opt-025. Here:
+-- presence + ACL posture (SECURITY DEFINER, PUBLIC revoked).
 -- ============================================================
-SELECT policies_are('event_qr_tokens', ARRAY[
-    'eqt_read_own'
-], 'event_qr_tokens has SELECT-only RLS (Edge Function writes)');
+SELECT has_function('invite_event_guests', ARRAY['uuid', 'uuid[]'],
+    'invite_event_guests(uuid, uuid[]) exists (060_events/05 manual invites)');
+SELECT has_function('accept_event_invite', ARRAY['uuid'],
+    'accept_event_invite(uuid) exists (060_events/05 manual invites)');
+SELECT has_function('decline_event_invite', ARRAY['uuid'],
+    'decline_event_invite(uuid) exists (060_events/05 manual invites)');
+
+SELECT ok(
+    (SELECT count(*) FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname IN ('invite_event_guests', 'accept_event_invite',
+                         'decline_event_invite')
+       AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 3,
+    'event invite RPC family has no PUBLIC/anon EXECUTE (authenticated + service_role only)'
+);
+
+-- ============================================================
+-- SECTION 21c: Events staff RPC family + roster view (migration
+-- 060_events/06_staff.sql, 2026-09-08) — the host designates/removes staff
+-- (capacity + conversion semantics) and hosts/staff read the full roster.
+-- Behavior: opt-026. Here: presence + ACL posture (SECURITY DEFINER, PUBLIC
+-- revoked) + the recursion-free roster view exists.
+-- ============================================================
+SELECT has_function('designate_event_staff', ARRAY['uuid', 'uuid[]'],
+    'designate_event_staff(uuid, uuid[]) exists (060_events/06 staff)');
+SELECT has_function('remove_event_staff', ARRAY['uuid', 'uuid'],
+    'remove_event_staff(uuid, uuid) exists (060_events/06 staff)');
+
+SELECT ok(
+    (SELECT count(*) FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname IN ('designate_event_staff', 'remove_event_staff')
+       AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 2,
+    'staff RPC family has no PUBLIC/anon EXECUTE (authenticated + service_role only)'
+);
+
+SELECT has_view('public', 'event_host_access_view',
+    'event_host_access_view (security-barrier event_hosts projection) exists — recursion-free roster read');
+
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_hosts'::regclass),
+    'event_hosts keeps FORCE ROW LEVEL SECURITY (RPC writes still RLS-checked reads)'
+);
+
+-- ============================================================
+-- SECTION 21d: Events attendance code (migration
+-- 060_events/07_code.sql, 2026-09-08) — authenticator-style 24-hex code
+-- derived from a per-attendee secret + 30-s window (event_code), issued
+-- to attendees (get_my_code) and validated host/staff-only ONCE
+-- (validate_code). Behavior: opt-027. Here: presence + ACL posture
+-- (SECURITY DEFINER, PUBLIC revoked, zero client table grants) + FORCE RLS,
+-- and (2026-09-09 security fix) the CONFIRMED-invite attendee gate — a PENDING
+-- invitee is not an attendee (no code, never confirmable).
+-- ============================================================
+SELECT has_table('event_code_keys',
+    'event_code_keys exists (060_events/07 code secrets)');
+SELECT ok(
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_code_keys'::regclass),
+    'event_code_keys has FORCE ROW LEVEL SECURITY (secrets RPC-only)'
+);
+SELECT ok(
+    (SELECT count(*)::int FROM pg_policies
+     WHERE schemaname = 'public' AND tablename = 'event_code_keys') = 0,
+    'event_code_keys has NO client RLS policies (only the SECURITY DEFINER RPC touches it)'
+);
+SELECT ok(
+    (SELECT count(*)::int FROM pg_constraint
+     WHERE conname = 'event_code_keys_event_id_user_id_key') = 1,
+    'event_code_keys has a UNIQUE (event_id, user_id) key (one secret per attendee)'
+);
+SELECT has_function('event_code', ARRAY['text', 'bigint'],
+    'event_code(text, bigint) exists (060_events/07 code derivation)');
+SELECT has_function('get_my_code', ARRAY['uuid'],
+    'get_my_code(uuid) exists (060_events/07 code issue)');
+SELECT has_function('validate_code', ARRAY['uuid', 'text'],
+    'validate_code(uuid, text) exists (060_events/07 code validate)');
+
+SELECT ok(
+    (SELECT count(*) FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname IN ('event_code', 'get_my_code',
+                         'validate_code')
+       AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 3,
+    'code RPC family has no PUBLIC/anon EXECUTE (authenticated/service_role only)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%AND status = ''accepted''%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%status = ''attended''%'
+       AND pg_get_functiondef(p.oid) LIKE '%not_invited%'
+     FROM pg_proc p WHERE proname = 'get_my_code'),
+    'get_my_code requires an ACCEPTED invite (accepted-only; attended/pending → not_invited, 2026-09-10)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%status = ''accepted'' OR status = ''attended''%'
+       AND pg_get_functiondef(p.oid) LIKE '%not_invited%'
+     FROM pg_proc p WHERE proname = 'validate_code'),
+    'validate_code refuses to confirm a PENDING invitee (CONFIRMED-invite gate, 2026-09-09)'
+);
+
+SELECT has_trigger('event_invites', 'code_key_purge_on_invite_delete',
+    'event_invites purge trigger removes code keys on invite-row deletion (declined/converted)');
+SELECT has_trigger('event_hosts', 'code_key_purge_on_host_delete',
+    'event_hosts purge trigger removes code keys on staff removal');
+
+-- SECTION 21e: Events guest-roster realtime (060_events/08_realtime.sql +
+-- 960_realtime, 2026-09-09) — event_invites joins supabase_realtime with
+-- REPLICA IDENTITY FULL so the host/staff guest roster on the event detail
+-- live-updates when an invitee accepts/declines on their own device (client
+-- invalidates eventGuestsProvider on every row event for the event). Delivery
+-- stays RLS-gated: hosts/staff get full-roster rows, invitees their own.
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'event_invites'
+    ),
+    'event_invites joins the supabase_realtime publication (guest-roster live updates, 060_events/08_realtime.sql)'
+);
+SELECT is(
+    (SELECT relreplident FROM pg_class WHERE oid = 'public.event_invites'::regclass),
+    'f',
+    'event_invites has REPLICA IDENTITY FULL (full-row realtime UPDATE/DELETE payloads, 060_events/08_realtime.sql)'
+);
+
+-- SECTION 21f: Attendee-side event roster (060_events/09_attendee_roster.sql,
+-- 2026-09-09, tightened 2026-09-09) — event members read the organizer roster
+-- (`event_hosts`) and the event's CONFIRMED invite rows only; other people's
+-- pending invites stay host/own-only. Membership is CONFIRMED only
+-- (accepted/attended): a PENDING invitee reads no roster (security fix,
+-- 2026-09-09) and keeps `ei_read_own` for the accept/decline card. The
+-- membership check rides a security-barrier view (recursion-free); event_hosts
+-- joins supabase_realtime with REPLICA IDENTITY FULL so the organizer roster
+-- streams live. Behavior: opt-025 TEST H. Here: view + policy + realtime
+-- posture.
+SELECT has_view('public', 'event_roster_membership_view',
+    'event_roster_membership_view (security-barrier caller invite projection) exists — recursion-free member check');
+SELECT ok(
+    (SELECT pg_get_viewdef('public.event_roster_membership_view'::regclass, true)
+            LIKE '%status = ''accepted''::invite_status%'
+       AND pg_get_viewdef('public.event_roster_membership_view'::regclass, true)
+            LIKE '%status = ''attended''::invite_status%'),
+    'event_roster_membership_view projects only CONFIRMED (accepted/attended) memberships — pending invitees read no roster (2026-09-09)'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'event_hosts'
+          AND policyname = 'ep_read_member_roster'
+    ),
+    'event_hosts has ep_read_member_roster (members read the organizer roster)'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'event_invites'
+          AND policyname = 'ei_read_confirmed_roster'
+    ),
+    'event_invites has ei_read_confirmed_roster (members read accepted/attended rows only)'
+);
+SELECT is(
+    (SELECT relreplident FROM pg_class WHERE oid = 'public.event_hosts'::regclass),
+    'f',
+    'event_hosts has REPLICA IDENTITY FULL (full-row realtime payloads for the organizer roster, 060_events/09_attendee_roster.sql)'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'event_hosts'
+    ),
+    'event_hosts joins the supabase_realtime publication (organizer roster streams live to members, 060_events/09_attendee_roster.sql)'
+);
+
+-- SECTION 21g: Attendance realtime (060_events/08_realtime.sql +
+-- 960_realtime, 2026-09-10, Task C) — event_attendances joins
+-- supabase_realtime with REPLICA IDENTITY FULL so a scan that confirms the
+-- caller (guest OR host/staff — only this table records a host/staff member)
+-- flips an already-open detail/QR screen to the terminal "Ya te registraste"
+-- state (client invalidates myAttendanceProvider on every row event). Delivery
+-- stays RLS-gated (ea_read_access).
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'event_attendances'
+    ),
+    'event_attendances joins the supabase_realtime publication (assist flip streams live, 060_events/08_realtime.sql)'
+);
+SELECT is(
+    (SELECT relreplident FROM pg_class WHERE oid = 'public.event_attendances'::regclass),
+    'f',
+    'event_attendances has REPLICA IDENTITY FULL (full-row realtime payloads for the assist flip, 060_events/08_realtime.sql)'
+);
 
 -- ============================================================
 -- SECTION 23: RLS Policies — event_attendances
@@ -582,8 +785,8 @@ SELECT ok(
     'admin_users has the system admin row (from auto-applied seed-config)'
 );
 SELECT ok(
-    (SELECT count(*) = 42 FROM app_config),
-    'app_config has 42 tuning rows (from auto-applied seed-config; +3 minigame player caps, 2026-08-27)'
+    (SELECT count(*) = 43 FROM app_config),
+    'app_config has 43 tuning rows (from auto-applied seed-config; +3 minigame player caps, 2026-08-27, +4 events capacity keys 2026-09-08, +1 code.window_seconds 2026-09-08, −3 legacy QR-token/config rows removed 2026-09-08)'
 );
 
 -- ============================================================
@@ -707,16 +910,12 @@ SELECT ok(
     'events has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_promotores'::regclass),
-    'event_promotores has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
+    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_hosts'::regclass),
+    'event_hosts has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
 );
 SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_invites'::regclass),
     'event_invites has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_qr_tokens'::regclass),
-    'event_qr_tokens has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
 );
 SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_attendances'::regclass),
@@ -1176,24 +1375,6 @@ SELECT ok(
 );
 
 -- ============================================================
--- SECTION 44: QR validate RPC (migration 20260809000005, agent I-57) —
--- validate_qr_token: SECURITY DEFINER + SET search_path = '' + FOR UPDATE
--- serialization, PUBLIC EXECUTE revoked, authenticated-only EXECUTE
--- (I-31 hardening pattern; QRSC validator contract).
--- ============================================================
-SELECT has_function('validate_qr_token', ARRAY['uuid', 'text'],
-    'validate_qr_token(p_event_id uuid, p_token text) exists (migration 20260809000005)');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'validate_qr_token'),
-    'validate_qr_token sets search_path = '''' (migration 20260809000005)'
-);
-SELECT function_privs_are('public', 'validate_qr_token', ARRAY['uuid', 'text']::name[], 'public', ARRAY[]::name[],
-    'validate_qr_token is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'validate_qr_token', ARRAY['uuid', 'text']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'validate_qr_token is authenticated-EXECUTABLE');
-
--- ============================================================
 -- SECTION 45: create_minigame_session RPC (migration 20260809000006,
 -- agent I-63 + 140_minigame_invites 2026-08-26) — GMCR/GWAG foundation:
 -- SECURITY DEFINER + SET search_path = '' (I-31 pattern), membership gate
@@ -1316,11 +1497,12 @@ SELECT ok(
 --        exact column projection + types + jsonb defaults; fetch_prekey_bundle
 --        SECURITY DEFINER (is_definer — Section 41 asserts search_path +
 --        grants only).
---   46e. RPC completeness: validate_qr_token SECURITY DEFINER (Section 44
---        gap — prosecdef was not asserted); is_group_member helper
+--   46e. RPC completeness: is_group_member helper
 --        (20260809000002 §11.1) existence + SECURITY DEFINER + STABLE +
 --        search_path hardening (used by create_minigame_session and
---        group_members_read_same).
+--        group_members_read_same). (The legacy QR-token prosecdef check that
+--        lived here was removed 2026-09-08 with the static QR-token surface —
+--        the code family's posture is pinned in Section 21d.)
 -- ============================================================
 
 -- 46a: trigger → function bindings
@@ -1402,8 +1584,8 @@ SELECT col_is_unique('event_attendances', ARRAY['event_id', 'user_id'],
     'event_attendances has UNIQUE (event_id, user_id)');
 SELECT col_is_unique('user_cosmetics', ARRAY['user_id', 'cosmetic_id'],
     'user_cosmetics has UNIQUE (user_id, cosmetic_id)');
-SELECT col_is_unique('event_promotores', ARRAY['event_id', 'user_id'],
-    'event_promotores has UNIQUE (event_id, user_id) (opt-002 promotor contract)');
+SELECT col_is_unique('event_hosts', ARRAY['event_id', 'user_id'],
+    'event_hosts has UNIQUE (event_id, user_id) (opt-002 host contract)');
 SELECT col_is_unique('event_invites', ARRAY['event_id', 'user_id'],
     'event_invites has UNIQUE (event_id, user_id)');
 SELECT col_is_unique('chat_participants', ARRAY['chat_id', 'user_id'],
@@ -1451,8 +1633,6 @@ SELECT is_definer('public', 'fetch_prekey_bundle', ARRAY['uuid'],
     'fetch_prekey_bundle is SECURITY DEFINER');
 
 -- 46e: RPC completeness
-SELECT is_definer('public', 'validate_qr_token', ARRAY['uuid', 'text'],
-    'validate_qr_token is SECURITY DEFINER (migration 20260809000005)');
 SELECT has_function('is_group_member', ARRAY['uuid'],
     'is_group_member(p_group_id uuid) exists (migration 20260809000002 §11.1)');
 SELECT is_definer('public', 'is_group_member', ARRAY['uuid'],
@@ -1556,7 +1736,7 @@ SELECT ok(
      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public'
        AND p.proname IN ('donate_shards_to_group', 'fetch_prekey_bundle',
-                         'validate_qr_token', 'create_minigame_session',
+                         'validate_code', 'create_minigame_session',
                          'join_minigame_session', 'finish_minigame_game')
        AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) = 6,
     'authenticated can EXECUTE the 6 client RPCs'
@@ -2145,22 +2325,6 @@ SELECT ok(
 );
 
 -- ============================================================
--- SECTION 53: rotate_qr_token RPC (migration 20260814000004)
--- ============================================================
-SELECT has_function('rotate_qr_token', ARRAY['uuid'],
-    'rotate_qr_token(p_event_id uuid) exists');
-SELECT is((SELECT prosecdef FROM pg_proc WHERE proname = 'rotate_qr_token'),
-    true, 'rotate_qr_token is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY(proconfig) FROM pg_proc WHERE proname = 'rotate_qr_token'),
-    'rotate_qr_token sets search_path = '''' (I-31 pattern)'
-);
-SELECT function_privs_are('public', 'rotate_qr_token', ARRAY['uuid']::name[], 'anon', ARRAY[]::name[],
-    'anon has NO EXECUTE on rotate_qr_token');
-SELECT function_privs_are('public', 'rotate_qr_token', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'rotate_qr_token is authenticated-EXECUTABLE');
-
--- ============================================================
 -- SECTION 54: Notification producer triggers (migration 20260814000005)
 -- ============================================================
 SELECT has_function('notify_event_invite', ARRAY[]::name[],
@@ -2208,52 +2372,52 @@ SELECT has_trigger('feature_requests', 'notify_feature_request_trigger',
 -- ============================================================
 -- SECTION 55: Group chain of command (migration 20260816000001)
 -- ============================================================
-SELECT has_function('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[],
-    'transfer_promotor exists (OPT-009 — atomic promotor handover)');
-SELECT is_definer('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[],
-    'transfer_promotor is SECURITY DEFINER');
+SELECT has_function('public', 'transfer_host', ARRAY['uuid', 'uuid']::name[],
+    'transfer_host exists (OPT-009 — atomic host handover)');
+SELECT is_definer('public', 'transfer_host', ARRAY['uuid', 'uuid']::name[],
+    'transfer_host is SECURITY DEFINER');
 SELECT ok(
     (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'transfer_promotor'),
-    'transfer_promotor sets search_path = '''' (I-31 pattern)'
+     FROM pg_proc WHERE proname = 'transfer_host'),
+    'transfer_host sets search_path = '''' (I-31 pattern)'
 );
-SELECT function_privs_are('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[], 'public', ARRAY[]::name[],
-    'transfer_promotor is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'transfer_promotor', ARRAY['uuid', 'uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'transfer_promotor is authenticated-EXECUTABLE');
+SELECT function_privs_are('public', 'transfer_host', ARRAY['uuid', 'uuid']::name[], 'public', ARRAY[]::name[],
+    'transfer_host is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'transfer_host', ARRAY['uuid', 'uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'transfer_host is authenticated-EXECUTABLE');
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%co_promotor%'
-       AND pg_get_functiondef(p.oid) LIKE '%not_promotor%'
-       AND pg_get_functiondef(p.oid) LIKE '%role = ''promotor''%'
-     FROM pg_proc p WHERE proname = 'transfer_promotor'),
-    'transfer_promotor is promotor-only and demotes self + promotes successor'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%staff%'
+       AND pg_get_functiondef(p.oid) LIKE '%not_host%'
+       AND pg_get_functiondef(p.oid) LIKE '%role = ''host''%'
+     FROM pg_proc p WHERE proname = 'transfer_host'),
+    'transfer_host is host-only and demotes self + promotes successor'
 );
 SELECT has_function('public', 'promote_next_member', ARRAY['uuid']::name[],
     'promote_next_member exists (OPT-009 — successor pick)');
 SELECT is_definer('public', 'promote_next_member', ARRAY['uuid']::name[],
     'promote_next_member is SECURITY DEFINER');
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%role = ''co_promotor''%'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%role = ''staff''%'
        AND pg_get_functiondef(p.oid) LIKE '%random()%'
        AND pg_get_functiondef(p.oid) LIKE '%status = ''active''%'
      FROM pg_proc p WHERE proname = 'promote_next_member'),
-    'promote_next_member prefers co_promotors, random pick, active-only'
+    'promote_next_member prefers staff, random pick, active-only'
 );
-SELECT has_function('public', 'reassign_group_promotor', ARRAY[]::name[],
-    'reassign_group_promotor exists (OPT-009 — ban/delete leadership pass)');
-SELECT is_definer('public', 'reassign_group_promotor', ARRAY[]::name[],
-    'reassign_group_promotor is SECURITY DEFINER');
+SELECT has_function('public', 'reassign_group_host', ARRAY[]::name[],
+    'reassign_group_host exists (OPT-009 — ban/delete leadership pass)');
+SELECT is_definer('public', 'reassign_group_host', ARRAY[]::name[],
+    'reassign_group_host is SECURITY DEFINER');
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%banned_at%'
        AND pg_get_functiondef(p.oid) LIKE '%deleted_at%'
        AND pg_get_functiondef(p.oid) LIKE '%promote_next_member%'
-     FROM pg_proc p WHERE proname = 'reassign_group_promotor'),
-    'reassign_group_promotor demotes banned/deleted promotors and passes leadership'
+     FROM pg_proc p WHERE proname = 'reassign_group_host'),
+    'reassign_group_host demotes banned/deleted hosts and passes leadership'
 );
-SELECT has_trigger('group_members', 'reassign_group_promotor_delete_trigger',
-    'group_members has the promotor-reassignment delete trigger');
-SELECT has_trigger('users', 'reassign_group_promotor_user_trigger',
-    'users has the promotor-reassignment ban/delete trigger');
+SELECT has_trigger('group_members', 'reassign_group_host_delete_trigger',
+    'group_members has the host-reassignment delete trigger');
+SELECT has_trigger('users', 'reassign_group_host_user_trigger',
+    'users has the host-reassignment ban/delete trigger');
 
 -- ============================================================
 -- SECTION 56: Group chat E2EE support (migrations 20260817000001
@@ -3879,6 +4043,8 @@ SELECT ok(
 );
 SELECT col_has_check('minigame_reactions', 'reaction',
     'minigame_reactions.reaction has a CHECK (NULL or six emojis, 204_minigame_pasar)');
+SELECT has_column('minigame_reactions', 'last_tap_at',
+    'minigame_reactions.last_tap_at drives the server reaction spam gate (207, 2026-09-09)');
 SELECT ok(
     (SELECT convalidated
        FROM pg_constraint
@@ -4127,17 +4293,23 @@ SELECT ok(
     'submit_minigame_reaction keeps the 202 answer-first + own-round gates (207 is additive)'
 );
 
--- Emoji ↔ Pasar exclusivity (2026-09-04): once a voter has acted they cannot
--- switch to the OTHER mode. submit_minigame_reaction rejects a Pasar when the
--- voter already emoji-reacted (already_reacted) and rejects an emoji when the
--- voter already passed (already_passed); emoji → emoji re-votes stay allowed.
+-- Emoji ↔ Pasar exclusivity (2026-09-04, corrected 2026-09-09): once a voter
+-- has acted they cannot switch to the OTHER mode. A Pasar row stores a NULL
+-- reaction, so cross-mode is detected by ROW EXISTENCE — submit_minigame_reaction
+-- rejects a Pasar when the voter already holds an EMOJI row (already_reacted)
+-- and rejects an emoji when the voter holds a PASS row (reaction IS NULL,
+-- already_passed); fresh voters and same-mode re-votes stay allowed. The
+-- per-voter last_tap_at + 250 ms `too_fast` gate bounds spam server-side.
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%already_reacted%'
        AND pg_get_functiondef(p.oid) LIKE '%already_passed%'
-       AND pg_get_functiondef(p.oid) LIKE '%SELECT reaction INTO v_existing%'
+       AND pg_get_functiondef(p.oid) LIKE '%reaction IS NULL%'
+       AND pg_get_functiondef(p.oid) LIKE '%reaction IS NOT NULL%'
+       AND pg_get_functiondef(p.oid) LIKE '%too_fast%'
+       AND pg_get_functiondef(p.oid) LIKE '%last_tap_at%'
        AND pg_get_functiondef(p.oid) LIKE '%p_reaction = ''pasar''%'
      FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
-    'submit_minigame_reaction enforces emoji ↔ Pasar exclusivity per voter (207, 2026-09-04)'
+    'submit_minigame_reaction enforces emoji ↔ Pasar exclusivity by row existence + the 250 ms spam gate (207, fixed 2026-09-09)'
 );
 -- The mirror carries the per-voter action map (voter_id → emoji wire or null
 -- for a pass) inside state.reactions.<subject>, so clients grey out the OTHER
@@ -4149,14 +4321,17 @@ SELECT ok(
     'submit_minigame_reaction mirrors the per-voter action map under state.reactions.<subject>.voters (207, 2026-09-04)'
 );
 
--- react_minigame_round (async reactable round): the SAME exclusivity gates +
--- per-voter voters mirror.
+-- react_minigame_round (async reactable round): the SAME corrected
+-- row-existence exclusivity + spam gate + per-voter voters mirror.
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%already_reacted%'
        AND pg_get_functiondef(p.oid) LIKE '%already_passed%'
-       AND pg_get_functiondef(p.oid) LIKE '%SELECT reaction INTO v_existing%'
+       AND pg_get_functiondef(p.oid) LIKE '%reaction IS NULL%'
+       AND pg_get_functiondef(p.oid) LIKE '%reaction IS NOT NULL%'
+       AND pg_get_functiondef(p.oid) LIKE '%too_fast%'
+       AND pg_get_functiondef(p.oid) LIKE '%last_tap_at%'
      FROM pg_proc p WHERE proname = 'react_minigame_round'),
-    'react_minigame_round enforces emoji ↔ Pasar exclusivity per voter (async reactable rounds, 207, 2026-09-04)'
+    'react_minigame_round enforces emoji ↔ Pasar exclusivity by row existence + the 250 ms spam gate (async reactable rounds, 207, fixed 2026-09-09)'
 );
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%''voters''%'

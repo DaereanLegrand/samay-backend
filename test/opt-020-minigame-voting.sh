@@ -64,6 +64,12 @@ norm_json() {
   sed -E 's/([][,{}:])[[:space:]]+/\1/g; s/[[:space:]]+([][,{}:])/\1/g'
 }
 
+# The 207 server reaction spam gate drops a same-voter write inside 250 ms of
+# the previous ACCEPTED write (status `too_fast`). API-level cases model
+# DELIBERATE spaced taps (the real client's tap timer is 350 ms), so sleep just
+# past the server window between consecutive accepted taps by the same voter.
+tap_wait() { sleep 0.3; }
+
 auth_rpc() {
   local t=$1 f=$2 d=$3
   curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/$f" -H "apikey: $ANON_KEY" \
@@ -151,10 +157,10 @@ else
 fi
 
 svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"Vote Test\",\"description\":\"d\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}" >/dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"promotor\",\"status\":\"active\"}" >/dev/null
+svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" >/dev/null
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_B\",\"role\":\"member\",\"status\":\"active\"}" >/dev/null
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_C\",\"role\":\"member\",\"status\":\"active\"}" >/dev/null
-info "Group created; A (promotor) + B + C (members) active; D is NOT a member (bystander)"
+info "Group created; A (host) + B + C (members) active; D is NOT a member (bystander)"
 
 # =========================================================================
 # TEST A — create with rounds + prize positions
@@ -306,6 +312,7 @@ else
 fi
 
 # VOTER1 re-votes (heart -> excited) — replaces, count stays 1 (distinct).
+tap_wait
 resp=$(auth_rpc "$V1TOKEN" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"excited\"}")
 resp=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
