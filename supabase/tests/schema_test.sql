@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(903);
+SELECT plan(908);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3938,6 +3938,41 @@ SELECT ok(
        OR pg_get_functiondef(p.oid) LIKE '%r.reaction IS NULL%'
      FROM pg_proc p WHERE proname = 'finish_minigame_game'),
     'finish_minigame_game async settlement accounts for reactor passers (204_minigame_pasar)'
+);
+
+-- ======================================================================
+-- SECTION 49p: Two Lies One Truth (migration 206_minigame_two_lies_one_truth)
+-- ======================================================================
+SELECT ok(
+    (SELECT count(*) = 1 FROM pg_enum WHERE enumtypid = 'public.mini_game_type'::regtype AND enumlabel = 'two_lies_one_truth'),
+    'mini_game_type enum contains two_lies_one_truth (206_minigame_two_lies_one_truth)'
+);
+SELECT ok(
+    (SELECT pg_get_constraintdef(oid) LIKE '%vote_0%'
+        AND pg_get_constraintdef(oid) LIKE '%vote_1%'
+        AND pg_get_constraintdef(oid) LIKE '%vote_2%'
+     FROM pg_constraint
+     WHERE conrelid = 'minigame_reactions'::regclass
+       AND conname = 'mgs_reaction_value_check'),
+    'mgs_reaction_value_check allows vote_0, vote_1, vote_2 (206_minigame_two_lies_one_truth)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%vote_0%'
+        AND pg_get_functiondef(p.oid) LIKE '%vote_1%'
+        AND pg_get_functiondef(p.oid) LIKE '%vote_2%'
+     FROM pg_proc p WHERE proname = 'submit_minigame_reaction'),
+    'submit_minigame_reaction accepts vote_0..2 (206_minigame_two_lies_one_truth)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%vote_0%'
+        AND pg_get_functiondef(p.oid) LIKE '%vote_1%'
+        AND pg_get_functiondef(p.oid) LIKE '%vote_2%'
+     FROM pg_proc p WHERE proname = 'react_minigame_round'),
+    'react_minigame_round accepts vote_0..2 (206_minigame_two_lies_one_truth)'
+);
+SELECT ok(
+    (SELECT count(*) >= 6 FROM public.minigame_prompts WHERE game_type = 'two_lies_one_truth'),
+    'minigame_prompts has seeded topic prompts for two_lies_one_truth (206_minigame_two_lies_one_truth)'
 );
 
 SELECT * FROM finish();
