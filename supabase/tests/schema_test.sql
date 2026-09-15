@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(960);
+SELECT plan(968);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -4401,6 +4401,81 @@ SELECT ok(
      JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public' AND p.proname = 'get_minigame_invite_context'),
     'get_minigame_invite_context is authenticated-only (PUBLIC/anon revoked, 209)'
+);
+
+-- ======================================================================
+-- SECTION 50: minigame group message + member fan-out
+-- (210_minigame_group_message, 2026-09-15)
+--   * 2a — create_minigame_session fans out an invite to EVERY active group
+--     member (creator excluded) for a group session.
+--   * 2b — a group session insert drops a notice in the group chat via the
+--     `minigame_group_messages` table (E2EE messages cannot carry it), readable
+--     by active group members only and streamed realtime.
+-- ======================================================================
+SELECT has_table('minigame_group_messages',
+    'minigame_group_messages exists (210_minigame_group_message)');
+
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'minigame_group_messages'
+          AND policyname = 'mgm_read_group_member'
+    ),
+    'minigame_group_messages has mgm_read_group_member (group members read, 210)'
+);
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%group_members%'
+       AND pg_get_functiondef(p.oid) LIKE '%status = ''active''%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session fans out to every active group member (2a, 210)'
+);
+
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = 'minigame_sessions'
+          AND t.tgname = 'minigame_group_message_trigger'
+    ),
+    'minigame_sessions has the group-message trigger (2b, 210)'
+);
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%SECURITY DEFINER%'
+       AND pg_get_functiondef(p.oid) LIKE '%minigame_group_messages%'
+     FROM pg_proc p WHERE proname = 'notify_minigame_group_message'),
+    'notify_minigame_group_message is SECURITY DEFINER and writes the notice (2b, 210)'
+);
+
+-- ======================================================================
+-- SECTION 51: group-chat guarantee + inbox notice activity
+-- (210/P1, 2026-09-15)
+--   * one group chat per group (partial unique index) + backfilled all groups
+--   * the notice trigger creates a missing group chat (server guarantee)
+--   * get_chat_inbox counts a minigame notice as chat activity
+-- ======================================================================
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public' AND tablename = 'chats'
+          AND indexname = 'chats_group_reference_uniq'
+    ),
+    'chats has chats_group_reference_uniq (one group chat per group, 210/P1)'
+);
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%INSERT INTO public.chats%'
+     FROM pg_proc p WHERE proname = 'notify_minigame_group_message'),
+    'notify_minigame_group_message creates the group chat if missing (210/P1)'
+);
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%last_activity_kind%'
+       AND pg_get_functiondef(p.oid) LIKE '%minigame_group_messages%'
+     FROM pg_proc p WHERE proname = 'get_chat_inbox'),
+    'get_chat_inbox counts minigame notices as chat activity (210/P1)'
 );
 
 SELECT * FROM finish();
