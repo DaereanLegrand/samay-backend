@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(958);
+SELECT plan(979);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -4381,6 +4381,90 @@ SELECT ok(
 SELECT ok(
     (SELECT count(*) >= 6 FROM public.minigame_prompts WHERE game_type = 'two_lies_one_truth'),
     'minigame_prompts has seeded topic prompts for two_lies_one_truth (208_minigame_two_lies_one_truth)'
+);
+
+-- ======================================================================
+-- SECTION 49t: merged PR — extra games + public partidas (2026-09-14):
+--   209_minigame_drunk_bottle, 210_minigame_bottle_pizza,
+--   211_minigame_public, 212_minigame_charades, 213_charades_no_repeats.
+-- Cover the new PUBLIC READ surface (ms_read_public widens minigame_sessions
+-- read to any signed-in user on a published, open, direct partida) and the
+-- new SECURITY DEFINER RPC posture.
+-- ======================================================================
+SELECT ok(
+    (SELECT count(*) = 1 FROM pg_enum
+      WHERE enumtypid = 'public.mini_game_type'::regtype AND enumlabel = 'charades'),
+    'mini_game_type enum contains charades (212_minigame_charades)'
+);
+
+-- Drunk-bottle spin RPC family: DEFINER, search_path='', authenticated-only.
+SELECT has_function('set_drunk_bottle_spin', ARRAY['uuid','boolean','uuid'],
+    'set_drunk_bottle_spin(uuid,boolean,uuid) exists (209_minigame_drunk_bottle)');
+SELECT is_definer('public', 'set_drunk_bottle_spin', ARRAY['uuid','boolean','uuid']::name[],
+    'set_drunk_bottle_spin is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'set_drunk_bottle_spin'),
+    'set_drunk_bottle_spin sets search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'set_drunk_bottle_spin', ARRAY['uuid','boolean','uuid']::name[], 'public', ARRAY[]::name[],
+    'set_drunk_bottle_spin is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'set_drunk_bottle_spin', ARRAY['uuid','boolean','uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'set_drunk_bottle_spin is authenticated-EXECUTABLE');
+SELECT has_function('spin_drunk_bottle', ARRAY['uuid'],
+    'spin_drunk_bottle(uuid) exists (210_minigame_bottle_pizza)');
+SELECT has_function('stop_drunk_bottle', ARRAY['uuid'],
+    'stop_drunk_bottle(uuid) exists (210_minigame_bottle_pizza)');
+
+-- Public partidas (211_minigame_public): additive column + partial index +
+-- the ms_read_public SELECT policy, scoped to published/open/direct sessions.
+SELECT has_column('minigame_sessions', 'is_public',
+    'minigame_sessions has is_public (211_minigame_public)');
+SELECT has_index('public', 'minigame_sessions', 'idx_minigame_sessions_public',
+    'idx_minigame_sessions_public partial index exists (211_minigame_public)');
+SELECT ok(
+    (SELECT count(*)::int FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'minigame_sessions'
+        AND policyname = 'ms_read_public') = 1,
+    'minigame_sessions has the ms_read_public policy (211_minigame_public)'
+);
+SELECT ok(
+    (SELECT qual LIKE '%is_public%'
+        AND qual LIKE '%group_id IS NULL%'
+        AND qual LIKE '%active%'
+        AND qual LIKE '%auth.uid() IS NOT NULL%'
+      FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'minigame_sessions'
+        AND policyname = 'ms_read_public'),
+    'ms_read_public gates on is_public + direct + active + signed-in (211_minigame_public)'
+);
+SELECT has_function('set_minigame_public', ARRAY['uuid','boolean'],
+    'set_minigame_public(uuid,boolean) exists (211_minigame_public)');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%not_creator%'
+        AND pg_get_functiondef(p.oid) LIKE '%group_session%'
+      FROM pg_proc p WHERE proname = 'set_minigame_public'),
+    'set_minigame_public is host-only and rejects group sessions (211_minigame_public)'
+);
+SELECT has_function('list_public_minigames', ARRAY['text'],
+    'list_public_minigames(text) exists (211_minigame_public)');
+SELECT is_definer('public', 'list_public_minigames', ARRAY['text']::name[],
+    'list_public_minigames is SECURITY DEFINER');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%COALESCE(v_is_public, false)%'
+      FROM pg_proc p WHERE proname = 'join_minigame_session'),
+    'join_minigame_session admits published direct joins (211_minigame_public)'
+);
+
+-- Charadas turn engine (212/213).
+SELECT has_function('start_charades_turn', ARRAY['uuid','text','integer'],
+    'start_charades_turn(uuid,text,int) exists (212_minigame_charades)');
+SELECT has_function('charades_answer', ARRAY['uuid','boolean'],
+    'charades_answer(uuid,boolean) exists (212_minigame_charades)');
+SELECT has_function('end_charades_turn', ARRAY['uuid'],
+    'end_charades_turn(uuid) exists (212_minigame_charades)');
+SELECT ok(
+    (SELECT count(*) > 0 FROM public.minigame_prompts WHERE game_type = 'charades'),
+    'minigame_prompts has seeded charades words (212_minigame_charades)'
 );
 
 SELECT * FROM finish();
