@@ -1,4 +1,4 @@
--- 209_minigame_invite_context — get_minigame_invite_context(uuid)
+-- 215_minigame_invite_context — get_minigame_invite_context(uuid)
 --
 -- WHY (2026-09-11): the partida LOBBY's pending-invite view must show the
 -- INVITER only ("INVITADO POR" + avatar), never the participant roster. The

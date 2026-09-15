@@ -488,7 +488,7 @@ else
   nok "alias row missing: $aliases"
 fi
 
-# 208_minigame_alias_unique: session-unique, case-insensitive nicknames.
+# 214_minigame_alias_unique: session-unique, case-insensitive nicknames.
 # B cannot take A's name (different case must still collide).
 resp=$(auth_rpc "$TOKEN_B" "set_minigame_alias" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_alias\":\"ANON_TEST_A2\"}")

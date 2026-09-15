@@ -1,4 +1,4 @@
--- 208_minigame_alias_unique — session-unique anonymous nicknames (2026-09-10).
+-- 214_minigame_alias_unique — session-unique anonymous nicknames (2026-09-10).
 --
 -- Anonymous mode's temp nicknames must be distinguishable inside a session:
 -- two players may not pick the same name or the leaderboard/reactor lines

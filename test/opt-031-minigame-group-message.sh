@@ -2,7 +2,7 @@
 set -uo pipefail
 # =============================================================================
 # [OPT-029] minigame group fan-out + group chat notice
-# (210_minigame_group_message, 2026-09-15)
+# (216_minigame_group_message, 2026-09-15)
 #
 # Creating a GROUP partida must:
 #   A) invite EVERY active group member (creator excluded) — 2a
@@ -11,7 +11,7 @@ set -uo pipefail
 #   D) make the notice readable by active group members only (RLS)
 #   E) keep it to ONE notice per session
 #
-# Usage: bash test/opt-029-minigame-group-message.sh
+# Usage: bash test/opt-031-minigame-group-message.sh
 # Requires the stack with migration 210 applied.
 # =============================================================================
 

@@ -1,4 +1,4 @@
--- 210_minigame_group_message — group match creation fans out to every active
+-- 216_minigame_group_message — group match creation fans out to every active
 -- member AND posts a chat notice in the group thread.
 --
 -- WHY (2026-09-15):
