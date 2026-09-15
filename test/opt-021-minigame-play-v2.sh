@@ -488,6 +488,34 @@ else
   nok "alias row missing: $aliases"
 fi
 
+# 214_minigame_alias_unique: session-unique, case-insensitive nicknames.
+# B cannot take A's name (different case must still collide).
+resp=$(auth_rpc "$TOKEN_B" "set_minigame_alias" \
+  "{\"p_session_id\":\"$SESSION_ID\",\"p_alias\":\"ANON_TEST_A2\"}")
+if echo "$resp" | grep -q '"status":"alias_taken"'; then
+  ok "duplicate nickname rejected case-insensitively (alias_taken)"
+else
+  nok "duplicate nickname NOT rejected: $resp"
+fi
+
+# A re-saving their OWN current name is allowed.
+resp=$(auth_rpc "$TOKEN_A" "set_minigame_alias" \
+  "{\"p_session_id\":\"$SESSION_ID\",\"p_alias\":\"anon_test_a2\"}")
+if echo "$resp" | grep -q '"status":"alias_set"'; then
+  ok "own nickname re-save allowed (alias_set)"
+else
+  nok "own nickname re-save failed: $resp"
+fi
+
+# A distinct nickname is accepted.
+resp=$(auth_rpc "$TOKEN_B" "set_minigame_alias" \
+  "{\"p_session_id\":\"$SESSION_ID\",\"p_alias\":\"anon_test_b\"}")
+if echo "$resp" | grep -q '"status":"alias_set"'; then
+  ok "distinct nickname accepted (alias_set)"
+else
+  nok "distinct nickname rejected: $resp"
+fi
+
 # Blank / oversized aliases are rejected.
 resp=$(auth_rpc "$TOKEN_B" "set_minigame_alias" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_alias\":\"   \"}")

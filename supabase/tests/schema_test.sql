@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(979);
+SELECT plan(994);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3744,6 +3744,21 @@ SELECT ok(
      FROM pg_proc p WHERE proname = 'set_minigame_alias'),
     'set_minigame_alias upserts one temp nickname per (session, participant)'
 );
+-- 214_minigame_alias_unique: session-unique, case-insensitive nicknames.
+SELECT ok(
+    to_regclass('public.minigame_aliases_session_alias_uniq') IS NOT NULL,
+    'minigame_aliases has a session+alias index (214_minigame_alias_unique)');
+SELECT ok(
+    (SELECT indisunique FROM pg_index
+      WHERE indexrelid = 'minigame_aliases_session_alias_uniq'::regclass),
+    'the nickname index is UNIQUE (session_id, lower(btrim(alias))) (214_minigame_alias_unique)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%alias_taken%'
+       AND pg_get_functiondef(p.oid) LIKE '%lower(btrim(alias))%'
+     FROM pg_proc p WHERE proname = 'set_minigame_alias'),
+    'set_minigame_alias rejects a taken nickname (case-insensitive, 214_minigame_alias_unique)'
+);
 
 -- The answer-first reaction gate (202): the subject cannot react to their own
 -- round and reactions open only after the answer (ciphertext) is submitted.
@@ -4465,6 +4480,120 @@ SELECT has_function('end_charades_turn', ARRAY['uuid'],
 SELECT ok(
     (SELECT count(*) > 0 FROM public.minigame_prompts WHERE game_type = 'charades'),
     'minigame_prompts has seeded charades words (212_minigame_charades)'
+);
+
+-- SECTION 62: get_minigame_invite_context (215_minigame_invite_context,
+-- 2026-09-11) — the pending-invite lobby shows ONLY the inviter
+-- ("INVITADO POR" + avatar), never the participant roster, so the invitee's
+-- accept surface cannot flash the player list before accepting.
+--   * SECURITY DEFINER + locked search_path + invitee-scoped
+--     (`invitee_id = auth.uid()`); non-invitees get `invite_not_found`.
+--   * Resolves the inviter through the security-barrier `user_search_view`
+--     by `created_by`; the function never reads `participants` (no roster
+--     leak by construction).
+-- ======================================================================
+SELECT has_function('get_minigame_invite_context', ARRAY['uuid'],
+    'get_minigame_invite_context(uuid) exists (215_minigame_invite_context)');
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%SECURITY DEFINER%'
+       AND pg_get_functiondef(p.oid) LIKE '%SET search_path TO ''''%'
+       AND pg_get_functiondef(p.oid) LIKE '%invitee_id = auth.uid()%'
+       AND pg_get_functiondef(p.oid) LIKE '%invite_not_found%'
+     FROM pg_proc p WHERE proname = 'get_minigame_invite_context'),
+    'get_minigame_invite_context is SECURITY DEFINER, invitee-scoped, invite_not_found on miss (215)'
+);
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%user_search_view%'
+       AND pg_get_functiondef(p.oid) LIKE '%created_by%'
+       AND NOT pg_get_functiondef(p.oid) LIKE '%participants%'
+     FROM pg_proc p WHERE proname = 'get_minigame_invite_context'),
+    'get_minigame_invite_context resolves ONLY the inviter (never the participants roster, 215)'
+);
+
+SELECT ok(
+    (SELECT NOT has_function_privilege('anon', p.oid, 'EXECUTE')
+       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = 'get_minigame_invite_context'),
+    'get_minigame_invite_context is authenticated-only (PUBLIC/anon revoked, 215)'
+);
+
+-- ======================================================================
+-- SECTION 63: minigame group message + member fan-out
+-- (216_minigame_group_message, 2026-09-15)
+--   * 2a — create_minigame_session fans out an invite to EVERY active group
+--     member (creator excluded) for a group session.
+--   * 2b — a group session insert drops a notice in the group chat via the
+--     `minigame_group_messages` table (E2EE messages cannot carry it), readable
+--     by active group members only and streamed realtime.
+-- ======================================================================
+SELECT has_table('minigame_group_messages',
+    'minigame_group_messages exists (216_minigame_group_message)');
+
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'minigame_group_messages'
+          AND policyname = 'mgm_read_group_member'
+    ),
+    'minigame_group_messages has mgm_read_group_member (group members read, 216)'
+);
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%group_members%'
+       AND pg_get_functiondef(p.oid) LIKE '%status = ''active''%'
+     FROM pg_proc p WHERE proname = 'create_minigame_session'),
+    'create_minigame_session fans out to every active group member (2a, 216)'
+);
+
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = 'minigame_sessions'
+          AND t.tgname = 'minigame_group_message_trigger'
+    ),
+    'minigame_sessions has the group-message trigger (2b, 216)'
+);
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%SECURITY DEFINER%'
+       AND pg_get_functiondef(p.oid) LIKE '%minigame_group_messages%'
+     FROM pg_proc p WHERE proname = 'notify_minigame_group_message'),
+    'notify_minigame_group_message is SECURITY DEFINER and writes the notice (2b, 216)'
+);
+
+-- ======================================================================
+-- SECTION 64: group-chat guarantee + inbox notice activity
+-- (216/P1, 2026-09-15)
+--   * one group chat per group (partial unique index) + backfilled all groups
+--   * the notice trigger creates a missing group chat (server guarantee)
+--   * get_chat_inbox counts a minigame notice as chat activity
+-- ======================================================================
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public' AND tablename = 'chats'
+          AND indexname = 'chats_group_reference_uniq'
+    ),
+    'chats has chats_group_reference_uniq (one group chat per group, 216/P1)'
+);
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%INSERT INTO public.chats%'
+     FROM pg_proc p WHERE proname = 'notify_minigame_group_message'),
+    'notify_minigame_group_message creates the group chat if missing (216/P1)'
+);
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%last_activity_kind%'
+       AND pg_get_functiondef(p.oid) LIKE '%minigame_group_messages%'
+     FROM pg_proc p WHERE proname = 'get_chat_inbox'),
+    'get_chat_inbox counts minigame notices as chat activity (216/P1)'
 );
 
 SELECT * FROM finish();
