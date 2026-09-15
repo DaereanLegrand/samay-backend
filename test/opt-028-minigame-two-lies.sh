@@ -5,14 +5,15 @@ set -uo pipefail
 # Verifies the "2 mentiras, 1 verdad" game type end-to-end:
 #   A) create_minigame_session accepts game_type = 'two_lies_one_truth'
 #   B) The subject submits an encrypted payload with 3 statements via
-#      submit_minigame_answer
+#      submit_minigame_answer with NO topic prompt revealed (217: two_lies is
+#      prompt-less — the shared 202/208 prompt gate must NOT apply)
 #   C) Other participants vote for one of the statements using 'vote_0',
 #      'vote_1', or 'vote_2' via submit_minigame_reaction
 #   D) When all non-subject participants have voted, the round advances
 #   E) Settle and finish via finish_minigame_game
 #
 # Usage: bash test/opt-028-minigame-two-lies.sh
-# Requires the stack with migration 208 applied.
+# Requires the stack with migrations 208 + 217 applied.
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
@@ -188,23 +189,17 @@ elif [ "$SUBJECT_ID" = "$UUID_C" ]; then
   SUBJ_TOKEN="$TOKEN_C"; VOTER1_TOKEN="$TOKEN_A"; VOTER2_TOKEN="$TOKEN_B"
 fi
 
-# Reveal a topic prompt for the round (required before the subject answers)
-resp=$(auth_rpc "$SUBJ_TOKEN" "reveal_minigame_prompt" \
-  "{\"p_session_id\":\"$SESSION_ID\",\"p_prompt_type\":\"topic\"}")
-if echo "$resp" | grep -q '"status":"revealed"'; then
-  ok "reveal(topic) = revealed"
-else
-  nok "reveal(topic) failed: $resp"
-fi
+# 217: two_lies is prompt-less — the subject answers with NO prompt revealed.
+# (Before 217 this submit returned `no_prompt`; the topic reveal is gone.)
 
 # Subject submits 3 statements payload (inner quotes escaped for the outer JSON)
 PAYLOAD='{"statements":[{"index":0,"text":"Mentira 1","is_truth":false},{"index":1,"text":"Verdad real","is_truth":true},{"index":2,"text":"Mentira 2","is_truth":false}],"truth_index":1}'
 resp=$(auth_rpc "$SUBJ_TOKEN" "submit_minigame_answer" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_answer_ciphertext\":\"${PAYLOAD//\"/\\\"}\"}")
 if echo "$resp" | grep -q '"status":"submitted"'; then
-  ok "Subject submitted 3 statements ciphertext"
+  ok "Subject submitted 3 statements ciphertext with no prompt (217 prompt-less)"
 else
-  nok "Subject submit failed: $resp"
+  nok "Subject submit without prompt failed: $resp"
 fi
 
 # Voter 1 votes for option 1 ('vote_1')
