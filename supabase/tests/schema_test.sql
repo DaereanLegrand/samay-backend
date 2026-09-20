@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(994);
+SELECT plan(999);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -717,8 +717,9 @@ SELECT policies_are('group_rank_snapshots', ARRAY[
 SELECT policies_are('minigame_sessions', ARRAY[
     'ms_read_group_member',
     'ms_read_invitee',
-    'ms_read_direct_participant'
-], 'minigame_sessions has expected RLS policies');
+    'ms_read_direct_participant',
+    'ms_read_public'
+], 'minigame_sessions has expected RLS policies (ms_read_public added by 211_minigame_public)');
 SELECT col_is_null('minigame_sessions', 'group_id',
     'minigame_sessions.group_id is NULLABLE (NULL = direct session, direct-minigames 2026-08-27)');
 SELECT col_not_null('minigame_sessions', 'player_limit',
@@ -3596,6 +3597,37 @@ SELECT ok(
     'finish_minigame_game writes minigame_results with harmonic (gcd) weights'
 );
 
+-- SECTION 49u: Full leaderboard ranking (migration 218_minigame_full_ranking,
+-- 2026-09-20) — the settle-once leaderboard now carries EVERY participant with
+-- their row_number() rank + real score; only the top N = prize_positions are
+-- PAID (rank > N writes prize 0):
+--   * the two per-branch `WHERE sc.rank <= v_prize_positions` filters are GONE,
+--     so the result set is the FULL ranked roster.
+--   * the harmonic weights still cap the PAID ranks at prize_positions.
+--   * minigame_sessions has NO column `n`: the app's session select + pool
+--     breakdown must read `prize_positions` (a client selecting `n` 400s the
+--     whole session read — regression guard for the 2026-09-20 breakage).
+SELECT ok(
+    (SELECT position('sc.rank <= v_prize_positions' IN pg_get_functiondef(p.oid)) = 0
+       AND pg_get_functiondef(p.oid) LIKE '%row_number() OVER%'
+     FROM pg_proc p WHERE proname = 'finish_minigame_game'),
+    'finish_minigame_game ranks ALL participants (no prize-position WHERE filter, 218_minigame_full_ranking)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%LEAST(COALESCE(v_prize_positions, 3), v_player_count)%'
+       AND pg_get_functiondef(p.oid) LIKE '%public.minigame_results%'
+     FROM pg_proc p WHERE proname = 'finish_minigame_game'),
+    'finish_minigame_game still caps the PAID ranks at prize_positions (218_minigame_full_ranking)'
+);
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'minigame_sessions'
+          AND column_name = 'n'
+    ),
+    'minigame_sessions has no column "n" — clients must read prize_positions (2026-09-20 regression guard)'
+);
+
 -- The legacy settlement seams are REPLACED (201 user directive): the only
 -- settlement RPC left is finish_minigame_game.
 SELECT ok(
@@ -4413,22 +4445,29 @@ SELECT ok(
 );
 
 -- Drunk-bottle spin RPC family: DEFINER, search_path='', authenticated-only.
-SELECT has_function('set_drunk_bottle_spin', ARRAY['uuid','boolean','uuid'],
-    'set_drunk_bottle_spin(uuid,boolean,uuid) exists (209_minigame_drunk_bottle)');
-SELECT is_definer('public', 'set_drunk_bottle_spin', ARRAY['uuid','boolean','uuid']::name[],
-    'set_drunk_bottle_spin is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'set_drunk_bottle_spin'),
-    'set_drunk_bottle_spin sets search_path = '''' (I-31 pattern)'
-);
-SELECT function_privs_are('public', 'set_drunk_bottle_spin', ARRAY['uuid','boolean','uuid']::name[], 'public', ARRAY[]::name[],
-    'set_drunk_bottle_spin is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'set_drunk_bottle_spin', ARRAY['uuid','boolean','uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'set_drunk_bottle_spin is authenticated-EXECUTABLE');
+-- 209's `set_drunk_bottle_spin(uuid,boolean,uuid)` was DROPPED by
+-- 210_minigame_bottle_pizza; the live family is spin/stop_drunk_bottle(uuid).
 SELECT has_function('spin_drunk_bottle', ARRAY['uuid'],
     'spin_drunk_bottle(uuid) exists (210_minigame_bottle_pizza)');
 SELECT has_function('stop_drunk_bottle', ARRAY['uuid'],
     'stop_drunk_bottle(uuid) exists (210_minigame_bottle_pizza)');
+SELECT is_definer('public', 'spin_drunk_bottle', ARRAY['uuid']::name[],
+    'spin_drunk_bottle is SECURITY DEFINER');
+SELECT is_definer('public', 'stop_drunk_bottle', ARRAY['uuid']::name[],
+    'stop_drunk_bottle is SECURITY DEFINER');
+SELECT ok(
+    (SELECT bool_and('search_path=""' = ANY (proconfig))
+     FROM pg_proc WHERE proname IN ('spin_drunk_bottle', 'stop_drunk_bottle')),
+    'spin/stop_drunk_bottle set search_path = '''' (I-31 pattern)'
+);
+SELECT function_privs_are('public', 'spin_drunk_bottle', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'spin_drunk_bottle is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'spin_drunk_bottle', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'spin_drunk_bottle is authenticated-EXECUTABLE');
+SELECT function_privs_are('public', 'stop_drunk_bottle', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
+    'stop_drunk_bottle is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'stop_drunk_bottle', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'stop_drunk_bottle is authenticated-EXECUTABLE');
 
 -- Public partidas (211_minigame_public): additive column + partial index +
 -- the ms_read_public SELECT policy, scoped to published/open/direct sessions.

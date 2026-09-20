@@ -23,9 +23,12 @@ set -uo pipefail
 #   F) finish_minigame_game writes the minigame_results leaderboard and pays
 #      the prize split (HARMONIC 1/rank over N = prize_positions places,
 #      integer-exact).
+#   H) full ranking (218_minigame_full_ranking): EVERY participant carries a
+#      ranked row (rank 1..P, unique); only N = prize_positions are paid and
+#      every rank > N writes prize 0; the harmonic split still sums to the pot.
 #
 # Usage: bash test/opt-020-minigame-voting.sh
-# Requires the stack with migration 201 applied.
+# Requires the stack with migration 218 applied.
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
@@ -557,6 +560,74 @@ if [ "$WIN_TOTAL" -ge 1 ]; then
   ok "minigame_win ledger rows written for the prize split"
 else
   nok "no minigame_win ledger rows: $ledger"
+fi
+
+# =========================================================================
+# TEST H — full ranking (218_minigame_full_ranking): EVERY participant gets a
+# ranked row, but only N = prize_positions are paid; rank > N writes prize 0.
+# =========================================================================
+h1 "TEST H — full ranking: all participants ranked, only N paid"
+
+# Dedicated 3-player session with N = 2 so exactly one player is UNPAID.
+# Settled straight from create (status active, no rounds) — every score is 0
+# and the tie-break is participant order (A=1, B=2, C=3), fully deterministic.
+resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":50,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":3,\"p_prize_positions\":2}")
+SESSION2_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION2_ID" ]; then
+  ok "H: 3-player session with N=2 created ($SESSION2_ID)"
+else
+  nok "H: create failed: $(echo "$resp" | head -c 160)"
+fi
+HINV_B=$(svc_get "minigame_invites?select=id&session_id=eq.$SESSION2_ID&invitee_id=eq.$UUID_B" \
+  | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+HINV_C=$(svc_get "minigame_invites?select=id&session_id=eq.$SESSION2_ID&invitee_id=eq.$UUID_C" \
+  | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$HINV_B\"}" > /dev/null
+auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$HINV_C\"}" > /dev/null
+
+resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION2_ID\"}")
+if echo "$resp" | grep -q '"status":"finished"'; then
+  ok "H: session settled (finished)"
+else
+  nok "H: finish failed: $(echo "$resp" | head -c 160)"
+fi
+
+results=$(svc_get "minigame_results?session_id=eq.$SESSION2_ID&select=results" | norm_json)
+RANK_ROWS=$(echo "$results" | grep -o '"rank":[0-9]*' | wc -l | tr -d ' ')
+if [ "$RANK_ROWS" = "3" ]; then
+  ok "H: ALL 3 participants carry a ranked row (was top-N only before 218)"
+else
+  nok "H: expected 3 ranked rows, got $RANK_ROWS: $(echo "$results" | head -c 220)"
+fi
+if echo "$results" | grep -q '"rank":1' && echo "$results" | grep -q '"rank":2' && echo "$results" | grep -q '"rank":3'; then
+  ok "H: ranks 1..3 are all present (unique positions)"
+else
+  nok "H: ranks 1..3 missing: $(echo "$results" | head -c 220)"
+fi
+
+# Pot = 50 x 3 = 150, split harmonically across N = 2 (250/3 -> 100 + 50).
+PRIZES=$(echo "$results" | grep -o '"prize":[0-9]*' | cut -d: -f2)
+NONZERO=$(echo "$PRIZES" | awk '$1>0{c++} END{print c+0}')
+ZEROS=$(echo "$PRIZES" | awk '$1==0{c++} END{print c+0}')
+PRIZE_SUM=$(echo "$PRIZES" | awk '{s+=$1} END{print s+0}')
+if [ "$NONZERO" = "2" ] && [ "$ZEROS" = "1" ]; then
+  ok "H: exactly N=2 players paid, the rank-3 player wrote prize 0"
+else
+  nok "H: expected 2 paid + 1 zero, got nonzero=$NONZERO zeros=$ZEROS: $PRIZES"
+fi
+if [ "$PRIZE_SUM" = "150" ]; then
+  ok "H: harmonic split still sums to the full pot (150)"
+else
+  nok "H: prize sum $PRIZE_SUM != pot 150: $PRIZES"
+fi
+
+# The unpaid rank-3 player (C, participant order) is the one with prize 0.
+UNPAID_RANK3_PRIZE=$(echo "$results" | grep -o '"rank":3,"prize":[0-9]*' | grep -o '[0-9]*$')
+if [ "$UNPAID_RANK3_PRIZE" = "0" ]; then
+  ok "H: rank 3 (unpaid) carries prize 0"
+else
+  nok "H: rank 3 prize unexpected: $UNPAID_RANK3_PRIZE"
 fi
 
 # =========================================================================
