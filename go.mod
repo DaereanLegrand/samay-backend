@@ -3,6 +3,7 @@ module github.com/samay-app/samay
 go 1.26.2
 
 require (
+	github.com/coder/websocket v1.8.13
 	github.com/gin-gonic/gin v1.12.0
 	github.com/jedib0t/go-pretty/v6 v6.7.10
 	github.com/joho/godotenv v1.5.1
