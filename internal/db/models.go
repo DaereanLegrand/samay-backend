@@ -23,40 +23,6 @@ type User struct {
 	UpdatedAt             time.Time       `json:"updated_at"`
 }
 
-type Cosmetic struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
-	Type            string    `json:"type"`
-	AssetURL        string    `json:"asset_url"`
-	ShardCost       int       `json:"shard_cost"`
-	TierRequirement string    `json:"tier_requirement"`
-	CreatedAt       time.Time `json:"created_at"`
-}
-
-type UserCosmetic struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"user_id"`
-	CosmeticID  string    `json:"cosmetic_id"`
-	Equipped    bool      `json:"equipped"`
-	PurchasedAt time.Time `json:"purchased_at"`
-}
-
-type GroupCosmetic struct {
-	ID          string    `json:"id"`
-	GroupID     string    `json:"group_id"`
-	CosmeticID  string    `json:"cosmetic_id"`
-	Equipped    bool      `json:"equipped"`
-	PurchasedAt time.Time `json:"purchased_at"`
-}
-
-type Friendship struct {
-	ID          string    `json:"id"`
-	RequesterID string    `json:"requester_id"`
-	AddresseeID string    `json:"addressee_id"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
 type Group struct {
 	ID              string     `json:"id"`
 	Name            string     `json:"name"`
@@ -87,17 +53,6 @@ type GroupShardContribution struct {
 	ShardsContributed int       `json:"shards_contributed"`
 	ContributedAt     time.Time `json:"contributed_at"`
 	ExpiresAt         time.Time `json:"expires_at"`
-}
-
-type GroupRankSnapshot struct {
-	ID           string    `json:"id"`
-	GroupID      string    `json:"group_id"`
-	SizeTier     string    `json:"size_tier"`
-	RankBracket  string    `json:"rank_bracket"`
-	RankPosition int       `json:"rank_position"`
-	Score        int       `json:"score"`
-	MemberCount  int       `json:"member_count"`
-	CalculatedAt time.Time `json:"calculated_at"`
 }
 
 type Event struct {
@@ -136,76 +91,6 @@ type EventHost struct {
 	AddedAt              time.Time `json:"added_at"`
 }
 
-type EventInvite struct {
-	ID              string     `json:"id"`
-	EventID         string     `json:"event_id"`
-	UserID          string     `json:"user_id"`
-	InvitedByUserID string     `json:"invited_by_user_id"`
-	Status          string     `json:"status"`
-	InvitedAt       time.Time  `json:"invited_at"`
-	RespondedAt     *time.Time `json:"responded_at"`
-}
-
-type EventQrToken struct {
-	ID                  string     `json:"id"`
-	EventID             string     `json:"event_id"`
-	UserID              string     `json:"user_id"`
-	Token               string     `json:"token"`
-	ExpiresAt           time.Time  `json:"expires_at"`
-	ScannedAt           *time.Time `json:"scanned_at"`
-	AttendanceConfirmed bool       `json:"attendance_confirmed"`
-	CreatedAt           time.Time  `json:"created_at"`
-}
-
-type EventAttendance struct {
-	ID             string    `json:"id"`
-	EventID        string    `json:"event_id"`
-	UserID         string    `json:"user_id"`
-	ConfirmedAt    time.Time `json:"confirmed_at"`
-	ShardsReceived int       `json:"shards_received"`
-}
-
-type EventPhoto struct {
-	ID               string    `json:"id"`
-	EventID          string    `json:"event_id"`
-	UploadedByUserID string    `json:"uploaded_by_user_id"`
-	StoragePath      string    `json:"storage_path"`
-	LikesCount       int       `json:"likes_count"`
-	Reported         bool      `json:"reported"`
-	CreatedAt        time.Time `json:"created_at"`
-}
-
-type EventPhotoLike struct {
-	ID        string    `json:"id"`
-	PhotoID   string    `json:"photo_id"`
-	UserID    string    `json:"user_id"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type Chat struct {
-	ID          string    `json:"id"`
-	Type        string    `json:"type"`
-	ReferenceID *string   `json:"reference_id"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
-type Message struct {
-	ID        string    `json:"id"`
-	ChatID    string    `json:"chat_id"`
-	SenderID  string    `json:"sender_id"`
-	Content   string    `json:"content"`
-	MediaURL  *string   `json:"media_url"`
-	Reported  bool      `json:"reported"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type ChatParticipant struct {
-	ID        string    `json:"id"`
-	ChatID    string    `json:"chat_id"`
-	UserID    string    `json:"user_id"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
 type ShardLedgerEntry struct {
 	ID          string    `json:"id"`
 	UserID      *string   `json:"user_id"`
@@ -213,37 +98,6 @@ type ShardLedgerEntry struct {
 	Reason      string    `json:"reason"`
 	ReferenceID *string   `json:"reference_id"`
 	CreatedAt   time.Time `json:"created_at"`
-}
-
-type PreshardLedgerEntry struct {
-	ID          string    `json:"id"`
-	UserID      *string   `json:"user_id"`
-	Delta       int       `json:"delta"`
-	Reason      string    `json:"reason"`
-	ReferenceID *string   `json:"reference_id"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
-type MinigameSession struct {
-	ID           string    `json:"id"`
-	GroupID      string    `json:"group_id"`
-	GameType     string    `json:"game_type"`
-	Status       string    `json:"status"`
-	ShardWager   int       `json:"shard_wager"`
-	Participants []string  `json:"participants"`
-	WinnerID     *string   `json:"winner_id"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
-type Notification struct {
-	ID        string           `json:"id"`
-	UserID    string           `json:"user_id"`
-	Type      string           `json:"type"`
-	Title     string           `json:"title"`
-	Body      string           `json:"body"`
-	Data      *json.RawMessage `json:"data"`
-	Read      bool             `json:"read"`
-	CreatedAt time.Time        `json:"created_at"`
 }
 
 type FeatureRequest struct {
@@ -268,53 +122,10 @@ type Report struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-type AdminUser struct {
-	ID          string    `json:"id"`
-	Email       string    `json:"email"`
-	DisplayName string    `json:"display_name"`
-	Role        string    `json:"role"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
-type AdminAuditLog struct {
-	ID          string           `json:"id"`
-	AdminUserID string           `json:"admin_user_id"`
-	Action      string           `json:"action"`
-	TargetType  string           `json:"target_type"`
-	TargetID    string           `json:"target_id"`
-	Details     *json.RawMessage `json:"details"`
-	CreatedAt   time.Time        `json:"created_at"`
-}
-
-type SubscriptionOverride struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"user_id"`
-	AdminUserID string    `json:"admin_user_id"`
-	Tier        string    `json:"tier"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	Reason      *string   `json:"reason"`
-	Revoked     bool      `json:"revoked"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
 type AppConfigRow struct {
 	Key          string    `json:"key"`
 	Value        string    `json:"value"`
 	Description  *string   `json:"description"`
 	DefaultValue *string   `json:"default_value"`
 	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-type ProcessedWebhook struct {
-	ID          string    `json:"id"`
-	EventID     string    `json:"event_id"`
-	EventType   string    `json:"event_type"`
-	ProcessedAt time.Time `json:"processed_at"`
-}
-
-type SignupTracker struct {
-	Email          string    `json:"email"`
-	ProfileCreated bool      `json:"profile_created"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
 }

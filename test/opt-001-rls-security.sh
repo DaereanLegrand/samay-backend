@@ -16,8 +16,9 @@ set -uo pipefail
 #
 # Usage: bash test/opt-001-rls-security.sh
 #
-# Keys (M-03 alignment): ANON_KEY / SERVICE_KEY default to the DEV values
-# from supabase/.env — dev-only; CI/checkpoint overrides them via env vars.
+# Keys (M-03 alignment): resolved at runtime by test/dev_env.sh from the
+# gitignored stack .env (supabase-testing/ then supabase/) — dev-only; CI
+# overrides them via env vars.
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"

@@ -442,17 +442,19 @@ for f in "${BASE[@]}"; do
   fi
 done
 
-# 8.4.3 opt-test defaults aligned to the .env dev values (dev-only; CI
-#       overrides via env) + the M-03 header note in each of the 5 files.
+# 8.4.3 opt-test SERVICE_KEY resolution aligned to the .env dev value. The 5
+#       live opt-tests source test/dev_env.sh (no hardcoded key material);
+#       this gate loads it in a subshell and compares the SHA-256 of the
+#       resolved key to the .env value — hashes only, never the key itself.
 ENV_ANON="$(grep -E '^SUPABASE_ANON_KEY=' "$ENV_A" | head -1 | cut -d= -f2-)"
 ENV_SVC="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' "$ENV_A" | head -1 | cut -d= -f2-)"
 if [ -n "$ENV_SVC" ]; then
   HITS=0; MISS=0
   for t in opt-001-rls-security.sh opt-002-events.sh opt-003-chat.sh opt-004-photos.sh opt-006-e2ee-rpc.sh; do
-    if grep -Fq "SERVICE_KEY=\"\${SERVICE_KEY:-$ENV_SVC}\"" "$REPO/test/$t"; then
+    if grep -Fq 'dev_env.sh' "$REPO/test/$t"; then
       HITS=$((HITS+1))
     else
-      MISS=$((MISS+1)); echo "  ❌ $t SERVICE_KEY default != .env dev value"
+      MISS=$((MISS+1)); echo "  ❌ $t does not source test/dev_env.sh"
     fi
     if grep -Fq 'M-03 alignment' "$REPO/test/$t"; then
       HITS=$((HITS+1))
@@ -460,8 +462,17 @@ if [ -n "$ENV_SVC" ]; then
       MISS=$((MISS+1)); echo "  ❌ $t missing M-03 header note"
     fi
   done
+  RESOLVED_SVC="$(cd "$REPO" && env -u ANON_KEY -u SERVICE_KEY \
+    bash -c 'set -a; . test/dev_env.sh >/dev/null 2>&1; printf %s "$SERVICE_KEY"' 2>/dev/null || true)"
+  ENV_HASH="$(printf '%s' "$ENV_SVC" | shasum -a 256 | awk '{print $1}')"
+  RES_HASH="$(printf '%s' "$RESOLVED_SVC" | shasum -a 256 | awk '{print $1}')"
+  if [ -n "$RESOLVED_SVC" ] && [ "$ENV_HASH" = "$RES_HASH" ]; then
+    HITS=$((HITS+1))
+  else
+    MISS=$((MISS+1)); echo "  ❌ dev_env.sh resolved SERVICE_KEY hash != supabase/.env value"
+  fi
   if [ "$MISS" = "0" ]; then
-    pass "all 5 opt-tests use the .env dev SERVICE_KEY default + M-03 header note ($HITS asserts)"
+    pass "all 5 opt-tests source dev_env.sh + M-03 header; resolved SERVICE_KEY hash matches .env ($HITS asserts)"
   else
     fail "$MISS opt-test alignment assert(s) failed"
   fi
@@ -507,8 +518,8 @@ echo ""
 echo "━━━ 9. supabase/ vs supabase-testing/ parity (M-10) ━━━"
 
 # 9.1 Migration count equality + per-file byte identity
-MIG_A=$(ls "$REPO/supabase/migrations"/*.sql 2>/dev/null | wc -l | tr -d ' ')
-MIG_B=$(ls "$REPO/supabase-testing/migrations"/*.sql 2>/dev/null | wc -l | tr -d ' ')
+MIG_A=$(find "$REPO/supabase/migrations" -name '*.sql' 2>/dev/null | wc -l | tr -d ' ')
+MIG_B=$(find "$REPO/supabase-testing/migrations" -name '*.sql' 2>/dev/null | wc -l | tr -d ' ')
 if [ "$MIG_A" = "$MIG_B" ]; then
   pass "migration count equal ($MIG_A)"
 else
@@ -566,6 +577,8 @@ done
 #     intentional differences (per-stack .env keys, domains/buckets/SMTP in
 #     compose + volumes configs, identity tokens in scripts; the mailpit
 #     overlay FILE is gone — merged into the testing base 2026-08-22).
+#     `--exclude=.temp` skips the per-stack Supabase CLI state dirs
+#     (gitignored runtime artifacts whose `cli-latest` version stamp differs).
 PARITY_ALLOW=$(cat <<'EOF'
 Files supabase/.env and supabase-testing/.env differ
 Files supabase/.env.local and supabase-testing/.env.local differ
@@ -588,7 +601,7 @@ Files supabase/volumes/proxy/caddy/Caddyfile and supabase-testing/volumes/proxy/
 Files supabase/volumes/proxy/nginx/supabase-nginx.conf.tpl and supabase-testing/volumes/proxy/nginx/supabase-nginx.conf.tpl differ
 EOF
 )
-PARITY_DIFF="$(cd "$REPO" && diff -rq supabase supabase-testing 2>/dev/null || true)"
+PARITY_DIFF="$(cd "$REPO" && diff -rq --exclude=.temp supabase supabase-testing 2>/dev/null || true)"
 PARITY_TOTAL="$(printf '%s\n' "$PARITY_DIFF" | grep -v '^$' | wc -l | tr -d ' ')"
 PARITY_EXTRA="$(printf '%s\n' "$PARITY_DIFF" | grep -vxFf <(printf '%s\n' "$PARITY_ALLOW") | grep -v '^$')"
 if [ -z "$PARITY_EXTRA" ]; then

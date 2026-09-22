@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(999);
+SELECT plan(1001);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -1855,8 +1855,22 @@ SELECT has_table('minigame_invites',
 SELECT col_is_unique('minigame_invites', ARRAY['session_id', 'invitee_id'],
     'minigame_invites(session_id, invitee_id) is unique (one invite per player per session)');
 SELECT ok(
+    (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.minigame_invites'::regclass),
+    'minigame_invites has RLS ENABLED (140_minigame_invites)'
+);
+SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.minigame_invites'::regclass),
     'minigame_invites has FORCE ROW LEVEL SECURITY (140_minigame_invites)'
+);
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_class
+        WHERE relnamespace = 'public'::regnamespace
+          AND relkind = 'r'
+          AND relforcerowsecurity
+          AND NOT relrowsecurity
+    ),
+    'every public table with FORCE RLS also has RLS ENABLED (no inert-policy leak)'
 );
 SELECT policies_are('minigame_invites', ARRAY[
     'mi_read_own'

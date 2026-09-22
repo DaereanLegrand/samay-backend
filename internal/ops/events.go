@@ -11,16 +11,16 @@ import (
 )
 
 type ListEventsParams struct {
-	Status   string
-	Type     string
-	Host string
+	Status string
+	Type   string
+	Host   string
 }
 
 type EventDetail struct {
-	Event              db.Event           `json:"event"`
-	Hosts         []db.EventHost `json:"hosts"`
-	ConfirmedAttendees int                `json:"confirmed_attendees"`
-	PreshardPoolStatus string             `json:"preshard_pool_status"`
+	Event              db.Event       `json:"event"`
+	Hosts              []db.EventHost `json:"hosts"`
+	ConfirmedAttendees int            `json:"confirmed_attendees"`
+	PreshardPoolStatus string         `json:"preshard_pool_status"`
 }
 
 func ListEvents(ctx context.Context, client *db.DBClient, params ListEventsParams) ([]db.Event, error) {
@@ -67,7 +67,7 @@ func GetEvent(ctx context.Context, client *db.DBClient, eventID string) (*EventD
 	}
 
 	return &EventDetail{
-		Event:      events[0],
+		Event: events[0],
 		Hosts: hosts,
 	}, errors.Join(detailErrs...)
 }

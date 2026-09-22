@@ -31,7 +31,7 @@ set -uo pipefail
 # owner and the fetcher are distinct users — the realistic X3DH flow.
 #
 # SELF-CONTAINED: creates its own rows with fixed UUIDs (svc_* setup), exactly
-# like opt-001. Does NOT depend on seed-dev.sql (SEED_DEV=1).
+# like opt-001.
 #
 # STATIC-VERIFIED ONLY (this agent run): the stack is not started until the
 # checkpoint (AGENT-RULES / port map). Live run: make supabase-docker-start &&
@@ -39,8 +39,9 @@ set -uo pipefail
 #
 # Usage: bash test/opt-006-e2ee-rpc.sh
 #
-# Keys (M-03 alignment): ANON_KEY / SERVICE_KEY default to the DEV values
-# from supabase/.env — dev-only; CI/checkpoint overrides them via env vars.
+# Keys (M-03 alignment): resolved at runtime by test/dev_env.sh from the
+# gitignored stack .env (supabase-testing/ then supabase/) — dev-only; CI
+# overrides them via env vars.
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"

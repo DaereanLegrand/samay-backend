@@ -149,12 +149,13 @@ func notImplemented(c *gin.Context) {
 
 // ── response/error helpers ────────────────────────────────────────────────────
 
-// opsCtx returns the context passed to internal/ops calls. The ops layer threads
-// ctx through the DB client (I-39/I-40 migration); handlers use a background
-// context today — S-06/M-21 may switch this to the request context.
-func opsCtx() context.Context {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	_ = cancel // timeout fires if handler doesn't finish; no leak since background
+// opsCtx derives the context for internal/ops calls from the request context
+// (client disconnect cancels in-flight DB work) with a 30s cap. The cancel is
+// released as soon as the request context ends via context.AfterFunc.
+func opsCtx(c *gin.Context) context.Context {
+	requestCtx := c.Request.Context()
+	ctx, cancel := context.WithTimeout(requestCtx, 30*time.Second)
+	context.AfterFunc(requestCtx, cancel)
 	return ctx
 }
 
@@ -260,7 +261,7 @@ type recalcRequest struct {
 // ── handlers: health ──────────────────────────────────────────────────────────
 
 func healthHandler(c *gin.Context) {
-	health, err := ops.HealthCheck(opsCtx(), dbClient)
+	health, err := ops.HealthCheck(opsCtx(c), dbClient)
 	if err != nil {
 		log.Printf("health check error: %v", err)
 		status, latency := "degraded", "0s"
@@ -298,7 +299,7 @@ func listUsersHandler(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	data, err := ops.ListUsers(opsCtx(), dbClient, ops.ListUsersParams{
+	data, err := ops.ListUsers(opsCtx(c), dbClient, ops.ListUsersParams{
 		Search: c.Query("search"),
 		Tier:   tier,
 		Banned: banned,
@@ -311,7 +312,7 @@ func listUsersHandler(c *gin.Context) {
 }
 
 func getUserHandler(c *gin.Context) {
-	data, err := ops.GetUser(opsCtx(), dbClient, c.Param("id"))
+	data, err := ops.GetUser(opsCtx(c), dbClient, c.Param("id"))
 	if err != nil {
 		writeError(c, err)
 		return
@@ -328,7 +329,7 @@ func banUserHandler(c *gin.Context) {
 		writeError(c, fmt.Errorf("invalid request: reason is required"))
 		return
 	}
-	if err := ops.BanUser(opsCtx(), dbClient, c.Param("id"), req.Reason, adminIdentity()); err != nil {
+	if err := ops.BanUser(opsCtx(c), dbClient, c.Param("id"), req.Reason, adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -336,7 +337,7 @@ func banUserHandler(c *gin.Context) {
 }
 
 func unbanUserHandler(c *gin.Context) {
-	if err := ops.UnbanUser(opsCtx(), dbClient, c.Param("id"), adminIdentity()); err != nil {
+	if err := ops.UnbanUser(opsCtx(c), dbClient, c.Param("id"), adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -356,7 +357,7 @@ func grantShardsHandler(c *gin.Context) {
 	if reason == "" {
 		reason = "admin_grant"
 	}
-	if err := ops.GrantShards(opsCtx(), dbClient, c.Param("id"), req.Amount, reason, adminIdentity()); err != nil {
+	if err := ops.GrantShards(opsCtx(c), dbClient, c.Param("id"), req.Amount, reason, adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -376,7 +377,7 @@ func grantPreshardsHandler(c *gin.Context) {
 	if reason == "" {
 		reason = "admin_grant"
 	}
-	if err := ops.GrantPreshards(opsCtx(), dbClient, c.Param("id"), req.Amount, reason, adminIdentity()); err != nil {
+	if err := ops.GrantPreshards(opsCtx(c), dbClient, c.Param("id"), req.Amount, reason, adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -389,7 +390,7 @@ func deleteUserHandler(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	if err := ops.SoftDeleteUser(opsCtx(), dbClient, id, adminIdentity()); err != nil {
+	if err := ops.SoftDeleteUser(opsCtx(c), dbClient, id, adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -402,7 +403,7 @@ func userLedgerHandler(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	data, err := ops.GetShardLedger(opsCtx(), dbClient, c.Param("id"), limit)
+	data, err := ops.GetShardLedger(opsCtx(c), dbClient, c.Param("id"), limit)
 	if err != nil {
 		writeError(c, err)
 		return
@@ -427,10 +428,10 @@ func listEventsHandler(c *gin.Context) {
 			return
 		}
 	}
-	data, err := ops.ListEvents(opsCtx(), dbClient, ops.ListEventsParams{
-		Status:   status,
-		Type:     eventType,
-		Host: c.Query("host"),
+	data, err := ops.ListEvents(opsCtx(c), dbClient, ops.ListEventsParams{
+		Status: status,
+		Type:   eventType,
+		Host:   c.Query("host"),
 	})
 	if err != nil {
 		writeError(c, err)
@@ -440,7 +441,7 @@ func listEventsHandler(c *gin.Context) {
 }
 
 func getEventHandler(c *gin.Context) {
-	data, err := ops.GetEvent(opsCtx(), dbClient, c.Param("id"))
+	data, err := ops.GetEvent(opsCtx(c), dbClient, c.Param("id"))
 	if err != nil {
 		writeError(c, err)
 		return
@@ -458,7 +459,7 @@ func featureEventHandler(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	if err := ops.FeatureEvent(opsCtx(), dbClient, c.Param("id"), expiresAt, adminIdentity()); err != nil {
+	if err := ops.FeatureEvent(opsCtx(c), dbClient, c.Param("id"), expiresAt, adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -466,7 +467,7 @@ func featureEventHandler(c *gin.Context) {
 }
 
 func unfeatureEventHandler(c *gin.Context) {
-	if err := ops.UnfeatureEvent(opsCtx(), dbClient, c.Param("id"), adminIdentity()); err != nil {
+	if err := ops.UnfeatureEvent(opsCtx(c), dbClient, c.Param("id"), adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -482,7 +483,7 @@ func cancelEventHandler(c *gin.Context) {
 		writeError(c, fmt.Errorf("invalid request: reason is required"))
 		return
 	}
-	if err := ops.CancelEvent(opsCtx(), dbClient, c.Param("id"), req.Reason, adminIdentity()); err != nil {
+	if err := ops.CancelEvent(opsCtx(c), dbClient, c.Param("id"), req.Reason, adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -490,7 +491,7 @@ func cancelEventHandler(c *gin.Context) {
 }
 
 func distributeShardsHandler(c *gin.Context) {
-	if err := ops.DistributeShards(opsCtx(), dbClient, c.Param("id"), adminIdentity()); err != nil {
+	if err := ops.DistributeShards(opsCtx(c), dbClient, c.Param("id"), adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -514,7 +515,7 @@ func listGroupsHandler(c *gin.Context) {
 			return
 		}
 	}
-	data, err := ops.ListGroups(opsCtx(), dbClient, ops.ListGroupsParams{
+	data, err := ops.ListGroups(opsCtx(c), dbClient, ops.ListGroupsParams{
 		SizeTier: tier,
 		Bracket:  bracket,
 	})
@@ -526,7 +527,7 @@ func listGroupsHandler(c *gin.Context) {
 }
 
 func getGroupHandler(c *gin.Context) {
-	data, err := ops.GetGroup(opsCtx(), dbClient, c.Param("id"))
+	data, err := ops.GetGroup(opsCtx(c), dbClient, c.Param("id"))
 	if err != nil {
 		writeError(c, err)
 		return
@@ -535,7 +536,7 @@ func getGroupHandler(c *gin.Context) {
 }
 
 func groupMembersHandler(c *gin.Context) {
-	data, err := ops.ListGroupMembers(opsCtx(), dbClient, c.Param("id"))
+	data, err := ops.ListGroupMembers(opsCtx(c), dbClient, c.Param("id"))
 	if err != nil {
 		writeError(c, err)
 		return
@@ -544,7 +545,7 @@ func groupMembersHandler(c *gin.Context) {
 }
 
 func groupLedgerHandler(c *gin.Context) {
-	data, err := ops.GetGroupShardLedger(opsCtx(), dbClient, c.Param("id"))
+	data, err := ops.GetGroupShardLedger(opsCtx(c), dbClient, c.Param("id"))
 	if err != nil {
 		writeError(c, err)
 		return
@@ -569,7 +570,7 @@ func listReportsHandler(c *gin.Context) {
 			return
 		}
 	}
-	data, err := ops.ListReports(opsCtx(), dbClient, ops.ListReportsParams{
+	data, err := ops.ListReports(opsCtx(c), dbClient, ops.ListReportsParams{
 		Status: status,
 		Type:   targetType,
 	})
@@ -581,7 +582,7 @@ func listReportsHandler(c *gin.Context) {
 }
 
 func getReportHandler(c *gin.Context) {
-	data, err := ops.GetReport(opsCtx(), dbClient, c.Param("id"))
+	data, err := ops.GetReport(opsCtx(c), dbClient, c.Param("id"))
 	if err != nil {
 		writeError(c, err)
 		return
@@ -598,7 +599,7 @@ func actionReportHandler(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	if err := ops.ActionReport(opsCtx(), dbClient, c.Param("id"), req.Action, adminIdentity()); err != nil {
+	if err := ops.ActionReport(opsCtx(c), dbClient, c.Param("id"), req.Action, adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -618,7 +619,7 @@ func recalculateRanksHandler(c *gin.Context) {
 			return
 		}
 	}
-	if err := ops.RecalculateRanks(opsCtx(), dbClient, req.Tier); err != nil {
+	if err := ops.RecalculateRanks(opsCtx(c), dbClient, req.Tier); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -628,7 +629,7 @@ func recalculateRanksHandler(c *gin.Context) {
 // ── handlers: config ──────────────────────────────────────────────────────────
 
 func listConfigHandler(c *gin.Context) {
-	data, err := ops.ListConfig(opsCtx(), dbClient)
+	data, err := ops.ListConfig(opsCtx(c), dbClient)
 	if err != nil {
 		writeError(c, err)
 		return
@@ -637,7 +638,7 @@ func listConfigHandler(c *gin.Context) {
 }
 
 func getConfigHandler(c *gin.Context) {
-	data, err := ops.GetConfig(opsCtx(), dbClient, c.Param("key"))
+	data, err := ops.GetConfig(opsCtx(c), dbClient, c.Param("key"))
 	if err != nil {
 		writeError(c, err)
 		return
@@ -650,7 +651,7 @@ func setConfigHandler(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-	if err := ops.SetConfig(opsCtx(), dbClient, c.Param("key"), req.Value, adminIdentity()); err != nil {
+	if err := ops.SetConfig(opsCtx(c), dbClient, c.Param("key"), req.Value, adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -667,7 +668,7 @@ func listSubsHandler(c *gin.Context) {
 			return
 		}
 	}
-	data, err := ops.ListSubs(opsCtx(), dbClient, ops.ListSubsParams{Tier: tier})
+	data, err := ops.ListSubs(opsCtx(c), dbClient, ops.ListSubsParams{Tier: tier})
 	if err != nil {
 		writeError(c, err)
 		return
@@ -676,7 +677,7 @@ func listSubsHandler(c *gin.Context) {
 }
 
 func getSubHandler(c *gin.Context) {
-	data, err := ops.GetSub(opsCtx(), dbClient, c.Param("id"))
+	data, err := ops.GetSub(opsCtx(c), dbClient, c.Param("id"))
 	if err != nil {
 		writeError(c, err)
 		return
@@ -698,7 +699,7 @@ func overrideSubHandler(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	if err := ops.OverrideSub(opsCtx(), dbClient, c.Param("id"), req.Tier, adminIdentity(), expiresAt, req.Reason); err != nil {
+	if err := ops.OverrideSub(opsCtx(c), dbClient, c.Param("id"), req.Tier, adminIdentity(), expiresAt, req.Reason); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -706,7 +707,7 @@ func overrideSubHandler(c *gin.Context) {
 }
 
 func revokeOverrideHandler(c *gin.Context) {
-	if err := ops.RevokeOverride(opsCtx(), dbClient, c.Param("id"), adminIdentity()); err != nil {
+	if err := ops.RevokeOverride(opsCtx(c), dbClient, c.Param("id"), adminIdentity()); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -723,7 +724,7 @@ func listFeatureRequestsHandler(c *gin.Context) {
 			return
 		}
 	}
-	data, err := ops.ListFeatureRequests(opsCtx(), dbClient, ops.ListFeatureRequestsParams{Status: status})
+	data, err := ops.ListFeatureRequests(opsCtx(c), dbClient, ops.ListFeatureRequestsParams{Status: status})
 	if err != nil {
 		writeError(c, err)
 		return

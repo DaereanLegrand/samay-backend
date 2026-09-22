@@ -38,9 +38,9 @@ var eventsListCmd = &cobra.Command{
 		ctx, cancel := rootCtx()
 		defer cancel()
 		data, err := ops.ListEvents(ctx, dbClient, ops.ListEventsParams{
-			Status:   status,
-			Type:     eventType,
-			Host: host,
+			Status: status,
+			Type:   eventType,
+			Host:   host,
 		})
 		if err != nil {
 			return err

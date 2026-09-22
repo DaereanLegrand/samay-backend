@@ -110,7 +110,7 @@ func TestListEvents_PropagatesRequestError(t *testing.T) {
 func TestGetEvent_PrimaryAndSecondarySelects(t *testing.T) {
 	client, srv, log := newRoutingClient(map[string]string{
 		"/rest/v1/events":            `[{"id":"e1","name":"Juerga","status":"upcoming"}]`,
-		"/rest/v1/event_hosts":  `[{"id":"p1","event_id":"e1","user_id":"u1","role":"main","preshards_contributed":50}]`,
+		"/rest/v1/event_hosts":       `[{"id":"p1","event_id":"e1","user_id":"u1","role":"main","preshards_contributed":50}]`,
 		"/rest/v1/event_attendances": `[]`,
 	})
 	defer srv.Close()
@@ -141,7 +141,7 @@ func TestGetEvent_PrimaryAndSecondarySelects(t *testing.T) {
 
 func TestGetEvent_NotFound(t *testing.T) {
 	client, srv, _ := newRoutingClient(map[string]string{
-		"/rest/v1/events":           `[]`,
+		"/rest/v1/events":      `[]`,
 		"/rest/v1/event_hosts": `[]`,
 	})
 	defer srv.Close()
@@ -246,10 +246,10 @@ func TestCancelEvent_AlreadyCancelledIsIdempotent(t *testing.T) {
 
 func TestCancelEvent_ReturnsPoolAndAudits(t *testing.T) {
 	client, srv, log := newRoutingClient(map[string]string{
-		"/rest/v1/events":           `[{"id":"e1","status":"upcoming","preshards_pool":100}]`,
-		"/rest/v1/event_hosts": `[{"id":"p1","event_id":"e1","user_id":"u1","preshards_contributed":25},{"id":"p2","event_id":"e1","user_id":"u2","preshards_contributed":0}]`,
-		"/rest/v1/preshard_ledger":  `{}`,
-		"/rest/v1/admin_audit_log":  `{}`,
+		"/rest/v1/events":          `[{"id":"e1","status":"upcoming","preshards_pool":100}]`,
+		"/rest/v1/event_hosts":     `[{"id":"p1","event_id":"e1","user_id":"u1","preshards_contributed":25},{"id":"p2","event_id":"e1","user_id":"u2","preshards_contributed":0}]`,
+		"/rest/v1/preshard_ledger": `{}`,
+		"/rest/v1/admin_audit_log": `{}`,
 	})
 	defer srv.Close()
 

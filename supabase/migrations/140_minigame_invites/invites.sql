@@ -43,6 +43,10 @@ CREATE TABLE public.minigame_invites (
     decided_at timestamp with time zone
 );
 
+-- RLS must be ENABLED for the mi_read_own policy to apply; FORCE alone does
+-- not enable it (without this, any authenticated user can read every invite).
+ALTER TABLE public.minigame_invites ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE ONLY public.minigame_invites FORCE ROW LEVEL SECURITY;
 
 -- Name: minigame_invites minigame_invites_pkey; Type: CONSTRAINT; Schema: public; Owner: -

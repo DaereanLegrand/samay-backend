@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/samay-app/samay/internal/db"
@@ -387,5 +389,32 @@ func TestPanic_ReturnsGeneric500JSON(t *testing.T) {
 	body := decodeJSON(t, w)
 	if body["error"] != "internal error" {
 		t.Errorf("expected generic internal error, got %v", body["error"])
+	}
+}
+
+// opsCtx must derive from the request context (a client disconnect cancels
+// in-flight DB work) while applying the 30s cap.
+func TestOpsCtx_DerivesFromRequestWithTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	reqCtx, reqCancel := context.WithCancel(context.Background())
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil).WithContext(reqCtx)
+
+	ctx := opsCtx(c)
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("opsCtx context has no deadline (30s cap missing)")
+	}
+	if remaining := time.Until(deadline); remaining <= 0 || remaining > 31*time.Second {
+		t.Fatalf("opsCtx deadline out of range: %s", remaining)
+	}
+
+	reqCancel()
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("opsCtx context did not cancel when the request context cancelled")
 	}
 }
