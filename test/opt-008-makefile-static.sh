@@ -112,6 +112,7 @@ supabase-db-test supabase-backend-tests supabase-stack-check \
 supabase-seed-config \
 supabase-seed-test \
 supabase-testing-start supabase-testing-stop supabase-testing-status supabase-testing-reset \
+supabase-testing-seed-sample-matches \
 migrate-check \
 ios-beta ios-release android-alpha android-release \
 deploy-api deploy-dashboard deploy-venue bundle-install"
