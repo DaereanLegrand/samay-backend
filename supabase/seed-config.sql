@@ -38,7 +38,7 @@ INSERT INTO app_config (key, value, description, default_value) VALUES
     ('groups.pro_max_members', '256', 'Max members per group when host is PRO', '256'),
     ('groups.vip_max_members', '999999', 'Effectively unlimited for VIP (use as sentinel)', '999999'),
     ('feed.nearby_radius_km_default', '50', 'Default radius for geographical feed filter', '50'),
-    ('feed.nearby_radius_km_options', '5,20,50,999', 'Comma-separated radius options shown in filter (999 = anywhere)', '5,20,50,999'),
+    ('feed.nearby_radius_km_options', '5,20,50,100', 'Comma-separated radius options shown in filter (max 100 km; server hard-caps)', '5,20,50,100'),
     ('minigame.poke_timeout_minutes', '5', 'Default minutes a poked user has to poke someone else', '5'),
     ('minigame.challenge_timeout_minutes', '60', 'Default minutes to complete a challenge before it expires', '60'),
     ('minigame.free_max_players', '8', 'Max players per minigame session when the creator is free tier', '8'),

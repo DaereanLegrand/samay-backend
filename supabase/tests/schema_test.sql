@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1001);
+SELECT plan(1023);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -3179,6 +3179,137 @@ SELECT is(
     (SELECT count(*) FROM public.search_users('pgtapsea_%')),
     0::bigint,
     'LIKE wildcards in the query are escaped (no %/_ expansion)'
+);
+SELECT set_config('request.jwt.claims', '', true);
+
+-- ============================================================
+-- SECTION 61e: event discovery search (baseline 131_events_search) —
+-- search_events(p_query, p_lat, p_lng, p_radius_km, p_limit) SECURITY
+-- DEFINER + public.haversine_km helper. Same SR001/SR002/SR003 hardening as
+-- search_users, plus server-side radius filtering HARD-CAPPED at 100 km and
+-- the accepted-friend activity signal (friends_going + 0.5 * friends_pending).
+-- ============================================================
+SELECT has_function('search_events',
+    ARRAY['text', 'double precision', 'double precision', 'double precision', 'integer'],
+    'search_events(p_query text, p_lat float8, p_lng float8, p_radius_km float8, p_limit int) exists (131_events_search)');
+SELECT is_definer('public', 'search_events',
+    ARRAY['text', 'double precision', 'double precision', 'double precision', 'integer'],
+    'search_events is SECURITY DEFINER');
+SELECT ok(
+    (SELECT 'search_path=""' = ANY (proconfig)
+       FROM pg_proc WHERE proname = 'search_events'),
+    'search_events sets search_path = '''' (131_events_search)'
+);
+SELECT function_privs_are('public', 'search_events',
+    ARRAY['text', 'double precision', 'double precision', 'double precision', 'integer']::name[],
+    'public', ARRAY[]::name[],
+    'search_events is not PUBLIC-EXECUTABLE');
+SELECT function_privs_are('public', 'search_events',
+    ARRAY['text', 'double precision', 'double precision', 'double precision', 'integer']::name[],
+    'authenticated', ARRAY['EXECUTE'],
+    'search_events is authenticated-EXECUTABLE');
+SELECT has_function('haversine_km',
+    ARRAY['double precision', 'double precision', 'double precision', 'double precision'],
+    'haversine_km(lat1, lng1, lat2, lng2) exists (131_events_search)');
+SELECT ok(
+    public.haversine_km(-16.4090, -71.5375, -16.4090, -71.5375) < 0.001,
+    'haversine_km is 0 for identical points'
+);
+SELECT ok(
+    public.haversine_km(-16.4090, -71.5375, -12.0464, -77.0428) BETWEEN 700 AND 800,
+    'haversine_km Arequipa-Lima is ~766 km'
+);
+
+-- 61e fixtures: caller + 2 accepted friends + 2 public events (near / ~167 km far)
+SELECT lives_ok(
+    $$INSERT INTO public.users (id, username, date_of_birth) VALUES
+        ('88888888-8888-8888-8888-888888882101', 'pgtapeventsa', DATE '1990-07-01'),
+        ('88888888-8888-8888-8888-888888882102', 'pgtapeventsb', DATE '1990-07-02'),
+        ('88888888-8888-8888-8888-888888882103', 'pgtapeventsc', DATE '1990-07-03')$$,
+    'event-search fixture users inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.friendships (requester_id, addressee_id, status) VALUES
+        ('88888888-8888-8888-8888-888888882101', '88888888-8888-8888-8888-888888882102', 'accepted'),
+        ('88888888-8888-8888-8888-888888882101', '88888888-8888-8888-8888-888888882103', 'accepted')$$,
+    'event-search fixture friendships inserted (2 accepted)'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.events
+        (id, name, type, created_by_user_id, location_name, location_lat, location_lng,
+         starts_at, ends_at, capacity, status)
+      VALUES
+        ('88888888-8888-8888-8888-888888882201', 'pgtap near event', 'casual',
+         '88888888-8888-8888-8888-888888882101', 'Arequipa', -16.4090, -71.5375,
+         now() + interval '2 days', now() + interval '2 days 4 hours', 5, 'upcoming'),
+        ('88888888-8888-8888-8888-888888882202', 'pgtap far event', 'casual',
+         '88888888-8888-8888-8888-888888882101', 'Far', -15.0000, -71.0000,
+         now() + interval '3 days', now() + interval '3 days 4 hours', 5, 'upcoming')$$,
+    'event-search fixture events inserted (near + ~167 km far)'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.event_invites (event_id, user_id, invited_by_user_id, status) VALUES
+        ('88888888-8888-8888-8888-888888882201', '88888888-8888-8888-8888-888888882102', '88888888-8888-8888-8888-888888882101', 'accepted'),
+        ('88888888-8888-8888-8888-888888882201', '88888888-8888-8888-8888-888888882103', '88888888-8888-8888-8888-888888882101', 'pending')$$,
+    'event-search fixture invites inserted (friend going + friend pending)'
+);
+
+SELECT set_config('request.jwt.claims', '', true);
+SELECT throws_ok($$SELECT public.search_events('abc')$$,
+    'SR003', 'not_authenticated',
+    'search_events anon caller rejected (SR003)');
+SELECT set_config('request.jwt.claims',
+    '{"sub":"88888888-8888-8888-8888-888888882101","role":"authenticated"}', false);
+SELECT throws_ok($$SELECT public.search_events('a')$$,
+    'SR002', 'invalid_query_length',
+    'search_events 1-char query rejected (SR002)');
+SELECT throws_ok(
+    $$SELECT public.search_events('pgtapsearchapgtapsearchapgtapsearchapgtapsearchapgtapsea')$$,
+    'SR002', 'invalid_query_length',
+    'search_events 51-char query rejected (SR002)'
+);
+SELECT is(
+    (SELECT count(*) FROM public.search_events(p_query => 'pgtap near')
+      WHERE name = 'pgtap near event'),
+    1::bigint,
+    'text search matches the near event by name'
+);
+SELECT is(
+    (SELECT count(*) FROM public.search_events(p_query => 'zzz no match zzz')),
+    0::bigint,
+    'text search with no match returns 0 rows'
+);
+SELECT is(
+    (SELECT count(*) FROM public.search_events(
+        p_query => 'pgtap', p_lat => -16.4090, p_lng => -71.5375, p_radius_km => 50)
+      WHERE name LIKE 'pgtap%'),
+    1::bigint,
+    '50 km radius returns only the near fixture event'
+);
+SELECT is(
+    (SELECT count(*) FROM public.search_events(
+        p_query => 'pgtap', p_lat => -16.4090, p_lng => -71.5375, p_radius_km => 1000)
+      WHERE name LIKE 'pgtap%'),
+    1::bigint,
+    'radius is hard-capped at 100 km (a 1000 km request still excludes the far event)'
+);
+SELECT is(
+    (SELECT friends_going FROM public.search_events(p_query => 'pgtap near')
+      WHERE name = 'pgtap near event'),
+    1,
+    'friends_going counts the accepted friend invite'
+);
+SELECT is(
+    (SELECT friends_pending FROM public.search_events(p_query => 'pgtap near')
+      WHERE name = 'pgtap near event'),
+    1,
+    'friends_pending counts the pending friend invite'
+);
+SELECT is(
+    (SELECT score::numeric FROM public.search_events(p_query => 'pgtap near')
+      WHERE name = 'pgtap near event'),
+    1.5::numeric,
+    'discovery score weights pending invites at half (1 + 0.5)'
 );
 SELECT set_config('request.jwt.claims', '', true);
 

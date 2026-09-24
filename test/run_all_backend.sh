@@ -5,7 +5,7 @@ set -uo pipefail
 # Runs all opt-*.sh test scripts in order and reports summary.
 #
 # Suite (all auto-discovered via the test/opt-*.sh glob — no registration;
-# 31 scripts today): opt-001…016 and opt-018…032 (there is NO opt-017). The
+# 32 scripts today): opt-001…016 and opt-018…033 (there is NO opt-017). The
 # stack-free static gates are opt-005 (seed-config/seed-test parity), opt-007
 # (compose/config/ports) and opt-008 (Makefile/platform/signing contract);
 # every other script is a LIVE curl test against Kong.
