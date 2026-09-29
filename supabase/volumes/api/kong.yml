@@ -83,6 +83,22 @@ services:
             - apikey
           hide_credentials: false
 
+  # Objetos de buckets PUBLICOS: sin key-auth, como en el Kong que Supabase
+  # publica. La ruta general /storage/v1/ exige apikey, asi que una etiqueta
+  # <img> del navegador (que no manda cabeceras) recibia 401 y todos los
+  # avatares y portadas salian rotos en la app web. Kong casa primero la ruta
+  # con el prefijo mas largo, asi que esta gana sobre storage-v1-all.
+  # Kong recorta el prefijo casado (strip_path por defecto), asi que el
+  # destino ya lleva /object/public y al servicio le llega la ruta completa.
+  - name: storage-v1-public
+    url: http://samay-storage:5000/object/public
+    routes:
+      - name: storage-v1-object-public
+        paths:
+          - /storage/v1/object/public/
+    plugins:
+      - name: cors
+
   - name: storage-v1
     url: http://samay-storage:5000
     routes:
