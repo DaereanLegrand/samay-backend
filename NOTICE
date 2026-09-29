@@ -1,0 +1,43 @@
+Samay — backend (Go + self-hosted Supabase)
+==========================================
+
+Copyright (C) 2026 Qallariy Wasi E.I.R.L.
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, version 3 of the License. The full text is in LICENSE.
+There is no warranty, to the extent permitted by law.
+
+Network use: AGPL-3.0 section 13 requires that users interacting with a
+modified version over a network be offered its corresponding source. That
+obligation comes from the license itself and is not restated here.
+
+
+AI assistance
+-------------
+Parts of this code were written with the assistance of AI tools. AI-assisted
+code is covered by the same license as the rest of the work.
+
+
+Prior commits
+-------------
+No license was in place for commits made before the LICENSE file was added, and
+no contributor consent was sought for that period. This notice does not claim
+that the license applies retroactively to those commits.
+
+
+Third-party components
+----------------------
+Go module dependencies are declared in go.mod / go.sum and carry their own
+licenses in the module cache.
+
+The Supabase services run as separate upstream container images
+(supabase/postgres, supabase/gotrue, postgrest, realtime, storage-api,
+supabase/studio, kong, imgproxy and related images) and are not distributed as
+part of this source tree. Each image carries its own license.
+
+SQL extensions installed into the database (pgcrypto, pg_cron, pg_net, pgtap
+and others) are upstream projects with their own licenses; see
+supabase/docker-compose.yml and supabase/volumes/ for what is enabled.
+
+Bundled prompt-pack and seed content is original to this project.
