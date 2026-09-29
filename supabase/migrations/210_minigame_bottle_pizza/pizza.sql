@@ -99,7 +99,7 @@ BEGIN
     IF v_status <> 'active' THEN
         RETURN jsonb_build_object('status', 'session_not_active');
     END IF;
-    IF COALESCE(array_length(v_participants, 1), 0) < 3 THEN
+    IF COALESCE(array_length(v_participants, 1), 0) < 2 THEN
         RETURN jsonb_build_object('status', 'not_enough_players');
     END IF;
 
@@ -243,3 +243,6 @@ GRANT ALL ON FUNCTION public.spin_drunk_bottle(uuid) TO service_role;
 REVOKE ALL ON FUNCTION public.stop_drunk_bottle(uuid) FROM PUBLIC;
 GRANT ALL ON FUNCTION public.stop_drunk_bottle(uuid) TO authenticated;
 GRANT ALL ON FUNCTION public.stop_drunk_bottle(uuid) TO service_role;
+
+ALTER TABLE ONLY public.minigame_game_state REPLICA IDENTITY FULL;
+
