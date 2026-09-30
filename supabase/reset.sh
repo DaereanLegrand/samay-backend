@@ -21,7 +21,7 @@ echo "Removing database and storage volumes..."
 rm -rf volumes/storage
 PROJECT="$(grep -E '^COMPOSE_PROJECT_NAME=' .env 2>/dev/null | head -1 | cut -d= -f2)"
 PROJECT="${PROJECT:-samay}"
-docker volume rm "${PROJECT}_db-data" "${PROJECT}_minio-data" 2>/dev/null || true
+docker volume rm "${PROJECT}_db-data" "${PROJECT}_rustfs-data" 2>/dev/null || true
 
 echo "Starting fresh stack..."
 docker compose up -d --wait

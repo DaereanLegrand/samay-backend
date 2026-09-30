@@ -42,11 +42,11 @@
 #      allowlist (any file pair outside the documented intentional set fails).
 #  10. Override semantics (M-06, DKR-02/DKR-08): the pg17 override pins a
 #      17.x image (not :latest, not 18+) byte-identically in both stacks; the
-#      s3 override REALLY configures the S3 backend (minio service with
-#      pinned RELEASE tag + `mc ready local` healthcheck, minio-createbucket
+#      s3 override REALLY configures the S3 backend (rustfs service with
+#      pinned tag + /health healthcheck, rustfs-createbucket
 #      one-shot, storage env contract GLOBAL_S3_ENDPOINT/GLOBAL_S3_PROTOCOL/
 #      GLOBAL_S3_FORCE_PATH_STYLE/AWS_* that storage-api v1.60.4 actually
-#      reads — no dead AWS_ENDPOINT/AWS_DEFAULT_REGION vars, minio-data
+#      reads — no dead AWS_ENDPOINT/AWS_DEFAULT_REGION vars, rustfs-data
 #      volume), s3 overrides identical across stacks after testing-token
 #      normalization, and the mailpit service (testing-only, merged INTO the
 #      testing base compose since 2026-08-22) pins its image
@@ -72,7 +72,7 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 BASE=("$REPO/supabase/docker-compose.yml" "$REPO/supabase-testing/docker-compose.yml")
 PG17=("$REPO/supabase/docker-compose.pg17.yml" "$REPO/supabase-testing/docker-compose.pg17.yml")
-S3=("$REPO/supabase/docker-compose.s3.yml" "$REPO/supabase-testing/docker-compose.s3.yml")
+S3=("$REPO/supabase/docker-compose.rustfs.yml" "$REPO/supabase-testing/docker-compose.rustfs.yml")
 MAILPIT="$REPO/supabase-testing/docker-compose.yml"
 ALL_FILES=("${BASE[@]}" "${PG17[@]}" "${S3[@]}")
 
@@ -144,8 +144,8 @@ fi
 echo ""
 echo "━━━ 4. healthcheck / restart / depends_on per service ━━━"
 block_of() { # block_of <file> <service> — prints the service block
-  # Service keys may contain hyphens (minio-createbucket) and the volume
-  # declarations (db-config, minio-data) must not be mistaken for services —
+  # Service keys may contain hyphens (rustfs-createbucket) and the volume
+  # declarations (db-config, rustfs-data) must not be mistaken for services —
   # but for any queried service the exit fires at the NEXT service line, so
   # volume names never leak into a block.
   awk -v s="$2" '
@@ -276,13 +276,13 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
   }
   run_cfg "$REPO/supabase" && pass "supabase default (.env COMPOSE_FILE)" || fail "supabase default parse FAILED"
   run_cfg "$REPO/supabase" -f docker-compose.yml -f docker-compose.pg17.yml && pass "supabase base+pg17" || fail "supabase base+pg17 parse FAILED"
-  run_cfg "$REPO/supabase" -f docker-compose.yml -f docker-compose.s3.yml && pass "supabase base+s3" || fail "supabase base+s3 parse FAILED"
-  run_cfg "$REPO/supabase" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.s3.yml && pass "supabase base+pg17+s3" || fail "supabase base+pg17+s3 parse FAILED"
+  run_cfg "$REPO/supabase" -f docker-compose.yml -f docker-compose.rustfs.yml && pass "supabase base+rustfs" || fail "supabase base+rustfs parse FAILED"
+  run_cfg "$REPO/supabase" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.rustfs.yml && pass "supabase base+pg17+rustfs" || fail "supabase base+pg17+rustfs parse FAILED"
   run_cfg "$REPO/supabase-testing" && pass "testing default (.env COMPOSE_FILE)" || fail "testing default parse FAILED"
   run_cfg "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.pg17.yml && pass "testing base+pg17" || fail "testing base+pg17 parse FAILED"
-  run_cfg "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.s3.yml && pass "testing base+s3" || fail "testing base+s3 parse FAILED"
+  run_cfg "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.rustfs.yml && pass "testing base+rustfs" || fail "testing base+rustfs parse FAILED"
   run_cfg "$REPO/supabase-testing" -f docker-compose.yml && pass "testing base (mailpit included since 2026-08-22)" || fail "testing base parse FAILED"
-  run_cfg "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.s3.yml && pass "testing base+pg17+s3" || fail "testing base+pg17+s3 parse FAILED"
+  run_cfg "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.rustfs.yml && pass "testing base+pg17+rustfs" || fail "testing base+pg17+rustfs parse FAILED"
 else
   echo "  (docker not available — parse gate skipped)"
 fi
@@ -591,7 +591,12 @@ Only in supabase-testing/volumes/db: postgresql.conf
 # docker on first stack boot; gitignored) — whichever stacks have booted carry it.
 Only in supabase/volumes: storage
 Only in supabase-testing/volumes: storage
-Files supabase/docker-compose.s3.yml and supabase-testing/docker-compose.s3.yml differ
+# Testing-only seed fixtures (event feed + sample matches) have no prod
+# equivalent — intentional (Makefile supabase-testing-seed-sample-matches).
+Only in supabase-testing: seed
+Only in supabase-testing: seed-events.sql
+Only in supabase-testing: seed-sample-matches.sh
+Files supabase/docker-compose.rustfs.yml and supabase-testing/docker-compose.rustfs.yml differ
 Files supabase/docker-compose.yml and supabase-testing/docker-compose.yml differ
 Files supabase/migrate.sh and supabase-testing/migrate.sh differ
 Files supabase/reset.sh and supabase-testing/reset.sh differ
@@ -612,7 +617,7 @@ fi
 
 # ── 10. Override semantics (M-06, DKR-02/DKR-08): pg17 / s3 / mailpit ────────
 # The override layer must ACTUALLY configure its feature: pg17 pins a 17.x
-# db image, s3 configures the storage backend + MinIO services with the env
+# db image, s3 configures the storage backend + RustFS services with the env
 # contract storage-api v1.60.4 reads, mailpit (testing-only) wires auth SMTP
 # to the dev sink. Verified against the official supabase/supabase docker/
 # overrides + storage-api v1.60.4 src/config.ts + src/storage/backend/s3/
@@ -639,50 +644,50 @@ else
   fail "pg17 override missing header comment"
 fi
 
-# 10.2 s3 (both stacks): minio + minio-createbucket services + the storage
+# 10.2 rustfs (both stacks): rustfs + rustfs-createbucket services + the storage
 #     env contract the image reads; dead vars must be absent.
-check_s3() { # check_s3 <file> <minio-container-name>
-  local f="$1" cname="$2" n mb cb sb
+check_rustfs() { # check_rustfs <file>
+  local f="$1" n mb cb sb
   n="$(basename "$f")"
-  mb="$(block_of "$f" minio)"
-  cb="$(block_of "$f" minio-createbucket)"
+  mb="$(block_of "$f" rustfs)"
+  cb="$(block_of "$f" rustfs-createbucket)"
   sb="$(block_of "$f" storage)"
-  [ -n "$mb" ] && pass "$n [minio] service present" || fail "$n [minio] service MISSING"
-  printf '%s' "$mb" | grep -Eq 'image: minio/minio:RELEASE\.' && pass "$n [minio] image pinned to a RELEASE tag (no :latest)" || fail "$n [minio] image NOT a pinned RELEASE tag"
-  printf '%s' "$mb" | grep -Fq '"mc", "ready", "local"' && pass "$n [minio] healthcheck mc ready local" || fail "$n [minio] MISSING mc ready local healthcheck"
-  printf '%s' "$mb" | grep -q 'MINIO_ROOT_USER:' && printf '%s' "$mb" | grep -q 'MINIO_ROOT_PASSWORD:' && pass "$n [minio] MINIO_ROOT_USER/PASSWORD set" || fail "$n [minio] MISSING MINIO_ROOT_* env"
-  printf '%s' "$mb" | grep -q 'minio-data:/data' && pass "$n [minio] minio-data volume mounted" || fail "$n [minio] minio-data mount MISSING"
-  printf '%s' "$mb" | grep -q 'restart: unless-stopped' && pass "$n [minio] restart: unless-stopped" || fail "$n [minio] missing restart: unless-stopped"
-  [ -n "$cb" ] && pass "$n [minio-createbucket] service present" || fail "$n [minio-createbucket] service MISSING"
-  printf '%s' "$cb" | grep -Eq 'image: minio/mc:RELEASE\.' && pass "$n [minio-createbucket] image pinned (minio/mc RELEASE tag)" || fail "$n [minio-createbucket] image NOT pinned"
-  printf '%s' "$cb" | grep -q 'condition: service_healthy' && pass "$n [minio-createbucket] depends_on minio: service_healthy" || fail "$n [minio-createbucket] missing minio service_healthy"
-  printf '%s' "$cb" | grep -Fq 'mc alias set' && printf '%s' "$cb" | grep -Fq 'mc mb --ignore-existing' && pass "$n [minio-createbucket] alias set + idempotent bucket create" || fail "$n [minio-createbucket] entrypoint missing alias/bucket create"
+  [ -n "$mb" ] && pass "$n [rustfs] service present" || fail "$n [rustfs] service MISSING"
+  printf '%s' "$mb" | grep -Eq 'image: rustfs/rustfs:v1\.0\.0-rc\.5' && pass "$n [rustfs] image pinned (rustfs/rustfs, no :latest)" || fail "$n [rustfs] image NOT pinned"
+  printf '%s' "$mb" | grep -Fq 'http://rustfs:9000/health' && pass "$n [rustfs] healthcheck /health" || fail "$n [rustfs] MISSING /health healthcheck"
+  printf '%s' "$mb" | grep -q 'RUSTFS_ACCESS_KEY:' && printf '%s' "$mb" | grep -q 'RUSTFS_SECRET_KEY:' && pass "$n [rustfs] RUSTFS_ACCESS_KEY/SECRET set" || fail "$n [rustfs] MISSING RUSTFS_* env"
+  printf '%s' "$mb" | grep -q 'rustfs-data:/data' && pass "$n [rustfs] rustfs-data volume mounted" || fail "$n [rustfs] rustfs-data mount MISSING"
+  printf '%s' "$mb" | grep -q 'restart: unless-stopped' && pass "$n [rustfs] restart: unless-stopped" || fail "$n [rustfs] missing restart: unless-stopped"
+  [ -n "$cb" ] && pass "$n [rustfs-createbucket] service present" || fail "$n [rustfs-createbucket] service MISSING"
+  printf '%s' "$cb" | grep -Eq 'image: rustfs/rc:v0\.1\.36' && pass "$n [rustfs-createbucket] image pinned (rustfs/rc tag)" || fail "$n [rustfs-createbucket] image NOT pinned"
+  printf '%s' "$cb" | grep -q 'condition: service_healthy' && pass "$n [rustfs-createbucket] depends_on rustfs: service_healthy" || fail "$n [rustfs-createbucket] missing rustfs service_healthy"
+  printf '%s' "$cb" | grep -Fq 'rc alias set' && printf '%s' "$cb" | grep -Fq 'rc mb --ignore-existing' && pass "$n [rustfs-createbucket] alias set + idempotent bucket create" || fail "$n [rustfs-createbucket] entrypoint missing alias/bucket create"
   printf '%s' "$sb" | grep -q 'STORAGE_BACKEND: s3' && pass "$n [storage] STORAGE_BACKEND: s3" || fail "$n [storage] MISSING STORAGE_BACKEND: s3"
-  printf '%s' "$sb" | grep -q 'GLOBAL_S3_ENDPOINT: http://minio:9000' && pass "$n [storage] GLOBAL_S3_ENDPOINT -> minio:9000" || fail "$n [storage] MISSING GLOBAL_S3_ENDPOINT"
+  printf '%s' "$sb" | grep -q 'GLOBAL_S3_ENDPOINT: http://rustfs:9000' && pass "$n [storage] GLOBAL_S3_ENDPOINT -> rustfs:9000" || fail "$n [storage] MISSING GLOBAL_S3_ENDPOINT"
   printf '%s' "$sb" | grep -q 'GLOBAL_S3_PROTOCOL: http' && pass "$n [storage] GLOBAL_S3_PROTOCOL: http" || fail "$n [storage] MISSING GLOBAL_S3_PROTOCOL"
   printf '%s' "$sb" | grep -q 'GLOBAL_S3_FORCE_PATH_STYLE: "true"' && pass "$n [storage] GLOBAL_S3_FORCE_PATH_STYLE: true" || fail "$n [storage] MISSING GLOBAL_S3_FORCE_PATH_STYLE"
   printf '%s' "$sb" | grep -q 'AWS_ACCESS_KEY_ID:' && printf '%s' "$sb" | grep -q 'AWS_SECRET_ACCESS_KEY:' && pass "$n [storage] AWS_ACCESS_KEY_ID/SECRET set (SDK credential chain)" || fail "$n [storage] MISSING AWS creds"
-  printf '%s' "$sb" | grep -q 'condition: service_healthy' && printf '%s' "$sb" | grep -q 'service_completed_successfully' && pass "$n [storage] depends_on minio(healthy) + minio-createbucket(completed)" || fail "$n [storage] missing minio depends_on chain"
+  printf '%s' "$sb" | grep -q 'condition: service_healthy' && printf '%s' "$sb" | grep -q 'service_completed_successfully' && pass "$n [storage] depends_on rustfs(healthy) + rustfs-createbucket(completed)" || fail "$n [storage] missing rustfs depends_on chain"
   if printf '%s' "$sb" | grep -q 'AWS_ENDPOINT\|AWS_DEFAULT_REGION'; then
     fail "$n [storage] dead AWS_ENDPOINT/AWS_DEFAULT_REGION vars still present (storage-api reads GLOBAL_S3_ENDPOINT/REGION)"
   else
     pass "$n [storage] no dead AWS_ENDPOINT/AWS_DEFAULT_REGION vars"
   fi
-  if grep -q '^  minio-data:' "$f"; then
-    pass "$n minio-data volume declared"
+  if grep -q '^  rustfs-data:' "$f"; then
+    pass "$n rustfs-data volume declared"
   else
-    fail "$n MISSING minio-data volume"
+    fail "$n MISSING rustfs-data volume"
   fi
 }
-check_s3 "${S3[0]}" "samay-minio"
-check_s3 "${S3[1]}" "samay-testing-minio"
+check_rustfs "${S3[0]}"
+check_rustfs "${S3[1]}"
 
-# 10.3 s3 parity: overrides identical across stacks after testing-token
+# 10.3 rustfs parity: overrides identical across stacks after testing-token
 #     normalization (container names + bucket defaults normalize identically).
 if diff <(sed 's/samay-testing-/samay-/g' "${S3[0]}") <(sed 's/samay-testing-/samay-/g' "${S3[1]}") >/dev/null 2>&1; then
-  pass "s3 overrides identical after testing-token normalization"
+  pass "rustfs overrides identical after testing-token normalization"
 else
-  fail "s3 overrides SEMANTIC DRIFT: $(diff <(sed 's/samay-testing-/samay-/g' "${S3[0]}") <(sed 's/samay-testing-/samay-/g' "${S3[1]}") | head -6 | tr '\n' ';')"
+  fail "rustfs overrides SEMANTIC DRIFT: $(diff <(sed 's/samay-testing-/samay-/g' "${S3[0]}") <(sed 's/samay-testing-/samay-/g' "${S3[1]}") | head -6 | tr '\n' ';')"
 fi
 
 # 10.4 mailpit (testing-only, IN BASE since 2026-08-22): pinned image,
@@ -739,14 +744,14 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
       fi
     done
   }
-  merged_has "$REPO/supabase" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.s3.yml -- \
+  merged_has "$REPO/supabase" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.rustfs.yml -- \
     "image: supabase/postgres:17.6.1.136" \
-    "image: minio/minio:RELEASE.2025-09-07T16-13-09Z" \
-    "image: minio/mc:RELEASE.2025-08-13T08-35-41Z" \
+    "image: rustfs/rustfs:v1.0.0-rc.5" \
+    "image: rustfs/rc:v0.1.36" \
     "image: supabase/edge-runtime:v1.74.0" \
     "image: darthsim/imgproxy:v3.30.1" \
     "STORAGE_BACKEND: s3" \
-    "GLOBAL_S3_ENDPOINT: http://minio:9000" \
+    "GLOBAL_S3_ENDPOINT: http://rustfs:9000" \
     "GLOBAL_S3_FORCE_PATH_STYLE: \"true\"" \
     "GLOBAL_S3_BUCKET: samay-storage" \
     "AWS_ACCESS_KEY_ID: supa-storage" \
@@ -755,12 +760,12 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
     "ENABLE_IMAGE_TRANSFORMATION: \"true\"" \
     "container_name: samay-functions" \
     "container_name: samay-imgproxy"
-  merged_has "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.s3.yml -- \
+  merged_has "$REPO/supabase-testing" -f docker-compose.yml -f docker-compose.pg17.yml -f docker-compose.rustfs.yml -- \
     "image: axllent/mailpit:v1.30.7" \
     "GOTRUE_SMTP_HOST: mailpit" \
     "GOTRUE_SMTP_PORT: \"?1025\"?\$" \
     "GLOBAL_S3_BUCKET: samay-testing-storage" \
-    "container_name: samay-testing-minio" \
+    "container_name: samay-testing-rustfs" \
     "container_name: samay-testing-functions" \
     "container_name: samay-testing-imgproxy" \
     "SUPABASE_URL: http://samay-testing-kong:8000"
