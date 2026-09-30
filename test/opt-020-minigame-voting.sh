@@ -233,6 +233,16 @@ fi
 # =========================================================================
 h1 "TEST C — answer-first gate + submit_minigame_reaction (realtime votes)"
 
+# 219: the host cannot start until every non-host participant is ready.
+resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
+if echo "$resp" | grep -q '"status":"not_everyone_ready"'; then
+  ok "C: init blocked until everyone ready (not_everyone_ready)"
+else
+  nok "C: expected not_everyone_ready before ready flags: $(echo "$resp" | head -c 120)"
+fi
+auth_rpc "$TOKEN_B" "set_minigame_ready" "{\"p_session_id\":\"$SESSION_ID\",\"p_ready\":true}" > /dev/null
+auth_rpc "$TOKEN_C" "set_minigame_ready" "{\"p_session_id\":\"$SESSION_ID\",\"p_ready\":true}" > /dev/null
+
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
 SUBJECT=$(echo "$resp" | grep -o '"subject_id":"[^"]*"' | head -1 | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"started"' && [ -n "$SUBJECT" ]; then
@@ -388,6 +398,8 @@ GINVITE_C=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&ses
 auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$GINVITE_B\"}" > /dev/null
 auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$GINVITE_C\"}" > /dev/null
 info "G: B + C accepted the Pasar-session invites (3 participants)"
+auth_rpc "$TOKEN_B" "set_minigame_ready" "{\"p_session_id\":\"$GSESSION_ID\",\"p_ready\":true}" > /dev/null
+auth_rpc "$TOKEN_C" "set_minigame_ready" "{\"p_session_id\":\"$GSESSION_ID\",\"p_ready\":true}" > /dev/null
 
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$GSESSION_ID\"}")
 if echo "$resp" | grep -q '"status":"started"'; then
