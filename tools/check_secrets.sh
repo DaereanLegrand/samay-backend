@@ -80,6 +80,18 @@ shape_violation() { # shape_violation <label> <ERE>
 shape_violation 'S1 no service-role key shape (sb_secret_*)' 'sb_secret_[A-Za-z0-9_-]{16,}'
 shape_violation 'S2 no private-key blocks' 'BEGIN [A-Z ]*PRIVATE KEY'
 
+# S3: no signing material or vault files are ever tracked (path match only —
+# content-matching would false-positive on docs). Covers the release GUIDE.
+bad_tracked="$(git ls-files -z | tr '\0' '\n' | grep -E \
+  '\.(jks|keystore|p12|mobileprovision|provisionprofile|kdbx|enc|p8)$|(^|/)keystore\.properties$|(^|/)service-account\.json$' || true)"
+if [ -n "$bad_tracked" ]; then
+  printf '  ✗ S3 tracked signing material / vault files:\n'
+  printf '%s\n' "$bad_tracked" | sed 's/^/      /'
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  printf '  ✓ S3 no tracked signing material\n'
+fi
+
 if [ "$VIOLATIONS" -ne 0 ]; then
   printf 'secrets-check: FAIL — %d violation(s). Remove the literal; secrets live only in the env files.\n' "$VIOLATIONS" >&2
   exit 1
