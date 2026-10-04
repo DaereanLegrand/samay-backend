@@ -9,8 +9,8 @@ set -uo pipefail
 # stack-free static gates are opt-005 (seed-config/seed-test parity), opt-007
 # (compose/config/ports), opt-008 (Makefile/platform/signing contract),
 # opt-034 (Gitea workflows + Xcode Cloud), opt-036 (UTM/CI bootstrap media
-# root), opt-037 (Qallariy Mail bootstrap) and opt-038 (offline root-grow
-# InitRD hook); every other script is a LIVE curl test.
+# root), opt-037 (Qallariy Mail bootstrap) and opt-038 (boot-time root
+# expand); every other script is a LIVE curl test.
 #
 # The vault is verified ONLY by `test/vault.sh`: a single human-only test that
 # needs an interactive TTY + the vault password. It is deliberately not named
