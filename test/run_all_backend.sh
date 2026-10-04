@@ -5,12 +5,16 @@ set -uo pipefail
 # Runs all opt-*.sh test scripts in order and reports summary.
 #
 # Suite (all auto-discovered via the test/opt-*.sh glob — no registration;
-# 36 scripts today): opt-001…016 and opt-018…037 (there is NO opt-017). The
+# 36 scripts today): opt-001…016 and opt-018…038 (there is NO opt-017). The
 # stack-free static gates are opt-005 (seed-config/seed-test parity), opt-007
 # (compose/config/ports), opt-008 (Makefile/platform/signing contract),
-# opt-034 (Gitea workflows + Xcode Cloud), opt-035 (vault-rotate surface),
-# opt-036 (UTM/CI bootstrap media root) and opt-037 (<ops-service> <ops-service>
-# bootstrap); every other script is a LIVE curl test.
+# opt-034 (Gitea workflows + Xcode Cloud), opt-036 (UTM/CI bootstrap media
+# root), opt-037 (Qallariy Mail bootstrap) and opt-038 (offline root-grow
+# InitRD hook); every other script is a LIVE curl test.
+#
+# The vault is verified ONLY by `test/vault.sh`: a single human-only test that
+# needs an interactive TTY + the vault password. It is deliberately not named
+# `opt-*.sh` so this runner never discovers it — AGENTS MUST NEVER RUN IT.
 #
 # Usage: bash test/run_all_backend.sh
 # Prerequisites: a running local stack (make supabase-testing-reset) for the
