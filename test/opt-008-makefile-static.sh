@@ -451,8 +451,24 @@ if [ -f "$MF" ]; then
   grep -q 'android.permission.CAMERA' "$MF" && pass "manifest CAMERA permission (I-28)" || fail "manifest missing CAMERA (I-28)"
   grep -q 'android.permission.READ_MEDIA_IMAGES' "$MF" && pass "manifest READ_MEDIA_IMAGES (API 33+)" || fail "manifest missing READ_MEDIA_IMAGES"
   grep -q 'android:maxSdkVersion="32"' "$MF" && pass "manifest READ_EXTERNAL_STORAGE capped at API 32" || fail "manifest READ_EXTERNAL_STORAGE missing maxSdkVersion=32"
+  grep -q 'android:usesCleartextTraffic="true"' "$MF" && fail "manifest re-enables global cleartext (SEC 2026-10-04 — use networkSecurityConfig)" || pass "no global usesCleartextTraffic flag"
+  grep -q 'android:networkSecurityConfig="@xml/network_security_config"' "$MF" && pass "manifest wires networkSecurityConfig" || fail "manifest missing android:networkSecurityConfig"
 else
   fail "android manifest missing"
+fi
+
+# SEC (2026-10-04): release denies cleartext, debug permits it.
+NSC="$REPO/android/app/src/main/res/xml/network_security_config.xml"
+NSC_DBG="$REPO/android/app/src/debug/res/xml/network_security_config.xml"
+if [ -f "$NSC" ] && grep -q 'cleartextTrafficPermitted="false"' "$NSC"; then
+  pass "release network security config denies cleartext"
+else
+  fail "main network_security_config.xml missing or does not deny cleartext"
+fi
+if [ -f "$NSC_DBG" ] && grep -q 'cleartextTrafficPermitted="true"' "$NSC_DBG"; then
+  pass "debug network security config permits cleartext (dev only)"
+else
+  fail "debug network_security_config.xml missing or does not permit cleartext"
 fi
 
 # Signing contract: §3.3 keystore envs wired, debug-signing of release gone,
