@@ -18,7 +18,7 @@ set -uo pipefail
 # `opt-*.sh` so this runner never discovers it — AGENTS MUST NEVER RUN IT.
 #
 # Usage: bash test/run_all_backend.sh
-# Prerequisites: a running local stack (make supabase-testing-reset) for the
+# Prerequisites: a running local stack (make supabase-reset) for the
 # live tests — they hit Kong on 127.0.0.1:54386; the static gates pass
 # anywhere.
 #

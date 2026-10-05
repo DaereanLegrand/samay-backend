@@ -2,7 +2,7 @@
 # =============================================================================
 # Samay — seed-feed-test.sh
 #
-# BIG, configurable @tester seed for the LOCAL supabase-testing stack:
+# BIG, configurable @tester seed for the LOCAL supabase stack:
 #   * N numbered accounts (tester2..testerN) + tester@tester.com, password
 #     tester123 — created through the GoTrue admin API.
 #   * realistic colorful profile pictures for EVERY account (randomuser.me
@@ -10,7 +10,7 @@
 #     Picsum), downloaded and uploaded to the avatars/events/groups buckets.
 #   * groups, events, minigames, invites, friendships, chats and notifications
 #     across all of their states (data lives in
-#     supabase-testing/seed/seed-feed-test.sql).
+#     supabase/seed/seed-feed-test.sql).
 #
 # This is INDEPENDENT from `seed-test.sql` (the small @tester snapshot) which
 # is left untouched.
@@ -42,10 +42,10 @@ if [[ "$BASE" != *"127.0.0.1:54386"* && "$BASE" != *"localhost:54386"* ]]; then
 fi
 
 # shellcheck disable=SC1091
-set -a; . supabase-testing/.env; set +a
+set -a; . supabase/.env; set +a
 
 SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
-[[ -n "$SERVICE_KEY" ]] || { echo "❌ SUPABASE_SERVICE_ROLE_KEY missing from supabase-testing/.env"; exit 1; }
+[[ -n "$SERVICE_KEY" ]] || { echo "❌ SUPABASE_SERVICE_ROLE_KEY missing from supabase/.env"; exit 1; }
 
 DB_HOST=127.0.0.1
 DB_PORT="${POSTGRES_PORT:-54382}"
@@ -141,7 +141,7 @@ done
 
 # ── 4. Apply the graph data ─────────────────────────────────────────────────
 echo "→ 4/6 Applying seed-feed-test.sql (n=$N)…"
-psql_db -q -v "n=$N" -v "base_url=$BASE" -f supabase-testing/seed/seed-feed-test.sql
+psql_db -q -v "n=$N" -v "base_url=$BASE" -f supabase/seed/seed-feed-test.sql
 
 # ── 5. Event banners + group covers + event photos (Lorem Picsum) ───────────
 echo "→ 5/6 Uploading event banners, group covers and photos…"

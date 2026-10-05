@@ -11,7 +11,7 @@ This repository is a **3-track project**:
 |-------|------|--------|
 | **Flutter app** (`lib/`) | iOS + Android app — auth, profile, friends, groups, shard donations, rankings, events, QR, E2EE chat (1:1 + group), feed/photos, notifications, minigames. Most screens live behind feature flags; subscriptions stay gated (RevenueCat wiring pending) | Phases 00–04 largely landed (AUTH/PRFL/GROU/GLIM have open items — see `docs/specs/steps/cross-references.md`); phase 05+ foundations landed; edge functions pending |
 | **Go admin CLI** (`cmd/samay-admin/`, `internal/`) | Cobra-based operational CLI (`samay`) using the `service_role` key — users, events, groups, reports, shards, config, subs, system | Complete |
-| **Self-hosted Supabase** (`supabase/`, `supabase-testing/`) | PostgreSQL 17 + GoTrue + PostgREST + Realtime + Storage + Kong gateway; Docker Compose and `config.toml` dual setups; migration-based testing | Done — approved port map enforced |
+| **Self-hosted Supabase** (`supabase/`, `supabase/`) | PostgreSQL 17 + GoTrue + PostgREST + Realtime + Storage + Kong gateway; Docker Compose and `config.toml` dual setups; migration-based testing | Done — approved port map enforced |
 
 Docs hub: [`docs/README.md`](docs/README.md). DB catalog: `<private-ops-repo>/DATABASE.md`. Go CLI/API surface: `<private-ops-repo>/BACKEND.md`.
 
@@ -65,7 +65,7 @@ Nothing env-related is bundled as a Flutter asset and `.env` is gitignored.
 | `make test` | Go + backend static opt gates |
 | `make check` | dart analyze + flutter analyze + go vet + ports gate + secrets gate |
 | `make clean` | Build artifacts |
-| `make supabase-*` / `supabase-*` / `supabase-testing-*` | Supabase stack lifecycle |
+| `make start|stop|status|reset` | Supabase stack lifecycle (local; `PROD=true` -> VM) |
 
 **Build target notes:**
 - `TARGET=android` and `TARGET=waydroid` both use the `.env` URL by default
@@ -94,7 +94,7 @@ Local API base URL: `http://127.0.0.1:54386`. Self-hosting details:
 placeholders in [`<private-ops-repo>/DEPLOYMENT-PLACEHOLDER.md`](<private-ops-repo>/DEPLOYMENT-PLACEHOLDER.md)
 — do not invent deployment URLs in code or docs.
 Database migrations: `supabase/migrations/**` (63 SQL files across 43 numbered
-domain dirs, mirrored byte-identical into `supabase-testing/migrations/`),
+domain dirs, mirrored byte-identical into `supabase/migrations/`),
 applied by `supabase/migrate.sh` / `reset.sh`.
 
 ---
@@ -138,7 +138,7 @@ internal/loadtest/            harness engine (seed generator, HTTP client,
 supabase/                     Self-hosted stack: config.toml, docker-compose*.yml,
                               migrations/**, seed-*.sql, run/reset/migrate scripts,
                               tests/schema_test.sql (pgTAP), volumes/
-supabase-testing/             Isolated testing stack (same layout)
+supabase/             the single self-hosted stack
 
 test/                         Backend curl opt-tests
   opt-NNN-*.sh                curl integration tests (self-contained, exit 0/1)
@@ -146,7 +146,7 @@ test/                         Backend curl opt-tests
 test_runner.sh                gum-based MANUAL end-user QA runner
 
 docs/                         See docs/README.md for the map
-tools/                        check_secrets/check_ports/check_migrations,
+tools/                        check_secrets/check_migrations,
                               apply_migrations, agent_lock.sh, hooks
 ```
 

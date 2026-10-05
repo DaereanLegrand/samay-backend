@@ -17,7 +17,7 @@
 -- SQL deletes only drop metadata); purge_user records the object paths in the
 -- pending_object_deletions outbox in the SAME transaction.
 --
--- NOTE: validation must run on supabase-testing before production. The
+-- NOTE: validation must run on the local stack before production. The
 -- auth.users delete requires the function to be owned by a role with DELETE on
 -- auth.* (ALTER ... OWNER TO supabase_admin below); the Go backstop deletes via
 -- the GoTrue admin API if the SQL path lacks privilege.

@@ -14,6 +14,7 @@ services:
       POSTGRES_HOST: /var/run/postgresql
       POSTGRES_PORT: 5432
       POSTGRES_DB: postgres
+      POSTGRES_DB_NAME: postgres
       POSTGRES_USER: supabase_admin
       POSTGRES_PASSWORD: postgres
       POSTGRES_CONFIG_FILE: /etc/postgresql/postgresql.conf
@@ -70,6 +71,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:9999/health
       interval: 5s
@@ -87,13 +90,12 @@ services:
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_SECRET: "your-jwt-secret-change-in-production"
       GOTRUE_EXTERNAL_EMAIL_ENABLED: true
-      GOTRUE_MAILER_AUTOCONFIRM: true
       GOTRUE_EXTERNAL_PHONE_ENABLED: false
-      GOTRUE_SMTP_ADMIN_EMAIL: samayverif@qallariy.lat
-      GOTRUE_SMTP_HOST: smtp.purelymail.com
-      GOTRUE_SMTP_PORT: 587
-      GOTRUE_SMTP_USER: samayverif@qallariy.lat
-      GOTRUE_SMTP_PASS: "your-smtp-password"
+      GOTRUE_SMTP_ADMIN_EMAIL: samay@qallariy.lat
+      GOTRUE_SMTP_HOST: mailpit
+      GOTRUE_SMTP_PORT: 1025
+      GOTRUE_SMTP_USER: ""
+      GOTRUE_SMTP_PASS: ""
       GOTRUE_SMTP_SENDER_NAME: Samay
       GOTRUE_MAILER_URLPATHS_CONFIRMATION: "/auth/v1/verify"
       GOTRUE_MAILER_URLPATHS_RECOVERY: "/auth/v1/verify"
@@ -114,6 +116,20 @@ services:
       GOTRUE_RATE_LIMIT_SIGN_IN_SIGN_UPS: 30
       GOTRUE_OPERATOR_TOKEN: ""
       GOTRUE_DISABLE_SIGNUP: false
+
+  # Dev-mail sink (DKR-02, M-06) — TESTING-ONLY: prod has no mailpit by design
+  # (SELFHOSTING.md §3.5 — prod auth SMTPs to the real sender). Lives IN THE
+  # BASE file since 2026-08-22 so every compose command (up/down/ps) sees one
+  # cohesive service set; the former docker-compose.mailpit.yml overlay caused
+  # split-brain teardowns ("network resource still in use"). Image pinned per
+  # M-01; UI on the approved ${MAILPIT_PORT:-54384}:8025; SMTP 1025 stays
+  # container-internal.
+  mailpit:
+    container_name: samay-mailpit
+    image: axllent/mailpit:v1.30.7
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_PORT:-54384}:8025"
 
   rest:
     container_name: samay-rest
@@ -166,6 +182,7 @@ services:
       SECRET_KEY_BASE: "supabase-realtime-secret-key-base-change-in-production"
       METRICS_JWT_SECRET: "your-jwt-secret-change-in-production"
       APP_NAME: realtime
+      SELF_HOST_TENANT_NAME: "samay-realtime"
       SEED_SELF_HOST: "true"
       RUN_JANITOR: "true"
       ERL_AFLAGS: "-proto_dist inet_tcp"
@@ -267,8 +284,8 @@ services:
       HOSTNAME: "0.0.0.0"
       STUDIO_PG_META_URL: http://samay-meta:8080
       SUPABASE_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-your-anon-key}
-      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-your-service-role-key}
+      SUPABASE_ANON_KEY: "your-anon-key"
+      SUPABASE_SERVICE_KEY: "your-service-role-key"
       SUPABASE_PUBLIC_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
     ports:
       - "${STUDIO_PORT:-54381}:3000"

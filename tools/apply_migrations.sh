@@ -19,12 +19,12 @@
 # Ordering: `find | LC_ALL=C sort` — numeric dir prefixes (010_…, 020_…) then
 # filenames sort byte-identically everywhere.
 #
-# Usage: tools/apply_migrations.sh <supabase|supabase-testing>
+# Usage: tools/apply_migrations.sh <supabase|supabase>
 # Exit 0 on success; any failed statement aborts (ON_ERROR_STOP=1).
 # =============================================================================
 set -euo pipefail
 
-STACK="${1:?usage: apply_migrations.sh <supabase|supabase-testing>}"
+STACK="${1:?usage: apply_migrations.sh <supabase|supabase>}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/$STACK"
 
@@ -36,7 +36,7 @@ DB_URL="${DB_URL:-postgres://postgres:postgres@localhost:${POSTGRES_PORT_VAL}/po
 # fixed per stack; override with DB_CONTAINER when testing scratch projects).
 case "$STACK" in
   supabase)          DB_CONTAINER="${DB_CONTAINER:-samay-db}" ;;
-  supabase-testing)  DB_CONTAINER="${DB_CONTAINER:-samay-testing-db}" ;;
+  supabase)  DB_CONTAINER="${DB_CONTAINER:-samay-db}" ;;
   *)                 DB_CONTAINER="${DB_CONTAINER:?DB_CONTAINER required for $STACK}" ;;
 esac
 

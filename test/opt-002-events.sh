@@ -29,7 +29,7 @@ set -uo pipefail
 # Usage: bash test/opt-002-events.sh
 #
 # Keys (M-03 alignment): resolved at runtime by test/dev_env.sh from the
-# gitignored stack .env (supabase-testing/ then supabase/) — dev-only; CI
+# gitignored stack .env (supabase/ then supabase/) — dev-only; CI
 # overrides them via env vars.
 # =============================================================================
 

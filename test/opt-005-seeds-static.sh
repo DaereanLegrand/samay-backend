@@ -11,16 +11,16 @@ set -uo pipefail
 #                               notifications deliberately absent; regenerable
 #                               data — E2EE keys/shards/minigames/rank
 #                               snapshots/signup tracker — removed 2026-08-30)
-# plus the byte-mirrors in supabase-testing/, the Makefile targets, and the
+# plus the byte-mirrors in supabase/, the Makefile targets, and the
 # applier contract:
 #   appliers (migrate.sh/reset.sh ×2 + init/reset Makefile targets) may apply
 #   seed-config ONLY; any reference to seed-test/seed-dev there FAILS.
 # =============================================================================
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SEED_CONFIG="$REPO/supabase/seed-config.sql"
-SEED_CONFIG_TESTING="$REPO/supabase-testing/seed-config.sql"
+SEED_CONFIG_TESTING="$REPO/supabase/seed-config.sql"
 SEED_TEST="$REPO/supabase/seed-test.sql"
-SEED_TESTING_TEST="$REPO/supabase-testing/seed-test.sql"
+SEED_TESTING_TEST="$REPO/supabase/seed-test.sql"
 MIG="$REPO/supabase/migrations"
 MAKEFILE="$REPO/Makefile"
 
@@ -38,7 +38,7 @@ h1 "1. Files present"
 for f in "$SEED_CONFIG" "$SEED_CONFIG_TESTING" "$SEED_TEST" "$SEED_TESTING_TEST" "$MAKEFILE"; do
   if [ -f "$f" ]; then pass="exists: $(basename "$f")"; ok "$pass"; else fail "missing: $f"; fi
 done
-if [ ! -f "$REPO/supabase/seed-dev.sql" ] && [ ! -f "$REPO/supabase-testing/seed-dev.sql" ]; then
+if [ ! -f "$REPO/supabase/seed-dev.sql" ] && [ ! -f "$REPO/supabase/seed-dev.sql" ]; then
   ok "seed-dev.sql retired from both stacks"
 else
   fail "seed-dev.sql still present — must be deleted (MSQ-01 directive)"
@@ -47,14 +47,14 @@ fi
 # ── 2. bash -n on appliers ───────────────────────────────────────────────────
 h1 "2. bash -n syntax (appliers)"
 for f in "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh" \
-         "$REPO/supabase-testing/migrate.sh" "$REPO/supabase-testing/reset.sh" "$0"; do
+         "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh" "$0"; do
   if bash -n "$f" 2>/dev/null; then ok "bash -n $(basename "$f")"; else fail "bash -n $f"; fi
 done
 
 # ── 3. Applier contract: seed-config auto, seed-test/dev never ──────────────
 h1 "3. Appliers apply ONLY seed-config (auto), NEVER seed-test/seed-dev"
 for f in "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh" \
-         "$REPO/supabase-testing/migrate.sh" "$REPO/supabase-testing/reset.sh"; do
+         "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh"; do
   if grep -qE '\-f seed-config\.sql' "$f" && ! grep -qE '\-f seed-(test|dev)' "$f"; then
     ok "$(basename "$f"): applies seed-config.sql only"
   else
@@ -62,26 +62,25 @@ for f in "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh" \
   fi
 done
 INIT_CALLS=$(awk '
-  /^(supabase-init|supabase-reset|supabase-testing-reset|supabase-testing-init):/ { f=1 }
-  f && /^-f seed-config\.sql| -f seed-config\.sql/ { c++ }
-  /^[a-zA-Z0-9_-]+:/ && !/^(supabase-init|supabase-reset|supabase-testing-reset|supabase-testing-init):/ { f=0 }
+  /^(start|reset):/ { f=1 }
+  f && /-f seed-config\.sql/ { c++ }
+  /^[a-zA-Z0-9_-]+:/ && !/^(start|reset):/ { f=0 }
   END { print c+0 }' "$MAKEFILE")
-if [ "$INIT_CALLS" -eq 4 ]; then
-  ok "Makefile: all 4 init/reset targets auto-apply seed-config"
+if [ "$INIT_CALLS" -eq 2 ]; then
+  ok "Makefile: start/reset auto-apply seed-config"
 else
-  fail "Makefile: expected 4 seed-config calls in init/reset targets, found $INIT_CALLS"
+  fail "Makefile: expected 2 seed-config calls in start/reset, found $INIT_CALLS"
 fi
-if grep -qE 'seed-test|seed-dev' <<<"$(grep -A2 -E '^(supabase-init|supabase-reset|supabase-testing-reset|supabase-testing-init):' "$MAKEFILE")"; then
-  fail "Makefile init/reset targets reference seed-test/seed-dev"
+if awk '/^(start|reset):/{f=1} /^[a-zA-Z0-9_-]+:/ && !/^(start|reset):/{f=0} f && /seed-(test|dev)/{c++} END{exit (c>0?0:1)}' "$MAKEFILE"; then
+  fail "Makefile start/reset targets reference seed-test/seed-dev"
 else
-  ok "Makefile init/reset targets free of test/dev seeds"
+  ok "Makefile start/reset targets free of test/dev seeds"
 fi
 
 # ── 4. Explicit Makefile targets ─────────────────────────────────────────────
 h1 "4. Explicit seed targets"
-grep -qE '^supabase-seed-config:' "$MAKEFILE" && ok "target supabase-seed-config exists" || fail "supabase-seed-config missing"
-grep -qE '^supabase-seed-test:'   "$MAKEFILE" && ok "target supabase-seed-test exists"   || fail "supabase-seed-test missing"
-grep -qE '^supabase-seed(-dev)?:' "$MAKEFILE" && fail "stale target supabase-seed/supabase-seed-dev still defined" || ok "no stale seed targets"
+grep -qE '^seed:' "$MAKEFILE" && ok "target seed exists" || fail "seed missing"
+grep -qE '^supabase-seed' "$MAKEFILE" && fail "stale supabase-seed* target still defined" || ok "no stale supabase-seed* targets"
 
 # ── 5. Byte mirrors ──────────────────────────────────────────────────────────
 h1 "5. Mirrors byte-identical"

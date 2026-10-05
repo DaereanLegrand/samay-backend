@@ -173,7 +173,7 @@ bash test/run_all_backend.sh
 
 # Backend-test keys: sourced automatically from the RUNNING stack's
 # gitignored env files by `test/dev_env.sh` (precedence: explicit env >
-# supabase-testing/.env > supabase/.env > supabase*/.env.local). No key
+# supabase/.env > supabase/.env > supabase*/.env.local). No key
 # literals are committed anywhere; override via ANON_KEY/SERVICE_KEY env vars.
 # tools/check_secrets.sh fails if any local secret value leaks into a tracked file.
 

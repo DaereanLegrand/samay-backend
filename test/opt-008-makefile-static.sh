@@ -10,12 +10,9 @@ fail() { echo "  FAIL: $1"; FAILURES=$((FAILURES + 1)); }
 
 echo "backend makefile-static"
 
-TARGETS="help build-cli build-linux build-api build-loadtest loadtest loadtest-smoke \
-test test-all test-backend-static test-go check lint secrets-check migrate-check install-hooks \
-supabase-start supabase-stop supabase-status supabase-reset supabase-init \
-supabase-seed-config supabase-seed-test in-db supabase-db-test supabase-backend-tests supabase-stack-check \
-supabase-testing-start supabase-testing-stop supabase-testing-status supabase-testing-reset supabase-testing-init \
-supabase-testing-seed-sample-matches"
+TARGETS="help init start stop status reset seed db-test backend-tests tunnel in-db \
+build-cli build-linux build-api build-loadtest loadtest loadtest-smoke \
+test test-static test-go check lint secrets-check migrate-check install-hooks"
 for t in $TARGETS; do
   if make -n "$t" >/dev/null 2>&1; then pass "make -n $t"; else fail "make -n $t does not resolve"; fi
 done
@@ -37,36 +34,34 @@ if bash -n "$REPO/tools/check_migrations.sh" 2>/dev/null; then pass "bash -n too
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/samay-be008.XXXXXX")"
 trap 'rm -rf "$SCRATCH"' EXIT
 env -u GIT_INDEX_FILE git init -q "$SCRATCH"
-mkdir -p "$SCRATCH/supabase/migrations/010_infra" "$SCRATCH/supabase-testing/migrations/010_infra"
+mkdir -p "$SCRATCH/supabase/migrations/010_infra"
 printf '%s\n' "-- placeholder schema --" > "$SCRATCH/supabase/migrations/010_infra/01_extensions.sql"
-cp "$SCRATCH/supabase/migrations/010_infra/01_extensions.sql" "$SCRATCH/supabase-testing/migrations/010_infra/"
 env -u GIT_INDEX_FILE git -C "$SCRATCH" add -A
 env -u GIT_INDEX_FILE git -C "$SCRATCH" -c user.email=t@t -c user.name=t commit -q -m init
 
 if env -u GIT_INDEX_FILE bash "$REPO/tools/check_migrations.sh" "$SCRATCH" >/dev/null 2>&1; then
-  pass "GREEN: clean stacks pass"
+  pass "GREEN: clean tree passes"
 else
-  fail "GREEN: clean stacks should pass"
+  fail "GREEN: clean tree should pass"
 fi
 
 printf '%s\n' "-- planted --" > "$SCRATCH/supabase/migrations/010_infra/planted.sql"
 OUT="$(env -u GIT_INDEX_FILE bash "$REPO/tools/check_migrations.sh" "$SCRATCH" 2>&1)"
-if [ $? -eq 1 ] && printf '%s' "$OUT" | grep -q "UNTRACKED"; then
+if [ $? -eq 1 ] && printf '%s' "$OUT" | grep -qi "untracked"; then
   pass "RED: untracked migration flagged"
 else
   fail "RED: untracked migration not flagged"
 fi
 rm "$SCRATCH/supabase/migrations/010_infra/planted.sql"
 
-mkdir -p "$SCRATCH/supabase/migrations/020_core"
-printf '%s\n' "-- one-sided --" > "$SCRATCH/supabase/migrations/020_core/01_enums.sql"
+printf '%s\n' "-- loose --" > "$SCRATCH/supabase/migrations/loose.sql"
 env -u GIT_INDEX_FILE git -C "$SCRATCH" add -A
-env -u GIT_INDEX_FILE git -C "$SCRATCH" -c user.email=t@t -c user.name=t commit -q -m oneside
+env -u GIT_INDEX_FILE git -C "$SCRATCH" -c user.email=t@t -c user.name=t commit -q -m loose
 OUT="$(env -u GIT_INDEX_FILE bash "$REPO/tools/check_migrations.sh" "$SCRATCH" 2>&1)"
-if [ $? -eq 1 ] && printf '%s' "$OUT" | grep -qi "parity\|differs"; then
-  pass "RED: stack parity break flagged"
+if [ $? -eq 1 ] && printf '%s' "$OUT" | grep -qi "conforming\|layout"; then
+  pass "RED: non-conforming layout flagged"
 else
-  fail "RED: stack parity break not flagged"
+  fail "RED: non-conforming layout not flagged"
 fi
 
 if bash -n "$0" 2>/dev/null; then pass "bash -n $0"; else fail "bash -n $0"; fi

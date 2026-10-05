@@ -2,7 +2,7 @@
 -- Realtime memberships in the platform-owned supabase_realtime publication.
 -- Guarded: the publication itself is created by the stack init (image
 -- realtime.sql); membership adds are skipped when already present, so this
--- never fights `make supabase-init` / `make supabase-testing-init`.
+-- never fights `make start` / `make start`.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables

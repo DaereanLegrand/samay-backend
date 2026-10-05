@@ -6,30 +6,16 @@ Samay is built in **16 phases** (00–15). Each phase follows a strict TDD + doc
 
 ---
 
-## Supabase stacks (hard rule)
+## Supabase stack
 
-**NEVER touch the `supabase/` (prod) stack. ONLY `supabase-testing/`.**
-There are no exceptions and no "just this once".
+One stack: `supabase/`, run locally with Docker (`make start`). Prod runs on the
+VM with vault-supplied secrets and no host ports; local uses mailpit as the mail
+sink.
 
-This forbids, for the `supabase/` stack ONLY:
-- `docker compose` commands in `supabase/`;
-- every `make supabase-start|stop|status|reset|init|docker-*|seed-*` target;
-- `supabase/migrate.sh`, `supabase/reset.sh`, `supabase/run.sh`,
-  `supabase/seed-config.sql`, `supabase/volumes/`;
-- any `psql` (or REST/Studio) connection to the prod stack's database.
-
-Do NOT start, stop, reset, migrate, seed, or query it. It is the human's, and
-a reset destroys its volumes and data.
-
-The ONLY stack an agent may start, stop, reset, migrate, seed, or query is
-**`supabase-testing/`** (`make supabase-testing-*`,
-`supabase-testing/migrate.sh`, same approved port map). The two stacks are
-**mutually exclusive** on those ports: if the prod stack holds the ports, STOP
-and ask the human to stop it — never stop it yourself.
-
-Migrations are authored in `supabase/migrations/**` (the source tree) and
-mirrored byte-identical into `supabase-testing/migrations/**`; they are APPLIED
-by running the **testing** stack's migration flow, never the prod one.
+- Agents may run `make start|stop|status|reset|seed|db-test|backend-tests` freely (local).
+- Never `reset` the prod VM stack (it destroys data).
+- Migrations live in `supabase/migrations/**` — a single tree, no mirror.
+- Ports are chosen per app so Samay and Hakuy never collide (Samay 543xx).
 
 ---
 
@@ -90,7 +76,7 @@ themselves. Enforced at the config level in `.opencode/opencode.json`.
   where the tests are Go `*_test.go`, pgTAP cases, or curl opt-tests.
 - Tests live in `*_test.go` (Go), `test/opt-NNN-*.sh` (backend curl) and
   `supabase/tests/schema_test.sql` (pgTAP, mirrored byte-identical in
-  `supabase-testing/`).
+  `supabase/`).
 - **Test-layer budget (max 2–3 layers per change):** Go logic → unit test;
   SQL/schema/RLS → pgTAP; REST/RLS/security → curl opt-test. Never duplicate
   the same assertion across layers (each layer earns its keep).
@@ -130,44 +116,19 @@ Sync points occur when a track's output is needed by another (e.g., the DB schem
 
 ## Port Convention
 
-the reference app's running Supabase owns host ports 5432/54321/54323/8443 — NEVER map Samay services onto them.
+Ports are unique per app so Samay and Hakuy never collide (Samay uses 543xx):
 
-| Service | Port | Note |
-|---------|------|------|
-| PostgreSQL | 54382 | direct DB access |
-| Studio | 54381 | |
-| Mailpit (Email) | 54384 | |
-| Kong (API Gateway) | 54386 | all API routes go through here |
-| Analytics | 54388 | |
-| Kong HTTPS | 54443 | self-hosted compose stack |
+| Service | Port |
+|---------|------|
+| PostgreSQL | 54382 |
+| Studio | 54381 |
+| Mailpit (Email) | 54384 |
+| Kong (API Gateway) | 54386 |
+| Kong HTTPS | 54443 |
+| Analytics | 54388 |
 
-`tools/check_ports.sh --strict` must exit 0 after any infra change.
-
-**VM-internal services are NOT host ports.** One **Alpine Linux** AArch64 install
-(`<base-image>`, hostname `<base-image>`) is baked + sealed once; every
-task VM is an **APFS clone** of it, provisioned with only what its task needs
-(`tools/<ops-tooling>/host-clone.sh`). The earlier <base-os> AArch64 base is preserved,
-renamed **`QallariyBase-<base-os>`** (reference/rollback only — no new clones).
-The base and its clones (`<source-host>`, `<ci-host>`, `mail`) run inside UTM on
-the `<vm-ip-prefix>0/24` shared network (the host↔VM bridge, reachable from the
-Mac). Their ports are **never** mapped onto the Mac's host ports and never
-exposed on the Mac's LAN; remote access is only through each VM's own Cloudflare
-tunnel:
-
-| VM | VM-internal service | Port |
-|---|---|---|
-| `<base-image>` (Alpine) | (template — no services) | — |
-| `QallariyBase-<base-os>` | (preserved old template — no services) | — |
-| `<source-host>` | Gitea web | 3000 |
-| `<source-host>` | Gitea SSH (built-in) | 2222 |
-| `<ci-host>` | act_runner | (outbound only) |
-| `mail` | <ops-service> (Qallariy Mail) web | 8888 |
-| `mail` | Purely Mail IMAP/SMTP | (outbound only) |
-
-`<source-host>` runs **native Gitea** (official binary + OpenRC + SQLite, no
-Docker). GitLab was retired — Xcode Cloud reads the project's GitHub mirror.
-
-VM disks/bundles must live under `/Volumes/Media` — never internal storage.
+Prod runs on the VM with no published host ports; VM provisioning lives in
+`<private-ops-repo>`.
 
 ## Xcode MCP device interaction (command syntax)
 

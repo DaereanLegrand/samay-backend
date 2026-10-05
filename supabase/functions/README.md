@@ -34,6 +34,6 @@
 
 ## Testing stack
 
-`supabase-testing/functions/` mirrors this directory byte-for-byte (the
+`supabase/functions/` mirrors this directory byte-for-byte (the
 `functions` service mounts `./functions:/home/deno/functions` in both stacks;
 `test/opt-007-compose-static.sh` §9 pins stack parity).

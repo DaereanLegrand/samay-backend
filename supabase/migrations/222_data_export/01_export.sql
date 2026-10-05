@@ -9,8 +9,8 @@
 -- subscription_overrides. Chat is E2EE: the server can only return ciphertext;
 -- readable chat history lives on-device and is exported by the Flutter client.
 --
--- Run on supabase-testing first; mirrored byte-identical into
--- supabase-testing/migrations/.
+-- Run on the local stack first;
+-- supabase/migrations/.
 
 CREATE OR REPLACE FUNCTION public.export_my_data() RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
