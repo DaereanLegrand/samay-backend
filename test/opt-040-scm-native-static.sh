@@ -8,8 +8,9 @@
 # running stack. Exit 0 = all checks pass:
 #
 #   1. The native SCM artifacts exist (lib.sh, host-10/11/12, guest-scm-01/02/
-#      03/05, scm.env.template, README.md, VAULT-SETUP.md).
-#   2. GitLab is retired: guest-scm-04/06 and compose/scm/ are GONE.
+#      03/04-theme/05, scm.env.template, README.md, VAULT-SETUP.md).
+#   2. GitLab is retired: guest-scm-04-gitlab.sh / guest-scm-06-mirror.sh and
+#      compose/scm/ are GONE (04 is now the theme step).
 #   3. Every tools/<ops-tooling>/*.sh is `bash -n` clean.
 #   4. lib.sh pins the org identity (QallariySCM.utm / <source-host> / .201) on
 #      /Volumes/Media; the guest scripts install the pinned Gitea binary and
@@ -39,7 +40,8 @@ echo ""
 echo "━━━ 1. Native SCM artifacts present ━━━"
 for f in lib.sh <host-script> <host-script> <host-script> \
          guest-scm-01-packages.sh guest-scm-02-runtime.sh guest-scm-03-gitea.sh \
-         guest-scm-05-tunnel.sh scm.env.template README.md VAULT-SETUP.md; do
+         guest-scm-04-theme.sh guest-scm-05-tunnel.sh \
+         scm.env.template README.md VAULT-SETUP.md; do
   if [ -r "$BOOT/$f" ]; then pass "exists: tools/<ops-tooling>/$f"; else fail "missing: tools/<ops-tooling>/$f"; fi
 done
 
@@ -85,6 +87,23 @@ if grep -q '/etc/init.d/gitea' "$R02"; then pass "guest-scm-02 installs the Open
 R03="$BOOT/guest-scm-03-gitea.sh"
 if grep -q 'SECRET_KEY' "$R03"; then pass "guest-scm-03 writes SECRET_KEY into app.ini"; else fail "guest-scm-03 does not write SECRET_KEY"; fi
 if grep -q 'DB_TYPE = sqlite3' "$R03"; then pass "guest-scm-03 uses SQLite"; else fail "guest-scm-03 does not use SQLite"; fi
+# Qallariy theme: guest-scm-04 installs it, host-12 stages it.
+R04="$BOOT/guest-scm-04-theme.sh"
+if grep -q 'THEMES = qallariy,<theme-name>' "$R04" && grep -q 'DEFAULT_THEME = qallariy' "$R04"; then
+  pass "guest-scm-04 enables the Qallariy themes"
+else
+  fail "guest-scm-04 does not enable the Qallariy themes"
+fi
+if grep -q '/var/lib/gitea/custom\|GITEA_HOME' "$R04" && grep -q 'custom' "$R04"; then
+  pass "guest-scm-04 installs into the Gitea custom dir"
+else
+  fail "guest-scm-04 does not install into the Gitea custom dir"
+fi
+if grep -q 'GITEA_THEME_SRC' "$BOOT/<host-script>"; then
+  pass "host-12 stages the Gitea theme"
+else
+  fail "host-12 does not stage the Gitea theme"
+fi
 # No Docker anywhere in the SCM bootstrap (Docker stays only in the CI runner).
 if grep -rqE 'docker (compose|network|run|exec)|apk add[^\n]*docker' "$BOOT"/lib.sh "$BOOT"/guest-scm-*.sh "$BOOT"/host-1*.sh; then
   fail "Docker reference found in the SCM bootstrap (must be Docker-free)"
@@ -110,7 +129,7 @@ echo ""
 echo "━━━ 5. scm.env.template (Gitea-only, org-scoped) ━━━"
 TMPL="$BOOT/scm.env.template"
 if grep -q '^GITEA_ORG=qallariy' "$TMPL"; then pass "GITEA_ORG=qallariy"; else fail "GITEA_ORG missing/not qallariy"; fi
-if grep -q '^GITEA_ADMIN_USERNAME=qallariy' "$TMPL"; then pass "GITEA_ADMIN_USERNAME=qallariy"; else fail "GITEA_ADMIN_USERNAME not qallariy"; fi
+if grep -q '^GITEA_ADMIN_USERNAME=admin' "$TMPL"; then pass "GITEA_ADMIN_USERNAME=admin"; else fail "GITEA_ADMIN_USERNAME not admin"; fi
 if grep -q '^GITEA_ROOT_URL=https://gitea-scm.qallariy.lat/' "$TMPL"; then pass "GITEA_ROOT_URL = gitea-scm.qallariy.lat"; else fail "GITEA_ROOT_URL is not gitea-scm.qallariy.lat"; fi
 if grep -qE 'GITLAB_|:8929|gitlab-scm' "$TMPL"; then fail "scm.env.template still carries a GitLab remnant"; else pass "no GitLab remnant in scm.env.template"; fi
 
