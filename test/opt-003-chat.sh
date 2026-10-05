@@ -27,8 +27,8 @@ set -uo pipefail
 # like opt-001.
 #
 # STATIC-VERIFIED ONLY (this agent run): the stack is not started until the
-# checkpoint (AGENT-RULES / port map). Live run: make supabase-docker-start &&
-# make supabase-docker-reset && bash test/opt-003-chat.sh
+# checkpoint (AGENT-RULES / port map). Live run: make supabase-start &&
+# make supabase-reset && bash test/opt-003-chat.sh
 #
 # Usage: bash test/opt-003-chat.sh
 #

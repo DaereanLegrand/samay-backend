@@ -61,14 +61,17 @@ for f in "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh" \
     fail "$(basename "$f"): must execute seed-config.sql and never execute seed-test/seed-dev"
   fi
 done
-INIT_RECIPES="$(sed -n -E '/^(supabase-init|supabase-docker-reset|supabase-testing-reset|supabase-testing-init):/,/^[a-zA-Z#]/p' "$MAKEFILE")"
-INIT_CALLS=$(printf '%s' "$INIT_RECIPES" | grep -c '\-f seed-config\.sql')
+INIT_CALLS=$(awk '
+  /^(supabase-init|supabase-reset|supabase-testing-reset|supabase-testing-init):/ { f=1 }
+  f && /^-f seed-config\.sql| -f seed-config\.sql/ { c++ }
+  /^[a-zA-Z0-9_-]+:/ && !/^(supabase-init|supabase-reset|supabase-testing-reset|supabase-testing-init):/ { f=0 }
+  END { print c+0 }' "$MAKEFILE")
 if [ "$INIT_CALLS" -eq 4 ]; then
   ok "Makefile: all 4 init/reset targets auto-apply seed-config"
 else
   fail "Makefile: expected 4 seed-config calls in init/reset targets, found $INIT_CALLS"
 fi
-if grep -qE 'seed-test|seed-dev' <<<"$(grep -A2 -E '^(supabase-init|supabase-docker-reset|supabase-testing-reset|supabase-testing-init):' "$MAKEFILE")"; then
+if grep -qE 'seed-test|seed-dev' <<<"$(grep -A2 -E '^(supabase-init|supabase-reset|supabase-testing-reset|supabase-testing-init):' "$MAKEFILE")"; then
   fail "Makefile init/reset targets reference seed-test/seed-dev"
 else
   ok "Makefile init/reset targets free of test/dev seeds"
