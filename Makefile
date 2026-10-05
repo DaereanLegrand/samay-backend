@@ -681,11 +681,6 @@ test-backend-static:
 	bash test/opt-007-compose-static.sh
 	bash test/opt-008-makefile-static.sh
 	bash test/<ops-static-check>
-	bash test/<ops-static-check>
-	bash test/<ops-static-check>
-	bash test/<ops-static-check>
-	bash test/opt-039-<vm-tooling>-static.sh
-	bash test/opt-040-scm-native-static.sh
 
 test-go:
 	go test ./...
