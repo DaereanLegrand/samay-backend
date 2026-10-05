@@ -215,3 +215,122 @@ Build in layers so the next feature slots in without a rewrite:
   Authoritative per-step statuses: `docs/specs/steps/cross-references.md`;
   open work items: specs kept under `docs/specs/steps/` for unimplemented steps.
 - **Security posture + open items:** [`docs/security/SECURITY.md`](docs/security/SECURITY.md).
+
+---
+
+## Architecture
+
+Structural pieces: the Go CLI/API never talks to PostgreSQL directly — it uses
+the PostgREST endpoint through Kong with the `service_role` key, while the app
+uses anon JWT. The self-hosted Supabase stack is one `supabase/` Compose project
+(Postgres 17 + RustFS/S3).
+
+```mermaid
+flowchart TB
+    subgraph Clients["Clients"]
+        APP["Flutter app<br/>anon JWT"]
+        CLI["samay-admin CLI<br/>service_role"]
+        API["samay-api-server<br/>Gin :8090"]
+        LT["samay-loadtest"]
+    end
+    subgraph Go["Go layer github.com/samay-app/samay"]
+        CMD["cmd/<br/>samay-admin, samay-api-server, samay-loadtest"]
+        DBC["internal/db<br/>PostgREST client + QueryBuilder"]
+        OPS["internal/ops<br/>users events groups reports shards<br/>config subs system + audit"]
+        FMT["internal/format + validate"]
+        LOADC["internal/loadtest"]
+    end
+    subgraph GW["Kong gateway :54386 / :54443"]
+        K["Kong declarative routes<br/>anon / authenticated / service_role"]
+    end
+    subgraph Supa["Supabase services docker compose"]
+        AUTH["auth GoTrue v2.189"]
+        REST["rest PostgREST v14.12"]
+        RT["realtime v2.102.3"]
+        STG["storage-api + imgproxy"]
+        META["postgres-meta"]
+        FUNC["edge-runtime v1.74 stub"]
+        STUDIO["Studio :54381"]
+    end
+    subgraph Data["Data plane"]
+        PG["Postgres 17.6<br/>:5432 / :54382"]
+        RUSTFS["RustFS S3<br/>db volumes"]
+        MAIL["Mailpit dev :54384"]
+    end
+    subgraph Schema["Schema and logic"]
+        MIG["supabase/migrations<br/>68 SQL / 48 dirs"]
+        RPC["~103 RPC + FORCE RLS<br/>+ pg_cron jobs"]
+        SEED["seed-config / seed-test /<br/>seed-events"]
+    end
+    APP --> K
+    CLI --> DBC
+    API --> OPS
+    LT --> LOADC
+    CMD --> OPS
+    OPS --> DBC
+    DBC -->|HTTPS service_role| K
+    K --> AUTH
+    K --> REST
+    K --> RT
+    K --> STG
+    K --> META
+    K --> FUNC
+    AUTH --> PG
+    REST --> PG
+    RT --> PG
+    STG --> RUSTFS
+    META --> PG
+    AUTH --> MAIL
+    STUDIO --> META
+    PG --- MIG
+    PG --- RPC
+    PG --- SEED
+```
+
+## Deployment
+
+Push-driven deploy from the Mac: `make deploy APP=samay` calls the `<private-ops-repo>`
+`<vm-tooling>` runner, which fetches vault secrets into a RAM disk, pushes them
+to the `<deploy-target>` VM's tmpfs, runs migrations, and brings the gated OpenRC
+units up behind cloudflared. Local development is the same Compose stack on
+`543xx`.
+
+```mermaid
+flowchart LR
+    subgraph Mac["Developer Mac"]
+        REPO["Samay/backend repo"]
+        DEPLOY["make deploy APP=samay"]
+    end
+    subgraph VaultH["Vault host <build-host>-<build-host>"]
+        PASS["pass GPG store<br/>qallariy/samay/server"]
+        BROKER["forced-command broker<br/>unlock + fetch"]
+    end
+    subgraph RAM["RAM disk /run/qallariy"]
+        SEC["secrets tmpfs<br/>JWT, S3 keys,<br/>cloudflared token"]
+    end
+    subgraph VM["<deploy-target> VM <vm-ip>"]
+        AGENT["<guest-agent><br/>gated OpenRC units"]
+        STACK["Supabase stack<br/>Kong :54386<br/>Postgres :54382<br/>RustFS, auth, rest, realtime"]
+        CFD["cloudflared<br/>2 connectors"]
+    end
+    subgraph Local["Local Docker"]
+        LOCALSTACK["docker compose<br/>Supabase :543xx"]
+    end
+    subgraph Public["Public and SCM"]
+        DNS["samay-api.qallariy.lat"]
+        TEST["samay-api-testing.qallariy.lat"]
+        GITEA["Gitea <ci-host>/samay<br/>subtree supabase"]
+    end
+    REPO --> DEPLOY
+    DEPLOY -->|git push| GITEA
+    DEPLOY --> VM
+    GITEA -->|git pull --ff-only| AGENT
+    BROKER --> PASS
+    REPO -.->|unlock / fetch| BROKER
+    SEC -->|scp| VM
+    AGENT --> STACK
+    STACK --> CFD
+    CFD --> DNS
+    LOCALSTACK --> TEST
+    REPO -.->|make start| LOCALSTACK
+```
