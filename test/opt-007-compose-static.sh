@@ -21,7 +21,7 @@
 #      edge-runtime v1.74.0 main-service/SUPABASE_* contract, imgproxy v3.30.1
 #      IMGPROXY_BIND/LOCAL_FILESYSTEM_ROOT/AUTO_WEBP contract — M-07).
 #   5. Approved host port map present (54382/54386/54381/54384/54443) and NO
-#      Juega host mappings (5432/54321/54323/8443) nor any non-approved host
+#      the reference app host mappings (5432/54321/54323/8443) nor any non-approved host
 #      port binding.
 #   6. If docker is available: `docker compose config --quiet` passes on the
 #      base + every override combo in BOTH stacks.
@@ -229,7 +229,7 @@ for f in "${BASE[@]}"; do
   printf '%s' "$b" | grep -q 'IMGPROXY_URL: http://imgproxy:5001' && pass "$(basename "$f") [storage] IMGPROXY_URL -> imgproxy:5001 (M-07)" || fail "$(basename "$f") [storage] MISSING IMGPROXY_URL"
 done
 
-# ── 6. Approved port map; no Juega / non-approved host bindings ──────────────
+# ── 6. Approved port map; no the reference app / non-approved host bindings ──────────────
 echo ""
 echo "━━━ 6. Port map (host bindings) ━━━"
 APPROVED_HOST_PORTS="54381 54382 54384 54386 54388 54443"

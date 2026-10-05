@@ -75,9 +75,9 @@ Nothing env-related is bundled as a Flutter asset and `.env` is gitignored.
 - Android 9+ allows cleartext HTTP (`usesCleartextTraffic` in manifest) so
   the `TESTING=true` local-stack URL works from the emulator.
 
-### Supabase port map (coexists with the Juega stack)
+### Supabase port map (coexists with the the reference app stack)
 
-Juega owns host ports `5432, 54321, 54323, 8443` — never map Samay onto them.
+the reference app owns host ports `5432, 54321, 54323, 8443` — never map Samay onto them.
 Samay's approved map:
 
 | Service | Port |
