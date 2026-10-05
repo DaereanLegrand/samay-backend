@@ -10,23 +10,30 @@ fail() { echo "  FAIL: $1"; FAILURES=$((FAILURES + 1)); }
 
 echo "backend makefile-static"
 
-TARGETS="help init start stop status reset seed db-test backend-tests tunnel in-db \
-build-cli build-linux build-api build-loadtest loadtest loadtest-smoke \
-test test-static test-go check lint secrets-check migrate-check install-hooks"
+TARGETS="help init start stop status reset seed tunnel in-db \
+build-cli build-linux build-api build-loadtest loadtest \
+test check lint secrets migrate hooks"
 for t in $TARGETS; do
   if make -n "$t" >/dev/null 2>&1; then pass "make -n $t"; else fail "make -n $t does not resolve"; fi
 done
+for pair in "test db" "test api" "loadtest smoke"; do
+  if make -n $pair >/dev/null 2>&1; then pass "make -n $pair"; else fail "make -n $pair does not resolve"; fi
+done
 
 # Separation: no frontend-only targets may be defined here.
-for t in build dev install build-install uninstall clear-storage define-env flutter-analyze \
-         tunnel-android tunnel-waydroid ios-signing-restore login ios-beta ios-release \
+for t in build dev install build-install uninstall clear prepare signing-restore \
+         analyze env tunnel-android tunnel-waydroid login ios-beta ios-release \
          android-alpha android-release bundle-install; do
   if grep -qE "^$t:" "$MAKEFILE"; then fail "frontend target '$t' leaked into backend Makefile"; fi
 done
 pass "no frontend-only targets defined"
 
-# Standardization: supabase-docker-* must be gone.
-if grep -qE '^supabase-docker' "$MAKEFILE"; then fail "supabase-docker-* targets still defined"; else pass "no supabase-docker-* targets"; fi
+# Standardization: legacy long names must be gone.
+for t in db-test backend-tests test-static test-go secrets-check migrate-check \
+         install-hooks loadtest-smoke supabase-docker; do
+  if grep -qE "^$t:" "$MAKEFILE"; then fail "legacy target '$t' still defined"; fi
+done
+pass "no legacy/renamed targets defined"
 
 # migrate-check RED probe (scratch git repo, real repo untouched).
 if bash -n "$REPO/tools/check_migrations.sh" 2>/dev/null; then pass "bash -n tools/check_migrations.sh"; else fail "bash -n tools/check_migrations.sh"; fi

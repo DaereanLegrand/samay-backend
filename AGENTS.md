@@ -6,8 +6,9 @@ stack (`supabase/`).
 ## Commands
 - Setup: `make init` (gum; writes `.env`, picks local/tunnel).
 - Stack: `make start` (local Docker) · `make start PROD=true` (VM + vault).
-- Lifecycle: `make stop|status|reset|seed|db-test|backend-tests` · `make tunnel`.
-- Go: `make build-cli|build-linux|build-api|build-loadtest` · `make test` · `make check`.
+- Lifecycle: `make stop|status|reset|seed` · `make test db|api` · `make tunnel`.
+- Gates: `make check` · `make secrets` · `make migrate` · `make hooks`.
+- Go: `make build-cli|build-linux|build-api|build-loadtest` · `make test`.
 
 ## Rules
 - One stack `supabase/`; migrations single tree `supabase/migrations/**`.
