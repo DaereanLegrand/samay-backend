@@ -1,0 +1,24 @@
+%%{init:{"flowchart":{"nodeSpacing":16,"rankSpacing":22}}}%%
+flowchart LR
+  APP["Flutter app<br/>anon JWT"] --> KONG["Kong :54386"]
+  CLI["samay-admin<br/>service_role"] --> DBC["internal/db<br/>PostgREST client"]
+  API["samay-api-server :8090"] --> OPS["internal/ops"]
+  DBC --> KONG
+  OPS --> DBC
+  KONG --> SVCS["auth · rest · realtime · storage · meta · functions"]
+  SVCS --> PG["Postgres 17 :54382"]
+  SVCS --> S3["RustFS S3"]
+  PG --- SCHEMA["migrations · RPC/RLS · pg_cron"]
+  STUDIO["Studio :54381"] --> SVCS
+
+  classDef app fill:#F4EFE6,stroke:#0A1A33,color:#0A1A33,stroke-width:1px;
+  classDef gw fill:#FBF3D9,stroke:#C9A84C,color:#5A4300,stroke-width:1px;
+  classDef svc fill:#E8EFF8,stroke:#24406B,color:#12233D,stroke-width:1px;
+  classDef data fill:#E6F4EA,stroke:#1E7A46,color:#0B3D22,stroke-width:1px;
+  classDef ext fill:#F3E8FD,stroke:#6A4C93,color:#2E1A47,stroke-width:1px;
+  classDef infra fill:#FCE8E6,stroke:#B23A2E,color:#4A120D,stroke-width:1px;
+  linkStyle default stroke:#8A8578,stroke-width:1px;
+  class APP,CLI,API app;
+  class KONG gw;
+  class DBC,OPS,SVCS,STUDIO svc;
+  class PG,S3,SCHEMA data;

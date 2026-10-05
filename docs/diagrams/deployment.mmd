@@ -1,0 +1,20 @@
+%%{init:{"flowchart":{"nodeSpacing":16,"rankSpacing":22}}}%%
+flowchart LR
+  REPO["Samay/backend"] --> DEPLOY["make deploy / start PROD=true"]
+  DEPLOY --> VAULT["vault (<build-host>) → RAM disk"] --> VM["<deploy-target> .200<br/>gated OpenRC units"]
+  VM --> STACK["Supabase stack<br/>Kong :54386"] --> CFD["cloudflared"] --> API["samay-api.qallariy.lat"]
+  REPO -. make start .-> LOCAL["dev/testing: local stack :543xx"]
+
+  classDef app fill:#F4EFE6,stroke:#0A1A33,color:#0A1A33,stroke-width:1px;
+  classDef gw fill:#FBF3D9,stroke:#C9A84C,color:#5A4300,stroke-width:1px;
+  classDef svc fill:#E8EFF8,stroke:#24406B,color:#12233D,stroke-width:1px;
+  classDef data fill:#E6F4EA,stroke:#1E7A46,color:#0B3D22,stroke-width:1px;
+  classDef ext fill:#F3E8FD,stroke:#6A4C93,color:#2E1A47,stroke-width:1px;
+  classDef infra fill:#FCE8E6,stroke:#B23A2E,color:#4A120D,stroke-width:1px;
+  linkStyle default stroke:#8A8578,stroke-width:1px;
+  class REPO,DEPLOY app;
+  class VAULT ext;
+  class VM infra;
+  class STACK svc;
+  class CFD,API gw;
+  class LOCAL data;
