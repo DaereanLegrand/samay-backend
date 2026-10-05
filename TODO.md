@@ -1,14 +1,15 @@
 # TODO — samay-backend
 
 ## Facts
-- Split from `Vive` (monorepo) with full history; Go + Supabase.
-- Go module `github.com/samay-app/samay`.
+- Go CLI/API (`github.com/samay-app/samay`) + self-hosted Supabase. Split from `Vive`.
+- Makefile is Go/Supabase-only; `supabase-docker-*` removed. `opt-008` split per repo.
+- CI: `.gitea/workflows/ci.yml`.
 
 ## TODO
-- [ ] Align to `<private-ops-repo>/BACKEND-STANDARD.md` (vendor missing scripts,
-      confirm target names).
-- [ ] Remove infra/VM targets from `Makefile` (now in `<private-ops-repo>`).
-- [ ] Move/repair `test/<ops-static-check>` (asserts the removed `.gitea`).
-- [ ] Fix stale `../Juega` / `/Users/daerean/Codes/apps/Juega` references in
-      `Makefile`, `<private-ops-repo>/SELFHOSTING.md`, `<private-ops-repo>/BACKEND-SERVER-VM.md`.
-- [ ] Vault reorg to `qallariy/admin/{apple,mail,scm,web}` (human-run).
+- [ ] Align Makefile target names with `<private-ops-repo>/BACKEND-STANDARD.md`.
+- [ ] Fix stale `juega` references (`<private-ops-repo>/*`, `tools/check_ports.sh`, `test/opt-007`).
+- [ ] Verify `test/<ops-static-check>` against the restored `.gitea` workflow.
+- [ ] Decision: tracked `supabase/.env.local` / `supabase-testing/.env.local` (anon key only).
+- [ ] Comment prune.
+- [ ] TODO(vault): server profile under `qallariy/admin/**` reorg.
+- [ ] TODO(utm): `<deploy-target>` `.200`.
