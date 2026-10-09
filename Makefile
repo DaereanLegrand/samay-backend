@@ -30,7 +30,7 @@ help:
 	@echo "  SUITES:      test [db|api]        loadtest [smoke]"
 	@echo "  BUILD:       build-cli build-linux build-api build-loadtest"
 	@echo "  GATES:       check lint secrets migrate hooks"
-	@echo "  PROD:        start PROD=true   deploy PROD=true"
+	@echo "  PROD:        start PROD=true   deploy"
 
 init:
 	@bash tools/init.sh
@@ -55,7 +55,8 @@ status: guard-prod
 	@$(MAKE) -C $(INFRA) status PROD=true APP=$(APP)
 else
 start:
-	@cd supabase && docker compose --env-file .env up -d --wait && \
+	@cd supabase && docker compose --env-file .env up -d && \
+		docker compose --env-file .env up -d --wait db auth && \
 		bash ../tools/apply_migrations.sh supabase && \
 		PGPASSWORD=postgres psql -h localhost -p 54382 -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed-config.sql
 stop:
@@ -69,7 +70,8 @@ reset:
 	@cd supabase && docker compose --env-file .env down -v && \
 		rm -rf volumes/storage && \
 		(docker volume rm samay_db-data samay_rustfs-data 2>/dev/null || true) && \
-		docker compose --env-file .env up -d --wait && \
+		docker compose --env-file .env up -d && \
+		docker compose --env-file .env up -d --wait db auth && \
 		bash ../tools/apply_migrations.sh supabase && \
 		PGPASSWORD=postgres psql -h localhost -p 54382 -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed-config.sql
 

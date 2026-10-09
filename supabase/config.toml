@@ -79,6 +79,25 @@ max_frequency = "1s"
 otp_length = 6
 otp_expiry = 3600
 
+# Google OAuth provider (native Android/iOS + web). Client IDs are
+# comma-joined with the WEB client id FIRST (Supabase requirement); the
+# secret is the web client secret. iOS native sign-in requires
+# skip_nonce_check = true. Disabled locally; prod supplies real values via the
+# vault `server` profile + <deploy-override> (GOTRUE_EXTERNAL_GOOGLE_*).
+[auth.external.google]
+enabled = false
+client_id = ""
+secret = ""
+skip_nonce_check = true
+
+# Apple OAuth provider (native Sign in with Apple). client_id is the Apple
+# Services ID; secret is the generated ES256 client-secret JWT. Disabled
+# locally; prod values come from the vault `server` profile.
+[auth.external.apple]
+enabled = false
+client_id = ""
+secret = ""
+
 [auth.sms]
 enable_signup = false
 enable_confirmations = false

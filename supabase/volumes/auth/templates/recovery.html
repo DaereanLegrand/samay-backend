@@ -1,7 +1,97 @@
-<h2>Recupera tu contraseña — Samay</h2>
-<p>Recibimos una solicitud para restablecer tu contraseña de Samay. Haz clic en el enlace de abajo para crear una nueva:</p>
-<a href="{{ .SiteURL }}/auth/v1/verify?token={{ .TokenHash }}&type=recovery&redirect_to={{ .RedirectTo }}">
-  Restablecer contraseña
-</a>
-<p>Si no solicitaste este cambio, puedes ignorar este mensaje.</p>
-<p>— El equipo de Samay</p>
+<!DOCTYPE html>
+<html lang="es" style="margin:0;padding:0;">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="dark">
+  <meta name="supported-color-schemes" content="dark">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Samay — Recupera tu contraseña</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body style="margin:0;padding:0;background-color:#000000;font-family:'Inter',Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#000000;min-height:100vh;">
+    <tr>
+      <td align="center" valign="middle" style="padding:40px 16px;">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;">
+          <!-- logo + wordmark -->
+          <tr>
+            <td align="center" style="padding-bottom:20px;">
+              <svg width="56" height="56" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Samay">
+                <defs>
+                  <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+                    <feGaussianBlur stdDeviation="4" result="blur"/>
+                    <feMerge>
+                      <feMergeNode in="blur"/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
+                </defs>
+                <path d="M40 8 L72 40 L40 72 L8 40 Z" fill="none" stroke="#FFFFFF" stroke-width="4.5" stroke-linejoin="round" filter="url(#glow)"/>
+                <circle cx="40" cy="40" r="3.2" fill="#FF2E88"/>
+              </svg>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding-bottom:24px;">
+              <h1 style="margin:0;font-family:'Playfair Display',Georgia,serif;font-size:30px;font-weight:700;color:#FFFFFF;letter-spacing:0.5px;line-height:1.2;">
+                samay
+              </h1>
+            </td>
+          </tr>
+          <!-- card -->
+          <tr>
+            <td style="background-color:#0A0A0A;border:1px solid #1A1A1A;border-radius:18px;padding:40px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding-bottom:8px;">
+                    <h2 style="margin:0;font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:600;color:#FFFFFF;line-height:1.3;">
+                      Recupera tu contraseña
+                    </h2>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-bottom:24px;">
+                    <p style="margin:0;font-family:'Inter',Arial,Helvetica,sans-serif;font-size:14px;color:#999999;line-height:1.6;">
+                      Recibimos una solicitud para restablecer tu contraseña. Toca el botón para crear una nueva. Si no solicitaste este cambio, ignora este mensaje.
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding:4px 0 24px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;background-color:#FF2E88;border-radius:12px;">
+                      <tr>
+                        <td align="center" style="padding:15px 44px;">
+                          <a href="{{ .ConfirmationURL }}" target="_blank" rel="noopener" style="display:inline-block;font-family:'Playfair Display',Georgia,serif;font-size:16px;font-weight:600;color:#000000;text-decoration:none;letter-spacing:0.5px;line-height:1;">
+                            Restablecer contraseña
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center">
+                    <p style="margin:0;font-family:'Inter',Arial,Helvetica,sans-serif;font-size:12px;color:#666666;line-height:1.5;">
+                      Este enlace expira en 1 hora.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <!-- footer -->
+          <tr>
+            <td align="center" style="padding-top:24px;">
+              <p style="margin:0;font-family:'Inter',Arial,Helvetica,sans-serif;font-size:12px;color:#666666;letter-spacing:0.3px;">
+                — El equipo de Samay
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

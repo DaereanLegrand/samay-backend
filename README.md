@@ -8,7 +8,7 @@ layer never touches Postgres — it uses PostgREST via Kong with the
 ## Make
 
 - `make init` → `make start` — dev/testing (local Docker stack, `543xx`); `make tunnel` to expose it.
-- `make start PROD=true` · `make deploy PROD=true` — prod VM + vault (Admin-only, vault passphrase).
+- `make start PROD=true` · `make deploy` — prod VM + vault (Admin-only, vault passphrase).
 - `make test` · `make test db` (pgTAP) · `make test api` (curl) · `make check` · `make secrets|migrate|hooks`.
 - `make build-cli|build-linux|build-api|build-loadtest` · `make loadtest [smoke]`.
 
