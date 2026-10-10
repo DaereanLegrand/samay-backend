@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1023);
+SELECT plan(1033);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -2382,6 +2382,32 @@ SELECT has_function('notify_feature_request', ARRAY[]::name[],
     'notify_feature_request exists (NTRG #8)');
 SELECT has_trigger('feature_requests', 'notify_feature_request_trigger',
     'feature_requests has notify_feature_request_trigger');
+
+-- ============================================================
+-- SECTION 54b: Device tokens + push bookkeeping (migration 223_device_tokens)
+-- ============================================================
+SELECT has_table('public', 'device_tokens', 'device_tokens exists (223)');
+SELECT has_column('public', 'notifications', 'push_sent_at',
+    'notifications.push_sent_at exists (223)');
+SELECT has_function('public', 'register_device_token', ARRAY['text', 'text']::name[],
+    'register_device_token(text, text) exists (223)');
+SELECT is_definer('public', 'register_device_token', ARRAY['text', 'text']::name[],
+    'register_device_token is SECURITY DEFINER');
+SELECT function_privs_are('public', 'register_device_token',
+    ARRAY['text', 'text']::name[], 'anon', ARRAY[]::name[],
+    'anon has NO EXECUTE on register_device_token');
+SELECT function_privs_are('public', 'register_device_token',
+    ARRAY['text', 'text']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'authenticated can EXECUTE register_device_token');
+SELECT has_function('public', 'unregister_device_token', ARRAY['text']::name[],
+    'unregister_device_token(text) exists (223)');
+SELECT function_privs_are('public', 'unregister_device_token',
+    ARRAY['text']::name[], 'authenticated', ARRAY['EXECUTE'],
+    'authenticated can EXECUTE unregister_device_token');
+SELECT has_function('notify_minigame_turn', ARRAY[]::name[],
+    'notify_minigame_turn exists (224 — generic minigame turn)');
+SELECT has_trigger('minigame_game_state', 'notify_minigame_turn_trigger',
+    'minigame_game_state has notify_minigame_turn_trigger (224)');
 
 
 -- ============================================================

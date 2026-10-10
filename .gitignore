@@ -6,6 +6,8 @@
 /samay
 /samay-linux
 /samay-loadtest
+/samay-api-server
+/samay-pushworker
 *.exe
 
 # Environment

@@ -1,0 +1,14 @@
+# Build context for Dockerfile.pushworker — keep the image build to source only.
+.git
+.gitignore
+**/.env
+**/.env.*
+**/*.log
+docs
+test
+supabase
+samay
+samay-linux
+samay-api-server
+samay-loadtest
+samay-pushworker

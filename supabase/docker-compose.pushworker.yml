@@ -1,0 +1,37 @@
+# =============================================================================
+# docker-compose.pushworker.yml — Samay push dispatcher (Track 2 PUSH).
+#
+# Kept OUT of the base docker-compose.yml so a future upstream Supabase compose
+# update stays a clean, whole-file swap (the base file is otherwise the upstream
+# distribution). Included by:
+#   * local: supabase/.env  (COMPOSE_FILE=…:docker-compose.pushworker.yml:docker-compose.pushworker-build.yml)
+#   * prod:  tools/<deploy-env> (COMPOSE_FILES += docker-compose.pushworker.yml)
+#
+# NO `build:` here — the image is supplied out of band:
+#   * local: docker-compose.pushworker-build.yml (adds build: from the repo)
+#   * prod:  a preloaded `samay-pushworker:prod` (<deploy-override> fails
+#            fast if PUSHWORKER_IMAGE is unset)
+#
+# The worker polls `notifications` and dispatches via FCM HTTP v1, through Kong.
+# The FCM service account is injected as base64 (no secret file mounted); with
+# no credential set the worker logs and idles.
+# =============================================================================
+services:
+  pushworker:
+    container_name: samay-pushworker
+    # Gated behind the `fcm` compose profile: the worker only starts when the
+    # profile is active (COMPOSE_PROFILES=fcm). testing opts in with FCM=true;
+    # staging/prod are always on by default. Absent/false ⇒ the service is not
+    # created at all (no idle container).
+    profiles: ["fcm"]
+    image: ${PUSHWORKER_IMAGE:-samay-pushworker:local}
+    restart: unless-stopped
+    depends_on:
+      kong:
+        condition: service_healthy
+    environment:
+      SUPABASE_URL: http://samay-kong:8000
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SUPABASE_FCM_SERVICE_ACCOUNT_JSON_B64: ${SUPABASE_FCM_SERVICE_ACCOUNT_JSON_B64:-}
+      PUSH_POLL_INTERVAL: ${PUSH_POLL_INTERVAL:-15s}
+      PUSH_BATCH_SIZE: ${PUSH_BATCH_SIZE:-100}

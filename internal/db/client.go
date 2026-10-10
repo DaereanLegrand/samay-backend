@@ -36,6 +36,9 @@ func (c *DBClient) request(ctx context.Context, method, path string, body io.Rea
 		return nil, fmt.Errorf("http request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.ServiceKey)
+	// Kong's `key-auth` on /rest/v1/ reads the `apikey` header (Supabase
+	// convention); Bearer alone yields 401 "No API key found in request".
+	req.Header.Set("apikey", c.ServiceKey)
 	req.Header.Set("Content-Type", "application/json")
 	if method == "GET" {
 		req.Header.Set("Accept", "application/json")

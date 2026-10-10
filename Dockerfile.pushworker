@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1
+# samay-pushworker — FCM HTTP v1 dispatcher (Track 2 PUSH).
+#
+# Static, CGO-free binary on distroless (no shell, non-root). The FCM service
+# account is injected at runtime (SUPABASE_FCM_SERVICE_ACCOUNT_JSON_B64 or a
+# mounted _JSON path) — never baked into the image.
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" \
+      -o /out/samay-pushworker ./cmd/samay-pushworker
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/samay-pushworker /usr/local/bin/samay-pushworker
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/samay-pushworker"]

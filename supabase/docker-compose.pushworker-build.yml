@@ -1,0 +1,17 @@
+# =============================================================================
+# docker-compose.pushworker-build.yml — LOCAL-ONLY build overlay.
+#
+# Adds `build:` for the push dispatcher so `docker compose up` (from `make
+# start`) builds `samay-pushworker:local` straight from the repo. NEVER listed in
+# the VM COMPOSE_FILES: the prod VM has no Go source (GIT_SUBTREE=supabase) and
+# uses a preloaded `samay-pushworker:prod` image instead.
+#
+# Compose builds only when the image is missing (no --build), so this is a
+# one-time build; later `make start` reuses the image. Rebuild after Go changes:
+#   docker compose build pushworker
+# =============================================================================
+services:
+  pushworker:
+    build:
+      context: ..
+      dockerfile: Dockerfile.pushworker
