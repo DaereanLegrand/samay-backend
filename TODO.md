@@ -10,6 +10,11 @@
 - [ ] Comment prune / doc trims (AGENTS.md still carries frontend/infra sections).
 - [ ] TODO(vault): server profile under `qallariy/admin/**` reorg.
 - [ ] TODO(utm): `<deploy-target>` `.200` (present; reprovision/verify).
+- [ ] Staging backend: `<staging-target>` `.202` (tooling ready:
+      `make -C <private-ops-repo> start PROD=true APP=samay-staging`; profile
+      `apps/samay-staging.env` + `fetch staging` vault profile). Needs the
+      staging VM + vault `qallariy/samay/staging/**`. Runbook:
+      `<private-ops-repo>/STAGING.md`.
 - [x] Migrations are re-run safe: `public._qallariy_migrations` ledger in
       `tools/apply_migrations.sh` (mirrored in `<guest-script>`) → `make start`
       applies only pending files. A pre-ledger DB adopts **once** with
