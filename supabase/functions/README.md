@@ -1,15 +1,16 @@
-# Supabase Edge Functions — placeholder directory (M-07, 2026-08-10)
+# Supabase Edge Functions (M-07, 2026-08-10)
 
-> **Status: NO business functions yet.** `EEDG` (Edge Functions: Event Lifecycle)
-> is a future step — this directory exists so the self-hosted stack's
-> `functions` service (supabase/edge-runtime) can boot.
+> `main/index.ts` is still the **boot placeholder** the pinned
+> `supabase/edge-runtime:v1.74.0` image requires; real business functions are
+> served from their own directories (the runtime loads `/<name>/index.ts`).
 
 ## What lives here today
 
 | Path | Purpose |
 |---|---|
 | `.gitkeep` | keeps the directory in git |
-| `main/index.ts` | **boot placeholder** — the pinned `supabase/edge-runtime:v1.74.0` image **requires** a main-service entrypoint (verified in the edge-runtime source: without `main/index.ts` the main worker boot fails and the container crash-loops). It is NOT a business function; replace it when real functions land (EEDG). |
+| `main/index.ts` | **boot placeholder** — required main-service entrypoint. |
+| `revenuecat-webhook/index.ts` | **RevenueCat webhook handler (RCBH)** — idempotent subscription sync. Requires `REVENUECAT_WEBHOOK_SECRET` (inert/fail-closed without it). Local: `make start RC=true`; staging/prod: the vault `server.env` + the `functions` compose override. |
 | `README.md` | this file |
 
 ## EEDG workflow (when functions land)

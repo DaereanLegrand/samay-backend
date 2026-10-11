@@ -361,6 +361,13 @@ services:
       SUPABASE_SECRET_KEYS: "{\"default\":\"${SUPABASE_SECRET_KEY:-}\"}"
       SUPABASE_DB_URL: postgresql://postgres:postgres@samay-db:5432/postgres
       VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT:-false}"
+      # RevenueCat webhook handler (RCBH). Inert until REVENUECAT_WEBHOOK_SECRET
+      # is supplied (the function fails closed on a missing/blank secret). The
+      # secret + REST key are injected into the shell env by `make start RC=true`
+      # (vault-fetched, FCM pattern) — never committed, never on disk.
+      REVENUECAT_WEBHOOK_SECRET: ${REVENUECAT_WEBHOOK_SECRET:-}
+      REVENUECAT_API_KEY: ${REVENUECAT_API_KEY:-}
+      SYSTEM_ADMIN_USER_ID: ${SYSTEM_ADMIN_USER_ID:-00000000-0000-0000-0000-000000000000}
     command: ["start", "--main-service", "/home/deno/functions/main"]
 
 volumes:

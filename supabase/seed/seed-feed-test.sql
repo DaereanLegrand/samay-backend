@@ -101,7 +101,7 @@ ON CONFLICT (id) DO NOTHING;
 -- ════════════════════════════════════════════════════════════════════════════
 INSERT INTO public.users (
   id, username, avatar_url, date_of_birth, bio, personal_shards, preshards,
-  subscription_tier, entitlement_tier, interest_tags, discovery_opt_in,
+  subscription_tier, interest_tags, discovery_opt_in,
   profile_public, read_receipts_enabled, minigame_invite_friends_only,
   notification_preferences, created_at, updated_at
 )
@@ -123,7 +123,6 @@ SELECT
   100 + (k * 137) % 4900,
   (k * 53) % 12,
   (CASE k % 10 WHEN 0 THEN 'vip' WHEN 1 THEN 'pro' WHEN 2 THEN 'pro' WHEN 3 THEN 'pro' ELSE 'free' END)::public.subscription_tier,
-  (CASE k % 10 WHEN 0 THEN 't0' WHEN 1 THEN 't1' WHEN 2 THEN 't2' ELSE 'free' END)::public.entitlement_tier,
   (CASE (k - 1) % 5
      WHEN 0 THEN ARRAY['fiesta','música','baile']
      WHEN 1 THEN ARRAY['juegos','estrategia','retos']

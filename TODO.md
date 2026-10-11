@@ -10,6 +10,13 @@
 - [ ] Comment prune / doc trims (AGENTS.md still carries frontend/infra sections).
 - [ ] TODO(vault): server profile under `qallariy/admin/**` reorg.
 - [ ] TODO(utm): `<deploy-target>` `.200` (present; reprovision/verify).
+- [x] RevenueCat server (RCBH): `revenuecat-webhook` Edge Function + SOVR
+      `reconcile_subscription_overrides()` (pg_cron 15 min) + `webhook_failures`;
+      migration `225_subscription_refactor` (capacity → `subscription_tier`,
+      `entitlement_tier` dropped). Local: `make start RC=true`
+      (`tools/<fetch-rc-secret>.sh`, vault `*-rc` profile); staging/prod: vault
+      `server.env` + `vm-*.override.yml`. Remaining (owner): RC console + vault
+      entries — `<private-ops-repo>/REVENUECAT-TODO.md`.
 - [ ] Staging backend: `<staging-target>` `.202` (tooling ready:
       `make -C <private-ops-repo> start PROD=true APP=samay-staging`; profile
       `apps/samay-staging.env` + `fetch staging` vault profile). Needs the

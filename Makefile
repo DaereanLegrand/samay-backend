@@ -4,7 +4,7 @@
 # optional <private-ops-repo> submodule (Admin access) + a vault passphrase.
 .PHONY: help init tunnel start stop status reset nuke seed in-db logs \
         build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image loadtest \
-        test check lint secrets migrate migrate-adopt fetch-fcm hooks guard-prod \
+        test check lint secrets migrate migrate-adopt fetch-fcm <fetch-rc-secret> hooks guard-prod \
         db api smoke
 
 # Identity (single source of truth) — inferred, never passed by callers.
@@ -42,11 +42,26 @@ else
 FCM_FETCH :=
 endif
 
+# ── RevenueCat gate (RCBH) ───────────────────────────────────────────────────
+# Same opt-in shape as FCM: `make start RC=true` fetches the env's RevenueCat
+# server secrets from the vault (tools/<fetch-rc-secret>.sh, <env>-rc profile) and exports
+# them into the compose shell env (shell env overrides --env-file). RC unset/
+# false ⇒ no fetch, no secrets ⇒ the webhook function fails closed. staging/prod
+# supply these via their vault-merged env instead (no flag).
+RC ?= false
+RC_ENV ?= testing
+ifeq ($(RC),true)
+RC_FETCH := eval "$$(VAULT_PROFILE=$(RC_ENV)-rc bash tools/<fetch-rc-secret>.sh)" &&
+else
+RC_FETCH :=
+endif
+
 help:
 	@echo "Samay backend — make targets (PROD unset = dev/testing; PROD=true = prod)"
 	@echo "  SETUP:       init"
 	@echo "  DEV/TESTING: start stop status reset nuke seed tunnel in-db logs"
 	@echo "  PUSH:        FCM=true (CLI/env only) fetches the vault + runs samay-pushworker (profile fcm; staging/prod always on)"
+	@echo "  RC:          RC=true [RC_ENV=testing|staging] (CLI/env only) fetches the vault + enables the revenuecat-webhook function"
 	@echo "  SUITES:      test [db|api]        loadtest [smoke]"
 	@echo "  BUILD:       build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image"
 	@echo "  GATES:       check lint secrets migrate migrate-adopt fetch-fcm hooks"
@@ -75,7 +90,7 @@ status: guard-prod
 	@$(MAKE) -C $(INFRA) status PROD=true APP=$(APP)
 else
 start:
-	@$(FCM_FETCH) cd supabase && docker compose $(PUSH_PROFILE) --env-file .env up -d && \
+	@$(FCM_FETCH)$(RC_FETCH) cd supabase && docker compose $(PUSH_PROFILE) --env-file .env up -d && \
 		docker compose $(PUSH_PROFILE) --env-file .env up -d --wait db auth && \
 		bash ../tools/apply_migrations.sh supabase && \
 		PGPASSWORD=postgres psql -h localhost -p 54382 -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed-config.sql
@@ -87,7 +102,7 @@ endif
 
 reset:
 	@[ "$(PROD)" != "true" ] || { echo "refusing to reset prod via make; run the VM reset explicitly"; exit 1; }
-	@$(FCM_FETCH) cd supabase && docker compose $(PUSH_PROFILE) --env-file .env down -v && \
+	@$(FCM_FETCH)$(RC_FETCH) cd supabase && docker compose $(PUSH_PROFILE) --env-file .env down -v && \
 		rm -rf volumes/storage && \
 		(docker volume rm samay_db-data samay_rustfs-data 2>/dev/null || true) && \
 		docker compose $(PUSH_PROFILE) --env-file .env up -d && \
@@ -191,6 +206,10 @@ migrate-adopt:
 # disk). `make start FCM=true` calls this automatically.
 fetch-fcm:
 	@bash tools/<fetch-fcm-secret>.sh
+# Fetch the env's RevenueCat server secrets from the vault (owner-run; prints
+# `export KEY=value` lines; nothing on disk). `make start RC=true` calls it.
+<fetch-rc-secret>:
+	@VAULT_PROFILE=$(RC_ENV)-rc bash tools/<fetch-rc-secret>.sh
 hooks:
 	@git config core.hooksPath tools/hooks
 	@[ -x tools/hooks/pre-commit ] || { echo "tools/hooks/pre-commit missing or not executable"; exit 1; }

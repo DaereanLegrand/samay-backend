@@ -58,16 +58,15 @@ BEGIN
   END IF;
 
   -- The capacity trigger (`assert_event_capacity`) rejects any capacity above
-  -- the CREATOR's entitlement-tier cap, read from app_config — mirror it here.
+  -- the CREATOR's subscription-tier cap, read from app_config — mirror it here.
   SELECT COALESCE(value::integer, 7) INTO v_cap
   FROM public.app_config
   WHERE key = (
     SELECT CASE (
-      SELECT entitlement_tier FROM public.users WHERE id = v_host
+      SELECT subscription_tier FROM public.users WHERE id = v_host
     )
-      WHEN 't2'::public.entitlement_tier THEN 'events.t2_max_attendees'
-      WHEN 't1'::public.entitlement_tier THEN 'events.t1_max_attendees'
-      WHEN 't0'::public.entitlement_tier THEN 'events.t0_max_attendees'
+      WHEN 'pro'::public.subscription_tier THEN 'events.pro_max_attendees'
+      WHEN 'vip'::public.subscription_tier THEN 'events.vip_max_attendees'
       ELSE 'events.free_max_attendees'
     END
   );

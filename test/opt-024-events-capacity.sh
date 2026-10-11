@@ -8,8 +8,8 @@ set -uo pipefail
 #      with 'capacity_exceeds_tier'
 #   B) free-tier creator CAN create an event at capacity 7 (default seat
 #      accounting: creator host row + capacity frozen server-side)
-#   C) raising the creator's entitlement_tier to t2 (service_role, the only
-#      writer today) lifts the cap to 14; 15 is rejected again
+#   C) raising the creator's subscription_tier to PRO (service_role, the only
+#      writer today) lifts the cap to 56; 57 is rejected again
 #   D) service_role direct insert WITHOUT capacity gets the tier default (7
 #      for the free creator); event_seats_used returns 1 for a fresh event
 #      (the host seat)
@@ -152,21 +152,21 @@ if [ -n "$EV1" ]; then
 fi
 
 # =========================================================================
-# TEST C — t2 entitlement: cap lifts to 14
+# TEST C — PRO subscription: cap lifts to 56
 # =========================================================================
-h1 "TEST C — t2 creator cap = 14"
-svc_patch "users?id=eq.$UUID_A" '{"entitlement_tier":"t2"}' > /dev/null
-ok "Raised A entitlement_tier to t2 (service_role)"
+h1 "TEST C — PRO creator cap = 56"
+svc_patch "users?id=eq.$UUID_A" '{"subscription_tier":"pro"}' > /dev/null
+ok "Raised A subscription_tier to pro (service_role)"
 
-resp=$(rpc_create_event "$TOKEN_A" "$BASE,\"p_capacity\":14}")
+resp=$(rpc_create_event "$TOKEN_A" "$BASE,\"p_capacity\":56}")
 EV2=$(echo "$resp" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-if [ -n "$EV2" ]; then ok "Created event at capacity 14 (t2)"; else nok "t2 cap-14 create failed: $(echo "$resp" | head -c 160)"; fi
+if [ -n "$EV2" ]; then ok "Created event at capacity 56 (pro)"; else nok "pro cap-56 create failed: $(echo "$resp" | head -c 160)"; fi
 
-resp=$(rpc_create_event "$TOKEN_A" "$BASE,\"p_capacity\":15}")
+resp=$(rpc_create_event "$TOKEN_A" "$BASE,\"p_capacity\":57}")
 if echo "$resp" | grep -qi "capacity_exceeds_tier"; then
-  ok "capacity 15 on t2 rejected (capacity_exceeds_tier)"
+  ok "capacity 57 on pro rejected (capacity_exceeds_tier)"
 else
-  nok "capacity 15 should be rejected on t2: $(echo "$resp" | head -c 120)"
+  nok "capacity 57 should be rejected on pro: $(echo "$resp" | head -c 120)"
 fi
 
 # =========================================================================
