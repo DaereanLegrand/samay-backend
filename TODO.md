@@ -1,5 +1,8 @@
 # TODO — samay-backend
 
+> Live cross-cutting state lives in **`<private-ops-repo>/STATUS.md`** (CURRENT STATE ·
+> WIP · BACKLOG). This file is **repo-scoped only**.
+
 ## Facts
 - Go CLI/API (`github.com/samay-app/samay`) + one self-hosted Supabase stack (`supabase/`).
 - Single stack (no testing mirror); unique ports 543xx; mailpit local sink.
