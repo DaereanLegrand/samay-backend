@@ -6,6 +6,9 @@
 //
 // Contract (docs/specs/steps/phase-12-monetization-subscriptions/
 // RCBH-revenuecat-webhook-handler.md):
+//   * The tier is read STRICTLY from RevenueCat REST API v2
+//     (GET /v2/projects/{id}/customers/{user}) — the event payload is not
+//     trusted for the tier, and there is no payload fallback.
 //   * Idempotent: every event id is recorded in public.processed_webhooks.
 //   * Subscription events update users.subscription_tier +
 //     subscription_expires_at through the SECURITY DEFINER RPC
@@ -21,6 +24,12 @@ const encoder = new TextEncoder();
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const WEBHOOK_SECRET = Deno.env.get("REVENUECAT_WEBHOOK_SECRET") ?? "";
+// RevenueCat REST API v2 — the strict resync source of truth. Both are required
+// for any tier change; when either is unset the handler fails closed (records a
+// webhook_failure) instead of guessing from the event payload.
+const RC_API_KEY = Deno.env.get("REVENUECAT_API_KEY") ?? "";
+const RC_PROJECT_ID = Deno.env.get("REVENUECAT_PROJECT_ID") ?? "";
+const RC_API_BASE = "https://api.revenuecat.com/v2";
 
 // Events that (re)assert a paid tier.
 const TIER_EVENTS = new Set([
@@ -61,19 +70,53 @@ async function rest(path: string, init: RequestInit = {}): Promise<Response> {
   });
 }
 
-// Resolve the subscription tier from the payload's entitlements (preferred) or
-// the product id. Returns "free" when the event carries no paid entitlement
-// (e.g. a consumable).
-function resolveTier(evt: Record<string, unknown>): "pro" | "vip" | "free" {
-  const ent = Array.isArray(evt.entitlement_ids)
-    ? (evt.entitlement_ids as unknown[]).map((e) => String(e).toLowerCase())
-    : [];
-  if (ent.includes("vip")) return "vip";
-  if (ent.includes("pro")) return "pro";
-  const product = String(evt.product_id ?? "").toLowerCase();
-  if (product.includes("vip")) return "vip";
-  if (product.includes("pro")) return "pro";
-  return "free";
+// Read the customer from RevenueCat REST API v2 — the source of truth for the
+// tier. `GET /v2/projects/{project_id}/customers/{customer_id}` returns the
+// customer's `active_entitlements`; the tier is derived from the entitlement
+// ids by SUBSTRING (`*vip*` → vip, else `*pro*` → pro), because entitlement ids
+// are project/environment-scoped (`samay_staging_pro`, `samay_testing_vip`).
+// `expires_at` is the latest matching entitlement expiry (ms epoch). No active
+// paid entitlement ⇒ "free".
+//
+// This is STRICT: any failure (non-2xx, network, missing config) throws so the
+// event is queued as a webhook_failure — there is no event-payload fallback.
+async function rcCustomerTier(
+  userId: string,
+): Promise<{ tier: "pro" | "vip" | "free"; expires: string | null }> {
+  if (!RC_API_KEY || !RC_PROJECT_ID) {
+    throw new Error(
+      "RevenueCat v2 not configured (REVENUECAT_API_KEY / REVENUECAT_PROJECT_ID)",
+    );
+  }
+  const url = `${RC_API_BASE}/projects/${encodeURIComponent(RC_PROJECT_ID)}` +
+    `/customers/${encodeURIComponent(userId)}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${RC_API_KEY}` },
+  });
+  if (!res.ok) {
+    throw new Error(`rc v2 customer ${res.status}: ${await res.text()}`);
+  }
+  const data = (await res.json()) as {
+    active_entitlements?: {
+      items?: Array<{ entitlement_id?: string; expires_at?: number | null }>;
+    };
+  };
+  const items = data.active_entitlements?.items ?? [];
+  let pro = false;
+  let vip = false;
+  let expiresMs = 0;
+  for (const it of items) {
+    const ent = String(it.entitlement_id ?? "").toLowerCase();
+    if (ent.includes("vip")) vip = true;
+    else if (ent.includes("pro")) pro = true;
+    else continue;
+    const ms = Number(it.expires_at ?? 0);
+    if (ms > expiresMs) expiresMs = ms;
+  }
+  return {
+    tier: vip ? "vip" : pro ? "pro" : "free",
+    expires: expiresMs > 0 ? new Date(expiresMs).toISOString() : null,
+  };
 }
 
 async function alreadyProcessed(eventId: string): Promise<boolean> {
@@ -187,19 +230,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return Response.json({ ok: true, skipped: "non_uuid_app_user_id" });
     }
 
-    if (RESET_EVENTS.has(type)) {
-      await applyState(userId, "free", null, type);
-    } else if (TIER_EVENTS.has(type)) {
-      const tier = resolveTier(evt);
-      if (tier !== "free") {
-        const ms = Number(evt.expiration_at_ms ?? 0);
-        const expires = ms > 0 ? new Date(ms).toISOString() : null;
-        await applyState(userId, tier, expires, type);
-      }
-      // tier === "free" (e.g. a consumable) -> no subscription change.
-    } else if (!IGNORED_EVENTS.has(type)) {
-      // Unknown event type: ack (future-proofing) without a state change.
+    // Tier-affecting events (purchase / renew / expire) resync STRICTLY from
+    // the RevenueCat v2 customer record — the event payload is never trusted
+    // for the tier. A failed resync throws → recorded as a webhook_failure and
+    // ACKed 200 (we own the retry queue; RC must not retry-storm).
+    if (TIER_EVENTS.has(type) || RESET_EVENTS.has(type)) {
+      const { tier, expires } = await rcCustomerTier(userId);
+      await applyState(userId, tier, expires, type);
     }
+    // IGNORED / unknown events: ack (future-proofing) without a state change.
 
     await markProcessed(id, type);
     return Response.json({ ok: true });
