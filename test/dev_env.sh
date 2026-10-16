@@ -4,8 +4,7 @@
 #
 # Resolves SUPABASE_URL / ANON_KEY / SERVICE_KEY with this precedence:
 #   1. explicit environment variables (ANON_KEY / SERVICE_KEY / SUPABASE_URL)
-#   2. gitignored stack env files: supabase/.env, supabase/.env,
-#      supabase/.env.local, supabase/.env.local
+#   2. the single stack env file: supabase/.env
 #
 # This file contains NO secrets and must never gain any: real keys live only
 # in the gitignored env files above (enforced by tools/check_secrets.sh,
@@ -21,10 +20,7 @@ load_stack_key() { # load_stack_key <ENV_NAME>
   local name="$1" val="" f
   if [ -n "${!name:-}" ]; then printf '%s' "${!name}"; return 0; fi
   for f in \
-    "$_samay_root/supabase/.env" \
-    "$_samay_root/supabase/.env" \
-    "$_samay_root/supabase/.env.local" \
-    "$_samay_root/supabase/.env.local"; do
+    "$_samay_root/supabase/.env"; do
     if [ -r "$f" ]; then
       val="$(grep -E "^${name}=" "$f" | head -1 | cut -d= -f2- | tr -d '"')"
       [ -n "$val" ] && { printf '%s' "$val"; return 0; }

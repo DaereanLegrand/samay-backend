@@ -3,7 +3,7 @@
 ## Facts
 - Go CLI/API (`github.com/samay-app/samay`) + one self-hosted Supabase stack (`supabase/`).
 - Single stack (no testing mirror); unique ports 543xx; mailpit local sink.
-- `make init` (gum) · `make start` local Docker · `make start PROD=true` VM+vault.
+- `make init` (gum) · `make start` local Docker · `make start ENV=staging|prod` VM+vault.
 - CI: `.gitea/workflows/ci.yml`.
 
 ## TODO
@@ -18,7 +18,8 @@
       `server.env` + `vm-*.override.yml`. Remaining (owner): RC console + vault
       entries — `<private-ops-repo>/REVENUECAT-TODO.md`.
 - [ ] Staging backend: `<staging-target>` `.202` (tooling ready:
-      `make -C <private-ops-repo> start PROD=true APP=samay-staging`; profile
+      `make start ENV=staging` (in `Samay/backend`) / `make -C <private-ops-repo> start PROD=true APP=samay-staging`;
+      profile
       `apps/samay-staging.env` + `fetch staging` vault profile). Needs the
       staging VM + vault `qallariy/samay/staging/**`. Runbook:
       `<private-ops-repo>/STAGING.md`.

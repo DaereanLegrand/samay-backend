@@ -22,8 +22,8 @@ done
 
 # Separation: no frontend-only targets may be defined here.
 for t in build dev install build-install uninstall clear prepare signing-restore \
-         analyze env tunnel-android tunnel-waydroid login ios-beta ios-release \
-         android-alpha android-release bundle-install; do
+         analyze env tunnel-android tunnel-waydroid login track-guard deploy \
+         publish release bundle-install; do
   if grep -qE "^$t:" "$MAKEFILE"; then fail "frontend target '$t' leaked into backend Makefile"; fi
 done
 pass "no frontend-only targets defined"

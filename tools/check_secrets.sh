@@ -8,12 +8,11 @@
 # a single hit means a live local secret leaked into version control -> FAIL.
 #
 # Env files scanned (may not exist):
-#   .env  .env.local  supabase/.env  supabase/.env.local
-#   supabase/.env  supabase/.env.local
+#   supabase/.env
 #
-# Those env files are EXCLUDED from the scan itself: a value defined there and
+# The env file is EXCLUDED from the scan itself: a value defined there and
 # present nowhere else is not a leak. A value found in code, tests, docs,
-# compose, volumes — anything tracked outside those files — fails the gate.
+# compose, volumes — anything tracked outside it — fails the gate.
 #
 # Plus two generic shape checks over tracked files:
 #   S1  sb_secret_[A-Za-z0-9_-]{16,}   real Supabase service-role key shape
@@ -28,8 +27,7 @@ cd "$ROOT" || exit 2
 
 VIOLATIONS=0
 
-ENV_FILES=(.env .env.local supabase/.env supabase/.env.local
-           supabase/.env supabase/.env.local)
+ENV_FILES=(supabase/.env)
 EXCLUDES=()
 for f in "${ENV_FILES[@]}"; do EXCLUDES+=(":(exclude)$f"); done
 

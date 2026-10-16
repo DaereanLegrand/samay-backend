@@ -7,14 +7,18 @@
         test check lint secrets migrate migrate-adopt fetch-fcm <fetch-rc-secret> hooks guard-prod \
         db api smoke
 
+# Single environment selector. Values: local (default, Docker) | staging | prod.
+# `staging` targets the dedicated staging VM (`samay-staging` profile); `prod`
+# the flat prod profile. `PROD` (VM + vault path) is derived — never typed.
+ENV  ?= local
+PROD := $(if $(filter staging prod,$(ENV)),true,false)
 # Identity (single source of truth) — inferred, never passed by callers.
-APP := $(shell cat .qallariy-app 2>/dev/null)
+APP_DEFAULT := $(shell cat .qallariy-app 2>/dev/null)
+APP := $(if $(filter staging,$(ENV)),$(APP_DEFAULT)-staging,$(APP_DEFAULT))
 export APP
 # Optional <private-ops-repo> submodule (monorepo sibling fallback).
 INFRA := $(firstword $(wildcard infra) $(wildcard ../../<private-ops-repo>))
 -include $(INFRA)/make/app.mk
-
-PROD      ?= false
 TUNNEL    ?= quick
 GO_BIN         := samay
 GO_BIN_LINUX   := samay-linux
@@ -57,7 +61,7 @@ RC_FETCH :=
 endif
 
 help:
-	@echo "Samay backend — make targets (PROD unset = dev/testing; PROD=true = prod)"
+	@echo "Samay backend — make targets (ENV=local (default) = Docker; ENV=staging|prod = VM + vault)"
 	@echo "  SETUP:       init"
 	@echo "  DEV/TESTING: start stop status reset nuke seed tunnel in-db logs"
 	@echo "  PUSH:        FCM=true (CLI/env only) fetches the vault + runs samay-pushworker (profile fcm; staging/prod always on)"
@@ -65,10 +69,7 @@ help:
 	@echo "  SUITES:      test [db|api]        loadtest [smoke]"
 	@echo "  BUILD:       build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image"
 	@echo "  GATES:       check lint secrets migrate migrate-adopt fetch-fcm hooks"
-	@echo "  PROD:        start PROD=true   deploy"
-
-init:
-	@bash tools/init.sh
+	@echo "  ENV:         start ENV=staging|prod   deploy   (VM + vault; local default = Docker)"
 
 tunnel:
 	@MODE=$(TUNNEL) bash tools/tunnel.sh $(TUNNEL)
@@ -82,6 +83,11 @@ guard-prod:
 
 # ── Lifecycle: local Docker by default, VM + vault when PROD=true ────────────
 ifeq ($(PROD),true)
+# Vault-gated env init: reconcile the vault profile (Reuse / Re-generate via the
+# broker gate), then clone/register the env's VM (idempotent).
+init: guard-prod
+	@bash tools/<secret-init>.sh $(APP_DEFAULT) $(ENV)
+	@$(MAKE) -C $(INFRA) init PROD=true APP=$(APP)
 start: guard-prod
 	@$(MAKE) -C $(INFRA) start PROD=true APP=$(APP)
 stop: guard-prod
@@ -89,6 +95,8 @@ stop: guard-prod
 status: guard-prod
 	@$(MAKE) -C $(INFRA) status PROD=true APP=$(APP)
 else
+init:
+	@bash tools/init.sh
 start:
 	@$(FCM_FETCH)$(RC_FETCH) cd supabase && docker compose $(PUSH_PROFILE) --env-file .env up -d && \
 		docker compose $(PUSH_PROFILE) --env-file .env up -d --wait db auth && \
@@ -151,7 +159,7 @@ loadtest: build-loadtest
 	@case "$(filter smoke,$(MAKECMDGOALS))" in \
 	  smoke) \
 	    SVC=$$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
-	    ANON=$$(grep -E '^SUPABASE_ANON_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"'); \
+	    ANON=$(grep -E '^SUPABASE_ANON_KEY=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
 	    SEC=$$(grep -E '^JWT_SECRET=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
 	    $(LOADTEST_BIN) --url "$(LOADTEST_URL)" --anon-key "$$ANON" --service-key "$$SVC" \
 	      --jwt-secret "$$SEC" --yes --run-id "smoke$$(date +%s)" \
@@ -159,7 +167,7 @@ loadtest: build-loadtest
 	      --workers 4 --duration 8s --realtime 3 ;; \
 	  *) \
 	    SVC=$$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
-	    ANON=$$(grep -E '^SUPABASE_ANON_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"'); \
+	    ANON=$(grep -E '^SUPABASE_ANON_KEY=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
 	    SEC=$$(grep -E '^JWT_SECRET=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
 	    echo "loadtest -> $(LOADTEST_URL) (creates data; no cleanup)"; \
 	    $(LOADTEST_BIN) --url "$(LOADTEST_URL)" --anon-key "$$ANON" --service-key "$$SVC" \

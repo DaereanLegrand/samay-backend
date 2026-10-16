@@ -69,7 +69,7 @@ func init() {
 }
 
 func initConfig() {
-	_ = godotenv.Load()
+	_ = godotenv.Load("supabase/.env")
 	for _, key := range envKeys {
 		_ = viper.BindEnv(key)
 	}

@@ -90,12 +90,16 @@ client_id = ""
 secret = ""
 skip_nonce_check = true
 
-# Apple OAuth provider (native Sign in with Apple). client_id is the Apple
-# Services ID; secret is the generated ES256 client-secret JWT. Disabled
-# locally; prod values come from the vault `server` profile.
+# Apple OAuth provider (native Sign in with Apple). For the native-only flow the
+# client_id is the App ID / bundle id and no secret is required: GoTrue's
+# id_token grant checks the token audience against the client-id list and never
+# constructs the Apple provider. The secret (generated ES256 client-secret JWT,
+# Services ID) is only needed for the web /authorize redirect flow and comes
+# from the vault `server` profile in prod. Config.toml is not read by the
+# `docker compose` testing stack; this mirrors backend/supabase/.env.
 [auth.external.apple]
-enabled = false
-client_id = ""
+enabled = true
+client_id = "com.qallariy.samay"
 secret = ""
 
 [auth.sms]

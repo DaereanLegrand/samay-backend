@@ -48,7 +48,7 @@ func main() {
 }
 
 func run() error {
-	_ = godotenv.Load()
+	_ = godotenv.Load("supabase/.env")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -39,7 +39,7 @@ func main() {
 }
 
 func run() error {
-	_ = godotenv.Load()
+	_ = godotenv.Load("supabase/.env")
 	initConfig()
 	if err := validateEnv(); err != nil {
 		return err
