@@ -8,7 +8,7 @@ set -uo pipefail
 # 37 scripts today): opt-001…016 and opt-018…039 (there is NO opt-017). The
 # stack-free static gates are opt-005 (seed-config/seed-test parity), opt-007
 # (compose/config/ports), opt-008 (Makefile/platform/signing contract),
-# opt-034 (Gitea workflows + Xcode Cloud), opt-036 (UTM/CI bootstrap media
+# opt-034 (Gitea workflows + Xcode Cloud), opt-036 (VM/CI bootstrap media
 # root), opt-037 (Qallariy Mail bootstrap), opt-038 (boot-time root expand)
 # and opt-039 (<vm-tooling> generic tooling); every other script is a LIVE
 # curl test.

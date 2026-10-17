@@ -12,7 +12,7 @@
 ## TODO
 - [ ] Comment prune / doc trims (AGENTS.md still carries frontend/infra sections).
 - [ ] TODO(vault): server profile under `qallariy/admin/**` reorg.
-- [ ] TODO(utm): `<deploy-target>` `.200` (present; reprovision/verify).
+- [ ] TODO: `<deploy-target>` `.200` (present; reprovision/verify).
 - [x] RevenueCat server (RCBH): `revenuecat-webhook` Edge Function + SOVR
       `reconcile_subscription_overrides()` (pg_cron 15 min) + `webhook_failures`;
       migration `225_subscription_refactor` (capacity → `subscription_tier`,
