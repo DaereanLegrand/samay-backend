@@ -20,11 +20,13 @@
       (`tools/<fetch-rc-secret>.sh`, vault `*-rc` profile); staging/prod: vault
       `server.env` + `vm-*.override.yml`. Remaining (owner): RC console + vault
       entries — `<private-ops-repo>/REVENUECAT-TODO.md`.
-- [ ] Staging backend: `<staging-target>` `.202` (tooling ready:
-      `make start ENV=staging` (in `Samay/backend`) / `make -C <private-ops-repo> start PROD=true APP=samay-staging`;
-      profile
-      `apps/samay-staging.env` + `fetch staging` vault profile). Needs the
-      staging VM + vault `qallariy/samay/staging/**`. Runbook:
+- [x] Staging backend: `<staging-target>` `.202` is **UP** (tart VM + launchd
+      service; `samay-api-staging.qallariy.lat/auth/v1/health` → 200). Bring-up
+      is `make init ENV=staging` (clone + boot + identity; one doas) then
+      `make start ENV=staging` (one vault passphrase + one doas). Source is
+      cloned in-VM over HTTPS; `samay-pushworker:prod` is built in-VM from the
+      checkout (build overlay), no host preload. Profile:
+      `tools/<deploy-env>` (<private-ops-repo>). Runbook:
       `<private-ops-repo>/STAGING.md`.
 - [x] Migrations are re-run safe: `public._qallariy_migrations` ledger in
       `tools/apply_migrations.sh` (mirrored in `<guest-script>`) → `make start`
