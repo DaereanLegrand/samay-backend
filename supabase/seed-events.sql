@@ -49,7 +49,7 @@ BEGIN
   SELECT u.id INTO v_host
   FROM public.users u
   WHERE u.deleted_at IS NULL
-  ORDER BY (u.username = 'tester') DESC, u.created_at DESC
+  ORDER BY (u.username = 'tester1') DESC, u.created_at DESC
   LIMIT 1;
 
   IF v_host IS NULL THEN

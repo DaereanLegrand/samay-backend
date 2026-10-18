@@ -4,8 +4,10 @@ set -uo pipefail
 # [OPT-005] Seeds static validation (rewritten by MSQ-01, 2026-08-23)
 #
 # Validates the TWO seed files against the baseline migrations:
-#   supabase/seed-config.sql  — required app config, AUTO-applied by
-#                               init/reset/migrate (fundamental, no user data)
+#   supabase/seed-config.sql  — required app config + the demo reviewer account
+#                               (auth.users + auth.identities + public.users, so
+#                               Google/Apple reviewers can sign in).
+#                               AUTO-applied by init/reset/migrate.
 #   supabase/seed-test.sql    — @tester test-data snapshot, EXPLICIT only
 #                               (`make supabase-seed-test`; conversations and
 #                               notifications deliberately absent; regenerable
@@ -140,7 +142,7 @@ validate_seed_file() { # validate_seed_file <file> <label> <min_uuid_rows|0>
   local file="$1" label="$2" min_uuids="$3"
 
   # tables exist + columns exist + ON CONFLICT matches real constraints
-  PLATFORM_TABLES="auth.users storage.objects"
+  PLATFORM_TABLES="auth.users auth.identities storage.objects"
   for t_raw in $(awk '/^INSERT INTO / { t = $3; gsub(/\(.*/, "", t); print t }' "$file" | sort -u); do
     case " $PLATFORM_TABLES " in *" $t_raw "*) ok "[$label] '$t_raw' platform-owned (no CREATE TABLE expected)"; continue;; esac
     t="${t_raw##*.}"
@@ -212,11 +214,19 @@ else
   fail "app_config key count too low ($CFG_KEYS < 38)"
 fi
 grep -q "system@samay.example.com" "$SEED_CONFIG" && ok "system admin row present" || fail "system admin row missing"
-# config must NOT contain user-data tables
-if insert_tables "$SEED_CONFIG" | grep -qvE '^(admin_users|app_config)$'; then
-  fail "seed-config contains unexpected user-data tables: $(insert_tables "$SEED_CONFIG" | grep -vE '^(admin_users|app_config)$' | tr '\n' ' ')"
+# config + the demo reviewer account only. insert_tables strips the schema, so
+# auth.users/public.users both surface as 'users' and auth.identities as
+# 'identities'.
+ALLOWED_TABLES='^(admin_users|app_config|users|identities)$'
+if insert_tables "$SEED_CONFIG" | grep -qvE "$ALLOWED_TABLES"; then
+  fail "seed-config contains unexpected tables: $(insert_tables "$SEED_CONFIG" | grep -vE "$ALLOWED_TABLES" | tr '\n' ' ')"
 else
-  ok "seed-config touches only admin_users + app_config (zero user data)"
+  ok "seed-config touches only admin_users + app_config + the demo account"
+fi
+if grep -q "tester@qallariy.lat" "$SEED_CONFIG"; then
+  ok "demo reviewer account present (tester@qallariy.lat)"
+else
+  fail "demo reviewer account (tester@qallariy.lat) missing from seed-config"
 fi
 
 # ── 7. seed-test content checks ──────────────────────────────────────────────

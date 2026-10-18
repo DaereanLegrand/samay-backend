@@ -35,7 +35,7 @@ CREATE FUNCTION pg_temp.tester_uid(k int) RETURNS uuid LANGUAGE sql IMMUTABLE AS
 $f$;
 
 CREATE FUNCTION pg_temp.tester_name(k int) RETURNS text LANGUAGE sql IMMUTABLE AS $f$
-  SELECT CASE WHEN k = 1 THEN 'tester' ELSE 'tester' || k END;
+  SELECT CASE WHEN k = 1 THEN 'tester1' ELSE 'tester' || k END;
 $f$;
 
 BEGIN;

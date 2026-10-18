@@ -3,7 +3,7 @@
 # Samay — seed-feed-test.sh
 #
 # BIG, configurable @tester seed for the LOCAL supabase stack:
-#   * N numbered accounts (tester2..testerN) + tester@tester.com, password
+#   * N numbered accounts (tester2..testerN) + tester1@tester.com, password
 #     tester123 — created through the GoTrue admin API.
 #   * realistic colorful profile pictures for EVERY account (randomuser.me
 #     portraits), plus event banners + group covers + event photos (Lorem
@@ -66,7 +66,7 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "═══════════════════════════════════════════════════════════════"
-echo "  seed-feed-test → $BASE   (N = $N accounts + tester)"
+echo "  seed-feed-test → $BASE   (N = $N accounts + tester1)"
 echo "═══════════════════════════════════════════════════════════════"
 
 # ── 1. Clean the previous @tester auth universe ─────────────────────────────
@@ -103,7 +103,7 @@ create_or_update_user() {
 }
 
 for k in $(seq 1 "$N"); do
-  if (( k == 1 )); then email="tester@tester.com"; else email="tester${k}@tester.com"; fi
+  if (( k == 1 )); then email="tester1@tester.com"; else email="tester${k}@tester.com"; fi
   create_or_update_user "$(uid_user "$k")" "$email"
 done
 
@@ -185,7 +185,7 @@ UNION ALL SELECT 'notifications=' || count(*) FROM public.notifications WHERE id
 echo ""
 echo "  ✅ seeded the @tester universe (N=$N)"
 echo "  ─────────────────────────────────────────────────────────"
-echo "      email:    tester@tester.com  (or tester2..tester${N}@tester.com)"
+echo "      email:    tester1@tester.com  (or tester2..tester${N}@tester.com)"
 echo "      password: $PASSWORD"
 echo "  (point the app at the testing stack: make dev TESTING=true)"
 echo "═══════════════════════════════════════════════════════════════"
