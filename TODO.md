@@ -10,6 +10,25 @@
 - CI: `.gitea/workflows/ci.yml`.
 
 ## TODO
+- [x] Chat moderation + store-compliance hardening (Google Play UGC / Apple 1.2):
+      - `226_chat_moderation` — `is_blocked_between`; block gate in
+        `create_direct_chat`; `assert_message_not_blocked` BEFORE-INSERT trigger
+        on `messages` (blocked pairs cannot exchange DMs); `report_message`
+        (participant-gated; writes the `reports` queue row + a moderator-only
+        `message_reports` snapshot of the reported plaintext/media — the
+        documented E2EE reporting exception). `messages.reported` flagged.
+      - `227_bottle_sober` — rephrases the Botella drinking dares into generic
+        "castigo" penalties (Apple 1.4.3 / content-rating accuracy).
+      - `228_moderation_hardening` — `pending_object_deletions` ENABLE RLS (was
+        FORCE-only); revoke PUBLIC/anon EXECUTE on `apply_subscription_state` +
+        `reconcile_subscription_overrides` (privilege escalation).
+      - Admin CLI: `samay-admin reports message <report_id>` shows the reported
+        message content (moderator view).
+      - Coverage: pgTAP SECTION 65 (plan 1040) + `test/opt-040-chat-report-block.sh`.
+      - Test hygiene: `opt-001`/`opt-006` cleanups delete NO-ACTION-FK rows (no
+        user leaks); `opt-021/022/023/028` mark participants ready (219 gate);
+        `opt-034` rewritten for the split CI surface; schema #210 tolerates the
+        required store reviewer account (`tester@qallariy.lat`, seed-config).
 - [ ] Comment prune / doc trims (AGENTS.md still carries frontend/infra sections).
 - [ ] TODO(vault): server profile under `qallariy/admin/**` reorg.
 - [ ] TODO: `<deploy-target>` `.200` not provisioned — create (`make init ENV=prod`) then verify.

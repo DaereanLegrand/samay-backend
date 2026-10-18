@@ -82,6 +82,16 @@ auth_rpc() {
   curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/$f" -H "apikey: $ANON_KEY" \
     -H "Authorization: Bearer $t" -H "Content-Type: application/json" -d "$d" | norm_json
 }
+# Ready gate (219): the host cannot start until participants[2..] are ready.
+# Marks every non-host token ready for [sid]; a non-participant's call is a
+# typed rejection we ignore. init_minigame_game_state RESETS the ready map, so
+# this must run before EVERY init.
+mark_ready() {
+  local sid=$1
+  [ -n "${TOKEN_B:-}" ] && auth_rpc "$TOKEN_B" "set_minigame_ready" "{\"p_session_id\":\"$sid\",\"p_ready\":true}" > /dev/null
+  [ -n "${TOKEN_C:-}" ] && auth_rpc "$TOKEN_C" "set_minigame_ready" "{\"p_session_id\":\"$sid\",\"p_ready\":true}" > /dev/null
+  return 0
+}
 svc_post() {
   curl -s -X POST "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Content-Type: application/json" \
@@ -257,6 +267,7 @@ fi
 # =========================================================================
 h1 "TEST C — answer gate (subject submits before reactions open)"
 
+mark_ready "$SESSION_ID"
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
 SUBJECT=$(echo "$resp" | grep -o '"subject_id":"[^"]*"' | head -1 | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"started"' && [ -n "$SUBJECT" ]; then
@@ -393,6 +404,7 @@ INVITE2=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&sessi
 auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE2\"}" > /dev/null
 ok "B accepted the async invite"
 
+mark_ready "$SESSION2_ID"
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION2_ID\"}")
 if echo "$resp" | grep -q '"status":"started"'; then
   ok "async init started"
@@ -724,6 +736,7 @@ else
   nok "sender A CANNOT read its own outbound bundle: $rows"
 fi
 
+mark_ready "$SESSION3_ID"
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION3_ID\"}")
 if echo "$resp" | grep -q '"status":"started"'; then
   ok "direct async init started"
@@ -795,6 +808,7 @@ fi
 INVITE_B4=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION4_ID&invitee_id=eq.$UUID_B" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_B4\"}" > /dev/null
+mark_ready "$SESSION4_ID"
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION4_ID\"}")
 if echo "$resp" | grep -q '"status":"started"'; then
   ok "I: init seeded the countdown phase"
@@ -825,6 +839,7 @@ else
 fi
 
 # Re-init, then the HOST's start_minigame_match flips to playing.
+mark_ready "$SESSION4_ID"
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION4_ID\"}")
 resp=$(auth_rpc "$TOKEN_A" "start_minigame_match" "{\"p_session_id\":\"$SESSION4_ID\"}")
 if echo "$resp" | grep -q '"status":"started"' && echo "$resp" | grep -q '"phase":"playing"'; then
@@ -864,6 +879,7 @@ auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_B5\"}" 
 auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_C5\"}" > /dev/null
 info "J: B + C accepted the async invites (3 participants)"
 
+mark_ready "$SESSION5_ID"
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION5_ID\"}")
 if echo "$resp" | grep -q '"status":"started"'; then
   ok "J: async init started"

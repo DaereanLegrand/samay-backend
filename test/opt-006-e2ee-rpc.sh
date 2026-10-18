@@ -70,11 +70,22 @@ OTPK_1="CQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKis"
 OTPK_2="DA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4v"
 
 cleanup() {
+  # NO-ACTION FK rows first so the user delete is never blocked (and nothing
+  # leaks into the next test run).
+  svc_delete_quiet "minigame_sessions?participants=ov.{$UUID_A,$UUID_B,$UUID_C}"
   svc_delete_quiet "minigame_sessions?group_id=eq.$GROUP_ID"
-  svc_delete_quiet "shard_ledger?user_id=in.($UUID_A,$UUID_B)"
-  svc_delete_quiet "e2ee_identity_keys?user_id=eq.$UUID_A"
+  svc_delete_quiet "minigame_invites?invitee_id=in.($UUID_A,$UUID_B,$UUID_C)"
+  svc_delete_quiet "minigame_invites?created_by=in.($UUID_A,$UUID_B,$UUID_C)"
+  svc_delete_quiet "reports?reporter_id=in.($UUID_A,$UUID_B,$UUID_C)"
+  svc_delete_quiet "shard_ledger?user_id=in.($UUID_A,$UUID_B,$UUID_C)"
+  svc_delete_quiet "preshard_ledger?user_id=in.($UUID_A,$UUID_B,$UUID_C)"
+  svc_delete_quiet "group_members?user_id=in.($UUID_A,$UUID_B,$UUID_C)"
+  svc_delete_quiet "group_shard_contributions?user_id=in.($UUID_A,$UUID_B,$UUID_C)"
+  svc_delete_quiet "friendships?requester_id=in.($UUID_A,$UUID_B,$UUID_C)"
+  svc_delete_quiet "friendships?addressee_id=in.($UUID_A,$UUID_B,$UUID_C)"
+  svc_delete_quiet "e2ee_identity_keys?user_id=in.($UUID_A,$UUID_B,$UUID_C)"
+  svc_delete_quiet "groups?created_by_user_id=in.($UUID_A,$UUID_B,$UUID_C)"
   svc_delete_quiet "users?id=in.($UUID_A,$UUID_B,$UUID_C)"
-  svc_delete_quiet "groups?id=eq.$GROUP_ID"
   for uid in $UUID_A $UUID_B $UUID_C; do
     curl -s -X DELETE "$SUPABASE_URL/auth/v1/admin/users/$uid" \
       -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" > /dev/null 2>&1 || true

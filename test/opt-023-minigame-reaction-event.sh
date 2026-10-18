@@ -66,6 +66,16 @@ auth_rpc() {
   curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/$f" -H "apikey: $ANON_KEY" \
     -H "Authorization: Bearer $t" -H "Content-Type: application/json" -d "$d" | norm_json
 }
+# Ready gate (219): the host cannot start until participants[2..] are ready.
+# Marks every non-host token ready for [sid]; a non-participant's call is a
+# typed rejection we ignore. init_minigame_game_state RESETS the ready map, so
+# this must run before EVERY init.
+mark_ready() {
+  local sid=$1
+  [ -n "${TOKEN_B:-}" ] && auth_rpc "$TOKEN_B" "set_minigame_ready" "{\"p_session_id\":\"$sid\",\"p_ready\":true}" > /dev/null
+  [ -n "${TOKEN_C:-}" ] && auth_rpc "$TOKEN_C" "set_minigame_ready" "{\"p_session_id\":\"$sid\",\"p_ready\":true}" > /dev/null
+  return 0
+}
 svc_post() {
   curl -s -X POST "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Content-Type: application/json" \
@@ -174,6 +184,7 @@ auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_B\"}" >
 auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_C\"}" > /dev/null
 info "B + C accepted (3 participants)"
 
+mark_ready "$SESSION_ID"
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
 if echo "$resp" | grep -q '"status":"started"'; then ok "init started"; else nok "init failed: $(echo "$resp" | head -c 160)"; fi
 if wait_playing "$SESSION_ID" "$TOKEN_A"; then ok "countdown flipped to playing"; else nok "never flipped"; fi
@@ -262,6 +273,7 @@ AINVITE_B=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&ses
 auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$AINVITE_B\"}" > /dev/null
 info "B accepted the async invite"
 
+mark_ready "$ASESSION_ID"
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$ASESSION_ID\"}")
 if echo "$resp" | grep -q '"status":"started"'; then ok "async init started"; else nok "async init failed: $(echo "$resp" | head -c 160)"; fi
 if wait_playing "$ASESSION_ID" "$TOKEN_A"; then ok "async countdown flipped"; else nok "async never flipped"; fi
@@ -357,6 +369,7 @@ EINVITE_C=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&ses
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$EINVITE_B\"}" > /dev/null
 auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$EINVITE_C\"}" > /dev/null
+mark_ready "$ESESSION_ID"
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$ESESSION_ID\"}")
 if echo "$resp" | grep -q '"status":"started"'; then ok "E: init started"; else nok "E: init failed: $(echo "$resp" | head -c 160)"; fi
 if wait_playing "$ESESSION_ID" "$TOKEN_A"; then ok "E: countdown flipped"; else nok "E: never flipped"; fi
@@ -418,6 +431,7 @@ FINVITE_C=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&ses
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$FINVITE_B\"}" > /dev/null
 auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$FINVITE_C\"}" > /dev/null
+mark_ready "$FSESSION_ID"
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$FSESSION_ID\"}")
 if echo "$resp" | grep -q '"status":"started"'; then ok "F: init started"; else nok "F: init failed: $(echo "$resp" | head -c 160)"; fi
 if wait_playing "$FSESSION_ID" "$TOKEN_A"; then ok "F: countdown flipped"; else nok "F: never flipped"; fi

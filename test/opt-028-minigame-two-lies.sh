@@ -60,6 +60,16 @@ auth_rpc() {
   curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/$f" -H "apikey: $ANON_KEY" \
     -H "Authorization: Bearer $t" -H "Content-Type: application/json" -d "$d" | norm_json
 }
+# Ready gate (219): the host cannot start until participants[2..] are ready.
+# Marks every non-host token ready for [sid]; a non-participant's call is a
+# typed rejection we ignore. init_minigame_game_state RESETS the ready map, so
+# this must run before EVERY init.
+mark_ready() {
+  local sid=$1
+  [ -n "${TOKEN_B:-}" ] && auth_rpc "$TOKEN_B" "set_minigame_ready" "{\"p_session_id\":\"$sid\",\"p_ready\":true}" > /dev/null
+  [ -n "${TOKEN_C:-}" ] && auth_rpc "$TOKEN_C" "set_minigame_ready" "{\"p_session_id\":\"$sid\",\"p_ready\":true}" > /dev/null
+  return 0
+}
 svc_post() {
   curl -s -X POST "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Content-Type: application/json" \
@@ -166,6 +176,7 @@ else
   nok "C accept failed: $resp"
 fi
 
+mark_ready "$SESSION_ID"
 auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}" > /dev/null
 if wait_playing "$SESSION_ID" "$TOKEN_A"; then
   ok "Match started and flipped to playing"

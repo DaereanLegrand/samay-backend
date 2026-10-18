@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1033);
+SELECT plan(1040);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -796,8 +796,9 @@ SELECT ok(
 SELECT has_column('admin_users', 'display_name',
     'admin_users retains display_name (only dropped from users)');
 SELECT ok(
-    (SELECT count(*) = 0 FROM users),
-    'users table empty after init/reset (zero USER data; test data is explicit only)'
+    (SELECT count(*) = 0 FROM users
+      WHERE id <> '197930fc-c5d3-4ab1-9601-21d3999a36b5'),
+    'users table holds only the required store reviewer account after init/reset (no stray USER data; tester@qallariy.lat is seeded by seed-config.sql)'
 );
 
 -- ============================================================
@@ -4804,6 +4805,57 @@ SELECT ok(
        AND pg_get_functiondef(p.oid) LIKE '%minigame_group_messages%'
      FROM pg_proc p WHERE proname = 'get_chat_inbox'),
     'get_chat_inbox counts minigame notices as chat activity (216/P1)'
+);
+
+-- ======================================================================
+-- SECTION 65: chat moderation — block enforcement + message report
+-- (226_chat_moderation) and the sober bottle bank (227_bottle_sober)
+--   * message_reports snapshot table (moderator-only)
+--   * is_blocked_between helper
+--   * report_message RPC (SECURITY DEFINER, writes the snapshot)
+--   * create_direct_chat block gate + the direct-message block trigger
+--   * no drinking dares left in the drunk_bottle prompt bank
+-- ======================================================================
+SELECT has_table('message_reports',
+    'message_reports exists (226_chat_moderation)');
+
+SELECT has_function('is_blocked_between', ARRAY['uuid', 'uuid'],
+    'is_blocked_between exists (226)');
+
+SELECT has_function('report_message', ARRAY['uuid', 'text', 'text'],
+    'report_message exists (226)');
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%is_blocked_between%'
+     FROM pg_proc p WHERE proname = 'create_direct_chat'),
+    'create_direct_chat enforces the block gate (226)'
+);
+
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = 'messages'
+          AND t.tgname = 'assert_message_not_blocked_trigger'
+    ),
+    'messages has the block-enforcement trigger (226)'
+);
+
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%SECURITY DEFINER%'
+       AND pg_get_functiondef(p.oid) LIKE '%message_reports%'
+     FROM pg_proc p WHERE proname = 'report_message'),
+    'report_message is SECURITY DEFINER and writes the snapshot (226)'
+);
+
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM public.minigame_prompts
+        WHERE game_type = 'drunk_bottle'
+          AND (body ILIKE '%tomas%' OR body ILIKE '%toman%')
+    ),
+    'drinking dares rephrased out of the bottle bank (227)'
 );
 
 SELECT * FROM finish();

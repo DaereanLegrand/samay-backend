@@ -29,6 +29,21 @@ FAIL=0
 
 # Ensure test users are cleaned up on script exit
 cleanup() {
+  # NO-ACTION FKs to users first (groups/events/messages/shards/…), then the
+  # rows, then users, then auth — so nothing leaks into the next test run.
+  svc_delete_quiet "minigame_sessions?participants=ov.{$UUID_A,$UUID_B}"
+  svc_delete_quiet "minigame_invites?invitee_id=in.($UUID_A,$UUID_B)"
+  svc_delete_quiet "minigame_invites?created_by=in.($UUID_A,$UUID_B)"
+  svc_delete_quiet "group_shard_contributions?user_id=in.($UUID_A,$UUID_B)"
+  svc_delete_quiet "group_members?user_id=in.($UUID_A,$UUID_B)"
+  svc_delete_quiet "shard_ledger?user_id=in.($UUID_A,$UUID_B)"
+  svc_delete_quiet "preshard_ledger?user_id=in.($UUID_A,$UUID_B)"
+  svc_delete_quiet "reports?reporter_id=in.($UUID_A,$UUID_B)"
+  svc_delete_quiet "friendships?requester_id=in.($UUID_A,$UUID_B)"
+  svc_delete_quiet "friendships?addressee_id=in.($UUID_A,$UUID_B)"
+  svc_delete_quiet "groups?created_by_user_id=in.($UUID_A,$UUID_B)"
+  svc_delete_quiet "events?created_by_user_id=in.($UUID_A,$UUID_B)"
+  svc_delete_quiet "users?id=in.($UUID_A,$UUID_B)"
   for uid in $UUID_A $UUID_B; do
     curl -s -X DELETE "$SUPABASE_URL/auth/v1/admin/users/$uid" \
       -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" > /dev/null 2>&1 || true
@@ -100,6 +115,13 @@ svc_patch() {
 svc_rpc() {
   curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Content-Type: application/json" -d "$2" 2>/dev/null
+}
+# Best-effort delete (service_role). Cleanup MUST remove every row that has a
+# NO-ACTION FK to public.users (groups/events/messages/…), or the user delete is
+# blocked and the fixture leaks into the next test run.
+svc_delete_quiet() {
+  curl -s -X DELETE "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
+    -H "Authorization: Bearer $SERVICE_KEY" -H "Prefer: return=minimal" > /dev/null 2>&1 || true
 }
 
 # ---------------------------------------------------------------------------

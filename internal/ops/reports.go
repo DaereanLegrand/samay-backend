@@ -30,6 +30,21 @@ func GetReport(ctx context.Context, client *db.DBClient, reportID string) (*db.R
 	return db.GetByID[db.Report](ctx, client, "reports", reportID, qb)
 }
 
+// GetMessageReport returns the moderator-readable snapshot for a message
+// report (226_chat_moderation). The plaintext is the exact content the
+// reporter chose to disclose (end-to-end-encryption reporting exception).
+func GetMessageReport(ctx context.Context, client *db.DBClient, reportID string) (*db.MessageReport, error) {
+	qb := db.NewQueryBuilder().Select("*").Eq("report_id", reportID).Limit(1)
+	rows, err := db.List[db.MessageReport](ctx, client, "message_reports", qb)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("message report not found: %s", reportID)
+	}
+	return &rows[0], nil
+}
+
 func ActionReport(ctx context.Context, client *db.DBClient, reportID, action, adminUserID string) error {
 	var status string
 	switch action {

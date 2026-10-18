@@ -63,6 +63,22 @@ var reportsGetCmd = &cobra.Command{
 	},
 }
 
+var reportsMessageCmd = &cobra.Command{
+	Use:   "message <report_id>",
+	Short: "Show the reported message content (moderator view)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.GetMessageReport(ctx, dbClient, args[0])
+		if err != nil {
+			return err
+		}
+		format.RenderJSON(data)
+		return nil
+	},
+}
+
 var reportsActionCmd = &cobra.Command{
 	Use:   "action <report_id>",
 	Short: "Act on a report",
@@ -89,7 +105,7 @@ func init() {
 	reportsActionCmd.Flags().String("action", "", "action to take (remove|dismiss|warn) (required)")
 	_ = reportsActionCmd.MarkFlagRequired("action")
 
-	reportsCmd.AddCommand(reportsListCmd, reportsGetCmd, reportsActionCmd)
+	reportsCmd.AddCommand(reportsListCmd, reportsGetCmd, reportsMessageCmd, reportsActionCmd)
 }
 
 func reportsTableBuilder(data any) ([]string, [][]string) {

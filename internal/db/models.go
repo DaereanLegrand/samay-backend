@@ -122,6 +122,22 @@ type Report struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// MessageReport is the moderator-readable snapshot of a reported chat message
+// (226_chat_moderation). Because the chat is end-to-end encrypted, the
+// reporter's client supplies the decrypted plaintext of the reported row.
+type MessageReport struct {
+	ID         string    `json:"id"`
+	ReportID   string    `json:"report_id"`
+	MessageID  string    `json:"message_id"`
+	ChatID     string    `json:"chat_id"`
+	SenderID   string    `json:"sender_id"`
+	ReporterID string    `json:"reporter_id"`
+	Reason     string    `json:"reason"`
+	Plaintext  *string   `json:"plaintext"`
+	MediaURL   *string   `json:"media_url"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type AppConfigRow struct {
 	Key          string    `json:"key"`
 	Value        string    `json:"value"`
