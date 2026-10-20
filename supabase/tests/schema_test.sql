@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1040);
+SELECT plan(1053);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -480,7 +480,8 @@ SELECT policies_are('event_attendances', ARRAY[
 -- ============================================================
 SELECT policies_are('event_photos', ARRAY[
     'eph_read_access',
-    'eph_insert_own'
+    'eph_insert_own',
+    'eph_delete_own_or_host'
 ], 'event_photos has expected RLS policies');
 
 -- ============================================================
@@ -678,8 +679,7 @@ SELECT function_privs_are('public', 'delete_undecryptable_messages', ARRAY['uuid
 -- SECTION 29: RLS Policies — shard_ledger / preshard_ledger
 -- ============================================================
 SELECT policies_are('shard_ledger', ARRAY[
-    'sl_read_own',
-    'sl_insert_own'
+    'sl_read_own'
 ], 'shard_ledger has expected RLS policies');
 
 SELECT policies_are('preshard_ledger', ARRAY[
@@ -691,7 +691,6 @@ SELECT policies_are('preshard_ledger', ARRAY[
 -- ============================================================
 SELECT policies_are('user_cosmetics', ARRAY[
     'user_cosmetics_read_own',
-    'user_cosmetics_insert_own',
     'user_cosmetics_update_own'
 ], 'user_cosmetics has expected RLS policies');
 
@@ -1739,9 +1738,9 @@ SELECT ok(
      WHERE n.nspname = 'public'
        AND p.proname IN ('donate_shards_to_group', 'fetch_prekey_bundle',
                          'validate_code', 'create_minigame_session',
-                         'join_minigame_session', 'finish_minigame_game')
+                         'join_minigame_session', 'abandon_minigame_game')
        AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) = 6,
-    'authenticated can EXECUTE the 6 client RPCs'
+    'authenticated can EXECUTE the 6 client RPCs (finish is server-only; abandon is the client path)'
 );
 
 SELECT ok(
@@ -2256,9 +2255,9 @@ SELECT ok(
      WHERE n.nspname = 'public'
        AND p.proname IN ('get_minigame_game_state', 'init_minigame_game_state',
                          'reveal_minigame_prompt', 'advance_minigame_turn',
-                         'submit_minigame_reaction', 'finish_minigame_game')
+                         'submit_minigame_reaction', 'abandon_minigame_game')
        AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) = 6,
-    'authenticated can EXECUTE the 6 play-engine RPCs'
+    'authenticated can EXECUTE the 6 play-engine RPCs (finish is server-only)'
 );
 SELECT ok(
     (SELECT count(*) FROM pg_catalog.pg_proc p
@@ -3750,8 +3749,10 @@ SELECT function_privs_are('public', 'submit_minigame_reaction', ARRAY['uuid', 't
     'submit_minigame_reaction is authenticated-EXECUTABLE');
 SELECT function_privs_are('public', 'finish_minigame_game', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
     'finish_minigame_game is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'finish_minigame_game', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'finish_minigame_game is authenticated-EXECUTABLE');
+SELECT function_privs_are('public', 'finish_minigame_game', ARRAY['uuid']::name[], 'authenticated', ARRAY[]::name[],
+    'finish_minigame_game is server-only (authenticated cannot settle)');
+SELECT function_privs_are('public', 'finish_minigame_game', ARRAY['uuid']::name[], 'service_role', ARRAY['EXECUTE'],
+    'finish_minigame_game is service_role-EXECUTABLE');
 
 SELECT has_function('finish_minigame_game', ARRAY['uuid'],
     'finish_minigame_game(p_session_id uuid) exists (201_minigame_voting)');
@@ -4856,6 +4857,89 @@ SELECT ok(
           AND (body ILIKE '%tomas%' OR body ILIKE '%toman%')
     ),
     'drinking dares rephrased out of the bottle bank (227)'
+);
+
+-- ============================================================
+-- SECTION 66: Wave 0 trust boundary (229_wave0_trust_boundary)
+-- Minimal invariants: the critical abuse paths are closed.
+-- ============================================================
+SELECT ok(
+    has_table_privilege('authenticated', 'public.user_search_view', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.user_search_view', 'INSERT')
+    AND NOT has_table_privilege('authenticated', 'public.user_search_view', 'UPDATE')
+    AND NOT has_table_privilege('authenticated', 'public.user_search_view', 'DELETE')
+    AND NOT has_table_privilege('anon', 'public.user_search_view', 'SELECT'),
+    'SEC-001 user_search_view is SELECT-only for authenticated and closed to anon'
+);
+SELECT ok(
+    has_table_privilege('authenticated', 'public.discovery_view', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.discovery_view', 'INSERT')
+    AND NOT has_table_privilege('authenticated', 'public.discovery_view', 'UPDATE')
+    AND NOT has_table_privilege('authenticated', 'public.discovery_view', 'DELETE')
+    AND NOT has_table_privilege('anon', 'public.discovery_view', 'SELECT'),
+    'SEC-001 discovery_view is SELECT-only for authenticated and closed to anon'
+);
+SELECT ok(
+    NOT has_table_privilege('authenticated', 'public.shard_ledger', 'INSERT')
+    AND NOT has_table_privilege('authenticated', 'public.preshard_ledger', 'INSERT')
+    AND NOT has_table_privilege('authenticated', 'public.group_shard_contributions', 'INSERT'),
+    'SEC-002 clients cannot mint shard/group ledger rows'
+);
+SELECT has_function('purchase_cosmetic', ARRAY['uuid'],
+    'SEC-003 purchase_cosmetic(uuid) exists');
+SELECT ok(
+    NOT has_table_privilege('authenticated', 'public.user_cosmetics', 'INSERT')
+    AND has_column_privilege('authenticated', 'public.user_cosmetics', 'equipped', 'UPDATE'),
+    'SEC-003 user_cosmetics is purchase-RPC-only; clients may only equip'
+);
+SELECT ok(
+    NOT has_function_privilege('authenticated', 'public.finish_minigame_game(uuid)', 'EXECUTE')
+    AND has_function_privilege('authenticated', 'public.abandon_minigame_game(uuid)', 'EXECUTE'),
+    'SEC-004 settlement is server-only; abandonment is the client path'
+);
+SELECT ok(
+    NOT has_function_privilege('anon', 'public.refund_event_pool_on_cancel()', 'EXECUTE')
+    AND NOT has_function_privilege('authenticated', 'public.refund_event_pool_on_cancel()', 'EXECUTE'),
+    'SEC-007 pool-refund trigger function is not client-callable'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polqual, polrelid) FROM pg_policy
+      WHERE polname = 'events_read_access' AND polrelid = 'public.events'::regclass)
+        NOT LIKE '%group_id IS NULL%'
+    AND (SELECT pg_get_expr(polqual, polrelid) FROM pg_policy
+          WHERE polname = 'events_read_access' AND polrelid = 'public.events'::regclass)
+        LIKE '%accepted%',
+    'SEC-005 events_read_access requires host/staff or accepted invitee'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%NULL::numeric%'
+       AND pg_get_functiondef(p.oid) LIKE '%upcoming%'
+     FROM pg_proc p WHERE proname = 'search_events'),
+    'SEC-005 search_events returns a safe projection and hides non-live rows'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polwithcheck, polrelid) FROM pg_policy
+      WHERE polname = 'friendships_insert_own' AND polrelid = 'public.friendships'::regclass)
+        LIKE '%pending%'
+    AND (SELECT pg_get_expr(polwithcheck, polrelid) FROM pg_policy
+          WHERE polname = 'friendships_insert_own' AND polrelid = 'public.friendships'::regclass)
+        LIKE '%blocked%',
+    'SEC-006 friendship insert cannot forge an accepted row'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%not_a_group_member%'
+       AND pg_get_functiondef(p.oid) LIKE '%event_pool_set%'
+     FROM pg_proc p WHERE proname = 'create_event'),
+    'SEC-007 create_event validates membership and escrows the pool'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polwithcheck, polrelid) FROM pg_policy
+      WHERE polname = 'eph_insert_own' AND polrelid = 'public.event_photos'::regclass)
+        LIKE '%event_attendances%'
+    AND (SELECT pg_get_expr(polwithcheck, polrelid) FROM pg_policy
+          WHERE polname = 'eph_insert_own' AND polrelid = 'public.event_photos'::regclass)
+        LIKE '%/photos/%',
+    'SEC-010 photo upload requires attendance and an event-bound path'
 );
 
 SELECT * FROM finish();

@@ -9,7 +9,7 @@ _transform: true
 
 services:
   - name: auth-v1
-    url: http://samay-auth:9999
+    url: http://$STACK_PREFIX-auth:9999
     routes:
       - name: auth-v1-all
         paths:
@@ -18,25 +18,16 @@ services:
       - name: cors
 
   - name: rest-v1
-    url: http://samay-rest:3000
+    url: http://$STACK_PREFIX-rest:3000
     routes:
       - name: rest-v1-all
         paths:
           - /rest/v1/
-      # SEARCH abuse guard (OWASP API4): coarse per-IP flood limit on the
-      # user-search path. The precise per-user 60/min quota lives in the
-      # search_users() RPC (migration 130_search); limit_by=ip because every
-      # app user shares the anon apikey consumer (consumer bucketing would
-      # aggregate all users into one counter).
-      - name: rest-v1-user-search
-        paths:
-          - /rest/v1/user_search_view
-        plugins:
-          - name: rate-limiting
-            config:
-              minute: 120
-              policy: local
-              limit_by: ip
+      # The dedicated /rest/v1/user_search_view route was removed: with
+      # strip_path it proxied to PostgREST's root (OpenAPI) instead of the
+      # view, which made the view ACLs untestable. The main /rest/v1/ route
+      # preserves the correct upstream path; the per-user search quota lives
+      # in the search_users() RPC.
     plugins:
       - name: cors
       - name: key-auth
@@ -52,7 +43,7 @@ services:
             - service_role
 
   - name: rest-admin
-    url: http://samay-rest:3000
+    url: http://$STACK_PREFIX-rest:3000
     routes:
       - name: rest-admin-all
         paths:
@@ -69,7 +60,7 @@ services:
             - service_role
 
   - name: realtime-v1
-    url: http://samay-realtime:4000/socket
+    url: http://$STACK_PREFIX-realtime:4000/socket
     protocol: ws
     routes:
       - name: realtime-v1-all
@@ -84,7 +75,7 @@ services:
           hide_credentials: false
 
   - name: storage-v1
-    url: http://samay-storage:5000
+    url: http://$STACK_PREFIX-storage:5000
     routes:
       - name: storage-v1-all
         paths:
@@ -104,7 +95,7 @@ services:
             - service_role
 
   - name: storage-admin
-    url: http://samay-storage:5000
+    url: http://$STACK_PREFIX-storage:5000
     routes:
       - name: storage-admin-all
         paths:
@@ -122,7 +113,7 @@ services:
             - service_role
 
   - name: functions-v1
-    url: http://samay-functions:9000/
+    url: http://$STACK_PREFIX-functions:9000/
     read_timeout: 150000
     routes:
       - name: functions-v1-all
@@ -132,7 +123,7 @@ services:
       - name: cors
 
   - name: meta-v1
-    url: http://samay-meta:8080
+    url: http://$STACK_PREFIX-meta:8080
     routes:
       - name: meta-v1-all
         paths:

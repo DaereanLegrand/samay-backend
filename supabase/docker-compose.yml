@@ -1,6 +1,6 @@
 services:
   db:
-    container_name: samay-db
+    container_name: ${STACK_PREFIX:-samay}-db
     image: supabase/postgres:17.6.1.136
     restart: unless-stopped
     healthcheck:
@@ -30,7 +30,7 @@ services:
       - ./volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
 
   kong:
-    container_name: samay-kong
+    container_name: ${STACK_PREFIX:-samay}-kong
     image: kong/kong:3.9.3
     restart: unless-stopped
     depends_on:
@@ -42,6 +42,7 @@ services:
       timeout: 5s
       retries: 5
     environment:
+      STACK_PREFIX: ${STACK_PREFIX:-samay}
       KONG_DATABASE: off
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
@@ -65,7 +66,7 @@ services:
     entrypoint: ["/bin/bash", "/home/kong/kong-entrypoint.sh"]
 
   auth:
-    container_name: samay-auth
+    container_name: ${STACK_PREFIX:-samay}-auth
     image: supabase/gotrue:v2.189.0
     restart: unless-stopped
     depends_on:
@@ -131,7 +132,7 @@ services:
       GOTRUE_EXTERNAL_APPLE_SECRET: ${GOTRUE_EXTERNAL_APPLE_SECRET:-}
       GOTRUE_EXTERNAL_APPLE_REDIRECT_URI: ${GOTRUE_EXTERNAL_APPLE_REDIRECT_URI:-http://127.0.0.1:54386/auth/v1/callback}
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:postgres@samay-db:5432/postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:postgres@${STACK_PREFIX:-samay}-db:5432/postgres
       GOTRUE_DB_MAX_POOL_SIZE: 10
       GOTRUE_LOG_LEVEL: warn
       GOTRUE_RATE_LIMIT_EMAIL_SENT: ${AUTH_RATE_LIMIT_EMAIL_SENT:-2}
@@ -148,7 +149,7 @@ services:
   # HTTP to GoTrue. GoTrue fetches `GOTRUE_MAILER_TEMPLATES_*` URLs at send
   # time; the service name `templates` is the DNS name used above.
   templates:
-    container_name: samay-templates
+    container_name: ${STACK_PREFIX:-samay}-templates
     image: nginx:alpine
     restart: unless-stopped
     volumes:
@@ -162,14 +163,14 @@ services:
   # M-01; UI on the approved ${MAILPIT_PORT:-54384}:8025; SMTP 1025 stays
   # container-internal.
   mailpit:
-    container_name: samay-mailpit
+    container_name: ${STACK_PREFIX:-samay}-mailpit
     image: axllent/mailpit:v1.30.7
     restart: unless-stopped
     ports:
       - "${MAILPIT_PORT:-54384}:8025"
 
   rest:
-    container_name: samay-rest
+    container_name: ${STACK_PREFIX:-samay}-rest
     image: postgrest/postgrest:v14.12
     restart: unless-stopped
     depends_on:
@@ -181,7 +182,7 @@ services:
       timeout: 5s
       retries: 3
     environment:
-      PGRST_DB_URI: postgres://authenticator:postgres@samay-db:5432/postgres
+      PGRST_DB_URI: postgres://authenticator:postgres@${STACK_PREFIX:-samay}-db:5432/postgres
       PGRST_DB_SCHEMA: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: "your-jwt-secret-change-in-production"
@@ -194,7 +195,7 @@ services:
       PGRST_ADMIN_SERVER_HOST: localhost
 
   realtime:
-    container_name: samay-realtime
+    container_name: ${STACK_PREFIX:-samay}-realtime
     image: supabase/realtime:v2.102.3
     restart: unless-stopped
     depends_on:
@@ -208,7 +209,7 @@ services:
       start_period: 10s
     environment:
       PORT: 4000
-      DB_HOST: samay-db
+      DB_HOST: ${STACK_PREFIX:-samay}-db
       DB_PORT: 5432
       DB_USER: supabase_admin
       DB_PASSWORD: postgres
@@ -226,7 +227,7 @@ services:
       DNS_NODES: "''"
 
   storage:
-    container_name: samay-storage
+    container_name: ${STACK_PREFIX:-samay}-storage
     image: supabase/storage-api:v1.60.4
     restart: unless-stopped
     depends_on:
@@ -248,7 +249,7 @@ services:
       TENANT_ID: samay
       REGION: us-east-1
       GLOBAL_S3_BUCKET: samay-storage
-      DATABASE_URL: postgres://supabase_storage_admin:postgres@samay-db:5432/postgres
+      DATABASE_URL: postgres://supabase_storage_admin:postgres@${STACK_PREFIX:-samay}-db:5432/postgres
       PGRST_JWT_SECRET: "your-jwt-secret-change-in-production"
       FILE_SIZE_LIMIT: ${STORAGE_FILE_SIZE_LIMIT:-52428800}
       STORAGE_BACKEND: file
@@ -258,14 +259,14 @@ services:
       IMGPROXY_URL: http://imgproxy:5001
       LOG_LEVEL: warn
     volumes:
-      - ./volumes/storage:/var/lib/storage
+      - ${STORAGE_DIR:-./volumes/storage}:/var/lib/storage
 
   imgproxy:
-    container_name: samay-imgproxy
+    container_name: ${STACK_PREFIX:-samay}-imgproxy
     image: darthsim/imgproxy:v3.30.1
     restart: unless-stopped
     volumes:
-      - ./volumes/storage:/var/lib/storage
+      - ${STORAGE_DIR:-./volumes/storage}:/var/lib/storage
     healthcheck:
       test: ["CMD", "imgproxy", "health"]
       interval: 5s
@@ -280,7 +281,7 @@ services:
       IMGPROXY_MAX_SRC_RESOLUTION: 16.8
 
   meta:
-    container_name: samay-meta
+    container_name: ${STACK_PREFIX:-samay}-meta
     image: supabase/postgres-meta:v0.96.6
     restart: unless-stopped
     depends_on:
@@ -294,14 +295,14 @@ services:
       timeout: 5s
       retries: 3
     environment:
-      PG_META_DB_HOST: samay-db
+      PG_META_DB_HOST: ${STACK_PREFIX:-samay}-db
       PG_META_DB_PORT: 5432
       PG_META_DB_USER: postgres
       PG_META_DB_PASSWORD: postgres
       PG_META_DB_NAME: postgres
 
   studio:
-    container_name: samay-studio
+    container_name: ${STACK_PREFIX:-samay}-studio
     image: supabase/studio:2026.08.03-sha-022b374
     restart: unless-stopped
     depends_on:
@@ -319,7 +320,7 @@ services:
       start_period: 20s
     environment:
       HOSTNAME: "0.0.0.0"
-      STUDIO_PG_META_URL: http://samay-meta:8080
+      STUDIO_PG_META_URL: http://${STACK_PREFIX:-samay}-meta:8080
       SUPABASE_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
       SUPABASE_ANON_KEY: "your-anon-key"
       SUPABASE_SERVICE_KEY: "your-service-role-key"
@@ -328,7 +329,7 @@ services:
       - "${STUDIO_PORT:-54381}:3000"
 
   functions:
-    container_name: samay-functions
+    container_name: ${STACK_PREFIX:-samay}-functions
     image: supabase/edge-runtime:v1.74.0
     restart: unless-stopped
     volumes:
@@ -353,13 +354,13 @@ services:
       # main service entrypoint (`functions/main/index.ts` boot placeholder,
       # see supabase/functions/README.md) or the container crash-loops.
       JWT_SECRET: "your-jwt-secret-change-in-production"
-      SUPABASE_URL: http://samay-kong:8000
+      SUPABASE_URL: http://${STACK_PREFIX:-samay}-kong:8000
       SUPABASE_PUBLIC_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-your_supabase_anon_key_here}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       SUPABASE_PUBLISHABLE_KEYS: "{\"default\":\"${SUPABASE_PUBLISHABLE_KEY:-}\"}"
       SUPABASE_SECRET_KEYS: "{\"default\":\"${SUPABASE_SECRET_KEY:-}\"}"
-      SUPABASE_DB_URL: postgresql://postgres:postgres@samay-db:5432/postgres
+      SUPABASE_DB_URL: postgresql://postgres:postgres@${STACK_PREFIX:-samay}-db:5432/postgres
       VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT:-false}"
       # RevenueCat webhook handler (RCBH). Inert until REVENUECAT_WEBHOOK_SECRET
       # is supplied (the function fails closed on a missing/blank secret). The

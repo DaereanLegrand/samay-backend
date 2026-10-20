@@ -39,7 +39,7 @@ LEDGER="public._qallariy_migrations"
 LEDGER_ERA_FILES="223_device_tokens/device_tokens.sql 224_minigame_turn_notice/turn.sql"
 
 case "$STACK" in
-  supabase) DB_CONTAINER="${DB_CONTAINER:-samay-db}" ;;
+  supabase) DB_CONTAINER="${DB_CONTAINER:-${STACK_PREFIX:-samay}-db}" ;;
   *)        DB_CONTAINER="${DB_CONTAINER:?DB_CONTAINER required for $STACK}" ;;
 esac
 

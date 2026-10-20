@@ -14,17 +14,28 @@ if [ "$confirm" != "reset" ]; then
   exit 1
 fi
 
-echo "Stopping stack..."
-docker compose down
+if [ -r .env ]; then
+  while IFS='=' read -r key value; do
+    case "$key" in
+      '' | '#'* | *' '* | *'-'*) continue ;;
+    esac
+    value="${value%\"}"; value="${value#\"}"
+    export "$key=$value" 2>/dev/null || true
+  done < .env
+fi
+
+STACK_PREFIX="${STACK_PREFIX:-samay}"
+STORAGE_DIR="${STORAGE_DIR:-./volumes/storage}"
+
+echo "Stopping stack ($STACK_PREFIX)..."
+docker compose -p "$STACK_PREFIX" --env-file .env down
 
 echo "Removing database and storage volumes..."
-rm -rf volumes/storage
-PROJECT="$(grep -E '^COMPOSE_PROJECT_NAME=' .env 2>/dev/null | head -1 | cut -d= -f2)"
-PROJECT="${PROJECT:-samay}"
-docker volume rm "${PROJECT}_db-data" "${PROJECT}_rustfs-data" 2>/dev/null || true
+rm -rf "$STORAGE_DIR"
+docker volume rm "${STACK_PREFIX}_db-data" "${STACK_PREFIX}_rustfs-data" 2>/dev/null || true
 
 echo "Starting fresh stack..."
-docker compose up -d --wait
+docker compose -p "$STACK_PREFIX" --env-file .env up -d --wait
 
 export PGPASSWORD="${PGPASSWORD:-postgres}"
 DB_URL="postgres://postgres:postgres@localhost:${POSTGRES_PORT:-54382}/postgres"

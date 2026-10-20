@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-KONG_PORT="${KONG_PORT:-54386}"
+KONG_PORT="${KONG_PORT:-${KONG_HTTP_PORT:-54386}}"
 TESTING_URL="samay-api-testing.qallariy.lat"
 
 case "${1:-quick}" in

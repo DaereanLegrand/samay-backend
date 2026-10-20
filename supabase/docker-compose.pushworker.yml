@@ -18,7 +18,7 @@
 # =============================================================================
 services:
   pushworker:
-    container_name: samay-pushworker
+    container_name: ${STACK_PREFIX:-samay}-pushworker
     # Gated behind the `fcm` compose profile: the worker only starts when the
     # profile is active (COMPOSE_PROFILES=fcm). testing opts in with FCM=true;
     # staging/prod are always on by default. Absent/false ⇒ the service is not
@@ -30,7 +30,7 @@ services:
       kong:
         condition: service_healthy
     environment:
-      SUPABASE_URL: http://samay-kong:8000
+      SUPABASE_URL: http://${STACK_PREFIX:-samay}-kong:8000
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       SUPABASE_FCM_SERVICE_ACCOUNT_JSON_B64: ${SUPABASE_FCM_SERVICE_ACCOUNT_JSON_B64:-}
       PUSH_POLL_INTERVAL: ${PUSH_POLL_INTERVAL:-15s}

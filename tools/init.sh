@@ -41,6 +41,10 @@ if [ ! -f "$STACK_ENV" ]; then
 fi
 chmod 600 "$STACK_ENV"
 echo "ok   $STACK_ENV present"
+if [ -f "$STACK_ENV" ]; then
+  KONG_PORT="$(sed -n 's/^KONG_HTTP_PORT=\([0-9]*\).*/\1/p' "$STACK_ENV" | head -1)"
+  KONG_PORT="${KONG_PORT:-54386}"
+fi
 echo
 
 mode="" tunnel_url=""

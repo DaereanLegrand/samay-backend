@@ -23,7 +23,7 @@ if [ -r .env ]; then
   done < .env
 fi
 
-DB_URL="${DB_URL:-postgres://postgres:postgres@localhost:54382/postgres}"
+DB_URL="${DB_URL:-postgres://postgres:postgres@localhost:${POSTGRES_PORT:-54382}/postgres}"
 
 echo "Running baseline migrations against $DB_URL..."
 bash ../tools/apply_migrations.sh "$(basename "$(pwd)")"
