@@ -181,14 +181,23 @@ func TestBanUser_CallsUpdate(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 	foundUpdate := false
+	foundAuthBan := false
 	for _, req := range *log {
 		if req.Method == "PATCH" && strings.Contains(req.Path, "users") {
 			foundUpdate = true
 			assertContains(t, req.Path, "id=eq.u1")
+			assertNotContains(t, req.Body, `"now()"`)
+		}
+		if req.Method == "PUT" && strings.Contains(req.Path, "/auth/v1/admin/users/u1") {
+			foundAuthBan = true
+			assertContains(t, req.Body, `"ban_duration":"876000h"`)
 		}
 	}
 	if !foundUpdate {
 		t.Error("expected PATCH request on users")
+	}
+	if !foundAuthBan {
+		t.Error("expected GoTrue admin ban request")
 	}
 }
 
@@ -202,13 +211,21 @@ func TestUnbanUser_ClearsBanFields(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 	foundUpdate := false
+	foundAuthUnban := false
 	for _, req := range *log {
 		if req.Method == "PATCH" && strings.Contains(req.Path, "users") {
 			foundUpdate = true
 		}
+		if req.Method == "PUT" && strings.Contains(req.Path, "/auth/v1/admin/users/u1") {
+			foundAuthUnban = true
+			assertContains(t, req.Body, `"ban_duration":"none"`)
+		}
 	}
 	if !foundUpdate {
 		t.Error("expected PATCH request on users for unban")
+	}
+	if !foundAuthUnban {
+		t.Error("expected GoTrue admin unban request")
 	}
 }
 

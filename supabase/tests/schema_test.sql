@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1053);
+SELECT plan(1058);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -200,7 +200,8 @@ SELECT policies_are('friendships', ARRAY[
     'friendships_read_involving',
     'friendships_insert_own',
     'friendships_update_own',
-    'friendships_delete_own'
+    'friendships_delete_own',
+    'active_users_only'
 ], 'friendships has expected RLS policies');
 
 -- ============================================================
@@ -213,7 +214,8 @@ SELECT policies_are('groups', ARRAY[
     'groups_read_own',
     'groups_update_host',
     'groups_insert_own',
-    'groups_delete_own'
+    'groups_delete_own',
+    'active_users_only'
 ], 'groups has expected RLS policies');
 
 -- ============================================================
@@ -230,7 +232,8 @@ SELECT policies_are('group_members', ARRAY[
     'group_members_delete_own',
     'group_members_delete_host',
     'group_members_update_own_status',
-    'group_members_update_host'
+    'group_members_update_host',
+    'active_users_only'
 ], 'group_members has expected RLS policies (no recursion)');
 
 -- ============================================================
@@ -239,7 +242,8 @@ SELECT policies_are('group_members', ARRAY[
 SELECT policies_are('events', ARRAY[
     'events_read_access',
     'events_update_host',
-    'events_insert_own'
+    'events_insert_own',
+    'active_users_only'
 ], 'events has expected RLS policies');
 
 -- ============================================================
@@ -255,7 +259,8 @@ SELECT policies_are('events', ARRAY[
 SELECT policies_are('event_hosts', ARRAY[
     'ep_read_own',
     'ep_read_event_access',
-    'ep_read_member_roster'
+    'ep_read_member_roster',
+    'active_users_only'
 ], 'event_hosts has expected RLS policies (ep_insert_host dropped — RPC-only writes; ep_read_member_roster opens the organizer roster to event members, 09_attendee_roster.sql)');
 
 -- ============================================================
@@ -264,7 +269,8 @@ SELECT policies_are('event_hosts', ARRAY[
 SELECT policies_are('event_invites', ARRAY[
     'ei_read_own',
     'ei_read_event_access',
-    'ei_read_confirmed_roster'
+    'ei_read_confirmed_roster',
+    'active_users_only'
 ], 'event_invites has expected RLS policies (own-row read + host/staff event-read + member confirmed-roster read; ei_update_own dropped for the SECURITY DEFINER invite family)');
 
 -- ============================================================
@@ -472,7 +478,8 @@ SELECT is(
 -- SECTION 23: RLS Policies — event_attendances
 -- ============================================================
 SELECT policies_are('event_attendances', ARRAY[
-    'ea_read_access'
+    'ea_read_access',
+    'active_users_only'
 ], 'event_attendances has expected RLS policies');
 
 -- ============================================================
@@ -481,7 +488,8 @@ SELECT policies_are('event_attendances', ARRAY[
 SELECT policies_are('event_photos', ARRAY[
     'eph_read_access',
     'eph_insert_own',
-    'eph_delete_own_or_host'
+    'eph_delete_own_or_host',
+    'active_users_only'
 ], 'event_photos has expected RLS policies');
 
 -- ============================================================
@@ -490,7 +498,8 @@ SELECT policies_are('event_photos', ARRAY[
 SELECT policies_are('event_photo_likes', ARRAY[
     'epl_read_access',
     'epl_insert_own',
-    'epl_delete_own'
+    'epl_delete_own',
+    'active_users_only'
 ], 'event_photo_likes has expected RLS policies');
 
 -- ============================================================
@@ -501,7 +510,8 @@ SELECT policies_are('event_photo_likes', ARRAY[
 SELECT policies_are('chats', ARRAY[
     'chats_insert_related',
     'chats_read_participant',
-    'chats_delete_related'
+    'chats_delete_related',
+    'active_users_only'
 ], 'chats has expected RLS policies');
 
 -- 26a: the direct branches must correlate to the OUTER chats.id. The original
@@ -533,7 +543,8 @@ SELECT ok(
 -- ============================================================
 SELECT policies_are('messages', ARRAY[
     'messages_read_participant',
-    'messages_insert_participant'
+    'messages_insert_participant',
+    'active_users_only'
 ], 'messages has expected RLS policies');
 
 -- ============================================================
@@ -541,7 +552,8 @@ SELECT policies_are('messages', ARRAY[
 -- ============================================================
 SELECT policies_are('chat_participants', ARRAY[
     'cp_read_own',
-    'cp_read_participant'
+    'cp_read_participant',
+    'active_users_only'
 ], 'chat_participants has expected RLS policies');
 
 -- 28a: chat inbox (migration 20260815000004) — read watermark + RPCs
@@ -679,11 +691,13 @@ SELECT function_privs_are('public', 'delete_undecryptable_messages', ARRAY['uuid
 -- SECTION 29: RLS Policies — shard_ledger / preshard_ledger
 -- ============================================================
 SELECT policies_are('shard_ledger', ARRAY[
-    'sl_read_own'
+    'sl_read_own',
+    'active_users_only'
 ], 'shard_ledger has expected RLS policies');
 
 SELECT policies_are('preshard_ledger', ARRAY[
-    'pl_read_own'
+    'pl_read_own',
+    'active_users_only'
 ], 'preshard_ledger has expected RLS policies');
 
 -- ============================================================
@@ -691,7 +705,8 @@ SELECT policies_are('preshard_ledger', ARRAY[
 -- ============================================================
 SELECT policies_are('user_cosmetics', ARRAY[
     'user_cosmetics_read_own',
-    'user_cosmetics_update_own'
+    'user_cosmetics_update_own',
+    'active_users_only'
 ], 'user_cosmetics has expected RLS policies');
 
 -- ============================================================
@@ -708,7 +723,8 @@ SELECT policies_are('group_cosmetics', ARRAY[
 -- SECTION 32: RLS Policies — remaining non-admin tables
 -- ============================================================
 SELECT policies_are('group_shard_contributions', ARRAY[
-    'gsc_read_member'
+    'gsc_read_member',
+    'active_users_only'
 ], 'group_shard_contributions has expected RLS policies');
 SELECT policies_are('group_rank_snapshots', ARRAY[
     'grs_read_all'
@@ -717,7 +733,8 @@ SELECT policies_are('minigame_sessions', ARRAY[
     'ms_read_group_member',
     'ms_read_invitee',
     'ms_read_direct_participant',
-    'ms_read_public'
+    'ms_read_public',
+    'active_users_only'
 ], 'minigame_sessions has expected RLS policies (ms_read_public added by 211_minigame_public)');
 SELECT col_is_null('minigame_sessions', 'group_id',
     'minigame_sessions.group_id is NULLABLE (NULL = direct session, direct-minigames 2026-08-27)');
@@ -738,14 +755,16 @@ SELECT ok(
 );
 SELECT policies_are('notifications', ARRAY[
     'notif_read_own',
-    'notif_update_own'
+    'notif_update_own',
+    'active_users_only'
 ], 'notifications has expected RLS policies');
 SELECT policies_are('feature_requests', ARRAY[
     'fr_read_own',
     'fr_insert_own'
 ], 'feature_requests has expected RLS policies');
 SELECT policies_are('reports', ARRAY[
-    'reports_insert_own'
+    'reports_insert_own',
+    'active_users_only'
 ], 'reports has expected RLS policies');
 SELECT policies_are('app_config', ARRAY[
     'app_config_read_all'
@@ -1873,7 +1892,8 @@ SELECT ok(
     'every public table with FORCE RLS also has RLS ENABLED (no inert-policy leak)'
 );
 SELECT policies_are('minigame_invites', ARRAY[
-    'mi_read_own'
+    'mi_read_own',
+    'active_users_only'
 ], 'minigame_invites policies: invitee/creator SELECT only (every write is an RPC contract)');
 SELECT has_column('users', 'minigame_invite_friends_only',
     'users.minigame_invite_friends_only exists (invite privacy switch, 140_minigame_invites)');
@@ -2022,7 +2042,8 @@ SELECT ok(
     'minigame_game_state has FORCE ROW LEVEL SECURITY (150_minigame_play)'
 );
 SELECT policies_are('minigame_game_state', ARRAY[
-    'mgs_read_participant'
+    'mgs_read_participant',
+    'active_users_only'
 ], 'minigame_game_state policies: participant/invitee/group-member SELECT only (every write is an RPC contract)');
 SELECT ok(
     EXISTS (
@@ -2690,7 +2711,8 @@ SELECT ok(
 );
 SELECT policies_are('message_reads', ARRAY[
     'message_reads_insert_own',
-    'message_reads_select_participant'
+    'message_reads_select_participant',
+    'active_users_only'
 ], 'message_reads policies: own-row INSERT (participation-gated) + participant SELECT');
 SELECT ok(
     (SELECT count(*) = 1 FROM pg_publication_tables
@@ -3722,9 +3744,11 @@ SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'minigame_results'::regclass),
     'minigame_results has FORCE ROW LEVEL SECURITY (201_minigame_voting)'
 );
-SELECT policies_are('minigame_reactions', ARRAY['mgs_reactions_read'],
+SELECT policies_are('minigame_reactions', ARRAY['mgs_reactions_read', 'active_users_only'
+],
     'minigame_reactions has exactly the participant-read policy (201_minigame_voting)');
-SELECT policies_are('minigame_results', ARRAY['mgs_results_read'],
+SELECT policies_are('minigame_results', ARRAY['mgs_results_read', 'active_users_only'
+],
     'minigame_results has exactly the participant-read policy (201_minigame_voting)');
 
 SELECT has_function('submit_minigame_reaction', ARRAY['uuid', 'text'],
@@ -3883,11 +3907,14 @@ SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'minigame_e2ee_bundles'::regclass),
     'minigame_e2ee_bundles has FORCE ROW LEVEL SECURITY (202_minigame_play_v2)'
 );
-SELECT policies_are('minigame_aliases', ARRAY['mgs_aliases_read'],
+SELECT policies_are('minigame_aliases', ARRAY['mgs_aliases_read', 'active_users_only'
+],
     'minigame_aliases has exactly the participant-read policy (202_minigame_play_v2)');
-SELECT policies_are('minigame_answers', ARRAY['mgs_answers_read'],
+SELECT policies_are('minigame_answers', ARRAY['mgs_answers_read', 'active_users_only'
+],
     'minigame_answers has exactly the participant-read policy (202_minigame_play_v2)');
-SELECT policies_are('minigame_e2ee_bundles', ARRAY['mgs_bundles_insert_own', 'mgs_bundles_update_own', 'mgs_bundles_read_recipient'],
+SELECT policies_are('minigame_e2ee_bundles', ARRAY['mgs_bundles_insert_own', 'mgs_bundles_update_own', 'mgs_bundles_read_recipient', 'active_users_only'
+],
     'minigame_e2ee_bundles has the own-insert + own-update + recipient-read policies (202_minigame_play_v2)');
 -- The upsert-conflict leg of putE2eeBundle needs UPDATE privilege + policy
 -- (2026-08-31 on-device 42501 fix). DELETE stays withheld — bundles are
@@ -4940,6 +4967,31 @@ SELECT ok(
           WHERE polname = 'eph_insert_own' AND polrelid = 'public.event_photos'::regclass)
         LIKE '%/photos/%',
     'SEC-010 photo upload requires attendance and an event-bound path'
+);
+
+-- ============================================================
+-- SECTION 67: Wave 0 safety (230_wave0_safety)
+-- ============================================================
+SELECT has_function('is_active_user', ARRAY['uuid'],
+    'SEC-008 is_active_user(uuid) exists');
+SELECT ok(
+    (SELECT prosecdef FROM pg_proc WHERE proname = 'is_active_user')
+    AND has_function_privilege('authenticated', 'public.is_active_user(uuid)', 'EXECUTE')
+    AND NOT has_function_privilege('anon', 'public.is_active_user(uuid)', 'EXECUTE'),
+    'SEC-008 is_active_user is SECURITY DEFINER, authenticated-only'
+);
+SELECT has_function('moderate_report', ARRAY['uuid', 'text', 'uuid'],
+    'SEC-009 moderate_report(uuid,text,uuid) exists');
+SELECT has_table('moderation_evidence',
+    'SEC-009 moderation_evidence table exists');
+SELECT ok(
+    (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='moderation_evidence') = 0
+    AND EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        WHERE c.relname = 'messages' AND t.tgname = 'active_actor_guard'
+    ),
+    'SEC-008/009 evidence is service-only and messages carry the active-actor guard'
 );
 
 SELECT * FROM finish();

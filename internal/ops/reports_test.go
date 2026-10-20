@@ -115,37 +115,24 @@ func TestGetReport_NotFound(t *testing.T) {
 	}
 }
 
-func TestActionReport_StatusMappingAndAudit(t *testing.T) {
-	tests := []struct {
-		action string
-		status string
-	}{
-		{action: "remove", status: "actioned"},
-		{action: "dismiss", status: "dismissed"},
-		{action: "warn", status: "actioned"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.action, func(t *testing.T) {
-			client, srv, log := newTestClientWithLog(`{}`, 200)
+func TestActionReport_CallsModerateRPC(t *testing.T) {
+	for _, action := range []string{"remove", "dismiss", "warn"} {
+		t.Run(action, func(t *testing.T) {
+			client, srv, log := newTestClientWithLog(`{"status":"ok"}`, 200)
 			defer srv.Close()
 
-			err := ActionReport(context.Background(), client, "r1", tt.action, "admin-1")
-
+			err := ActionReport(context.Background(), client, "r1", action, "admin-1")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got := countRequests(log, "PATCH", "/rest/v1/reports"); got != 1 {
-				t.Fatalf("expected 1 PATCH on reports, got %d", got)
+			if got := countRequests(log, "POST", "/rest/v1/rpc/moderate_report"); got != 1 {
+				t.Fatalf("expected 1 moderate_report RPC, got %d", got)
 			}
-			patch := firstRequestOf(log, "PATCH", "/rest/v1/reports")
-			assertContains(t, patch.Path, "id=eq.r1")
-			assertContains(t, patch.Body, `"status":"`+tt.status+`"`)
-
-			audit := lastRequest(log)
-			assertContains(t, audit.Path, "/rest/v1/admin_audit_log")
-			assertContains(t, audit.Body, `"action":"report_`+tt.action+`"`)
-			assertContains(t, audit.Body, `"target_type":"report"`)
-			assertContains(t, audit.Body, `"target_id":"r1"`)
+			req := lastRequest(log)
+			assertContains(t, req.Path, "/rest/v1/rpc/moderate_report")
+			assertContains(t, req.Body, `"p_report_id":"r1"`)
+			assertContains(t, req.Body, `"p_action":"`+action+`"`)
+			assertContains(t, req.Body, `"p_admin_user_id":"admin-1"`)
 		})
 	}
 }
@@ -164,7 +151,7 @@ func TestActionReport_InvalidAction(t *testing.T) {
 	}
 }
 
-func TestActionReport_UpdateErrorPropagates(t *testing.T) {
+func TestActionReport_RPCErrorPropagates(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(`{"message":"db down"}`, 500)
 	defer srv.Close()
 
@@ -172,16 +159,5 @@ func TestActionReport_UpdateErrorPropagates(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "500") {
 		t.Errorf("expected 500 error, got: %v", err)
-	}
-}
-
-func TestActionReport_AuditErrorPropagates(t *testing.T) {
-	client, srv, _ := newTestClientWithLog(`{}`, 500)
-	defer srv.Close()
-
-	err := ActionReport(context.Background(), client, "r1", "warn", "admin-1")
-
-	if err == nil {
-		t.Error("expected error when audit insert fails")
 	}
 }

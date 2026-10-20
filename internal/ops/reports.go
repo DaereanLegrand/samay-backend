@@ -46,27 +46,17 @@ func GetMessageReport(ctx context.Context, client *db.DBClient, reportID string)
 }
 
 func ActionReport(ctx context.Context, client *db.DBClient, reportID, action, adminUserID string) error {
-	var status string
 	switch action {
-	case "remove":
-		status = "actioned"
-	case "dismiss":
-		status = "dismissed"
-	case "warn":
-		status = "actioned"
+	case "remove", "dismiss", "warn":
 	default:
 		return fmt.Errorf("invalid action: %s: %w", action, ErrInvalid)
 	}
-	_, err := client.Update(ctx, "reports", "id=eq."+reportID, map[string]any{
-		"status": status,
-	})
-	if err != nil {
+	if _, err := client.RPC(ctx, "moderate_report", map[string]any{
+		"p_report_id":     reportID,
+		"p_action":        action,
+		"p_admin_user_id": adminUserID,
+	}); err != nil {
 		return fmt.Errorf("action report: %w", err)
 	}
-	return LogAction(ctx, client, AuditParams{
-		AdminUserID: adminUserID,
-		Action:      "report_" + action,
-		TargetType:  "report",
-		TargetID:    reportID,
-	})
+	return nil
 }

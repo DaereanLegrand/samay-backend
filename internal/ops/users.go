@@ -1,10 +1,15 @@
 package ops
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/samay-app/samay/internal/db"
 )
@@ -80,25 +85,60 @@ func GetUser(ctx context.Context, client *db.DBClient, userID string) (*UserDeta
 	}, errors.Join(detailErrs...)
 }
 
+func setGoTrueBan(ctx context.Context, client *db.DBClient, userID string, banned bool) error {
+	duration := "876000h"
+	if !banned {
+		duration = "none"
+	}
+	body, err := json.Marshal(map[string]any{"ban_duration": duration})
+	if err != nil {
+		return fmt.Errorf("auth ban: marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPut,
+		strings.TrimRight(client.BaseURL, "/")+"/auth/v1/admin/users/"+userID,
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return fmt.Errorf("auth ban: request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+client.ServiceKey)
+	req.Header.Set("apikey", client.ServiceKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("auth ban: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("auth ban: %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
 func BanUser(ctx context.Context, client *db.DBClient, userID, reason, adminUserID string) error {
 	_, err := client.Update(ctx, "users", "id=eq."+userID, map[string]any{
-		"banned_at":  "now()",
+		"banned_at":  time.Now().UTC(),
 		"ban_reason": reason,
 	})
 	if err != nil {
 		return fmt.Errorf("ban user: %w", err)
 	}
+	authErr := setGoTrueBan(ctx, client, userID, true)
 	details, err := json.Marshal(map[string]string{"reason": reason})
 	if err != nil {
 		return fmt.Errorf("ban user: marshal audit details: %w", err)
 	}
-	return LogAction(ctx, client, AuditParams{
+	auditErr := LogAction(ctx, client, AuditParams{
 		AdminUserID: adminUserID,
 		Action:      "ban_user",
 		TargetType:  "user",
 		TargetID:    userID,
 		Details:     details,
 	})
+	return errors.Join(authErr, auditErr)
 }
 
 func UnbanUser(ctx context.Context, client *db.DBClient, userID, adminUserID string) error {
@@ -109,12 +149,14 @@ func UnbanUser(ctx context.Context, client *db.DBClient, userID, adminUserID str
 	if err != nil {
 		return fmt.Errorf("unban user: %w", err)
 	}
-	return LogAction(ctx, client, AuditParams{
+	authErr := setGoTrueBan(ctx, client, userID, false)
+	auditErr := LogAction(ctx, client, AuditParams{
 		AdminUserID: adminUserID,
 		Action:      "unban_user",
 		TargetType:  "user",
 		TargetID:    userID,
 	})
+	return errors.Join(authErr, auditErr)
 }
 
 func GrantShards(ctx context.Context, client *db.DBClient, userID string, amount int, reason, adminUserID string) error {
@@ -166,7 +208,7 @@ func SoftDeleteUser(ctx context.Context, client *db.DBClient, userID, adminUserI
 		return fmt.Errorf("soft delete user: invalid user id %q: %w", userID, ErrInvalid)
 	}
 	_, err := client.Update(ctx, "users", "id=eq."+userID, map[string]any{
-		"deleted_at": "now()",
+		"deleted_at": time.Now().UTC(),
 		"username":   "deleted_user_" + userID[:8],
 		"avatar_url": nil,
 		"bio":        nil,

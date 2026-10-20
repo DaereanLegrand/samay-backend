@@ -62,9 +62,13 @@ S2="88888888-8888-4888-8888-888888888888"
 
 cleanup() {
   psql_db -c "DELETE FROM public.minigame_sessions WHERE id IN ('$S1','$S2');" >/dev/null 2>&1 || true
-  psql_db -c "DELETE FROM public.users WHERE id IN ('$A','$B','$C');" >/dev/null 2>&1 || true
-  psql_db -c "DELETE FROM public.groups WHERE id = '$G';" >/dev/null 2>&1 || true
+  psql_db -c "DELETE FROM public.moderation_evidence WHERE report_id IN (SELECT id FROM public.reports WHERE reporter_id IN ('$A','$B','$C'));" >/dev/null 2>&1 || true
+  psql_db -c "DELETE FROM public.reports WHERE reporter_id IN ('$A','$B','$C');" >/dev/null 2>&1 || true
+  psql_db -c "DELETE FROM public.notifications WHERE user_id IN ('$A','$B','$C');" >/dev/null 2>&1 || true
   psql_db -c "DELETE FROM public.events WHERE id = '$E';" >/dev/null 2>&1 || true
+  psql_db -c "DELETE FROM public.groups WHERE id = '$G';" >/dev/null 2>&1 || true
+  psql_db -c "DELETE FROM public.friendships WHERE requester_id IN ('$A','$B','$C') OR addressee_id IN ('$A','$B','$C');" >/dev/null 2>&1 || true
+  psql_db -c "DELETE FROM public.users WHERE id IN ('$A','$B','$C');" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -210,6 +214,30 @@ r="$(psql_db -c "SET request.jwt.claims='{\"sub\":\"$A\",\"role\":\"authenticate
 [ "$r" = "abandoned" ] && echo "PASS  host abandonment refunds" || { echo "FAIL  host abandonment status=$r"; fail=1; }
 bal="$(psql_db -c "SELECT personal_shards FROM public.users WHERE id='$A';")"
 [ "$bal" = "1000" ] && echo "PASS  abandonment refunded exactly once" || { echo "FAIL  abandonment refund balance ($bal)"; fail=1; }
+
+# SEC-008 — a banned user cannot write through RLS or an RPC.
+psql_db -c "INSERT INTO public.group_members (group_id, user_id, role, status) VALUES ('$G','$B','member','active') ON CONFLICT DO NOTHING; UPDATE public.users SET banned_at = now() WHERE id='$B';" >/dev/null
+check "banned user direct write denied" 400 403 "$(code -X POST "${H_B[@]}" \
+  "$BASE/rest/v1/friendships" -H 'Content-Type: application/json' \
+  -d "{\"requester_id\":\"$B\",\"addressee_id\":\"$A\",\"status\":\"pending\"}")"
+check "banned user RPC write denied" 400 403 "$(code -X POST "${H_B[@]}" \
+  "$BASE/rest/v1/rpc/donate_shards_to_group" -H 'Content-Type: application/json' \
+  -d "{\"p_group_id\":\"$G\",\"p_user_id\":\"$B\",\"p_amount\":10,\"p_expires_at\":null}")"
+psql_db -c "UPDATE public.users SET banned_at = NULL WHERE id='$B';" >/dev/null
+
+# SEC-009 — report removal actually removes + snapshots + notifies + audits.
+psql_db -c "INSERT INTO public.reports (reporter_id, target_type, target_id, reason, status) VALUES ('$A','event','$E','abuse','pending');" >/dev/null
+REPORT_ID="$(psql_db -c "SELECT id FROM public.reports WHERE target_id='$E' AND reporter_id='$A' ORDER BY created_at DESC LIMIT 1;" | tr -d '[:space:]')"
+printf '{"p_report_id":"%s","p_action":"remove","p_admin_user_id":"00000000-0000-0000-0000-000000000000"}' "$REPORT_ID" > /tmp/wave0-mr.json
+check "moderate_report remove" 200 "$(code -X POST "${H_SVC[@]}" \
+  "$BASE/rest/v1/rpc/moderate_report" -H 'Content-Type: application/json' \
+  --data-binary @/tmp/wave0-mr.json)"
+event_state="$(psql_db -c "SELECT status || ':' || name FROM public.events WHERE id='$E';")"
+[ "$event_state" = "cancelled:[removed]" ] && echo "PASS  reported event removed" || { echo "FAIL  reported event state=$event_state"; fail=1; }
+evidence="$(psql_db -c "SELECT count(*) FROM public.moderation_evidence WHERE report_id='$REPORT_ID';")"
+[ "$evidence" = "1" ] && echo "PASS  moderation evidence preserved" || { echo "FAIL  moderation evidence count=$evidence"; fail=1; }
+notified="$(psql_db -c "SELECT count(*) FROM public.notifications WHERE user_id='$A' AND type='report_outcome';")"
+[ "$notified" = "1" ] && echo "PASS  reporter notified" || { echo "FAIL  reporter notification count=$notified"; fail=1; }
 
 echo
 if [ "$fail" -eq 0 ]; then
