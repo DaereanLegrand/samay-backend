@@ -79,7 +79,7 @@ TOKEN="fcm_token_opt061_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 MODE="${MODE:-auto}"
 if [ "$MODE" = "auto" ]; then
   policy="$(psql_db -c "SELECT pg_get_expr(polqual, polrelid) FROM pg_policy WHERE polname='events_update_host' AND polrelid='public.events'::regclass;")"
-  if printf '%s' "$policy" | grep -q "host"; then MODE=after; else MODE=before; fi
+  if printf '%s' "$policy" | grep -q "event_role"; then MODE=after; else MODE=before; fi
 fi
 echo "mode: $MODE"
 
