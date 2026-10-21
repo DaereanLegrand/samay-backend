@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 source .env 2>/dev/null || true
+bash ../tools/check-stack-env.sh .env
 
 STACK_PREFIX="${STACK_PREFIX:-samay}"
 echo "Starting Samay Supabase stack ($STACK_PREFIX)..."

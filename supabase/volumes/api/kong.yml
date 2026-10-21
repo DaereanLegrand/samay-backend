@@ -112,6 +112,16 @@ services:
           allow:
             - service_role
 
+  - name: revenuecat-webhook
+    url: http://$STACK_PREFIX-revenuecat-webhook:9000/
+    read_timeout: 150000
+    routes:
+      - name: revenuecat-webhook-all
+        paths:
+          - /functions/v1/revenuecat-webhook
+    plugins:
+      - name: cors
+
   - name: functions-v1
     url: http://$STACK_PREFIX-functions:9000/
     read_timeout: 150000
@@ -121,6 +131,22 @@ services:
           - /functions/v1/
     plugins:
       - name: cors
+      # Default-deny: every other /functions/v1/* call must carry a Supabase
+      # access token whose `role` claim is authenticated or service_role.
+      # Anonymous tokens are verified and then denied by the ACL.
+      - name: jwt
+        config:
+          key_claim_name: role
+          claims_to_verify:
+            - exp
+          header_names:
+            - authorization
+          run_on_preflight: false
+      - name: acl
+        config:
+          allow:
+            - authenticated
+            - service_role
 
   - name: meta-v1
     url: http://$STACK_PREFIX-meta:8080
@@ -156,3 +182,20 @@ keyauth_credentials:
     key: $ANON_KEY
   - consumer: service_role
     key: $SERVICE_ROLE_KEY
+
+# functions-v1 jwt plugin: the `role` claim selects the consumer. All three
+# consumers share the stack's HS256 JWT_SECRET; the ACL above then rejects
+# role=anon. Tokens are minted by GoTrue or by the local env generator.
+jwt_secrets:
+  - consumer: anon
+    key: anon
+    algorithm: HS256
+    secret: $JWT_SECRET
+  - consumer: authenticated
+    key: authenticated
+    algorithm: HS256
+    secret: $JWT_SECRET
+  - consumer: service_role
+    key: service_role
+    algorithm: HS256
+    secret: $JWT_SECRET
