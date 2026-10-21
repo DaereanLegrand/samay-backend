@@ -11,11 +11,16 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/samay-app/samay/internal/db"
+	"github.com/samay-app/samay/internal/ops"
+	"github.com/samay-app/samay/internal/validate"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var envKeys = []string{"SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ADMIN_USER_ID"}
+// envKeys are the service-role connection plus the per-operator identity. The
+// CLI is break-glass tooling, so it must name a real admin_users row; there is
+// no shared audit actor.
+var envKeys = []string{"SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SAMAY_ADMIN_USER_ID"}
 
 // commandTimeout caps every command's total runtime so a hung Supabase
 // request cannot stall the CLI forever.
@@ -48,7 +53,10 @@ var rootCmd = &cobra.Command{
 	Version:      "1.2.0",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return initClient()
+		if err := initClient(); err != nil {
+			return err
+		}
+		return validateOperator()
 	},
 }
 
@@ -101,7 +109,22 @@ func initClient() error {
 }
 
 func adminUserID() string {
-	return viper.GetString("SUPABASE_ADMIN_USER_ID")
+	return viper.GetString("SAMAY_ADMIN_USER_ID")
+}
+
+// validateOperator refuses to run with an identity that is not a current
+// admin_users row. Operators set SAMAY_ADMIN_USER_ID per person.
+func validateOperator() error {
+	id := adminUserID()
+	if err := validate.ParseUUID(id); err != nil {
+		return fmt.Errorf("invalid SAMAY_ADMIN_USER_ID: %w", err)
+	}
+	ctx, cancel := rootCtx()
+	defer cancel()
+	if _, err := ops.GetAdmin(ctx, dbClient, id); err != nil {
+		return fmt.Errorf("SAMAY_ADMIN_USER_ID %s is not an admin: %w", id, err)
+	}
+	return nil
 }
 
 func deref(s *string) string {

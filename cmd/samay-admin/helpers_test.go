@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/samay-app/samay/internal/db"
@@ -13,14 +15,20 @@ import (
 	"github.com/spf13/viper"
 )
 
+const testAdminID = "00000000-0000-4000-8000-000000000001"
+
 func setupTestEnv(t *testing.T) {
 	t.Helper()
 	viper.Reset()
 	t.Setenv("SUPABASE_URL", "https://example.supabase.co")
 	t.Setenv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
-	t.Setenv("SUPABASE_ADMIN_USER_ID", "admin-1")
+	t.Setenv("SAMAY_ADMIN_USER_ID", testAdminID)
 	initConfig()
 	resetAllFlags(rootCmd)
+	stubCreateClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[]`))
+	})
 }
 
 func resetAllFlags(cmd *cobra.Command) {
@@ -49,7 +57,18 @@ func stubDBClient(t *testing.T, handler http.HandlerFunc) *db.DBClient {
 
 func stubCreateClient(t *testing.T, handler http.HandlerFunc) {
 	t.Helper()
-	client := stubDBClient(t, handler)
+	client := stubDBClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/rest/v1/admin_users") {
+			w.Header().Set("Content-Type", "application/json")
+			if strings.TrimPrefix(r.URL.Query().Get("id"), "eq.") == testAdminID {
+				fmt.Fprintf(w, `[{"id":%q,"email":"admin@example.com","display_name":"Admin","role":"super_admin","created_at":"2026-01-01T00:00:00Z"}]`, testAdminID)
+			} else {
+				w.Write([]byte(`[]`))
+			}
+			return
+		}
+		handler(w, r)
+	})
 	createClient = func() (*db.DBClient, error) { return client, nil }
 }
 
