@@ -814,9 +814,8 @@ SELECT ok(
 SELECT has_column('admin_users', 'display_name',
     'admin_users retains display_name (only dropped from users)');
 SELECT ok(
-    (SELECT count(*) = 0 FROM users
-      WHERE id <> '197930fc-c5d3-4ab1-9601-21d3999a36b5'),
-    'users table holds only the required store reviewer account after init/reset (no stray USER data; tester@qallariy.lat is seeded by seed-config.sql)'
+    (SELECT count(*) = 0 FROM users),
+    'users table is empty after init/reset; seed-config seeds no user rows (reviewer is staging-only)'
 );
 
 -- ============================================================
