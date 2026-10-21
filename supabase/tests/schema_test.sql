@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1058);
+SELECT plan(1080);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -4992,6 +4992,174 @@ SELECT ok(
         WHERE c.relname = 'messages' AND t.tgname = 'active_actor_guard'
     ),
     'SEC-008/009 evidence is service-only and messages carry the active-actor guard'
+);
+
+-- ============================================================
+-- SECTION 68: Wave 1 DB hardening (231_wave1_hardening)
+-- ============================================================
+SELECT ok(
+    (SELECT pg_get_expr(polqual, polrelid) LIKE '%event_hosts%'
+       AND pg_get_expr(polqual, polrelid) LIKE '%host%'
+     FROM pg_policy
+      WHERE polname = 'events_update_host'
+        AND polrelid = 'public.events'::regclass),
+    'SEC-014 events_update_host requires the host role (231)'
+);
+SELECT ok(
+    (SELECT polwithcheck IS NOT NULL
+       AND pg_get_expr(polwithcheck, polrelid) LIKE '%created_by_user_id%'
+     FROM pg_policy
+      WHERE polname = 'events_update_host'
+        AND polrelid = 'public.events'::regclass),
+    'SEC-014 events_update_host has an owner-pinning WITH CHECK (231)'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polqual, polrelid) LIKE '%event_invites%'
+       AND pg_get_expr(polqual, polrelid) LIKE '%accepted%'
+       AND pg_get_expr(polqual, polrelid) LIKE '%attended%'
+     FROM pg_policy
+      WHERE polname = 'chats_read_participant'
+        AND polrelid = 'public.chats'::regclass),
+    'SEC-018 event chat read requires accepted/attended (231)'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polqual, polrelid) LIKE '%event_invites%'
+       AND pg_get_expr(polqual, polrelid) LIKE '%accepted%'
+       AND pg_get_expr(polqual, polrelid) LIKE '%attended%'
+     FROM pg_policy
+      WHERE polname = 'messages_read_participant'
+        AND polrelid = 'public.messages'::regclass),
+    'SEC-018 event message read requires accepted/attended (231)'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polwithcheck, polrelid) LIKE '%event_invites%'
+       AND pg_get_expr(polwithcheck, polrelid) LIKE '%accepted%'
+       AND pg_get_expr(polwithcheck, polrelid) LIKE '%attended%'
+     FROM pg_policy
+      WHERE polname = 'messages_insert_participant'
+        AND polrelid = 'public.messages'::regclass),
+    'SEC-018 event message write requires accepted/attended (231)'
+);
+SELECT ok(
+    (SELECT count(*) = 2
+       AND bool_and(pg_get_expr(
+               CASE WHEN polcmd = 'a' THEN polwithcheck ELSE polqual END,
+               polrelid) LIKE '%accepted%')
+     FROM pg_policy
+      WHERE polrelid = 'public.message_reads'::regclass
+        AND polname IN ('message_reads_insert_own', 'message_reads_select_participant')),
+    'SEC-018 read receipts require accepted/attended event membership (231)'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polqual, polrelid) LIKE '%status = ''active''%'
+     FROM pg_policy
+      WHERE polname = 'groups_read_member'
+        AND polrelid = 'public.groups'::regclass),
+    'SEC-018 group read requires active membership (231)'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polqual, polrelid) LIKE '%status = ''active''%'
+       AND pg_get_expr(polwithcheck, polrelid) LIKE '%status = ''active''%'
+     FROM pg_policy
+      WHERE polname = 'groups_update_host'
+        AND polrelid = 'public.groups'::regclass),
+    'SEC-018 group update requires active host/staff (231)'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polqual, polrelid) LIKE '%status = ''active''%'
+     FROM pg_policy
+      WHERE polname = 'gsc_read_member'
+        AND polrelid = 'public.group_shard_contributions'::regclass),
+    'SEC-018 group contributions require active membership (231)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%event_invites%'
+       AND pg_get_functiondef(p.oid) LIKE '%accepted%'
+       AND pg_get_functiondef(p.oid) LIKE '%attended%'
+     FROM pg_proc p WHERE proname = 'report_message'),
+    'SEC-018 report_message requires accepted/attended event membership (231)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%sender_id = v_me%'
+     FROM pg_proc p WHERE proname = 'delete_undecryptable_messages'),
+    'SEC-015 undecryptable cleanup deletes only the caller''s messages (231)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%BATCH_TOO_LARGE%'
+       AND pg_get_functiondef(p.oid) LIKE '%> 50%'
+     FROM pg_proc p WHERE proname = 'delete_undecryptable_messages'),
+    'SEC-015 undecryptable cleanup caps the batch at 50 (231)'
+);
+SELECT ok(
+    NOT has_table_privilege('authenticated', 'public.deleted_messages', 'INSERT')
+    AND NOT has_table_privilege('authenticated', 'public.deleted_messages', 'UPDATE')
+    AND NOT has_table_privilege('authenticated', 'public.deleted_messages', 'DELETE')
+    AND NOT has_table_privilege('anon', 'public.deleted_messages', 'INSERT')
+    AND has_table_privilege('service_role', 'public.deleted_messages', 'INSERT'),
+    'SEC-015 deleted_messages direct client writes are revoked (231)'
+);
+SELECT ok(
+    has_column_privilege('authenticated', 'public.notifications', 'read', 'UPDATE')
+    AND NOT has_column_privilege('authenticated', 'public.notifications', 'title', 'UPDATE')
+    AND NOT has_column_privilege('authenticated', 'public.notifications', 'push_sent_at', 'UPDATE'),
+    'SEC-019 owners may update only notifications.read (231)'
+);
+SELECT ok(
+    NOT has_column_privilege('anon', 'public.notifications', 'read', 'UPDATE')
+    AND has_column_privilege('service_role', 'public.notifications', 'push_sent_at', 'UPDATE'),
+    'SEC-019 anon cannot update notifications; push_sent_at stays service-only (231)'
+);
+SELECT ok(
+    (SELECT count(*) = 2
+     FROM pg_constraint
+      WHERE conrelid = 'public.device_tokens'::regclass
+        AND conname IN ('device_tokens_token_length', 'device_tokens_token_charset')),
+    'SEC-020 device tokens carry length + charset constraints (231)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%token_owned_by_another_user%'
+       AND pg_get_functiondef(p.oid) LIKE '%token_limit_reached%'
+     FROM pg_proc p WHERE proname = 'register_device_token'),
+    'SEC-020 token registration blocks re-homing and caps at 10 (231)'
+);
+SELECT ok(
+    has_table_privilege('authenticated', 'public.device_tokens', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.device_tokens', 'INSERT')
+    AND NOT has_table_privilege('authenticated', 'public.device_tokens', 'UPDATE')
+    AND NOT has_table_privilege('authenticated', 'public.device_tokens', 'DELETE'),
+    'SEC-020 device tokens stay RPC-write-only (231)'
+);
+SELECT ok(
+    (SELECT bool_and(allowed_mime_types @> ARRAY['image/jpeg', 'image/png', 'image/webp']::text[]
+                     AND NOT (allowed_mime_types && ARRAY['text/html', 'image/svg+xml']::text[])
+                     AND file_size_limit IS NOT NULL)
+     FROM storage.buckets
+      WHERE id IN ('avatars', 'groups', 'events')),
+    'SEC-030 image buckets allow only raster image MIME types with a size cap (231)'
+);
+SELECT ok(
+    (SELECT allowed_mime_types = ARRAY['application/octet-stream']::text[]
+            AND file_size_limit IS NOT NULL
+     FROM storage.buckets
+      WHERE id = 'minigame_images'),
+    'SEC-030 minigame_images accepts only encrypted octets with a size cap (231)'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polwithcheck, polrelid) LIKE '%event_hosts%'
+       AND pg_get_expr(polwithcheck, polrelid) LIKE '%event_invites%'
+       AND pg_get_expr(polwithcheck, polrelid) LIKE '%accepted%'
+     FROM pg_policy
+      WHERE polname = 'storage_objects_insert_own'
+        AND polrelid = 'storage.objects'::regclass),
+    'SEC-030 event uploads are bound to an accessible event path (231)'
+);
+SELECT ok(
+    (SELECT pg_get_expr(polwithcheck, polrelid) LIKE '%event_hosts%'
+       AND pg_get_expr(polwithcheck, polrelid) LIKE '%event_invites%'
+     FROM pg_policy
+      WHERE polname = 'storage_objects_update_own'
+        AND polrelid = 'storage.objects'::regclass),
+    'SEC-030 event object relocation re-checks the event path (231)'
 );
 
 SELECT * FROM finish();

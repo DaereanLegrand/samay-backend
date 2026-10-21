@@ -18,8 +18,9 @@ set -uo pipefail
 #      reads it back; outsider stays blocked
 #   G) deletion RPCs (20260815000006): delete_message_for_everyone (sender +
 #      server-verified 5-min window → MESSAGE_TOO_OLD / NOT_THE_SENDER) and
-#      delete_undecryptable_messages (participant-gated cleanup, cross-chat
-#      ids ignored, NOT_A_PARTICIPANT for outsiders) + deleted_messages audit
+#      delete_undecryptable_messages (participant-gated, sender-scoped cleanup;
+#      cross-chat ids and other senders' rows ignored, NOT_A_PARTICIPANT for
+#      outsiders) + deleted_messages audit
 #      suite (supabase/tests/schema_test.sql, I-77) — a curl test cannot call
 #      a trigger function (returns trigger, not callable via PostgREST RPC).
 #
@@ -417,17 +418,24 @@ else
   nok "G: not-sender verdict: $resp"
 fi
 
-# Participant cleanup: A deletes B's rows as "undecryptable" — the request
-# also carries a GROUP-chat message id (MSG_1) that must be IGNORED.
+# Participant cleanup is SENDER-SCOPED (SEC-015/231): A may only delete A's
+# own rows as "undecryptable". The request carries B's row (DEL_MSG_1), A's
+# row (DEL_MSG_2) and a GROUP-chat message id (MSG_1); only DEL_MSG_2 goes.
 svc_post "messages" "{\"id\":\"$DEL_MSG_1\",\"chat_id\":\"$CHAT_DIRECT\",\"sender_id\":\"$UUID_B\",\"content\":\"$ENV_1\"}" > /dev/null
 resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/delete_undecryptable_messages" \
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
   -H "Content-Type: application/json" \
   -d "{\"p_chat_id\":\"$CHAT_DIRECT\",\"p_message_ids\":[\"$DEL_MSG_1\",\"$DEL_MSG_2\",\"$MSG_1\"]}")
-if [ "$resp" = "2" ]; then
-  ok "G: participant cleanup deleted exactly the chat's 2 rows (cross-chat ignored)"
+if [ "$resp" = "1" ]; then
+  ok "G: sender-scoped cleanup deleted only A's own row (other sender + cross-chat ignored)"
 else
-  nok "G: cleanup count=$resp (expected 2)"
+  nok "G: cleanup count=$resp (expected 1)"
+fi
+# Another sender's row survives the cleanup.
+if auth_get "$TOKEN_A" "messages?id=eq.$DEL_MSG_1" | grep -q "$DEL_MSG_1"; then
+  ok "G: another sender's message survived the cleanup"
+else
+  nok "G: another sender's message was wrongly deleted"
 fi
 # The group-chat message survives the cleanup.
 if auth_get "$TOKEN_A" "messages?id=eq.$MSG_1" | grep -q "$MSG_1"; then
@@ -447,12 +455,12 @@ else
   nok "G: outsider verdict: $resp"
 fi
 
-# Audit trail: delete_for_everyone rows are recorded in deleted_messages.
-audit=$(svc_get "deleted_messages?message_id=eq.$DEL_MSG_1")
-if echo "$audit" | grep -q "delete_for_everyone"; then
-  ok "G: deletions are audited in deleted_messages"
+# Audit trail: cleanup rows are recorded in deleted_messages.
+audit=$(svc_get "deleted_messages?message_id=eq.$DEL_MSG_2")
+if echo "$audit" | grep -q "undecryptable_cleanup"; then
+  ok "G: cleanup deletions are audited in deleted_messages"
 else
-  nok "G: audit row missing: $audit"
+  nok "G: cleanup audit row missing: $audit"
 fi
 
 # Cleanup the direct chat + its messages.
