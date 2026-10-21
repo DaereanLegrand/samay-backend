@@ -13,12 +13,14 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/samay-app/samay/internal/auth"
 	"github.com/samay-app/samay/internal/db"
 	"github.com/spf13/viper"
 )
 
-// envKeys are the required environment variables, mirroring cmd/samay-admin/root.go.
-var envKeys = []string{"SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ADMIN_USER_ID"}
+// envKeys are the non-auth environment variables. Admin identity comes from
+// verified Supabase JWTs, never from a fixed local UUID.
+var envKeys = []string{"SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"}
 
 // serverVersion is reported by /api/v1/health. Bumped at release time; M-21 may
 // source it from a VERSION file later (DEPLOYMENT-PLACEHOLDER.md §3.1).
@@ -29,6 +31,7 @@ var (
 	createClient = func() (*db.DBClient, error) {
 		return db.NewDBClient()
 	}
+	newVerifier = auth.NewVerifierFromEnv
 )
 
 func main() {
@@ -44,6 +47,10 @@ func run() error {
 	if err := validateEnv(); err != nil {
 		return err
 	}
+	verifier, err := newVerifier()
+	if err != nil {
+		return fmt.Errorf("initialize admin JWT verifier: %w", err)
+	}
 	client, err := createClient()
 	if err != nil {
 		return fmt.Errorf("initialize database client: %w", err)
@@ -51,7 +58,6 @@ func run() error {
 	dbClient = client
 
 	// PORT defaults to 8090, keeping the Samay server off common dev ports.
-	_ = viper.BindEnv("PORT")
 	port := viper.GetString("PORT")
 	if port == "" {
 		port = "8090"
@@ -59,8 +65,11 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           newRouter(),
+		Handler:           newRouter(verifier),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -84,7 +93,7 @@ func initConfig() {
 	for _, key := range envKeys {
 		_ = viper.BindEnv(key)
 	}
-	_ = viper.BindEnv("ADMIN_API_KEY")
+	_ = viper.BindEnv("PORT")
 }
 
 func validateEnv() error {
@@ -98,10 +107,4 @@ func validateEnv() error {
 		return fmt.Errorf("missing required environment variable(s): %s", strings.Join(missing, ", "))
 	}
 	return nil
-}
-
-// adminIdentity returns the audit actor id for admin mutations. The CLI reads the
-// same var; when JWT verification lands (S-06/M-21), this becomes the token subject.
-func adminIdentity() string {
-	return viper.GetString("SUPABASE_ADMIN_USER_ID")
 }

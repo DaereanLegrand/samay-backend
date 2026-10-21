@@ -26,11 +26,26 @@ func TestValidateEnv_MissingVars(t *testing.T) {
 func TestValidateEnv_AllSet(t *testing.T) {
 	t.Setenv("SUPABASE_URL", "https://example.supabase.co")
 	t.Setenv("SUPABASE_SERVICE_ROLE_KEY", "placeholder-service-key")
-	t.Setenv("SUPABASE_ADMIN_USER_ID", "00000000-0000-0000-0000-000000000000")
 	initConfig()
 
 	if err := validateEnv(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNewVerifierFromEnv_FallsBackToLocalSecret(t *testing.T) {
+	t.Setenv("SUPABASE_JWT_SECRET", "")
+	t.Setenv("JWT_SECRET", "local-secret")
+	if _, err := newVerifier(); err != nil {
+		t.Fatalf("expected JWT_SECRET fallback to succeed: %v", err)
+	}
+}
+
+func TestNewVerifierFromEnv_RequiresSecret(t *testing.T) {
+	t.Setenv("SUPABASE_JWT_SECRET", "")
+	t.Setenv("JWT_SECRET", "")
+	if _, err := newVerifier(); err == nil {
+		t.Fatal("expected an error when no JWT secret is configured")
 	}
 }
 

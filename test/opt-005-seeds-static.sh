@@ -4,10 +4,11 @@ set -uo pipefail
 # [OPT-005] Seeds static validation (rewritten by MSQ-01, 2026-08-23)
 #
 # Validates the TWO seed files against the baseline migrations:
-#   supabase/seed-config.sql  — required app config + the demo reviewer account
-#                               (auth.users + auth.identities + public.users, so
-#                               Google/Apple reviewers can sign in).
-#                               AUTO-applied by init/reset/migrate.
+#   supabase/seed-config.sql  — required app config + the system admin row.
+#                               AUTO-applied by init/reset/migrate. It must
+#                               contain NO user accounts (reviewer is staging-only).
+#   supabase/seed-reviewer-staging.sql — staging-only reviewer account, applied
+#                               by tools/seed-reviewer.sh with a runtime password.
 #   supabase/seed-test.sql    — @tester test-data snapshot, EXPLICIT only
 #                               (`make supabase-seed-test`; conversations and
 #                               notifications deliberately absent; regenerable
@@ -23,6 +24,8 @@ SEED_CONFIG="$REPO/supabase/seed-config.sql"
 SEED_CONFIG_TESTING="$REPO/supabase/seed-config.sql"
 SEED_TEST="$REPO/supabase/seed-test.sql"
 SEED_TESTING_TEST="$REPO/supabase/seed-test.sql"
+SEED_REVIEWER="$REPO/supabase/seed-reviewer-staging.sql"
+SEED_REVIEWER_TOOL="$REPO/tools/seed-reviewer.sh"
 MIG="$REPO/supabase/migrations"
 MAKEFILE="$REPO/Makefile"
 
@@ -37,7 +40,7 @@ echo "════════════════════════�
 
 # ── 1. Files present ─────────────────────────────────────────────────────────
 h1 "1. Files present"
-for f in "$SEED_CONFIG" "$SEED_CONFIG_TESTING" "$SEED_TEST" "$SEED_TESTING_TEST" "$MAKEFILE"; do
+for f in "$SEED_CONFIG" "$SEED_CONFIG_TESTING" "$SEED_TEST" "$SEED_TESTING_TEST" "$SEED_REVIEWER" "$SEED_REVIEWER_TOOL" "$MAKEFILE"; do
   if [ -f "$f" ]; then pass="exists: $(basename "$f")"; ok "$pass"; else fail "missing: $f"; fi
 done
 if [ ! -f "$REPO/supabase/seed-dev.sql" ] && [ ! -f "$REPO/supabase/seed-dev.sql" ]; then
@@ -205,7 +208,7 @@ validate_seed_file() { # validate_seed_file <file> <label> <min_uuid_rows|0>
 }
 
 # ── 6. seed-config content checks ────────────────────────────────────────────
-h1 "6. seed-config.sql (required config, auto-applied)"
+h1 "6. seed-config.sql (required config, auto-applied, no users)"
 validate_seed_file "$SEED_CONFIG" "config" 0
 CFG_KEYS=$(grep -cE "^\s+\('[a-z_]+\.[a-z_]+" "$SEED_CONFIG" || true)
 if [ "$CFG_KEYS" -ge 38 ]; then
@@ -214,19 +217,43 @@ else
   fail "app_config key count too low ($CFG_KEYS < 38)"
 fi
 grep -q "system@samay.example.com" "$SEED_CONFIG" && ok "system admin row present" || fail "system admin row missing"
-# config + the demo reviewer account only. insert_tables strips the schema, so
-# auth.users/public.users both surface as 'users' and auth.identities as
-# 'identities'.
-ALLOWED_TABLES='^(admin_users|app_config|users|identities)$'
+# Required config + the system admin row only. No auth/users/identities rows.
+ALLOWED_TABLES='^(admin_users|app_config)$'
 if insert_tables "$SEED_CONFIG" | grep -qvE "$ALLOWED_TABLES"; then
   fail "seed-config contains unexpected tables: $(insert_tables "$SEED_CONFIG" | grep -vE "$ALLOWED_TABLES" | tr '\n' ' ')"
 else
-  ok "seed-config touches only admin_users + app_config + the demo account"
+  ok "seed-config touches only admin_users + app_config"
 fi
 if grep -q "tester@qallariy.lat" "$SEED_CONFIG"; then
-  ok "demo reviewer account present (tester@qallariy.lat)"
+  fail "reviewer account must not be in the default seed"
 else
-  fail "demo reviewer account (tester@qallariy.lat) missing from seed-config"
+  ok "default seed contains no reviewer account"
+fi
+
+# ── 6b. Staging reviewer seed (SEC-028) ──────────────────────────────────────
+h1 "6b. staging reviewer seed (runtime password, no repo credential)"
+if grep -q "197930fc-c5d3-4ab1-9601-21d3999a36b5" "$SEED_REVIEWER" \
+   && grep -q "crypt(" "$SEED_REVIEWER" \
+   && grep -q "gen_salt(" "$SEED_REVIEWER"; then
+  ok "staging seed creates the reviewer with crypt/gen_salt"
+else
+  fail "staging seed must use crypt/gen_salt for the reviewer password"
+fi
+if grep -q "SAMAY_ENV" "$SEED_REVIEWER_TOOL" && grep -q "REVIEWER_PASSWORD" "$SEED_REVIEWER_TOOL"; then
+  ok "seed-reviewer.sh requires SAMAY_ENV + REVIEWER_PASSWORD"
+else
+  fail "seed-reviewer.sh must require SAMAY_ENV + REVIEWER_PASSWORD"
+fi
+if grep -qE '(echo|printf)[^#]*\$\{?REVIEWER_PASSWORD' "$SEED_REVIEWER_TOOL"; then
+  fail "seed-reviewer.sh must never echo REVIEWER_PASSWORD"
+else
+  ok "seed-reviewer.sh never echoes REVIEWER_PASSWORD"
+fi
+if grep -q 'ON CONFLICT (id) DO NOTHING' "$SEED_REVIEWER" \
+   && grep -q 'ON CONFLICT DO NOTHING' "$SEED_REVIEWER"; then
+  ok "staging seed is idempotent (ON CONFLICT DO NOTHING)"
+else
+  fail "staging seed must be idempotent"
 fi
 
 # ── 7. seed-test content checks ──────────────────────────────────────────────
