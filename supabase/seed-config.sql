@@ -2,10 +2,10 @@
 -- REQUIRED application configuration (fundamental for runtime): app_config
 -- tuning keys + the system admin row. Auto-applied by init/reset/migrate
 -- right after migrations (user directive 2026-08-23). Idempotent:
--- ON CONFLICT DO NOTHING. Also seeds the DEMO REVIEWER ACCOUNT
--- (tester@qallariy.lat) so Google Play / App Store reviewers can sign in on
--- every environment (Open Testing = staging, Published = prod). Other test
--- data lives in seed-test.sql (explicit only).
+-- ON CONFLICT DO NOTHING. Contains NO user accounts: the store reviewer account
+-- is staging-only (supabase/seed-reviewer-staging.sql, run by
+-- tools/seed-reviewer.sh with a vault-generated password). Other test data
+-- lives in seed-test.sql (explicit only).
 -- NOTE: the system-admin email uses the placeholder domain (DEPLOYMENT-PLACEHOLDER
 -- R03 convention) — swap to the real ops inbox at release, never commit a real one.
 
@@ -57,22 +57,3 @@ INSERT INTO app_config (key, value, description, default_value) VALUES
     ('app.search_debounce_ms', '300', 'Debounce delay (ms) for search/invite screens (PERF-05/L-24; fallback 300 in lib)', '300'),
     ('ranking.anonymize_names', 'true', 'Censor user names on the public ranking unless the profile is public', 'true')
 ON CONFLICT (key) DO NOTHING;
-
--- ─────────────────────────────────────────────────────────────────────────────
--- Demo reviewer account (Google Play / App Store review sign-in).
--- Seeded on EVERY environment: reviewers sign in on both the Open Testing
--- (staging) and Published (prod) builds. Idempotent (ON CONFLICT DO NOTHING);
--- the bcrypt hash preserves the password entered in the store listing. Triggers
--- are suppressed (replica role) so the rows carry the exact shapes a real
--- signup produces — same posture as seed-test.sql.
--- ─────────────────────────────────────────────────────────────────────────────
-BEGIN;
-SET LOCAL session_replication_role = replica;
-
-INSERT INTO auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, invited_at, confirmation_token, confirmation_sent_at, recovery_token, recovery_sent_at, email_change_token_new, email_change, email_change_sent_at, last_sign_in_at, raw_app_meta_data, raw_user_meta_data, is_super_admin, created_at, updated_at, phone, phone_confirmed_at, phone_change, phone_change_token, phone_change_sent_at, email_change_token_current, email_change_confirm_status, banned_until, reauthentication_token, reauthentication_sent_at, is_sso_user, deleted_at, is_anonymous) VALUES ('00000000-0000-0000-0000-000000000000', '197930fc-c5d3-4ab1-9601-21d3999a36b5', 'authenticated', 'authenticated', 'tester@qallariy.lat', '$2a$10$OFXkF.IFXRCYqJZ6v3Fqlu3IDtMJXJoCRB3M4v.ZT2dBGD.flRBZi', '2026-10-18 05:25:21.457661+00', NULL, '', NULL, '', NULL, '', '', NULL, '2026-10-18 05:25:21.461446+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "197930fc-c5d3-4ab1-9601-21d3999a36b5", "email": "tester@qallariy.lat", "email_verified": true, "phone_verified": false}', NULL, '2026-10-18 05:24:12.59166+00', '2026-10-18 05:25:22.3405+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false) ON CONFLICT DO NOTHING;
-
-INSERT INTO auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at, id) VALUES ('197930fc-c5d3-4ab1-9601-21d3999a36b5', '197930fc-c5d3-4ab1-9601-21d3999a36b5', '{"sub": "197930fc-c5d3-4ab1-9601-21d3999a36b5", "email": "tester@qallariy.lat", "email_verified": true, "phone_verified": false}', 'email', '2026-10-18 05:24:12.596383+00', '2026-10-18 05:24:12.596404+00', '2026-10-18 05:24:12.596404+00', '6ead7142-a0cf-4675-9cd5-2193cc1a406e') ON CONFLICT DO NOTHING;
-
-INSERT INTO public.users (id, username, avatar_url, date_of_birth, bio, banned_at, ban_reason, deleted_at, personal_shards, preshards, subscription_tier, subscription_expires_at, notification_preferences, created_at, updated_at, interest_tags, discovery_opt_in, read_receipts_enabled, profile_public, minigame_invite_friends_only, deletion_previous_username) VALUES ('197930fc-c5d3-4ab1-9601-21d3999a36b5', 'tester', NULL, '2008-10-02', NULL, NULL, NULL, NULL, 256, 0, 'free', NULL, '{}', '2026-10-18 05:25:47.898474+00', '2026-10-18 05:25:47.898474+00', '{}', false, true, false, false, NULL) ON CONFLICT DO NOTHING;
-
-COMMIT;

@@ -2,7 +2,7 @@
 #
 # Local dev needs no submodule. Prod (`start PROD=true`, `deploy`) requires the
 # optional <private-ops-repo> submodule (Admin access) + a vault passphrase.
-.PHONY: help init tunnel start stop status reset nuke seed in-db logs \
+.PHONY: help init preflight tunnel start stop status reset nuke seed in-db logs \
         build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image loadtest \
         test check lint secrets migrate migrate-adopt fetch-fcm <fetch-rc-secret> hooks guard-prod \
         db api smoke
@@ -123,7 +123,9 @@ status: guard-prod
 else
 init:
 	@bash tools/init.sh
-start:
+preflight:
+	@bash tools/check-stack-env.sh "$(STACK_ENV)"
+start: preflight
 	@$(FCM_FETCH)$(RC_FETCH) cd supabase && $(COMPOSE) up -d && \
 		$(COMPOSE) up -d --wait db auth && \
 		bash ../tools/apply_migrations.sh supabase && \
@@ -134,7 +136,7 @@ status:
 	@cd supabase && $(COMPOSE) ps
 endif
 
-reset:
+reset: preflight
 	@[ "$(PROD)" != "true" ] || { echo "refusing to reset prod via make; run the VM reset explicitly"; exit 1; }
 	@$(FCM_FETCH)$(RC_FETCH) cd supabase && $(COMPOSE) down -v && \
 		rm -rf $(STORAGE_DIR) && \

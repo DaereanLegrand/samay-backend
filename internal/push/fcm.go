@@ -45,11 +45,77 @@ type serviceAccount struct {
 	TokenURI    string `json:"token_uri"`
 }
 
+// Generic copy keys sent instead of content. The client resolves them to
+// localized placeholder text ("New activity in Samay") and then loads the real
+// content from the in-app notification center once the user is authenticated.
+const (
+	GenericTitleKey = "push.generic.title"
+	GenericBodyKey  = "push.generic.body"
+
+	dataKeyNotificationID = "notification_id"
+	dataKeyType           = "type"
+	dataKeyTitleKey       = "titleKey"
+	dataKeyBodyKey        = "bodyKey"
+)
+
+// allowedDataKeys is the complete set of keys that may reach FCM/APNs. Content
+// (title, body, sender, location, wager, answers, prompts) is intentionally
+// excluded: push is a wake-up signal, not a content channel.
+var allowedDataKeys = map[string]struct{}{
+	dataKeyNotificationID: {},
+	dataKeyType:           {},
+	dataKeyTitleKey:       {},
+	dataKeyBodyKey:        {},
+}
+
 // Message is the platform-agnostic payload rendered into an FCM v1 message.
+// It carries only an opaque notification id and type; text is never included.
 type Message struct {
-	Title string
-	Body  string
-	Data  map[string]string
+	NotificationID string
+	Type           string
+}
+
+// data returns the allow-listed data map for FCM. It is built here rather than
+// accepted from callers so raw notification content cannot leak into a push.
+func (m Message) data() map[string]string {
+	return map[string]string{
+		dataKeyNotificationID: m.NotificationID,
+		dataKeyType:           m.Type,
+		dataKeyTitleKey:       GenericTitleKey,
+		dataKeyBodyKey:        GenericBodyKey,
+	}
+}
+
+// payload renders a data-only FCM v1 message. APNs gets a silent background
+// push (content-available + mutable-content, no alert); Android uses high
+// priority so the client wakes promptly.
+func payload(token string, msg Message) ([]byte, error) {
+	out := map[string]any{
+		"message": map[string]any{
+			"token": token,
+			"data":  msg.data(),
+			"android": map[string]any{
+				"priority": "high",
+			},
+			"apns": map[string]any{
+				"headers": map[string]string{
+					"apns-priority":  "5",
+					"apns-push-type": "background",
+				},
+				"payload": map[string]any{
+					"aps": map[string]any{
+						"content-available": 1,
+						"mutable-content":   1,
+					},
+				},
+			},
+		},
+	}
+	body, err := json.Marshal(out)
+	if err != nil {
+		return nil, fmt.Errorf("marshal fcm payload: %w", err)
+	}
+	return body, nil
 }
 
 // FCMClient authenticates as the service account and sends FCM v1 messages.
@@ -113,26 +179,9 @@ func (c *FCMClient) Send(ctx context.Context, token string, msg Message) error {
 		return err
 	}
 
-	payload := map[string]any{
-		"message": map[string]any{
-			"token": token,
-			"notification": map[string]string{
-				"title": msg.Title,
-				"body":  msg.Body,
-			},
-			"data":    msg.Data,
-			"android": map[string]any{"priority": "high"},
-			"apns": map[string]any{
-				"headers": map[string]string{"apns-priority": "10"},
-				"payload": map[string]any{
-					"aps": map[string]any{"sound": "default"},
-				},
-			},
-		},
-	}
-	body, err := json.Marshal(payload)
+	body, err := payload(token, msg)
 	if err != nil {
-		return fmt.Errorf("marshal fcm payload: %w", err)
+		return err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))

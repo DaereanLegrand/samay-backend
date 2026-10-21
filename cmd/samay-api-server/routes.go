@@ -2,40 +2,63 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/samay-app/samay/internal/auth"
 	"github.com/samay-app/samay/internal/ops"
 	"github.com/samay-app/samay/internal/validate"
-	"github.com/spf13/viper"
 )
-
-// adminAPIKeyEnv is the placeholder admin gate. Real auth (Supabase JWKS
-// verification + admin_users role check on the JWT subject) is S-06/M-21 scope;
-// this env var only proves the surface before auth lands. Fails closed when unset.
-const adminAPIKeyEnv = "ADMIN_API_KEY"
 
 // apiBase is the versioned path prefix for all routes.
 const apiBase = "/api/v1"
 
-func newRouter() *gin.Engine {
+// Admin-surface resource limits. Admin traffic is human-paced, so both buckets
+// are tight enough to stop a brute-force/flood while leaving normal console use
+// unaffected.
+const (
+	maxAdminBodyBytes  = 128 << 10 // 128 KiB
+	ipTokensPerSecond  = 1         // 60 req/min per source IP
+	ipBurst            = 60
+	adminTokensPerSec  = 0.5 // 30 req/min per admin
+	adminBurst         = 30
+	adminLookupTimeout = 5 * time.Second
+)
+
+// adminSubjectKey is the gin context key holding the verified JWT subject.
+const adminSubjectKey = "admin_subject"
+
+func newRouter(verifier *auth.Verifier) *gin.Engine {
 	r := gin.New()
 	r.HandleMethodNotAllowed = true
+	// ClientIP drives the per-IP bucket. Default to the socket address; a
+	// deployment behind a trusted proxy opts in with TRUSTED_PROXIES.
+	if err := r.SetTrustedProxies(trustedProxies()); err != nil {
+		log.Printf("invalid TRUSTED_PROXIES, falling back to socket addresses: %v", err)
+		_ = r.SetTrustedProxies(nil)
+	}
 	r.Use(requestLogger(), recovery())
 	r.NoRoute(notFound)
 	r.NoMethod(notAllowed)
 
 	r.GET(apiBase+"/health", healthHandler)
 
-	admin := r.Group(apiBase+"/admin", requireAdmin())
+	ipLimiter := auth.NewRateLimiter(ipTokensPerSecond, ipBurst)
+	adminLimiter := auth.NewRateLimiter(adminTokensPerSec, adminBurst)
+	admin := r.Group(apiBase+"/admin",
+		limitByIP(ipLimiter),
+		bodyLimit(maxAdminBodyBytes),
+		requireAdmin(verifier),
+		limitByAdmin(adminLimiter),
+	)
 	{
 		// users
 		admin.GET("/users", listUsersHandler)
@@ -117,22 +140,103 @@ func recovery() gin.HandlerFunc {
 	}
 }
 
-// requireAdmin is the placeholder admin gate. It compares the Authorization
-// bearer token against ADMIN_API_KEY using a constant-time compare. JWT/JWKS
-// verification (S-06) and admin_users role resolution (M-21) replace this body.
-func requireAdmin() gin.HandlerFunc {
-	expected := viper.GetString(adminAPIKeyEnv)
-	if expected == "" {
-		log.Printf("WARNING: %s unset — admin routes fail closed (401). Set a placeholder key for local testing; real JWT auth lands with S-06/M-21.", adminAPIKeyEnv)
-	}
+// requireAdmin verifies the Supabase HS256 JWT and resolves its subject in
+// admin_users. Bad/expired/wrong-audience tokens are 401; a valid token whose
+// subject is not an admin is 403.
+func requireAdmin(verifier *auth.Verifier) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
-		if !ok || expected == "" || subtle.ConstantTimeCompare([]byte(token), []byte(expected)) != 1 {
+		if !ok || verifier == nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		claims, err := verifier.Verify(token)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		if err := validate.ParseUUID(claims.Subject); err != nil {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), adminLookupTimeout)
+		defer cancel()
+		if _, err := ops.GetAdmin(ctx, dbClient, claims.Subject); err != nil {
+			if errors.Is(err, ops.ErrNotFound) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			log.Printf("admin identity lookup error: %v", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			return
+		}
+		c.Set(adminSubjectKey, claims.Subject)
+		c.Next()
+	}
+}
+
+// limitByIP caps requests per source address before any auth/DB work.
+func limitByIP(limiter *auth.RateLimiter) gin.HandlerFunc {
+	return rateLimit(limiter, func(c *gin.Context) string {
+		return "ip:" + c.ClientIP()
+	})
+}
+
+// limitByAdmin caps requests per verified admin subject.
+func limitByAdmin(limiter *auth.RateLimiter) gin.HandlerFunc {
+	return rateLimit(limiter, func(c *gin.Context) string {
+		return "admin:" + c.GetString(adminSubjectKey)
+	})
+}
+
+func rateLimit(limiter *auth.RateLimiter, key func(*gin.Context) string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		allowed, retryAfter := limiter.Allow(key(c))
+		if !allowed {
+			seconds := int(retryAfter / time.Second)
+			if seconds < 1 {
+				seconds = 1
+			}
+			c.Header("Retry-After", strconv.Itoa(seconds))
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
 			return
 		}
 		c.Next()
 	}
+}
+
+// bodyLimit rejects oversized admin requests up front and wraps the reader so a
+// chunked body cannot bypass the cap. bindJSON maps the reader error to 413.
+func bodyLimit(max int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.ContentLength > max {
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, max)
+		c.Next()
+	}
+}
+
+// adminIdentity returns the verified audit actor for the current request.
+func adminIdentity(c *gin.Context) string {
+	return c.GetString(adminSubjectKey)
+}
+
+func trustedProxies() []string {
+	raw := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES"))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func notFound(c *gin.Context) {
@@ -183,9 +287,15 @@ func writeError(c *gin.Context, err error) {
 	c.JSON(status, gin.H{"error": msg})
 }
 
-// bindJSON decodes the request body into dst or aborts with 400.
+// bindJSON decodes the request body into dst or aborts with 400 (413 when the
+// body exceeded the admin cap).
 func bindJSON(c *gin.Context, dst any) bool {
 	if err := c.ShouldBindJSON(dst); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+			return false
+		}
 		writeError(c, fmt.Errorf("invalid request body: %w", err))
 		return false
 	}
@@ -329,7 +439,7 @@ func banUserHandler(c *gin.Context) {
 		writeError(c, fmt.Errorf("invalid request: reason is required"))
 		return
 	}
-	if err := ops.BanUser(opsCtx(c), dbClient, c.Param("id"), req.Reason, adminIdentity()); err != nil {
+	if err := ops.BanUser(opsCtx(c), dbClient, c.Param("id"), req.Reason, adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -337,7 +447,7 @@ func banUserHandler(c *gin.Context) {
 }
 
 func unbanUserHandler(c *gin.Context) {
-	if err := ops.UnbanUser(opsCtx(c), dbClient, c.Param("id"), adminIdentity()); err != nil {
+	if err := ops.UnbanUser(opsCtx(c), dbClient, c.Param("id"), adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -357,7 +467,7 @@ func grantShardsHandler(c *gin.Context) {
 	if reason == "" {
 		reason = "admin_grant"
 	}
-	if err := ops.GrantShards(opsCtx(c), dbClient, c.Param("id"), req.Amount, reason, adminIdentity()); err != nil {
+	if err := ops.GrantShards(opsCtx(c), dbClient, c.Param("id"), req.Amount, reason, adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -377,7 +487,7 @@ func grantPreshardsHandler(c *gin.Context) {
 	if reason == "" {
 		reason = "admin_grant"
 	}
-	if err := ops.GrantPreshards(opsCtx(c), dbClient, c.Param("id"), req.Amount, reason, adminIdentity()); err != nil {
+	if err := ops.GrantPreshards(opsCtx(c), dbClient, c.Param("id"), req.Amount, reason, adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -390,7 +500,7 @@ func deleteUserHandler(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	if err := ops.SoftDeleteUser(opsCtx(c), dbClient, id, adminIdentity()); err != nil {
+	if err := ops.SoftDeleteUser(opsCtx(c), dbClient, id, adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -459,7 +569,7 @@ func featureEventHandler(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	if err := ops.FeatureEvent(opsCtx(c), dbClient, c.Param("id"), expiresAt, adminIdentity()); err != nil {
+	if err := ops.FeatureEvent(opsCtx(c), dbClient, c.Param("id"), expiresAt, adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -467,7 +577,7 @@ func featureEventHandler(c *gin.Context) {
 }
 
 func unfeatureEventHandler(c *gin.Context) {
-	if err := ops.UnfeatureEvent(opsCtx(c), dbClient, c.Param("id"), adminIdentity()); err != nil {
+	if err := ops.UnfeatureEvent(opsCtx(c), dbClient, c.Param("id"), adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -483,7 +593,7 @@ func cancelEventHandler(c *gin.Context) {
 		writeError(c, fmt.Errorf("invalid request: reason is required"))
 		return
 	}
-	if err := ops.CancelEvent(opsCtx(c), dbClient, c.Param("id"), req.Reason, adminIdentity()); err != nil {
+	if err := ops.CancelEvent(opsCtx(c), dbClient, c.Param("id"), req.Reason, adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -491,7 +601,7 @@ func cancelEventHandler(c *gin.Context) {
 }
 
 func distributeShardsHandler(c *gin.Context) {
-	if err := ops.DistributeShards(opsCtx(c), dbClient, c.Param("id"), adminIdentity()); err != nil {
+	if err := ops.DistributeShards(opsCtx(c), dbClient, c.Param("id"), adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -599,7 +709,7 @@ func actionReportHandler(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	if err := ops.ActionReport(opsCtx(c), dbClient, c.Param("id"), req.Action, adminIdentity()); err != nil {
+	if err := ops.ActionReport(opsCtx(c), dbClient, c.Param("id"), req.Action, adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -651,7 +761,7 @@ func setConfigHandler(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-	if err := ops.SetConfig(opsCtx(c), dbClient, c.Param("key"), req.Value, adminIdentity()); err != nil {
+	if err := ops.SetConfig(opsCtx(c), dbClient, c.Param("key"), req.Value, adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -699,7 +809,7 @@ func overrideSubHandler(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	if err := ops.OverrideSub(opsCtx(c), dbClient, c.Param("id"), req.Tier, adminIdentity(), expiresAt, req.Reason); err != nil {
+	if err := ops.OverrideSub(opsCtx(c), dbClient, c.Param("id"), req.Tier, adminIdentity(c), expiresAt, req.Reason); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -707,7 +817,7 @@ func overrideSubHandler(c *gin.Context) {
 }
 
 func revokeOverrideHandler(c *gin.Context) {
-	if err := ops.RevokeOverride(opsCtx(c), dbClient, c.Param("id"), adminIdentity()); err != nil {
+	if err := ops.RevokeOverride(opsCtx(c), dbClient, c.Param("id"), adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}

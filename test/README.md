@@ -21,6 +21,10 @@ provider/router/theme suites), `integration_test/` (all flows + `runner.sh`),
 | **SQL (pgTAP)** | `supabase/tests/schema_test.sql` | `make supabase-db-test` | **plan(1001)** assertions (both stacks, mirrored byte-identical): extensions, enums, tables, triggers, RPCs, RLS policy sets per table (incl. the FORCE-RLS-without-ENABLE invariant), seed data, minigame play engine + partida names + partida lobby (Section 49g — ready map, `set_minigame_ready`/`get_minigame_participants`/`remove_minigame_participant`, creator-gated init, `minigame_sessions` realtime), `get_friend_profiles` (batched accepted-friend profiles), `202_minigame_play_v2` round-key hardening, events manual invites (21b) + host-designates-staff (21c) + rotating attendance code (21d). New migrations must extend this file. |
 | **Manual end-user QA** | `test_runner.sh` (root) | `bash test_runner.sh` | gum-based interactive runner — auth → plugged UI (Games/Social tabs, rankings, events, QR, chat). Wipes local user data, records results to a timestamped markdown file. Not part of the automated TDD suite; used for pre-release device testing. |
 
+Security wave tests: `opt-062` pins the Edge Functions auth contract (Kong JWT
+role gate + self-authenticated webhook), and `opt-063` pins the required
+`JWT_SECRET` / placeholder rejection and local env generation.
+
 **Golden rule:** every backend change ships a test at its layer. Go
 `*_test.go`, curl opt-test in `test/opt-NNN-*.sh` (auto-discovered by the
 `test/opt-*.sh` glob in `run_all_backend.sh` — no registration step), SQL

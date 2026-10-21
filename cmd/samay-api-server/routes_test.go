@@ -2,7 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,10 +15,15 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/samay-app/samay/internal/auth"
 	"github.com/samay-app/samay/internal/db"
 )
 
-const testAdminKey = "test-admin-key"
+const (
+	testJWTSecret = "test-jwt-secret"
+	testAdminID   = "00000000-0000-4000-8000-0000000000aa"
+	testUserID    = "11111111-1111-4111-8111-111111111111"
+)
 
 // stubDBClient returns a *db.DBClient backed by an httptest server, mirroring the
 // internal/ops helpers_test pattern. The handler receives every PostgREST call.
@@ -33,21 +43,46 @@ func jsonStub(body string) http.HandlerFunc {
 	}
 }
 
-// newTestRouter wires the production router with a stubbed DB client and a
-// placeholder admin key.
+// withAdminLookup answers the admin_users resolution used by requireAdmin and
+// delegates every other PostgREST call to next.
+func withAdminLookup(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/rest/v1/admin_users") {
+			w.Header().Set("Content-Type", "application/json")
+			if strings.TrimPrefix(r.URL.Query().Get("id"), "eq.") == testAdminID {
+				fmt.Fprintf(w, `[{"id":%q,"email":"admin@example.com","display_name":"Admin","role":"super_admin","created_at":"2026-01-01T00:00:00Z"}]`, testAdminID)
+			} else {
+				w.Write([]byte(`[]`))
+			}
+			return
+		}
+		next(w, r)
+	}
+}
+
+func testVerifier(t *testing.T) *auth.Verifier {
+	t.Helper()
+	v, err := auth.NewVerifier(testJWTSecret)
+	if err != nil {
+		t.Fatalf("NewVerifier: %v", err)
+	}
+	return v
+}
+
+// newTestRouter wires the production router with a stubbed DB client and the
+// local test JWT verifier.
 func newTestRouter(t *testing.T, handler http.HandlerFunc) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	initConfig()
-	dbClient = stubDBClient(t, handler)
-	return newRouter()
+	dbClient = stubDBClient(t, withAdminLookup(handler))
+	return newRouter(testVerifier(t))
 }
 
-func doRequest(t *testing.T, r *gin.Engine, method, path string, auth string, body string) *httptest.ResponseRecorder {
+func doRequest(t *testing.T, r *gin.Engine, method, path string, authz string, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
-	if auth != "" {
-		req.Header.Set("Authorization", auth)
+	if authz != "" {
+		req.Header.Set("Authorization", authz)
 	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -77,8 +112,46 @@ func assertValidJSON(t *testing.T, w *httptest.ResponseRecorder) {
 	}
 }
 
+func b64URL(data []byte) string {
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func mintJWT(t *testing.T, claims map[string]any) string {
+	t.Helper()
+	header := map[string]any{"alg": "HS256", "typ": "JWT"}
+	if len(claims) == 0 {
+		claims = map[string]any{}
+	}
+	now := time.Now().Unix()
+	if _, ok := claims["sub"]; !ok {
+		claims["sub"] = testAdminID
+	}
+	if _, ok := claims["role"]; !ok {
+		claims["role"] = "authenticated"
+	}
+	if _, ok := claims["aud"]; !ok {
+		claims["aud"] = "authenticated"
+	}
+	if _, ok := claims["iat"]; !ok {
+		claims["iat"] = now
+	}
+	if _, ok := claims["exp"]; !ok {
+		claims["exp"] = now + 3600
+	}
+
+	headerJSON, _ := json.Marshal(header)
+	payloadJSON, _ := json.Marshal(claims)
+	signingInput := b64URL(headerJSON) + "." + b64URL(payloadJSON)
+	mac := hmac.New(sha256.New, []byte(testJWTSecret))
+	mac.Write([]byte(signingInput))
+	return signingInput + "." + b64URL(mac.Sum(nil))
+}
+
+func adminBearer(t *testing.T) string {
+	return "Bearer " + mintJWT(t, nil)
+}
+
 func TestHealthEndpoint_ReturnsOk(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
 	r := newTestRouter(t, jsonStub(`[{"key":"app.name"}]`))
 
 	w := doRequest(t, r, http.MethodGet, "/api/v1/health", "", "")
@@ -100,7 +173,6 @@ func TestHealthEndpoint_ReturnsOk(t *testing.T) {
 }
 
 func TestHealthEndpoint_DegradedWhenDBDown(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
 	r := newTestRouter(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("db down"))
@@ -118,8 +190,7 @@ func TestHealthEndpoint_DegradedWhenDBDown(t *testing.T) {
 	}
 }
 
-func TestAdminRoutes_RejectWithoutKey(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
+func TestAdminRoutes_RejectWithoutToken(t *testing.T) {
 	r := newTestRouter(t, jsonStub(`[]`))
 
 	cases := []struct {
@@ -149,29 +220,74 @@ func TestAdminRoutes_RejectWithoutKey(t *testing.T) {
 	}
 }
 
-func TestAdminRoutes_RejectWrongKey(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
+func TestAdminRoutes_RejectInvalidTokens(t *testing.T) {
 	r := newTestRouter(t, jsonStub(`[]`))
+	now := time.Now().Unix()
 
-	w := doRequest(t, r, http.MethodGet, "/api/v1/admin/users", "Bearer wrong-key", "")
+	cases := []struct {
+		name   string
+		token  string
+		status int
+	}{
+		{"garbage", "Bearer not-a-jwt", http.StatusUnauthorized},
+		{"expired", "Bearer " + mintJWT(t, map[string]any{"exp": now - 60}), http.StatusUnauthorized},
+		{"wrong audience", "Bearer " + mintJWT(t, map[string]any{"aud": "other"}), http.StatusUnauthorized},
+		{"anon role", "Bearer " + mintJWT(t, map[string]any{"role": "anon"}), http.StatusUnauthorized},
+		{"service role", "Bearer " + mintJWT(t, map[string]any{"role": "service_role"}), http.StatusUnauthorized},
+		{"missing exp", "Bearer " + mintJWT(t, map[string]any{"exp": nil}), http.StatusUnauthorized},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := doRequest(t, r, http.MethodGet, "/api/v1/admin/config", tc.token, "")
+			assertStatus(t, w, tc.status)
+		})
+	}
+}
+
+func TestAdminRoutes_RejectAlgNone(t *testing.T) {
+	r := newTestRouter(t, jsonStub(`[]`))
+	header := b64URL([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload := b64URL([]byte(fmt.Sprintf(`{"sub":%q,"role":"authenticated","aud":"authenticated","exp":%d}`, testAdminID, time.Now().Add(time.Hour).Unix())))
+
+	w := doRequest(t, r, http.MethodGet, "/api/v1/admin/config", "Bearer "+header+"."+payload+".", "")
 
 	assertStatus(t, w, http.StatusUnauthorized)
 }
 
-func TestAdminRoutes_RejectWhenKeyUnset(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", "")
+func TestAdminRoutes_RejectNonAdmin(t *testing.T) {
 	r := newTestRouter(t, jsonStub(`[]`))
+	token := mintJWT(t, map[string]any{"sub": testUserID})
 
-	w := doRequest(t, r, http.MethodGet, "/api/v1/admin/users", "Bearer "+testAdminKey, "")
+	w := doRequest(t, r, http.MethodGet, "/api/v1/admin/config", "Bearer "+token, "")
+
+	assertStatus(t, w, http.StatusForbidden)
+}
+
+func TestAdminRoutes_RejectNonUUIDSubject(t *testing.T) {
+	r := newTestRouter(t, jsonStub(`[]`))
+	token := mintJWT(t, map[string]any{"sub": "not-a-uuid"})
+
+	w := doRequest(t, r, http.MethodGet, "/api/v1/admin/config", "Bearer "+token, "")
+
+	assertStatus(t, w, http.StatusForbidden)
+}
+
+func TestAdminRoutes_RejectWhenVerifierMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dbClient = stubDBClient(t, withAdminLookup(jsonStub(`[]`)))
+	r := newRouter(nil)
+
+	w := doRequest(t, r, http.MethodGet, "/api/v1/admin/config", adminBearer(t), "")
 
 	assertStatus(t, w, http.StatusUnauthorized)
 }
 
-func TestAdminListEndpoints_Return200WithKey(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
+func TestAdminListEndpoints_Return200WithAdminJWT(t *testing.T) {
 	// Non-empty arrays so the :id detail routes resolve (not-found mapping is
 	// covered by TestAdminOpsNotFound_Returns404).
 	r := newTestRouter(t, jsonStub(`[{"id":"x"}]`))
+	authz := adminBearer(t)
 
 	cases := []struct {
 		method string
@@ -197,7 +313,7 @@ func TestAdminListEndpoints_Return200WithKey(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			w := doRequest(t, r, tc.method, tc.path, "Bearer "+testAdminKey, "")
+			w := doRequest(t, r, tc.method, tc.path, authz, "")
 			assertStatus(t, w, http.StatusOK)
 			assertValidJSON(t, w)
 		})
@@ -218,9 +334,9 @@ func mutationStub() http.HandlerFunc {
 	}
 }
 
-func TestAdminMutationEndpoints_Return200WithKey(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
+func TestAdminMutationEndpoints_Return200WithAdminJWT(t *testing.T) {
 	r := newTestRouter(t, mutationStub())
+	authz := adminBearer(t)
 
 	cases := []struct {
 		path string
@@ -244,16 +360,44 @@ func TestAdminMutationEndpoints_Return200WithKey(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(http.MethodPost+" "+tc.path, func(t *testing.T) {
-			w := doRequest(t, r, http.MethodPost, tc.path, "Bearer "+testAdminKey, tc.body)
+			w := doRequest(t, r, http.MethodPost, tc.path, authz, tc.body)
 			assertStatus(t, w, http.StatusOK)
 			decodeJSON(t, w)
 		})
 	}
 }
 
+func TestAdminMutation_AuditUsesJWTSubject(t *testing.T) {
+	var audit map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "admin_audit_log"):
+			body, _ := io.ReadAll(r.Body)
+			if err := json.Unmarshal(body, &audit); err != nil {
+				t.Errorf("audit body is not JSON: %v", err)
+			}
+			w.Write([]byte(`[]`))
+		case strings.Contains(r.URL.Path, "app_config"):
+			w.Write([]byte(`[{"key":"feature.flag","value":"false"}]`))
+		default:
+			w.Write([]byte(`[{"id":"x"}]`))
+		}
+	}
+	r := newTestRouter(t, handler)
+	token := mintJWT(t, nil)
+
+	w := doRequest(t, r, http.MethodPost, "/api/v1/admin/config/feature.flag", "Bearer "+token, `{"value":"false"}`)
+	assertStatus(t, w, http.StatusOK)
+
+	if got, _ := audit["admin_user_id"].(string); got != testAdminID {
+		t.Fatalf("audit admin_user_id = %q, want JWT sub %q (row: %v)", got, testAdminID, audit)
+	}
+}
+
 func TestAdminValidationErrors_Return400(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
 	r := newTestRouter(t, jsonStub(`[]`))
+	authz := adminBearer(t)
 
 	cases := []struct {
 		path string
@@ -272,7 +416,7 @@ func TestAdminValidationErrors_Return400(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.path+" "+tc.body, func(t *testing.T) {
-			w := doRequest(t, r, http.MethodPost, tc.path, "Bearer "+testAdminKey, tc.body)
+			w := doRequest(t, r, http.MethodPost, tc.path, authz, tc.body)
 			assertStatus(t, w, http.StatusBadRequest)
 			decodeJSON(t, w)
 		})
@@ -280,8 +424,8 @@ func TestAdminValidationErrors_Return400(t *testing.T) {
 }
 
 func TestAdminOpsNotFound_Returns404(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
 	r := newTestRouter(t, jsonStub(`[]`))
+	authz := adminBearer(t)
 
 	cases := []struct {
 		method string
@@ -297,7 +441,7 @@ func TestAdminOpsNotFound_Returns404(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			w := doRequest(t, r, tc.method, tc.path, "Bearer "+testAdminKey, "")
+			w := doRequest(t, r, tc.method, tc.path, authz, "")
 			assertStatus(t, w, http.StatusNotFound)
 			decodeJSON(t, w)
 		})
@@ -305,13 +449,12 @@ func TestAdminOpsNotFound_Returns404(t *testing.T) {
 }
 
 func TestAdminOpsError_ReturnsGeneric500(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
 	r := newTestRouter(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("supabase exploded"))
 	})
 
-	w := doRequest(t, r, http.MethodGet, "/api/v1/admin/users", "Bearer "+testAdminKey, "")
+	w := doRequest(t, r, http.MethodGet, "/api/v1/admin/users", adminBearer(t), "")
 
 	assertStatus(t, w, http.StatusInternalServerError)
 	body := decodeJSON(t, w)
@@ -323,8 +466,61 @@ func TestAdminOpsError_ReturnsGeneric500(t *testing.T) {
 	}
 }
 
+func TestAdminOversizedBody_Returns413(t *testing.T) {
+	r := newTestRouter(t, jsonStub(`[]`))
+	body := strings.Repeat("a", maxAdminBodyBytes+1)
+
+	w := doRequest(t, r, http.MethodPost, "/api/v1/admin/config/feature.flag", adminBearer(t), body)
+
+	assertStatus(t, w, http.StatusRequestEntityTooLarge)
+}
+
+func TestAdminChunkedOversizedBody_Returns413(t *testing.T) {
+	r := newTestRouter(t, jsonStub(`[]`))
+	body := `{"value":"` + strings.Repeat("a", maxAdminBodyBytes) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/config/feature.flag", io.NopCloser(strings.NewReader(body)))
+	req.ContentLength = -1
+	req.Header.Set("Authorization", adminBearer(t))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assertStatus(t, w, http.StatusRequestEntityTooLarge)
+}
+
+func TestAdminRateLimit_PerIPReturns429(t *testing.T) {
+	r := newTestRouter(t, jsonStub(`[]`))
+
+	for i := 0; i <= ipBurst; i++ {
+		w := doRequest(t, r, http.MethodGet, "/api/v1/admin/config", "", "")
+		if i < ipBurst {
+			assertStatus(t, w, http.StatusUnauthorized)
+			continue
+		}
+		assertStatus(t, w, http.StatusTooManyRequests)
+		if w.Header().Get("Retry-After") == "" {
+			t.Error("429 must carry Retry-After")
+		}
+	}
+}
+
+func TestAdminRateLimit_PerAdminReturns429(t *testing.T) {
+	r := newTestRouter(t, jsonStub(`[]`))
+	authz := adminBearer(t)
+
+	for i := 0; i <= adminBurst; i++ {
+		w := doRequest(t, r, http.MethodGet, "/api/v1/admin/config", authz, "")
+		if i < adminBurst {
+			assertStatus(t, w, http.StatusOK)
+			continue
+		}
+		assertStatus(t, w, http.StatusTooManyRequests)
+		if w.Header().Get("Retry-After") == "" {
+			t.Error("429 must carry Retry-After")
+		}
+	}
+}
+
 func TestHostAndVenueNamespaces_Return501(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
 	r := newTestRouter(t, jsonStub(`[]`))
 
 	cases := []struct {
@@ -351,7 +547,6 @@ func TestHostAndVenueNamespaces_Return501(t *testing.T) {
 }
 
 func TestUnknownRoute_Returns404JSON(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
 	r := newTestRouter(t, jsonStub(`[]`))
 
 	w := doRequest(t, r, http.MethodGet, "/api/v1/nope", "", "")
@@ -364,26 +559,24 @@ func TestUnknownRoute_Returns404JSON(t *testing.T) {
 }
 
 func TestUnregisteredMethod_Returns405JSON(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
 	r := newTestRouter(t, jsonStub(`[]`))
 
-	w := doRequest(t, r, http.MethodDelete, "/api/v1/admin/users", "Bearer "+testAdminKey, "")
+	w := doRequest(t, r, http.MethodDelete, "/api/v1/admin/users", adminBearer(t), "")
 
 	assertStatus(t, w, http.StatusMethodNotAllowed)
 	decodeJSON(t, w)
 }
 
 func TestPanic_ReturnsGeneric500JSON(t *testing.T) {
-	t.Setenv("ADMIN_API_KEY", testAdminKey)
 	gin.SetMode(gin.TestMode)
-	dbClient = stubDBClient(t, jsonStub(`[]`))
-	r := newRouter()
+	dbClient = stubDBClient(t, withAdminLookup(jsonStub(`[]`)))
+	r := newRouter(testVerifier(t))
 	panicRoute := r.Group("/api/v1/admin")
 	panicRoute.GET("/panic-test", func(c *gin.Context) {
 		panic("boom")
 	})
 
-	w := doRequest(t, r, http.MethodGet, "/api/v1/admin/panic-test", "Bearer "+testAdminKey, "")
+	w := doRequest(t, r, http.MethodGet, "/api/v1/admin/panic-test", adminBearer(t), "")
 
 	assertStatus(t, w, http.StatusInternalServerError)
 	body := decodeJSON(t, w)

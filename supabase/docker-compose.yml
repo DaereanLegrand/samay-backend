@@ -1,3 +1,13 @@
+x-edge-runtime-environment: &edge-runtime-environment
+  JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
+  SUPABASE_URL: http://${STACK_PREFIX:-samay}-kong:8000
+  SUPABASE_PUBLIC_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
+  SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-your_supabase_anon_key_here}
+  SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+  SUPABASE_PUBLISHABLE_KEYS: "{\"default\":\"${SUPABASE_PUBLISHABLE_KEY:-}\"}"
+  SUPABASE_SECRET_KEYS: "{\"default\":\"${SUPABASE_SECRET_KEY:-}\"}"
+  SUPABASE_DB_URL: postgresql://postgres:postgres@${STACK_PREFIX:-samay}-db:5432/postgres
+
 services:
   db:
     container_name: ${STACK_PREFIX:-samay}-db
@@ -19,7 +29,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_CONFIG_FILE: /etc/postgresql/postgresql.conf
       PGDATA: /var/lib/postgresql/data/pgdata
-      JWT_SECRET: "your-jwt-secret-change-in-production"
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
       JWT_EXP: 3600
     volumes:
       - db-data:/var/lib/postgresql/data/pgdata
@@ -46,7 +56,7 @@ services:
       KONG_DATABASE: off
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl,rate-limiting
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,jwt,rate-limiting
       KONG_LOG_LEVEL: warn
       KONG_NGINX_WORKER_PROCESSES: 2
       KONG_PROXY_LISTEN: 0.0.0.0:8000
@@ -57,6 +67,8 @@ services:
       # safe .env.example placeholder defaults — no key material committed.
       ANON_KEY: ${SUPABASE_ANON_KEY:-your_supabase_anon_key_here}
       SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      # kong.yml jwt_secrets use this to verify HS256 Supabase access tokens.
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
     ports:
       - "${KONG_HTTP_PORT:-54386}:8000"
       - "${KONG_HTTPS_PORT:-54443}:8443"
@@ -91,7 +103,7 @@ services:
       GOTRUE_JWT_EXP: 3600
       GOTRUE_JWT_ADMIN_ROLES: service_role
       GOTRUE_JWT_AUD: authenticated
-      GOTRUE_JWT_SECRET: "your-jwt-secret-change-in-production"
+      GOTRUE_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
       GOTRUE_EXTERNAL_EMAIL_ENABLED: true
       GOTRUE_EXTERNAL_PHONE_ENABLED: false
       GOTRUE_SMTP_ADMIN_EMAIL: samay@qallariy.lat
@@ -185,7 +197,7 @@ services:
       PGRST_DB_URI: postgres://authenticator:postgres@${STACK_PREFIX:-samay}-db:5432/postgres
       PGRST_DB_SCHEMA: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: "your-jwt-secret-change-in-production"
+      PGRST_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
       PGRST_DB_AGGREGATES_ENABLED: true
       PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
       PGRST_DB_OPENAPI_SERVER_PROXY_URI: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
@@ -216,9 +228,9 @@ services:
       DB_NAME: postgres
       DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
       DB_ENC_KEY: "supabaserealtime"
-      API_JWT_SECRET: "your-jwt-secret-change-in-production"
+      API_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
       SECRET_KEY_BASE: "supabase-realtime-secret-key-base-change-in-production"
-      METRICS_JWT_SECRET: "your-jwt-secret-change-in-production"
+      METRICS_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
       APP_NAME: realtime
       SELF_HOST_TENANT_NAME: "samay-realtime"
       SEED_SELF_HOST: "true"
@@ -250,7 +262,7 @@ services:
       REGION: us-east-1
       GLOBAL_S3_BUCKET: samay-storage
       DATABASE_URL: postgres://supabase_storage_admin:postgres@${STACK_PREFIX:-samay}-db:5432/postgres
-      PGRST_JWT_SECRET: "your-jwt-secret-change-in-production"
+      PGRST_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
       FILE_SIZE_LIMIT: ${STORAGE_FILE_SIZE_LIMIT:-52428800}
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
@@ -347,29 +359,42 @@ services:
       retries: 3
       start_period: 10s
     environment:
-      # Edge Functions env contract (M-07, official supabase compose for
-      # edge-runtime v1.74.0): the SUPABASE_* vars are passed through to the
-      # Deno runtime for future function code (EEDG) — none are required at
-      # boot (verified in edge-runtime source). The runtime DOES require a
-      # main service entrypoint (`functions/main/index.ts` boot placeholder,
-      # see supabase/functions/README.md) or the container crash-loops.
-      JWT_SECRET: "your-jwt-secret-change-in-production"
-      SUPABASE_URL: http://${STACK_PREFIX:-samay}-kong:8000
-      SUPABASE_PUBLIC_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-your_supabase_anon_key_here}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-      SUPABASE_PUBLISHABLE_KEYS: "{\"default\":\"${SUPABASE_PUBLISHABLE_KEY:-}\"}"
-      SUPABASE_SECRET_KEYS: "{\"default\":\"${SUPABASE_SECRET_KEY:-}\"}"
-      SUPABASE_DB_URL: postgresql://postgres:postgres@${STACK_PREFIX:-samay}-db:5432/postgres
-      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT:-false}"
-      # RevenueCat webhook handler (RCBH). Inert until REVENUECAT_WEBHOOK_SECRET
-      # is supplied (the function fails closed on a missing/blank secret). The
-      # secret + REST key are injected into the shell env by `make start RC=true`
-      # (vault-fetched, FCM pattern) — never committed, never on disk.
-      REVENUECAT_WEBHOOK_SECRET: ${REVENUECAT_WEBHOOK_SECRET:-}
-      REVENUECAT_API_KEY: ${REVENUECAT_API_KEY:-}
+      <<: *edge-runtime-environment
+      # Kong enforces the JWT role gate for /functions/v1/ (jwt + acl in
+      # volumes/api/kong.yml); VERIFY_JWT is kept true for runtimes that
+      # consume it. edge-runtime v1.74.0 does not verify JWTs itself.
+      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT:-true}"
       SYSTEM_ADMIN_USER_ID: ${SYSTEM_ADMIN_USER_ID:-00000000-0000-0000-0000-000000000000}
     command: ["start", "--main-service", "/home/deno/functions/main"]
+
+  revenuecat-webhook:
+    container_name: ${STACK_PREFIX:-samay}-revenuecat-webhook
+    image: supabase/edge-runtime:v1.74.0
+    restart: unless-stopped
+    volumes:
+      - ./functions:/home/deno/functions
+      - deno-cache:/root/.cache/deno
+    depends_on:
+      kong:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - timeout 1 bash -c '</dev/tcp/127.0.0.1/9000'
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      <<: *edge-runtime-environment
+      # The webhook authenticates RevenueCat with its own shared secret, so it
+      # must stay outside the Kong JWT gate. Inert until
+      # REVENUECAT_WEBHOOK_SECRET is supplied; the function fails closed.
+      VERIFY_JWT: "false"
+      REVENUECAT_WEBHOOK_SECRET: ${REVENUECAT_WEBHOOK_SECRET:-}
+      REVENUECAT_API_KEY: ${REVENUECAT_API_KEY:-}
+      REVENUECAT_PROJECT_ID: ${REVENUECAT_PROJECT_ID:-}
+    command: ["start", "--main-service", "/home/deno/functions/revenuecat-webhook"]
 
 volumes:
   db-config:
