@@ -27,6 +27,8 @@ fi
 STACK_PREFIX="${STACK_PREFIX:-samay}"
 STORAGE_DIR="${STORAGE_DIR:-./volumes/storage}"
 
+bash ../tools/check-stack-env.sh .env
+
 echo "Stopping stack ($STACK_PREFIX)..."
 docker compose -p "$STACK_PREFIX" --env-file .env down
 

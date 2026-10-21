@@ -25,7 +25,7 @@ echo
 
 bold "Requirements"
 ok=1
-for t in docker gum make; do
+for t in docker gum make python3; do
   if have "$t"; then echo "  ok   $t"; else echo "  MISS $t (required)"; ok=0; fi
 done
 if have cloudflared; then echo "  ok   cloudflared (tunnel mode)"; else echo "  warn cloudflared missing (tunnel mode disabled)"; fi
@@ -37,10 +37,11 @@ echo
 if [ ! -f "$STACK_ENV" ]; then
   [ -f "$STACK_EXAMPLE" ] || { echo "MISS $STACK_EXAMPLE — cannot bootstrap $STACK_ENV"; exit 1; }
   cp "$STACK_EXAMPLE" "$STACK_ENV"
-  echo "created $STACK_ENV from $STACK_EXAMPLE — fill secrets (JWT_SECRET, keys) before 'make start'"
+  echo "created $STACK_ENV from $STACK_EXAMPLE"
 fi
 chmod 600 "$STACK_ENV"
-echo "ok   $STACK_ENV present"
+bash tools/gen-local-env.sh "$STACK_ENV" --fill
+echo "ok   $STACK_ENV present (local JWT secret + keys ready)"
 if [ -f "$STACK_ENV" ]; then
   KONG_PORT="$(sed -n 's/^KONG_HTTP_PORT=\([0-9]*\).*/\1/p' "$STACK_ENV" | head -1)"
   KONG_PORT="${KONG_PORT:-54386}"
