@@ -23,12 +23,9 @@ var PushTypes = []string{"minigame_invite", "minigame_turn"}
 type Logf func(format string, args ...any)
 
 type notificationRow struct {
-	ID     string          `json:"id"`
-	UserID string          `json:"user_id"`
-	Type   string          `json:"type"`
-	Title  string          `json:"title"`
-	Body   string          `json:"body"`
-	Data   json.RawMessage `json:"data"`
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+	Type   string `json:"type"`
 }
 
 type deviceTokenRow struct {
@@ -105,7 +102,7 @@ func (w *Worker) DrainOnce(ctx context.Context) (int, error) {
 }
 
 func (w *Worker) unsent(ctx context.Context) ([]notificationRow, error) {
-	filter := "id,user_id,type,title,body,data" +
+	filter := "id,user_id,type" +
 		"&push_sent_at=is.null" +
 		"&type=in.(" + strings.Join(PushTypes, ",") + ")" +
 		"&order=created_at.asc"
@@ -129,7 +126,9 @@ func (w *Worker) dispatch(ctx context.Context, n notificationRow) error {
 		return nil
 	}
 
-	msg := Message{Title: n.Title, Body: n.Body, Data: dataWithType(n)}
+	// Push is a wake-up signal only: never forward the row's title, body or
+	// data. The in-app notification center still holds the full content.
+	msg := Message{NotificationID: n.ID, Type: n.Type}
 	for _, token := range tokens {
 		err := w.FCM.Send(ctx, token, msg)
 		switch {
@@ -174,31 +173,4 @@ func (w *Worker) markSent(ctx context.Context, id string) error {
 func (w *Worker) deleteToken(ctx context.Context, token string) error {
 	_, err := w.DB.Delete(ctx, "device_tokens", "token=eq."+url.QueryEscape(token))
 	return err
-}
-
-// dataWithType flattens the notification's JSON data into the string map FCM
-// requires, and injects `type` so the client tap handler can route.
-func dataWithType(n notificationRow) map[string]string {
-	out := map[string]string{"type": n.Type}
-	if len(n.Data) == 0 {
-		return out
-	}
-	var m map[string]any
-	if err := json.Unmarshal(n.Data, &m); err != nil {
-		return out
-	}
-	for k, v := range m {
-		switch val := v.(type) {
-		case string:
-			out[k] = val
-		case nil:
-			// skip
-		default:
-			b, err := json.Marshal(val)
-			if err == nil {
-				out[k] = string(b)
-			}
-		}
-	}
-	return out
 }
