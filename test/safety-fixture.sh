@@ -44,6 +44,7 @@ SAFETY_PHOTO_REPORT_ID=""
 SAFETY_TOKEN_A=""
 SAFETY_TOKEN_B=""
 SAFETY_REFRESH_B=""
+SAFETY_ADMIN_ROW_CREATED=0
 
 safety_psql() {
   PGPASSWORD=postgres psql -h 127.0.0.1 -p "$SAFETY_DB_PORT" -U postgres \
@@ -128,6 +129,12 @@ SQL
       -H "apikey: $SAFETY_SERVICE_KEY" \
       -H "Authorization: Bearer $SAFETY_SERVICE_KEY" >/dev/null 2>&1 || true
   done
+  if [ "${SAFETY_ADMIN_ROW_CREATED:-0}" = "1" ] && [ -n "${SUPABASE_ADMIN_USER_ID:-}" ]; then
+    safety_psql -c "DELETE FROM public.admin_audit_log
+                    WHERE admin_user_id='$SUPABASE_ADMIN_USER_ID';
+                    DELETE FROM public.admin_users WHERE id='$SUPABASE_ADMIN_USER_ID';" >/dev/null 2>&1 || true
+    SAFETY_ADMIN_ROW_CREATED=0
+  fi
   SAFETY_MSG_REPORT_ID=""
   SAFETY_PHOTO_REPORT_ID=""
   SAFETY_TOKEN_A=""
@@ -139,10 +146,14 @@ safety_fixture_setup() {
   safety_fixture_cleanup
 
   if [ -n "${SUPABASE_ADMIN_USER_ID:-}" ]; then
-    safety_psql -c "INSERT INTO public.admin_users (id, email, display_name, role)
-      VALUES ('$SUPABASE_ADMIN_USER_ID', 'safety-admin-lane-c@samay.test',
-              'Safety Admin', 'moderator')
-      ON CONFLICT (id) DO NOTHING;" >/dev/null
+    local admin_exists
+    admin_exists="$(safety_psql -c "SELECT count(*) FROM public.admin_users WHERE id='$SUPABASE_ADMIN_USER_ID';")"
+    if [ "$admin_exists" = "0" ]; then
+      safety_psql -c "INSERT INTO public.admin_users (id, email, display_name, role)
+        VALUES ('$SUPABASE_ADMIN_USER_ID', 'safety-admin-lane-c@samay.test',
+                'Safety Admin', 'moderator');" >/dev/null
+      SAFETY_ADMIN_ROW_CREATED=1
+    fi
   fi
 
   local uid email username resp token_json
