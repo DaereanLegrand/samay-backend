@@ -6,9 +6,8 @@ set -uo pipefail
 # Validates the TWO seed files against the baseline migrations:
 #   supabase/seed-config.sql  — required app config + the system admin row.
 #                               AUTO-applied by init/reset/migrate. It must
-#                               contain NO user accounts (reviewer is staging-only).
-#   supabase/seed-reviewer-staging.sql — staging-only reviewer account, applied
-#                               by tools/seed-reviewer.sh with a runtime password.
+#                               contain NO user accounts; the store reviewer is
+#                               an Admin-owned staging/prod seed.
 #   supabase/seed-test.sql    — @tester test-data snapshot, EXPLICIT only
 #                               (`make supabase-seed-test`; conversations and
 #                               notifications deliberately absent; regenerable
@@ -24,8 +23,6 @@ SEED_CONFIG="$REPO/supabase/seed-config.sql"
 SEED_CONFIG_TESTING="$REPO/supabase/seed-config.sql"
 SEED_TEST="$REPO/supabase/seed-test.sql"
 SEED_TESTING_TEST="$REPO/supabase/seed-test.sql"
-SEED_REVIEWER="$REPO/supabase/seed-reviewer-staging.sql"
-SEED_REVIEWER_TOOL="$REPO/tools/seed-reviewer.sh"
 MIG="$REPO/supabase/migrations"
 MAKEFILE="$REPO/Makefile"
 
@@ -40,7 +37,7 @@ echo "════════════════════════�
 
 # ── 1. Files present ─────────────────────────────────────────────────────────
 h1 "1. Files present"
-for f in "$SEED_CONFIG" "$SEED_CONFIG_TESTING" "$SEED_TEST" "$SEED_TESTING_TEST" "$SEED_REVIEWER" "$SEED_REVIEWER_TOOL" "$MAKEFILE"; do
+for f in "$SEED_CONFIG" "$SEED_CONFIG_TESTING" "$SEED_TEST" "$SEED_TESTING_TEST" "$MAKEFILE"; do
   if [ -f "$f" ]; then pass="exists: $(basename "$f")"; ok "$pass"; else fail "missing: $f"; fi
 done
 if [ ! -f "$REPO/supabase/seed-dev.sql" ] && [ ! -f "$REPO/supabase/seed-dev.sql" ]; then
@@ -228,32 +225,6 @@ if grep -q "tester@qallariy.lat" "$SEED_CONFIG"; then
   fail "reviewer account must not be in the default seed"
 else
   ok "default seed contains no reviewer account"
-fi
-
-# ── 6b. Staging reviewer seed (SEC-028) ──────────────────────────────────────
-h1 "6b. staging reviewer seed (runtime password, no repo credential)"
-if grep -q "197930fc-c5d3-4ab1-9601-21d3999a36b5" "$SEED_REVIEWER" \
-   && grep -q "crypt(" "$SEED_REVIEWER" \
-   && grep -q "gen_salt(" "$SEED_REVIEWER"; then
-  ok "staging seed creates the reviewer with crypt/gen_salt"
-else
-  fail "staging seed must use crypt/gen_salt for the reviewer password"
-fi
-if grep -q "SAMAY_ENV" "$SEED_REVIEWER_TOOL" && grep -q "REVIEWER_PASSWORD" "$SEED_REVIEWER_TOOL"; then
-  ok "seed-reviewer.sh requires SAMAY_ENV + REVIEWER_PASSWORD"
-else
-  fail "seed-reviewer.sh must require SAMAY_ENV + REVIEWER_PASSWORD"
-fi
-if grep -qE '(echo|printf)[^#]*\$\{?REVIEWER_PASSWORD' "$SEED_REVIEWER_TOOL"; then
-  fail "seed-reviewer.sh must never echo REVIEWER_PASSWORD"
-else
-  ok "seed-reviewer.sh never echoes REVIEWER_PASSWORD"
-fi
-if grep -q 'ON CONFLICT (id) DO NOTHING' "$SEED_REVIEWER" \
-   && grep -q 'ON CONFLICT DO NOTHING' "$SEED_REVIEWER"; then
-  ok "staging seed is idempotent (ON CONFLICT DO NOTHING)"
-else
-  fail "staging seed must be idempotent"
 fi
 
 # ── 7. seed-test content checks ──────────────────────────────────────────────

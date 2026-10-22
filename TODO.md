@@ -27,8 +27,8 @@
       - Coverage: pgTAP SECTION 65 (plan 1040) + `test/opt-040-chat-report-block.sh`.
       - Test hygiene: `opt-001`/`opt-006` cleanups delete NO-ACTION-FK rows (no
         user leaks); `opt-021/022/023/028` mark participants ready (219 gate);
-        `opt-034` rewritten for the split CI surface; schema #210 tolerates the
-        required store reviewer account (`tester@qallariy.lat`, seed-config).
+        `opt-034` rewritten for the split CI surface; the store reviewer
+        (`tester@qallariy.lat`) is an Admin-owned staging/prod seed, not backend data.
 - [ ] Comment prune / doc trims (AGENTS.md still carries frontend/infra sections).
 - [ ] TODO(vault): server profile under `qallariy/admin/**` reorg.
 - [ ] TODO: `<deploy-target>` `.200` not provisioned — create (`make init ENV=prod`) then verify.

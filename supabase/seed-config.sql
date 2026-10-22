@@ -2,9 +2,9 @@
 -- REQUIRED application configuration (fundamental for runtime): app_config
 -- tuning keys + the system admin row. Auto-applied by init/reset/migrate
 -- right after migrations (user directive 2026-08-23). Idempotent:
--- ON CONFLICT DO NOTHING. Contains NO user accounts: the store reviewer account
--- is staging-only (supabase/seed-reviewer-staging.sql, run by
--- tools/seed-reviewer.sh with a vault-generated password). Other test data
+-- ON CONFLICT DO NOTHING. Contains NO user accounts: the store reviewer is an
+-- Admin-owned operational identity, seeded only on staging/prod by
+-- `<private-ops-repo>/tools/reviewer-account/seed-reviewer.sh`. Other test data
 -- lives in seed-test.sql (explicit only).
 -- NOTE: the system-admin email uses the placeholder domain (DEPLOYMENT-PLACEHOLDER
 -- R03 convention) — swap to the real ops inbox at release, never commit a real one.

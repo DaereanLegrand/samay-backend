@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# [OPT-060] SEC-016 admin JWT auth + SEC-028 staging reviewer seed.
+# [OPT-060] SEC-016 admin JWT auth.
 #
 # Runs against ONE disposable stack:
 #   STACK_ENV=/tmp/samay-a2.env API_PORT=18090 bash test/opt-060-admin-auth.sh
 #
-# Requirements: the stack is up, the default seed was applied (zero reviewer
-# rows), and psql is on PATH. The script builds and starts its own API server,
-# then stops only that process.
+# Requirements: the stack is up, the default seed was applied (no reviewer rows;
+# the reviewer is an Admin-owned staging/prod seed), and psql is on PATH. The
+# script builds and starts its own API server, then stops only that process.
 set -uo pipefail
 
 STACK_ENV="${STACK_ENV:?set STACK_ENV to the disposable stack env}"
@@ -82,7 +82,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "═══════════════════════════════════════════════════════════════"
-echo "  OPT-060 — admin JWT auth + staging reviewer seed"
+echo "  OPT-060 — admin JWT auth"
 echo "═══════════════════════════════════════════════════════════════"
 
 # ── Build + start the API under test ────────────────────────────────────────
@@ -154,39 +154,6 @@ if [ "$LIMITED" = "1" ]; then
   if [ -n "$RETRY_AFTER" ]; then ok "429 carries Retry-After ($RETRY_AFTER)"; else bad "429 missing Retry-After"; fi
 else
   bad "burst over per-IP limit did not return 429"
-fi
-
-# ── SEC-028: staging-only reviewer seed ────────────────────────────────────
-echo ""
-echo "━━━ SEC-028 reviewer seed ━━━"
-BEFORE="$(psql_db -c "SELECT count(*) FROM auth.users WHERE email='tester@qallariy.lat';")"
-check "default reset has zero reviewer rows" "0" "$BEFORE"
-
-REVIEWER_PASSWORD="LaneAReviewer-2026-Test"
-SAMAY_ENV=staging STACK_ENV="$STACK_ENV" REVIEWER_PASSWORD="$REVIEWER_PASSWORD" \
-  bash tools/seed-reviewer.sh >/dev/null || bad "reviewer seed (first run) failed"
-HASH1="$(psql_db -c "SELECT encrypted_password FROM auth.users WHERE email='tester@qallariy.lat';")"
-COUNT1="$(psql_db -c "SELECT count(*) FROM auth.users WHERE email='tester@qallariy.lat';")"
-check "staging seed creates exactly one reviewer" "1" "$COUNT1"
-if [ -n "$HASH1" ] && [ "$HASH1" != "$REVIEWER_PASSWORD" ]; then
-  ok "reviewer password is hashed (bcrypt)"
-else
-  bad "reviewer password was not hashed"
-fi
-
-SAMAY_ENV=staging STACK_ENV="$STACK_ENV" REVIEWER_PASSWORD="$REVIEWER_PASSWORD" \
-  bash tools/seed-reviewer.sh >/dev/null || bad "reviewer seed (second run) failed"
-HASH2="$(psql_db -c "SELECT encrypted_password FROM auth.users WHERE email='tester@qallariy.lat';")"
-COUNT2="$(psql_db -c "SELECT count(*) FROM auth.users WHERE email='tester@qallariy.lat';")"
-check "second seed keeps exactly one reviewer" "1" "$COUNT2"
-check "second seed does not change the bcrypt hash" "$HASH1" "$HASH2"
-
-# Staging gate: a non-staging env must refuse before touching the DB.
-if SAMAY_ENV=prod REVIEWER_PASSWORD="$REVIEWER_PASSWORD" STACK_ENV="$STACK_ENV" \
-   bash tools/seed-reviewer.sh >/dev/null 2>&1; then
-  bad "seed-reviewer.sh accepted SAMAY_ENV=prod"
-else
-  ok "seed-reviewer.sh refuses SAMAY_ENV=prod"
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────────
