@@ -748,10 +748,9 @@ BEGIN
 
     IF p_decision = 'overturned'
        AND v_appeal.is_ban_appeal
-       AND v_appeal.appellant_id IS NOT NULL
-       AND v_report_id IS NOT NULL
-       AND v_target_type IN ('user', 'avatar')
-       AND v_target_id = v_appeal.appellant_id THEN
+       AND v_appeal.appellant_id IS NOT NULL THEN
+        -- An unlinked ban appeal (submitted from the banned screen) has no
+        -- report row, but overturning it still lifts the suspension.
         UPDATE public.users
            SET banned_at = NULL,
                ban_reason = NULL,
@@ -760,12 +759,16 @@ BEGIN
            AND banned_at IS NOT NULL;
         v_unbanned := true;
 
-        UPDATE public.reports
-           SET status = 'dismissed',
-               reporter_outcome = 'appeal_overturned',
-               resolution_note = COALESCE(p_note, 'Ban overturned on appeal.'),
-               updated_at = now()
-         WHERE id = v_report_id;
+        IF v_report_id IS NOT NULL
+           AND v_target_type IN ('user', 'avatar')
+           AND v_target_id = v_appeal.appellant_id THEN
+            UPDATE public.reports
+               SET status = 'dismissed',
+                   reporter_outcome = 'appeal_overturned',
+                   resolution_note = COALESCE(p_note, 'Ban overturned on appeal.'),
+                   updated_at = now()
+             WHERE id = v_report_id;
+        END IF;
     END IF;
 
     UPDATE public.appeals
