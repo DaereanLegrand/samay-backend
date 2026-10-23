@@ -163,8 +163,8 @@ else
 fi
 
 # Insert user rows into public.users (auth admin API does not auto-create them)
-svc_post "users" "{\"id\":\"$UUID_A\",\"username\":\"user_a\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
-svc_post "users" "{\"id\":\"$UUID_B\",\"username\":\"user_b\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+svc_post "users" "{\"id\":\"$UUID_A\",\"username\":\"user_a\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+svc_post "users" "{\"id\":\"$UUID_B\",\"username\":\"user_b\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
 ok "Inserted user rows in public.users"
 
 # Sign in to get auth tokens (emulates Dart client login)

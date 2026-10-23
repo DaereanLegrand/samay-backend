@@ -102,7 +102,7 @@ for pair in "A $UUID_A user_a_opt013 $EMAIL_A" "B $UUID_B user_b_opt013 $EMAIL_B
     nok "create auth user $name"
     exit 1
   fi
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\"}"
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\"}"
   TOKEN=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
     -H "apikey: $ANON_KEY" -H "Content-Type: application/json" \
     -d "{\"email\":\"$email\",\"password\":\"$PW\"}" \
@@ -118,7 +118,7 @@ done
 # clients) + the profile_public privacy flags.
 svc_patch "users?id=eq.$UUID_A" "{\"personal_shards\":500,\"profile_public\":true}"
 svc_patch "users?id=eq.$UUID_B" "{\"personal_shards\":300}"
-svc_patch "users?id=eq.$UUID_C" "{\"personal_shards\":100}"
+svc_patch "users?id=eq.$UUID_C" "{\"personal_shards\":100,\"profile_public\":true}"
 svc_patch "users?id=eq.$UUID_D" "{\"personal_shards\":700}"
 
 # ---------------------------------------------------------------------------
@@ -144,6 +144,11 @@ if echo "$BODY2" | grep -q "user_b_opt013"; then
   nok "soft-deleted B is EXCLUDED from the ranking"
 else
   ok "soft-deleted B is EXCLUDED from the ranking"
+fi
+if echo "$BODY2" | grep -q "user_d_opt013"; then
+  nok "Q8 private D is EXCLUDED from the ranking"
+else
+  ok "Q8 private D is EXCLUDED from the ranking"
 fi
 A_POS=$(echo "$BODY2" | grep -o '"username":"user_a_opt013"' | head -n1)
 C_POS=$(echo "$BODY2" | grep -o '"username":"user_c_opt013"' | head -n1)
@@ -176,10 +181,10 @@ fi
 # ---------------------------------------------------------------------------
 h1 "3) profile_public flag is returned per row"
 # ---------------------------------------------------------------------------
-if echo "$BODY2" | grep -q '"profile_public":true' && echo "$BODY2" | grep -q '"profile_public":false'; then
-  ok "both profile_public states ride the rows (A true / C false)"
+if echo "$BODY2" | grep -q '"profile_public":true' && ! echo "$BODY2" | grep -q '"profile_public":false'; then
+  ok "Q8 only opted-in (profile_public=true) rows ride the ranking"
 else
-  nok "both profile_public states ride the rows ($BODY2)"
+  nok "Q8 ranking rows have unexpected profile_public states ($BODY2)"
 fi
 
 # ---------------------------------------------------------------------------

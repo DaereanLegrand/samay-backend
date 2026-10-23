@@ -98,7 +98,7 @@ for pair in "A $UUID_A $EMAIL_A" "B $UUID_B $EMAIL_B"; do
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$mail\",\"password\":\"$PW\",\"email_confirm\":true,\"id\":\"$uid\"}")
   if echo "$resp" | grep -q '"id"'; then ok "Created auth user $name"; else nok "Create user $name"; fi
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"user_${name}_opt024\",\"personal_shards\":500}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"user_${name}_opt024\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":500}" > /dev/null
 done
 ok "Inserted public.users rows (both default entitlement free)"
 

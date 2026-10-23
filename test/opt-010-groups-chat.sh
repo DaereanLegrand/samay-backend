@@ -128,7 +128,7 @@ for pair in "A $UUID_A user_a_opt010 $EMAIL_A" "B $UUID_B user_b_opt010 $EMAIL_B
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$email\",\"password\":\"$PW\",\"email_confirm\":true,\"id\":\"$uid\"}")
   if echo "$resp" | grep -q '"id"'; then ok "Created auth user $name ($uid)"; else nok "Create user $name: $(echo "$resp" | head -c 80)"; fi
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"personal_shards\":1000}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 
@@ -419,7 +419,7 @@ if command -v psql > /dev/null 2>&1; then
   cap_out=$(psql "$PGURL" -tA <<'SQL' 2>/dev/null
 BEGIN;
 UPDATE public.app_config SET value = '3' WHERE key = 'chat.message_cap';
-INSERT INTO public.users (id, username) VALUES ('66666666-6666-6666-6666-6666666666c0', 'cap_sender_opt010');
+INSERT INTO public.users (id, username, date_of_birth) VALUES ('66666666-6666-6666-6666-6666666666c0', 'cap_sender_opt010', DATE '1990-01-01');
 INSERT INTO public.chats (id, type) VALUES ('66666666-6666-6666-6666-6666666666c1', 'direct');
 INSERT INTO public.messages (id, chat_id, sender_id, content, recipient_id, created_at) VALUES
   ('66666666-6666-6666-6666-6666666666d5', '66666666-6666-6666-6666-6666666666c1', '66666666-6666-6666-6666-6666666666c0', 'r1', '66666666-6666-6666-6666-666666666601', '2026-08-17T00:00:01Z'),

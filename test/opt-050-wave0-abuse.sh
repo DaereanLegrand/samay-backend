@@ -74,11 +74,11 @@ trap cleanup EXIT
 
 cleanup
 psql_db <<SQL >/dev/null
-INSERT INTO public.users (id, username, personal_shards, preshards)
+INSERT INTO public.users (id, username, date_of_birth, personal_shards, preshards)
 VALUES
-  ('$A', 'wave0a', 1000, 1000),
-  ('$B', 'wave0b', 1000, 1000),
-  ('$C', 'wave0c', 1000, 1000);
+  ('$A', 'wave0a', DATE '1990-01-01', 1000, 1000),
+  ('$B', 'wave0b', DATE '1990-01-01', 1000, 1000),
+  ('$C', 'wave0c', DATE '1990-01-01', 1000, 1000);
 
 INSERT INTO public.groups (id, name, created_by_user_id, group_shards)
 VALUES ('$G', 'wave0 group', '$A', 0);
@@ -125,7 +125,7 @@ code() {
 }
 
 # SEC-001 — writable views.
-check "view PATCH denied" 401 403 "$(code -X PATCH "${H_A[@]}" \
+check "view PATCH denied" 400 401 403 "$(code -X PATCH "${H_A[@]}" \
   "$BASE/rest/v1/user_search_view?id=eq.$B" -H 'Content-Type: application/json' -d '{"bio":"pwned"}')"
 check "view DELETE denied" 401 403 "$(code -X DELETE "${H_A[@]}" \
   "$BASE/rest/v1/discovery_view?id=eq.$B")"

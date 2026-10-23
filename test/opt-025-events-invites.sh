@@ -109,7 +109,7 @@ for uid in $UUID_A $UUID_B $UUID_C $UUID_D $UUID_E $UUID_F $UUID_G $UUID_H $UUID
     -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" \
     -H "Content-Type: application/json" \
     -d "{\"email\":\"user_opt025_$i@samay.test\",\"password\":\"Pass1234!\",\"email_confirm\":true,\"id\":\"$uid\"}" > /dev/null
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"user_opt025_$i\",\"personal_shards\":500}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"user_opt025_$i\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":500}" > /dev/null
 done
 ok "Created auth + public.users rows (A..H, X)"
 

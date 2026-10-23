@@ -171,13 +171,13 @@ trap cleanup EXIT
 cleanup
 
 psql_db <<SQL >/dev/null
-INSERT INTO public.users (id, username, personal_shards, preshards)
+INSERT INTO public.users (id, username, date_of_birth, personal_shards, preshards)
 VALUES
-  ('$A', 'opt061a', 1000, 1000),
-  ('$B', 'opt061b', 1000, 1000),
-  ('$C', 'opt061c', 1000, 1000),
-  ('$D', 'opt061d', 1000, 1000),
-  ('$E', 'opt061e', 1000, 1000);
+  ('$A', 'opt061a', DATE '1990-01-01', 1000, 1000),
+  ('$B', 'opt061b', DATE '1990-01-01', 1000, 1000),
+  ('$C', 'opt061c', DATE '1990-01-01', 1000, 1000),
+  ('$D', 'opt061d', DATE '1990-01-01', 1000, 1000),
+  ('$E', 'opt061e', DATE '1990-01-01', 1000, 1000);
 
 INSERT INTO public.groups (id, name, created_by_user_id, group_shards)
 VALUES ('$G', 'opt061 group', '$A', 0);

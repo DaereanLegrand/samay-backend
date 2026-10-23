@@ -99,7 +99,7 @@ for pair in "A $UUID_A event_search_a_opt033 $EMAIL_A" "B $UUID_B event_search_b
     nok "create auth user $1"
     exit 1
   fi
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\"}"
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\"}"
 done
 
 svc_post "friendships" \

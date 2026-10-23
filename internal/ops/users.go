@@ -203,18 +203,20 @@ func GrantPreshards(ctx context.Context, client *db.DBClient, userID string, amo
 	})
 }
 
-func SoftDeleteUser(ctx context.Context, client *db.DBClient, userID, adminUserID string) error {
+// DeleteUser performs the Q1 hard delete through the same purge_user() RPC the
+// app uses: public rows, retained-fact pseudonymization, auth rows, and the
+// storage outbox in one transaction. It then verifies the GoTrue row is gone
+// via the admin API (404 is success) so a privilege gap in SQL does not leave
+// a live credential behind.
+func DeleteUser(ctx context.Context, client *db.DBClient, userID, adminUserID string) error {
 	if len(userID) < 8 {
-		return fmt.Errorf("soft delete user: invalid user id %q: %w", userID, ErrInvalid)
+		return fmt.Errorf("delete user: invalid user id %q: %w", userID, ErrInvalid)
 	}
-	_, err := client.Update(ctx, "users", "id=eq."+userID, map[string]any{
-		"deleted_at": time.Now().UTC(),
-		"username":   "deleted_user_" + userID[:8],
-		"avatar_url": nil,
-		"bio":        nil,
-	})
-	if err != nil {
-		return fmt.Errorf("soft delete user: %w", err)
+	if _, err := client.RPC(ctx, "purge_user", map[string]any{"p_uid": userID}); err != nil {
+		return fmt.Errorf("delete user: purge_user: %w", err)
+	}
+	if err := deleteGoTrueUser(ctx, client, userID); err != nil {
+		return fmt.Errorf("delete user: verify auth row: %w", err)
 	}
 	return LogAction(ctx, client, AuditParams{
 		AdminUserID: adminUserID,
@@ -222,4 +224,34 @@ func SoftDeleteUser(ctx context.Context, client *db.DBClient, userID, adminUserI
 		TargetType:  "user",
 		TargetID:    userID,
 	})
+}
+
+// deleteGoTrueUser deletes the auth identity through the admin API. purge_user()
+// normally removes it in SQL; a 404 here confirms that. Any other non-2xx is
+// returned so the admin surface can retry (auth_cleanup_queue also records it).
+func deleteGoTrueUser(ctx context.Context, client *db.DBClient, userID string) error {
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodDelete,
+		strings.TrimRight(client.BaseURL, "/")+"/auth/v1/admin/users/"+userID,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("auth delete: request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+client.ServiceKey)
+	req.Header.Set("apikey", client.ServiceKey)
+	resp, err := client.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("auth delete: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("auth delete: %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
 }

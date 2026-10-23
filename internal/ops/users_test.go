@@ -269,38 +269,45 @@ func TestGrantPreshards_CallsRPC(t *testing.T) {
 	}
 }
 
-func TestSoftDeleteUser_AnonymizesAndLogs(t *testing.T) {
+func TestDeleteUser_PurgesAndVerifiesAuth(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`{}`, 200)
 	defer srv.Close()
 
-	err := SoftDeleteUser(context.Background(), client, "user-12345678", "admin1")
+	err := DeleteUser(context.Background(), client, "user-12345678", "admin1")
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	foundUpdate := false
+	foundPurge := false
+	foundAuthDelete := false
 	foundAudit := false
 	for _, req := range *log {
-		if req.Method == "PATCH" && strings.Contains(req.Path, "users") {
-			foundUpdate = true
+		if req.Method == "POST" && strings.Contains(req.Path, "rpc/purge_user") {
+			foundPurge = true
+		}
+		if req.Method == "DELETE" && strings.Contains(req.Path, "/auth/v1/admin/users/") {
+			foundAuthDelete = true
 		}
 		if req.Method == "POST" && strings.Contains(req.Path, "admin_audit_log") {
 			foundAudit = true
 		}
 	}
-	if !foundUpdate {
-		t.Error("expected PATCH request on users for soft delete")
+	if !foundPurge {
+		t.Error("expected purge_user RPC (Q1 hard delete)")
+	}
+	if !foundAuthDelete {
+		t.Error("expected GoTrue auth-row deletion verification")
 	}
 	if !foundAudit {
-		t.Error("expected audit log entry for soft delete")
+		t.Error("expected audit log entry for delete")
 	}
 }
 
-func TestSoftDeleteUser_RejectsShortID(t *testing.T) {
+func TestDeleteUser_RejectsShortID(t *testing.T) {
 	client, srv, _ := newTestClientWithLog(`{}`, 200)
 	defer srv.Close()
 
-	err := SoftDeleteUser(context.Background(), client, "xyz", "admin1")
+	err := DeleteUser(context.Background(), client, "xyz", "admin1")
 	if err == nil {
 		t.Fatal("expected error for short user id")
 	}

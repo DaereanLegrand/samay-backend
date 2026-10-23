@@ -122,7 +122,7 @@ for pair in "A $UUID_A user_a_opt040 $EMAIL_A" "B $UUID_B user_b_opt040 $EMAIL_B
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$4\",\"password\":\"$PW\",\"email_confirm\":true,\"id\":\"$2\"}")
   echo "$resp" | grep -q '"id"' || nok "auth create $1: $(echo "$resp" | head -c 80)"
-  svc_post "users" "{\"id\":\"$2\",\"username\":\"$3\",\"personal_shards\":100}" > /dev/null
+  svc_post "users" "{\"id\":\"$2\",\"username\":\"$3\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":100}" > /dev/null
 done
 ok "3 users seeded"
 

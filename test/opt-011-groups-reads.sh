@@ -134,7 +134,7 @@ for pair in "A $UUID_A user_a_opt011 $EMAIL_A" "B $UUID_B user_b_opt011 $EMAIL_B
     nok "create auth user $name"
     exit 1
   fi
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\"}"
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\"}"
   TOKEN=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
     -H "apikey: $ANON_KEY" -H "Content-Type: application/json" \
     -d "{\"email\":\"$email\",\"password\":\"$PW\"}" \
