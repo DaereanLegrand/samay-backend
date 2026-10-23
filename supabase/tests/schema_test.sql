@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1080);
+SELECT plan(1095);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -5160,6 +5160,61 @@ SELECT ok(
         AND polrelid = 'storage.objects'::regclass),
     'SEC-030 event object relocation re-checks the event path (231)'
 );
+
+
+-- ============================================================
+-- SECTION 70: 235_events_links — Q2 location precision + Q9 bearer links
+-- ============================================================
+SELECT has_column('events', 'location_city',
+    '235: events carries the coarse location_city field');
+SELECT has_table('share_links',
+    '235: share_links stores hashed bearer tokens');
+SELECT has_table('event_join_requests',
+    '235: private event links create revocable join requests');
+SELECT has_table('event_scan_nonces',
+    '235: SEC-023 confirmed scans write a one-time nonce');
+SELECT has_function('create_share_link',
+    ARRAY['text', 'uuid', 'timestamp with time zone', 'boolean'],
+    '235: create_share_link(kind, subject, expires_at, single_use) exists');
+SELECT has_function('resolve_share_link',
+    ARRAY['text', 'double precision', 'double precision'],
+    '235: resolve_share_link(token, lat, lng) exists');
+SELECT has_function('join_event_by_link',
+    ARRAY['text', 'text'],
+    '235: join_event_by_link(token, note) exists');
+SELECT has_function('join_group_by_link',
+    ARRAY['text'],
+    '235: join_group_by_link(token) exists');
+SELECT has_function('request_friend_by_profile_link',
+    ARRAY['text'],
+    '235: request_friend_by_profile_link(token) exists');
+SELECT ok(
+    (SELECT relrowsecurity AND relforcerowsecurity
+       FROM pg_class WHERE oid = 'public.share_links'::regclass)
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_policy WHERE polrelid = 'public.share_links'::regclass
+    ),
+    '235: share_links is FORCE RLS with no client policies');
+SELECT ok(
+    NOT has_table_privilege('authenticated', 'public.event_scan_nonces', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.event_scan_nonces', 'INSERT')
+    AND NOT has_table_privilege('anon', 'public.event_scan_nonces', 'SELECT'),
+    '235: scan nonce audit rows are not client-readable/writable');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%location_city%'
+       AND pg_get_functiondef(p.oid) LIKE '%NULL::numeric%'
+       AND pg_get_functiondef(p.oid) LIKE '%upcoming%'
+     FROM pg_proc p WHERE proname = 'search_events'),
+    '235: search_events projects city + distance and never coordinates');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%location_city%'
+       AND pg_get_functiondef(p.oid) LIKE '%p_location_city%'
+     FROM pg_proc p WHERE proname = 'create_event'),
+    '235: create_event accepts the coarse city without changing the venue');
+SELECT has_trigger('event_attendances', 'scan_nonce_on_attendance',
+    '235: confirmed attendance fires the one-time scan nonce trigger');
+SELECT has_column('share_links', 'token_hash',
+    '235: only the hashed bearer token (token_hash) is stored');
 
 SELECT * FROM finish();
 ROLLBACK;
