@@ -66,6 +66,67 @@ REVOKE ALL ON TABLE public.share_links FROM anon;
 REVOKE ALL ON TABLE public.share_links FROM authenticated;
 REVOKE ALL ON TABLE public.share_links FROM service_role;
 
+-- Backfill the legacy `events.invite_token` values as expiry-bound event
+-- links. Old URLs keep resolving (by hash) until the event ends, but they now
+-- inherit revoke/rotation semantics; no indefinite bearer token remains.
+INSERT INTO public.share_links (
+    kind, token_hash, subject_id, created_by_user_id,
+    expires_at, single_use, max_uses, created_at
+)
+SELECT 'event',
+       encode(extensions.digest(e.invite_token, 'sha256'), 'hex'),
+       e.id,
+       e.created_by_user_id,
+       e.ends_at,
+       false,
+       NULL,
+       e.created_at
+  FROM public.events e
+ WHERE e.invite_token IS NOT NULL
+   AND e.ends_at > now()
+   AND e.status NOT IN ('ended', 'cancelled')
+ON CONFLICT (token_hash) DO NOTHING;
+
+-- New events keep a matching expiry-bound legacy link row, so
+-- `events.invite_token` never escapes the share_links lifecycle.
+CREATE OR REPLACE FUNCTION public.sync_legacy_event_link()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+BEGIN
+    IF NEW.invite_token IS NULL OR NEW.ends_at <= now()
+       OR NEW.status IN ('ended', 'cancelled') THEN
+        RETURN NEW;
+    END IF;
+    INSERT INTO public.share_links (
+        kind, token_hash, subject_id, created_by_user_id,
+        expires_at, single_use, max_uses, created_at
+    ) VALUES (
+        'event',
+        encode(extensions.digest(NEW.invite_token, 'sha256'), 'hex'),
+        NEW.id,
+        NEW.created_by_user_id,
+        NEW.ends_at,
+        false,
+        NULL,
+        NEW.created_at
+    )
+    ON CONFLICT (token_hash) DO NOTHING;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS sync_legacy_event_link_trigger ON public.events;
+CREATE TRIGGER sync_legacy_event_link_trigger
+    AFTER INSERT ON public.events
+    FOR EACH ROW EXECUTE FUNCTION public.sync_legacy_event_link();
+
+REVOKE ALL ON FUNCTION public.sync_legacy_event_link() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.sync_legacy_event_link() FROM authenticated;
+REVOKE ALL ON FUNCTION public.sync_legacy_event_link() FROM service_role;
+
 -- ----------------------------------------------------------------------------
 -- create_share_link(kind, subject, expires_at, single_use)
 --
@@ -273,17 +334,7 @@ BEGIN
     SELECT * INTO v_link FROM public.share_links WHERE token_hash = v_hash;
 
     IF NOT FOUND THEN
-        -- Legacy event invite_token fallback (event links created before 235).
-        SELECT * INTO v_event FROM public.events WHERE invite_token = btrim(p_token);
-        IF FOUND THEN
-            v_link.kind := 'event';
-            v_link.subject_id := v_event.id;
-            v_link.created_by_user_id := v_event.created_by_user_id;
-            v_link.expires_at := v_event.ends_at;
-            v_link.single_use := false;
-        ELSE
-            RETURN jsonb_build_object('status', 'invalid_link');
-        END IF;
+        RETURN jsonb_build_object('status', 'invalid_link');
     END IF;
 
     IF v_link.revoked_at IS NOT NULL

@@ -123,6 +123,7 @@ fi
 BASE='{"p_name":"Opt066 Meetup","p_description":"links","p_type":"casual","p_cover_url":null,"p_group_id":null,"p_location_name":"Calle Falsa 123, Arequipa","p_location_city":"Arequipa","p_location_lat":-16.4090,"p_location_lng":-71.5375,"p_starts_at":"2026-12-31T23:00:00Z","p_ends_at":"2027-01-01T01:00:00Z","p_join_mode":"open","p_preshards_pool":0,"p_preshards_cap_per_user":null,"p_preshards_remainder_action":null'
 resp=$(auth_rpc "$TOKEN_A" create_event "$BASE,\"p_capacity\":7}")
 EVENT_OPEN=$(echo "$resp" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
+LEGACY_OPEN=$(echo "$resp" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("inviteToken",""))' 2>/dev/null)
 if [ -n "$EVENT_OPEN" ]; then
   ok "open event created with city + exact venue ($EVENT_OPEN)"
 else
@@ -161,6 +162,15 @@ if echo "$RESP" | grep -q '"viewer_role":"pending"' \
   ok "pending invitee sees city, not exact venue"
 else
   nok "pending projection: $(echo "$RESP" | head -c 360)"
+fi
+
+# Legacy events.invite_token values are backfilled as hashed, expiry-bound
+# share links (old URLs keep working, but now inherit revoke/expiry).
+RESP=$(auth_rpc "$TOKEN_B" resolve_share_link "{\"p_token\":\"$LEGACY_OPEN\"}")
+if echo "$RESP" | grep -q '"kind":"event"' && echo "$RESP" | grep -q '"status":"ok"'; then
+  ok "legacy invite token resolves through the backfilled link row"
+else
+  nok "legacy token resolve: $(echo "$RESP" | head -c 240)"
 fi
 
 # =========================================================================
