@@ -7,7 +7,7 @@ import (
 )
 
 func TestListReports_PathConstruction(t *testing.T) {
-	baseSelect := "select=id,reporter_id,target_type,target_id,reason,status,created_at"
+	baseSelect := "select=id,reporter_id,target_type,target_id,reason,category,priority,status,reviewed_at,reviewed_by,actioned_at,actioned_by,resolution_note,reporter_outcome,claimed_by,claimed_at,created_at,updated_at"
 
 	tests := []struct {
 		name    string
@@ -159,5 +159,96 @@ func TestActionReport_RPCErrorPropagates(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "500") {
 		t.Errorf("expected 500 error, got: %v", err)
+	}
+}
+
+func TestListReports_PaginationPriorityAndCategory(t *testing.T) {
+	client, srv, log := newTestClientWithLog(`[]`, 200)
+	defer srv.Close()
+
+	priority := 0
+	_, err := ListReports(context.Background(), client, ListReportsParams{
+		Status:   "pending",
+		Category: "csam",
+		Priority: &priority,
+		Limit:    25,
+		Offset:   50,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := (*log)[0].Path
+	for _, want := range []string{
+		"status=eq.pending", "category=eq.csam", "priority=eq.0",
+		"limit=25", "offset=50", "order=priority.asc,created_at.asc",
+	} {
+		assertContains(t, got, want)
+	}
+}
+
+func TestListReports_InvalidCategory(t *testing.T) {
+	client, srv, log := newTestClientWithLog(`[]`, 200)
+	defer srv.Close()
+
+	_, err := ListReports(context.Background(), client, ListReportsParams{Category: "explode"})
+	if err == nil || !strings.Contains(err.Error(), "invalid category") {
+		t.Fatalf("expected invalid category error, got %v", err)
+	}
+	if len(*log) != 0 {
+		t.Errorf("expected no requests, got %d", len(*log))
+	}
+}
+
+func TestClaimReport_CallsRPC(t *testing.T) {
+	client, srv, log := newTestClientWithLog(`{"status":"ok"}`, 200)
+	defer srv.Close()
+
+	if err := ClaimReport(context.Background(), client, "r1", "admin-1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	req := lastRequest(log)
+	assertContains(t, req.Path, "/rest/v1/rpc/claim_report")
+	assertContains(t, req.Body, `"p_report_id":"r1"`)
+	assertContains(t, req.Body, `"p_admin_user_id":"admin-1"`)
+}
+
+func TestListAppeals_PathAndPaging(t *testing.T) {
+	client, srv, log := newTestClientWithLog(`[]`, 200)
+	defer srv.Close()
+
+	_, err := ListAppeals(context.Background(), client, "open", 25, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := (*log)[0].Path
+	for _, want := range []string{"status=eq.open", "limit=25", "offset=10", "order=created_at.asc"} {
+		assertContains(t, got, want)
+	}
+}
+
+func TestDecideAppeal_CallsRPC(t *testing.T) {
+	client, srv, log := newTestClientWithLog(`{"status":"ok"}`, 200)
+	defer srv.Close()
+
+	if err := DecideAppeal(context.Background(), client, "a1", "overturned", "looks fine", "admin-1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	req := lastRequest(log)
+	assertContains(t, req.Path, "/rest/v1/rpc/decide_appeal")
+	assertContains(t, req.Body, `"p_appeal_id":"a1"`)
+	assertContains(t, req.Body, `"p_decision":"overturned"`)
+	assertContains(t, req.Body, `"p_admin_user_id":"admin-1"`)
+}
+
+func TestDecideAppeal_InvalidDecision(t *testing.T) {
+	client, srv, log := newTestClientWithLog(`{}`, 200)
+	defer srv.Close()
+
+	err := DecideAppeal(context.Background(), client, "a1", "explode", "", "admin-1")
+	if err == nil || !strings.Contains(err.Error(), "invalid decision") {
+		t.Fatalf("expected invalid decision error, got %v", err)
+	}
+	if len(*log) != 0 {
+		t.Errorf("expected no requests, got %d", len(*log))
 	}
 }

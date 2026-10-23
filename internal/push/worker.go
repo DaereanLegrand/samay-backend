@@ -17,6 +17,10 @@ import (
 // The in-app center carries every type; only these are worth a device push.
 // Start minimal (Track-2 PUSH): an invite and the generic "it's your turn"
 // that abstracts truth-or-dare / bottle / two-lies / charades.
+//
+// Q4a (234_safety_moderation): rows with push_allowed=false are never polled.
+// The column is derived from the recipient's server-persisted notification
+// categories (marketing defaults off), so this filter is the push contract.
 var PushTypes = []string{"minigame_invite", "minigame_turn"}
 
 // Logf matches log.Printf-style logging.
@@ -104,6 +108,7 @@ func (w *Worker) DrainOnce(ctx context.Context) (int, error) {
 func (w *Worker) unsent(ctx context.Context) ([]notificationRow, error) {
 	filter := "id,user_id,type" +
 		"&push_sent_at=is.null" +
+		"&push_allowed=is.true" +
 		"&type=in.(" + strings.Join(PushTypes, ",") + ")" +
 		"&order=created_at.asc"
 	raw, err := w.DB.Select(ctx, "notifications", filter, w.Batch, 0)

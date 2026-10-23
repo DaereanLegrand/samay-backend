@@ -88,6 +88,12 @@ func newRouter(verifier *auth.Verifier) *gin.Engine {
 		admin.GET("/reports", listReportsHandler)
 		admin.GET("/reports/:id", getReportHandler)
 		admin.POST("/reports/:id/action", actionReportHandler)
+		admin.POST("/reports/:id/claim", claimReportHandler)
+
+		// appeals
+		admin.GET("/appeals", listAppealsHandler)
+		admin.GET("/appeals/:id", getAppealHandler)
+		admin.POST("/appeals/:id/decision", decideAppealHandler)
 
 		// shards
 		admin.POST("/ranks/recalculate", recalculateRanksHandler)
@@ -319,6 +325,18 @@ func queryLimit(c *gin.Context) (int, error) {
 	return n, nil
 }
 
+func queryIntDefault(c *gin.Context, key string, def int) (int, error) {
+	raw := c.Query(key)
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("invalid %s %q: must be a non-negative integer", key, raw)
+	}
+	return n, nil
+}
+
 func queryBool(c *gin.Context, key string) (bool, error) {
 	raw := c.Query(key)
 	if raw == "" {
@@ -352,6 +370,11 @@ type banRequest struct {
 
 type reportActionRequest struct {
 	Action string `json:"action"`
+}
+
+type appealDecisionRequest struct {
+	Decision string `json:"decision"`
+	Note     string `json:"note"`
 }
 
 type setConfigRequest struct {
@@ -665,6 +688,16 @@ func groupLedgerHandler(c *gin.Context) {
 
 // ── handlers: reports ─────────────────────────────────────────────────────────
 
+var reportCategories = []string{
+	"csam", "credible_threat", "ncii", "harassment",
+	"hate", "spam", "impersonation", "other",
+}
+
+var reportTargetTypes = []string{
+	"message", "photo", "user", "event", "minigame_answer",
+	"minigame_image", "avatar", "group_cover", "event_description",
+}
+
 func listReportsHandler(c *gin.Context) {
 	status := c.Query("status")
 	if status != "" {
@@ -675,14 +708,44 @@ func listReportsHandler(c *gin.Context) {
 	}
 	targetType := c.Query("type")
 	if targetType != "" {
-		if err := validate.OneOf(targetType, "message", "photo", "user", "event"); err != nil {
+		if err := validate.OneOf(targetType, reportTargetTypes...); err != nil {
 			writeError(c, err)
 			return
 		}
 	}
+	category := c.Query("category")
+	if category != "" {
+		if err := validate.OneOf(category, reportCategories...); err != nil {
+			writeError(c, err)
+			return
+		}
+	}
+	limit, err := queryIntDefault(c, "limit", 100)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	offset, err := queryIntDefault(c, "offset", 0)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	var priority *int
+	if raw := c.Query("priority"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			writeError(c, fmt.Errorf("invalid priority %q: must be a non-negative integer", raw))
+			return
+		}
+		priority = &n
+	}
 	data, err := ops.ListReports(opsCtx(c), dbClient, ops.ListReportsParams{
-		Status: status,
-		Type:   targetType,
+		Status:   status,
+		Type:     targetType,
+		Category: category,
+		Priority: priority,
+		Limit:    limit,
+		Offset:   offset,
 	})
 	if err != nil {
 		writeError(c, err)
@@ -705,11 +768,70 @@ func actionReportHandler(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-	if err := validate.OneOf(req.Action, "remove", "dismiss", "warn"); err != nil {
+	if err := validate.OneOf(req.Action, "review", "remove", "dismiss", "warn"); err != nil {
 		writeError(c, err)
 		return
 	}
 	if err := ops.ActionReport(opsCtx(c), dbClient, c.Param("id"), req.Action, adminIdentity(c)); err != nil {
+		writeError(c, err)
+		return
+	}
+	ok(c)
+}
+
+func claimReportHandler(c *gin.Context) {
+	if err := ops.ClaimReport(opsCtx(c), dbClient, c.Param("id"), adminIdentity(c)); err != nil {
+		writeError(c, err)
+		return
+	}
+	ok(c)
+}
+
+func listAppealsHandler(c *gin.Context) {
+	status := c.Query("status")
+	if status != "" {
+		if err := validate.OneOf(status, "open", "reviewing", "upheld", "overturned", "closed"); err != nil {
+			writeError(c, err)
+			return
+		}
+	}
+	limit, err := queryIntDefault(c, "limit", 100)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	offset, err := queryIntDefault(c, "offset", 0)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	data, err := ops.ListAppeals(opsCtx(c), dbClient, status, limit, offset)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, data)
+}
+
+func getAppealHandler(c *gin.Context) {
+	data, err := ops.GetAppeal(opsCtx(c), dbClient, c.Param("id"))
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, data)
+}
+
+func decideAppealHandler(c *gin.Context) {
+	var req appealDecisionRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	if err := validate.OneOf(req.Decision, "upheld", "overturned", "closed"); err != nil {
+		writeError(c, err)
+		return
+	}
+	if err := ops.DecideAppeal(opsCtx(c), dbClient, c.Param("id"), req.Decision, req.Note, adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}

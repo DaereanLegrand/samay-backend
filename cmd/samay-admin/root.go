@@ -68,6 +68,7 @@ func init() {
 		eventsCmd,
 		groupsCmd,
 		reportsCmd,
+		appealsCmd,
 		shardsCmd,
 		configCmd,
 		subsCmd,

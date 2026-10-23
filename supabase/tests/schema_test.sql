@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1080);
+SELECT plan(1109);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -5159,6 +5159,181 @@ SELECT ok(
       WHERE polname = 'storage_objects_update_own'
         AND polrelid = 'storage.objects'::regclass),
     'SEC-030 event object relocation re-checks the event path (231)'
+);
+
+-- ============================================================
+-- SECTION 69: safety, moderation, block/mute, notifications
+-- (234_safety_moderation)
+-- ============================================================
+SELECT ok(
+    (SELECT public.normalize_notification_preferences('{}'::jsonb) -> 'marketing')::text = 'false'
+    AND (SELECT public.normalize_notification_preferences('{}'::jsonb) -> 'chat')::text = 'true'
+    AND (SELECT public.normalize_notification_preferences('{}'::jsonb) -> 'security')::text = 'true',
+    'Q4a defaults: chat on, marketing off, security locked on'
+);
+SELECT ok(
+    (SELECT public.normalize_notification_preferences(
+        '{"marketing": true, "security": false}'::jsonb
+    ) -> 'marketing')::text = 'true'
+    AND (SELECT public.normalize_notification_preferences(
+        '{"marketing": true, "security": false}'::jsonb
+    ) -> 'security')::text = 'true',
+    'Q4a locked categories cannot be disabled; marketing can be enabled'
+);
+SELECT ok(
+    public.notification_category('new_message') = 'chat'
+    AND public.notification_category('event_invite') = 'events'
+    AND public.notification_category('friend_request') = 'friends'
+    AND public.notification_category('minigame_invite') = 'minigames'
+    AND public.notification_category('marketing_offer') = 'marketing'
+    AND public.notification_category('report_outcome') = 'moderation',
+    'Q4a notification_category maps every shipped type'
+);
+SELECT has_function('get_notification_preferences', ARRAY[]::text[],
+    'get_notification_preferences() exists');
+SELECT has_function('set_notification_preferences', ARRAY['jsonb'],
+    'set_notification_preferences(jsonb) exists');
+SELECT ok(
+    has_function_privilege('authenticated', 'public.get_notification_preferences()', 'EXECUTE')
+    AND has_function_privilege('authenticated', 'public.set_notification_preferences(jsonb)', 'EXECUTE')
+    AND NOT has_function_privilege('anon', 'public.get_notification_preferences()', 'EXECUTE')
+    AND NOT has_function_privilege('anon', 'public.set_notification_preferences(jsonb)', 'EXECUTE'),
+    'Q4a prefs RPCs are authenticated-only'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'notifications'
+           AND column_name = 'push_allowed'
+    )
+    AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'notifications'
+           AND column_name = 'category'
+    ),
+    'Q4a push filtering contract columns exist (category, push_allowed)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%notification_enabled%'
+       AND pg_get_functiondef(p.oid) LIKE '%is_blocked_between%'
+     FROM pg_proc p WHERE proname = 'insert_notification'),
+    'Q4a/Q4b insert_notification enforces prefs + block/mute'
+);
+SELECT has_trigger('public', 'group_members', 'notify_group_invite_trigger',
+    'Q4a group-invite notification trigger exists');
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_enum e
+        JOIN pg_type t ON t.oid = e.enumtypid
+        WHERE t.typname = 'report_target_type'
+          AND e.enumlabel IN ('minigame_answer', 'minigame_image', 'avatar',
+                              'group_cover', 'event_description')
+        GROUP BY t.typname HAVING count(*) = 5
+    ),
+    'Q6 new report targets exist (minigame answer/image, avatar, group cover, event description)'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_enum e
+        JOIN pg_type t ON t.oid = e.enumtypid
+        WHERE t.typname = 'report_category'
+          AND e.enumlabel IN ('csam', 'credible_threat', 'ncii', 'harassment',
+                              'hate', 'spam', 'impersonation', 'other')
+        GROUP BY t.typname HAVING count(*) = 8
+    ),
+    'Q6 report categories exist'
+);
+SELECT ok(
+    public.report_category_priority('csam') = 0
+    AND public.report_category_priority('credible_threat') = 1
+    AND public.report_category_priority('ncii') = 2
+    AND public.report_category_priority('other') = 100,
+    'Q6 immediate categories carry the highest priority'
+);
+SELECT has_function('report_content', ARRAY['text', 'uuid', 'text', 'text', 'jsonb'],
+    'Q6 report_content(text,uuid,text,text,jsonb) exists');
+SELECT has_function('submit_appeal', ARRAY['uuid', 'text'],
+    'Q6 submit_appeal(uuid,text) exists');
+SELECT has_function('decide_appeal', ARRAY['uuid', 'text', 'text', 'uuid'],
+    'Q6 decide_appeal(uuid,text,text,uuid) exists');
+SELECT has_function('block_user', ARRAY['uuid'], 'Q4b block_user(uuid) exists');
+SELECT has_function('unblock_user', ARRAY['uuid'], 'Q4b unblock_user(uuid) exists');
+SELECT has_function('mute_user', ARRAY['uuid'], 'Q4b mute_user(uuid) exists');
+SELECT has_function('unmute_user', ARRAY['uuid'], 'Q4b unmute_user(uuid) exists');
+SELECT has_table('user_mutes', 'Q4b user_mutes table exists');
+SELECT ok(
+    has_function_privilege('authenticated', 'public.report_content(text,uuid,text,text,jsonb)', 'EXECUTE')
+    AND NOT has_function_privilege('anon', 'public.report_content(text,uuid,text,text,jsonb)', 'EXECUTE')
+    AND NOT has_function_privilege('authenticated', 'public.moderate_report(uuid,text,uuid)', 'EXECUTE')
+    AND NOT has_function_privilege('authenticated', 'public.decide_appeal(uuid,text,text,uuid)', 'EXECUTE'),
+    'Q6 report intake is authenticated-only; moderation/appeals are service-only'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%not_allowed%'
+       AND pg_get_functiondef(p.oid) LIKE '%moderation_evidence%'
+     FROM pg_proc p WHERE proname = 'report_content'),
+    'Q6 report_content validates participation and snapshots evidence at report time'
+);
+SELECT ok(
+    (SELECT count(*) = 1
+     FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'appeals'
+        AND policyname = 'appeals_read_own'),
+    'Q6 appeals are readable only by the appellant'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+        WHERE c.relname = 'friendships'
+          AND t.tgname IN ('friendships_block_owner_update', 'friendships_block_owner_delete')
+        GROUP BY c.relname HAVING count(*) = 2
+    ),
+    'Q4b block rows are immutable except to the blocker'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+        WHERE c.relname = 'event_invites'
+          AND t.tgname = 'event_invites_no_blocked_trigger'
+    )
+    AND EXISTS (
+        SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+        WHERE c.relname = 'group_members'
+          AND t.tgname = 'group_members_no_blocked_trigger'
+    ),
+    'Q4b blocked pairs cannot create new event/group invites'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%is_hidden_between%'
+     FROM pg_proc p WHERE proname = 'search_events')
+    AND (SELECT pg_get_functiondef(p.oid) LIKE '%is_hidden_between%'
+     FROM pg_proc p WHERE proname = 'get_user_ranking'),
+    'Q4b feed and ranking filter blocked/muted actors'
+);
+SELECT ok(
+    NOT (SELECT attnotnull FROM pg_attribute
+          WHERE attrelid = 'public.reports'::regclass AND attname = 'reporter_id'),
+    'Q6 reports survive reporter erasure (reporter_id nullable)'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_indexes
+         WHERE schemaname = 'public' AND indexname = 'idx_reports_queue'
+    ),
+    'Q6 priority-ordered report processing queue index exists'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'moderation_evidence'
+           AND column_name = 'retention_until'
+    )
+    AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'moderation_evidence'
+           AND column_name = 'legal_hold'
+    ),
+    'Q6 evidence carries retention + legal-hold columns'
 );
 
 SELECT * FROM finish();
