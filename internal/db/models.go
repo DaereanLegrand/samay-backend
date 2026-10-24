@@ -113,13 +113,41 @@ type FeatureRequest struct {
 }
 
 type Report struct {
-	ID         string    `json:"id"`
-	ReporterID string    `json:"reporter_id"`
-	TargetType string    `json:"target_type"`
-	TargetID   string    `json:"target_id"`
-	Reason     string    `json:"reason"`
-	Status     string    `json:"status"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID              string     `json:"id"`
+	ReporterID      *string    `json:"reporter_id"`
+	TargetType      string     `json:"target_type"`
+	TargetID        string     `json:"target_id"`
+	Reason          string     `json:"reason"`
+	Category        string     `json:"category"`
+	Priority        int        `json:"priority"`
+	Status          string     `json:"status"`
+	ReviewedAt      *time.Time `json:"reviewed_at"`
+	ReviewedBy      *string    `json:"reviewed_by"`
+	ActionedAt      *time.Time `json:"actioned_at"`
+	ActionedBy      *string    `json:"actioned_by"`
+	ResolutionNote  *string    `json:"resolution_note"`
+	ReporterOutcome *string    `json:"reporter_outcome"`
+	ClaimedBy       *string    `json:"claimed_by"`
+	ClaimedAt       *time.Time `json:"claimed_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+// Appeal is a user appeal against a moderation action (Q6). Ban appeals are
+// accepted while the account is banned; the row is service-read in the admin
+// CLI and owner-read through my_appeals().
+type Appeal struct {
+	ID           string     `json:"id"`
+	ReportID     *string    `json:"report_id"`
+	AppellantID  *string    `json:"appellant_id"`
+	Message      string     `json:"message"`
+	Status       string     `json:"status"`
+	IsBanAppeal  bool       `json:"is_ban_appeal"`
+	DecisionNote *string    `json:"decision_note"`
+	DecidedBy    *string    `json:"decided_by"`
+	CreatedAt    time.Time  `json:"created_at"`
+	DecidedAt    *time.Time `json:"decided_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 // MessageReport is the moderator-readable snapshot of a reported chat message
