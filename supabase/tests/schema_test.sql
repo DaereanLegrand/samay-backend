@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1184);
+SELECT plan(1216);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -5702,6 +5702,270 @@ SELECT has_trigger('event_attendances', 'scan_nonce_on_attendance',
     '235: confirmed attendance fires the one-time scan nonce trigger');
 SELECT has_column('share_links', 'token_hash',
     '235: only the hashed bearer token (token_hash) is stored');
+
+
+-- ============================================================
+-- SECTION 71: economy distribution, cancellation and reconciliation
+-- (236_economy_distribution — E1)
+-- ============================================================
+INSERT INTO public.users (id, username, date_of_birth, preshards) VALUES
+    ('7a000000-0000-4000-8000-000000000001', 'econ_h1', '1990-01-01', 1000),
+    ('7a000000-0000-4000-8000-000000000002', 'econ_h2', '1990-01-01', 1000),
+    ('7a000000-0000-4000-8000-000000000003', 'econ_a1', '1990-01-01', 0),
+    ('7a000000-0000-4000-8000-000000000004', 'econ_a2', '1990-01-01', 0),
+    ('7a000000-0000-4000-8000-000000000005', 'econ_a3', '1990-01-01', 0)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.preshard_ledger (user_id, delta, reason)
+SELECT u.id, 1000, 'admin_grant'
+  FROM public.users u
+ WHERE u.id IN (
+    '7a000000-0000-4000-8000-000000000001',
+    '7a000000-0000-4000-8000-000000000002')
+   AND NOT EXISTS (
+       SELECT 1 FROM public.preshard_ledger l
+        WHERE l.user_id = u.id AND l.reason = 'admin_grant');
+
+INSERT INTO public.events
+    (id, name, type, created_by_user_id, starts_at, ends_at,
+     preshards_pool, preshards_remainder_action, capacity, invite_token, status)
+VALUES
+    ('7e000000-0000-4000-8000-000000000001', 'E1 single host', 'juerga',
+     '7a000000-0000-4000-8000-000000000001', now() - interval '2 hours',
+     now() - interval '1 hour', 100, NULL, 5, 'econ-e1', 'ended'),
+    ('7e000000-0000-4000-8000-000000000002', 'E2 host attendee', 'juerga',
+     '7a000000-0000-4000-8000-000000000001', now() - interval '2 hours',
+     now() - interval '1 hour', 100, NULL, 5, 'econ-e2', 'ended'),
+    ('7e000000-0000-4000-8000-000000000003', 'E3 redistribute', 'juerga',
+     '7a000000-0000-4000-8000-000000000001', now() - interval '2 hours',
+     now() - interval '1 hour', 101, 'redistribute', 5, 'econ-e3', 'ended'),
+    ('7e000000-0000-4000-8000-000000000004', 'E4 remainder return', 'juerga',
+     '7a000000-0000-4000-8000-000000000002', now() - interval '2 hours',
+     now() - interval '1 hour', 100, NULL, 5, 'econ-e4', 'ended'),
+    ('7e000000-0000-4000-8000-000000000005', 'E5 cancel', 'juerga',
+     '7a000000-0000-4000-8000-000000000001', now() + interval '1 day',
+     now() + interval '1 day 2 hours', 60, NULL, 5, 'econ-e5', 'upcoming'),
+    ('7e000000-0000-4000-8000-000000000006', 'E6 multi host cancel', 'juerga',
+     '7a000000-0000-4000-8000-000000000001', now() + interval '1 day',
+     now() + interval '1 day 2 hours', 100, NULL, 5, 'econ-e6', 'upcoming'),
+    ('7e000000-0000-4000-8000-000000000007', 'E7 cancel after end', 'juerga',
+     '7a000000-0000-4000-8000-000000000001', now() - interval '2 hours',
+     now() - interval '1 hour', 40, NULL, 5, 'econ-e7', 'ended'),
+    ('7e000000-0000-4000-8000-000000000008', 'E8 trigger dispatch', 'juerga',
+     '7a000000-0000-4000-8000-000000000001', now() + interval '1 day',
+     now() + interval '1 day 2 hours', 20, NULL, 5, 'econ-e8', 'upcoming');
+
+INSERT INTO public.event_hosts (event_id, user_id, role, preshards_contributed) VALUES
+    ('7e000000-0000-4000-8000-000000000001', '7a000000-0000-4000-8000-000000000001', 'host', 100),
+    ('7e000000-0000-4000-8000-000000000002', '7a000000-0000-4000-8000-000000000001', 'host', 100),
+    ('7e000000-0000-4000-8000-000000000003', '7a000000-0000-4000-8000-000000000001', 'host', 0),
+    ('7e000000-0000-4000-8000-000000000004', '7a000000-0000-4000-8000-000000000002', 'host', 100),
+    ('7e000000-0000-4000-8000-000000000005', '7a000000-0000-4000-8000-000000000001', 'host', 60),
+    ('7e000000-0000-4000-8000-000000000006', '7a000000-0000-4000-8000-000000000001', 'host', 60),
+    ('7e000000-0000-4000-8000-000000000006', '7a000000-0000-4000-8000-000000000002', 'host', 40),
+    ('7e000000-0000-4000-8000-000000000007', '7a000000-0000-4000-8000-000000000001', 'host', 40),
+    ('7e000000-0000-4000-8000-000000000008', '7a000000-0000-4000-8000-000000000001', 'host', 0);
+
+-- Model the create_event deductions + ledgers so the reconciliation invariant
+-- holds (one bulk deduction per host, one ledger row per event).
+UPDATE public.users SET preshards = preshards - 360
+ WHERE id = '7a000000-0000-4000-8000-000000000001';
+UPDATE public.users SET preshards = preshards - 140
+ WHERE id = '7a000000-0000-4000-8000-000000000002';
+INSERT INTO public.preshard_ledger (user_id, delta, reason, reference_id) VALUES
+    ('7a000000-0000-4000-8000-000000000001', -100, 'event_pool_set', '7e000000-0000-4000-8000-000000000001'),
+    ('7a000000-0000-4000-8000-000000000001', -100, 'event_pool_set', '7e000000-0000-4000-8000-000000000002'),
+    ('7a000000-0000-4000-8000-000000000001', -60, 'event_pool_set', '7e000000-0000-4000-8000-000000000005'),
+    ('7a000000-0000-4000-8000-000000000001', -60, 'event_pool_set', '7e000000-0000-4000-8000-000000000006'),
+    ('7a000000-0000-4000-8000-000000000001', -40, 'event_pool_set', '7e000000-0000-4000-8000-000000000007'),
+    ('7a000000-0000-4000-8000-000000000002', -100, 'event_pool_set', '7e000000-0000-4000-8000-000000000004'),
+    ('7a000000-0000-4000-8000-000000000002', -40, 'event_pool_set', '7e000000-0000-4000-8000-000000000006');
+
+CREATE TEMP TABLE e1_start AS
+SELECT id, preshards, personal_shards
+  FROM public.users
+ WHERE username LIKE 'econ_%';
+
+INSERT INTO public.event_attendances (event_id, user_id) VALUES
+    ('7e000000-0000-4000-8000-000000000001', '7a000000-0000-4000-8000-000000000003'),
+    ('7e000000-0000-4000-8000-000000000001', '7a000000-0000-4000-8000-000000000004'),
+    ('7e000000-0000-4000-8000-000000000002', '7a000000-0000-4000-8000-000000000001'),
+    ('7e000000-0000-4000-8000-000000000002', '7a000000-0000-4000-8000-000000000003'),
+    ('7e000000-0000-4000-8000-000000000003', '7a000000-0000-4000-8000-000000000003'),
+    ('7e000000-0000-4000-8000-000000000003', '7a000000-0000-4000-8000-000000000004'),
+    ('7e000000-0000-4000-8000-000000000003', '7a000000-0000-4000-8000-000000000005'),
+    ('7e000000-0000-4000-8000-000000000004', '7a000000-0000-4000-8000-000000000003'),
+    ('7e000000-0000-4000-8000-000000000004', '7a000000-0000-4000-8000-000000000004'),
+    ('7e000000-0000-4000-8000-000000000004', '7a000000-0000-4000-8000-000000000005'),
+    ('7e000000-0000-4000-8000-000000000007', '7a000000-0000-4000-8000-000000000003'),
+    ('7e000000-0000-4000-8000-000000000008', '7a000000-0000-4000-8000-000000000003');
+
+SELECT is(
+    (public.distribute_shards('7e000000-0000-4000-8000-000000000001') ->> 'status'),
+    'completed', 'E1: distribution completes on an ended event');
+SELECT is(
+    (public.distribute_shards('7e000000-0000-4000-8000-000000000001') ->> 'reason'),
+    'already distributed', 'E1: a second call is a no-op');
+SELECT is(
+    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000003'),
+    50, 'E1: confirmed attendee A1 paid 50');
+SELECT is(
+    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000004'),
+    50, 'E1: confirmed attendee A2 paid 50');
+SELECT is(
+    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000001'),
+    0, 'E1: the host receives no attendance payout');
+SELECT is(
+    (SELECT SUM(shards_received) FROM public.event_attendances
+      WHERE event_id = '7e000000-0000-4000-8000-000000000001'),
+    100::bigint, 'E1: exactly the pool is distributed');
+SELECT ok(
+    (SELECT preshards_pool = 0 AND preshards_distributed
+       FROM public.events WHERE id = '7e000000-0000-4000-8000-000000000001'),
+    'E1: the pool is zeroed and marked distributed');
+SELECT is(
+    (SELECT SUM(delta) FROM public.shard_ledger
+      WHERE user_id = '7a000000-0000-4000-8000-000000000003'
+        AND reference_id = '7e000000-0000-4000-8000-000000000001'),
+    50::bigint, 'E1: the attendee payout is in the ledger');
+SELECT is(
+    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000003'),
+    50, 'E1: the no-op re-run does not pay twice');
+
+-- Host attendance rows are not eligible.
+SELECT is(
+    (public.distribute_shards('7e000000-0000-4000-8000-000000000002') ->> 'attendees'),
+    '1', 'E1: a host attendance row is excluded');
+SELECT is(
+    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000001'),
+    0, 'E1: the host is still not paid as an attendee');
+SELECT is(
+    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000003'),
+    150, 'E1: the only non-host attendee receives the pool');
+
+-- Redistribute: 101 across 3 attendees, exact sum.
+SELECT is(
+    (public.distribute_shards('7e000000-0000-4000-8000-000000000003') ->> 'remainder'),
+    '2', 'E1: redistribute keeps a 2-shard remainder');
+SELECT is(
+    (SELECT shards_received FROM public.event_attendances
+      WHERE event_id = '7e000000-0000-4000-8000-000000000003'
+        AND user_id = '7a000000-0000-4000-8000-000000000005'),
+    33, 'E1: the last attendee gets the base share');
+SELECT is(
+    (SELECT SUM(shards_received) FROM public.event_attendances
+      WHERE event_id = '7e000000-0000-4000-8000-000000000003'),
+    101::bigint, 'E1: redistribute distributes the remainder, never burns it');
+
+-- Return: 100 across 3 attendees leaves 1 for the host.
+SELECT is(
+    (public.distribute_shards('7e000000-0000-4000-8000-000000000004') ->> 'returned'),
+    '1', 'E1: the default remainder returns to the host');
+SELECT is(
+    (SELECT u.preshards - s.preshards
+       FROM public.users u JOIN e1_start s USING (id)
+      WHERE u.id = '7a000000-0000-4000-8000-000000000002'),
+    1, 'E1: the host receives the remainder back');
+SELECT ok(
+    (SELECT preshards_pool = 0 AND preshards_distributed
+       FROM public.events WHERE id = '7e000000-0000-4000-8000-000000000004'),
+    'E1: the returned pool is closed');
+
+-- Cancellation before start refunds each host its own contribution.
+UPDATE public.events SET status = 'cancelled'
+ WHERE id = '7e000000-0000-4000-8000-000000000005';
+SELECT is(
+    (SELECT u.preshards - s.preshards
+       FROM public.users u JOIN e1_start s USING (id)
+      WHERE u.id = '7a000000-0000-4000-8000-000000000001'),
+    60, 'E1: cancellation refunds the single host');
+SELECT ok(
+    (SELECT preshards_pool = 0 AND preshards_distributed
+       FROM public.events WHERE id = '7e000000-0000-4000-8000-000000000005'),
+    'E1: cancellation closes the pool');
+
+UPDATE public.events SET status = 'cancelled'
+ WHERE id = '7e000000-0000-4000-8000-000000000006';
+SELECT is(
+    (SELECT u.preshards - s.preshards
+       FROM public.users u JOIN e1_start s USING (id)
+      WHERE u.id = '7a000000-0000-4000-8000-000000000001'),
+    120, 'E1: multi-host cancellation refunds host 1 its own 60');
+SELECT is(
+    (SELECT u.preshards - s.preshards
+       FROM public.users u JOIN e1_start s USING (id)
+      WHERE u.id = '7a000000-0000-4000-8000-000000000002'),
+    41, 'E1: multi-host cancellation refunds host 2 its own 40');
+SELECT is(
+    (SELECT SUM(delta) FROM public.preshard_ledger
+      WHERE reference_id = '7e000000-0000-4000-8000-000000000006'
+        AND reason = 'event_pool_returned'),
+    100::bigint, 'E1: the multi-host refund sums to the pool');
+
+-- Distribution then cancellation is rejected.
+SELECT public.distribute_shards('7e000000-0000-4000-8000-000000000007');
+SELECT throws_ok(
+    $$UPDATE public.events SET status = 'cancelled'
+       WHERE id = '7e000000-0000-4000-8000-000000000007'$$,
+    'P0001', 'cancel_only_before_start',
+    'E1: cancelling an ended/distributed event is rejected');
+
+-- The status update itself must dispatch (no manual call).
+CREATE TEMP TABLE e8_before AS
+SELECT personal_shards FROM public.users
+ WHERE id = '7a000000-0000-4000-8000-000000000003';
+UPDATE public.events SET status = 'ended'
+ WHERE id = '7e000000-0000-4000-8000-000000000008';
+SELECT ok(
+    (SELECT preshards_distributed FROM public.events
+      WHERE id = '7e000000-0000-4000-8000-000000000008'),
+    'E1: status=ended dispatches distribution');
+SELECT is(
+    (SELECT u.personal_shards - b.personal_shards
+       FROM public.users u, e8_before b
+      WHERE u.id = '7a000000-0000-4000-8000-000000000003'),
+    20, 'E1: the trigger pays the confirmed attendee');
+
+-- Read-only reconciliation.
+SELECT is(
+    (SELECT count(*) FROM public.economy_ledger_reconciliation() r
+       JOIN public.users u ON u.id = r.user_id
+      WHERE u.username LIKE 'econ_%'
+        AND (r.shard_delta <> 0 OR r.preshard_delta <> 0)),
+    0::bigint, 'E1: wallet and ledger sums reconcile after every payout');
+SELECT is(
+    (SELECT SUM(shards_received)::bigint FROM public.event_economy_reconciliation(
+        '7e000000-0000-4000-8000-000000000001')
+      WHERE role = 'attendee'),
+    100::bigint, 'E1: per-event reconciliation matches the payout');
+SELECT is(
+    (SELECT count(*) FROM public.economy_ledger_reconciliation()
+      WHERE user_id = '7a000000-0000-4000-8000-000000000004'
+        AND shard_delta = 0),
+    1::bigint, 'E1: reconciliation is read-only and reports zero delta');
+
+-- Audited manual correction (service_role only).
+CREATE TEMP TABLE corr_before AS
+SELECT personal_shards FROM public.users
+ WHERE id = '7a000000-0000-4000-8000-000000000003';
+SELECT public.admin_correct_balance(
+    '7a000000-0000-4000-8000-000000000003', 5, 2, 'pgTAP correction');
+SELECT is(
+    (SELECT u.personal_shards - b.personal_shards
+       FROM public.users u, corr_before b
+      WHERE u.id = '7a000000-0000-4000-8000-000000000003'),
+    5, 'E1: a manual correction adjusts the wallet');
+SELECT is(
+    (SELECT count(*) FROM public.admin_audit_log
+      WHERE action = 'economy_correction'
+        AND target_id = '7a000000-0000-4000-8000-000000000003'),
+    1::bigint, 'E1: a manual correction writes an audit row');
+SELECT is(
+    (SELECT count(*) FROM public.economy_ledger_reconciliation() r
+       JOIN public.users u ON u.id = r.user_id
+      WHERE u.username LIKE 'econ_%'
+        AND (r.shard_delta <> 0 OR r.preshard_delta <> 0)),
+    0::bigint, 'E1: the corrected balance still reconciles');
 
 SELECT * FROM finish();
 ROLLBACK;
