@@ -35,14 +35,14 @@ No CI: run `go test ./internal/contracts` and `flutter test test/contracts_test.
 | D3 | pending E3 | `event_search_row` / notification | key-distribution rows still notify (no `recipient_id` filter) |
 | D4 | pending E3 | — | no in-app reset route; `config.toml site_url` is `127.0.0.1:3000` |
 | D5 | fixed 1B (`235`) | — | join RPCs + native link registration; universal links need the website deploy |
-| D6 | pending E2/E4 | `user_profile` / `subscription_state` | paywall still reads auth metadata |
+| D6 | fixed E4 | `user_profile` / `subscription_state` | paywall reads `myProfileProvider` tier + expiry; IAP hidden outside dev |
 | D7 | pending E3 | — | photo window remains client-only |
 | D8 | fixed 1B (`234`) | `event_search_row` (push) | `notifications.push_allowed` + server prefs; worker filters |
 | D9 | pending E3 | `group.contract.json` | client still does 3 inserts; no `create_group` RPC |
 | D10 | fixed 1B | — | `internal/ops/users.go` uses `time.Now()` |
 | D11 | pending E1 | — | `dispatch_shard_distribution` only logs |
 | D12 | fixed 1B (`234/01`) | — | `notify_group_invite` trigger |
-| D13 | pending E4 | `user_profile` | `entitlementTier` still on the wire |
+| D13 | fixed E4 | `user_profile` | `entitlement_tier` removed from the client/wire |
 | D14 | pending E4 | — | collage ignores `collage_top_n_photos` |
 | D15 | pending E2 | `subscription_state` | webhook still substring-matches entitlement ids |
 | D16 | fixed E3 | `admin_event.contract.json` | `db.Event.capacity` added; admin JSON includes it |
