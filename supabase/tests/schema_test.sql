@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1216);
+SELECT plan(1246);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -5966,6 +5966,167 @@ SELECT is(
       WHERE u.username LIKE 'econ_%'
         AND (r.shard_delta <> 0 OR r.preshard_delta <> 0)),
     0::bigint, 'E1: the corrected balance still reconciles');
+
+
+-- ============================================================
+-- SECTION 72: subscriptions — expiry, grace, overrides, retries
+-- (237_subscription_expiry — E2)
+-- ============================================================
+INSERT INTO public.users (id, username, date_of_birth) VALUES
+    ('8b000000-0000-4000-8000-000000000001', 'sub_active', '1990-01-01'),
+    ('8b000000-0000-4000-8000-000000000002', 'sub_null', '1990-01-01'),
+    ('8b000000-0000-4000-8000-000000000003', 'sub_expired', '1990-01-01'),
+    ('8b000000-0000-4000-8000-000000000004', 'sub_grace', '1990-01-01')
+ON CONFLICT (id) DO NOTHING;
+
+-- A) Active grant.
+SELECT public.apply_subscription_state(
+    '8b000000-0000-4000-8000-000000000001', 'pro',
+    now() + interval '30 days', 'INITIAL_PURCHASE');
+SELECT ok(public.has_paid_access('8b000000-0000-4000-8000-000000000001'),
+    'E2: an active paid row has paid access');
+SELECT is(
+    (SELECT subscription_source FROM public.users WHERE id = '8b000000-0000-4000-8000-000000000001'),
+    'revenuecat', 'E2: a RevenueCat grant records its source');
+SELECT ok(
+    (SELECT subscription_expires_at <= now() + interval '1 year 1 minute'
+       FROM public.users WHERE id = '8b000000-0000-4000-8000-000000000001'),
+    'E2: an over-1-year grant is capped');
+
+-- B) Past expiry is rejected.
+SELECT throws_ok(
+    $$SELECT public.apply_subscription_state(
+        '8b000000-0000-4000-8000-000000000001', 'pro',
+        now() - interval '1 day', 'RENEWAL')$$,
+    'P0001', 'invalid_expiry', 'E2: a past expiry cannot grant paid');
+
+-- C) NULL expiry never grants paid; auto-downgrade + audit.
+UPDATE public.users SET subscription_tier = 'vip', subscription_expires_at = NULL,
+    subscription_source = 'revenuecat'
+ WHERE id = '8b000000-0000-4000-8000-000000000002';
+SELECT is(public.has_paid_access('8b000000-0000-4000-8000-000000000002'),
+    false, 'E2: a NULL expiry is never paid');
+SELECT is(public.effective_tier('8b000000-0000-4000-8000-000000000002'),
+    'free'::public.subscription_tier, 'E2: effective_tier folds NULL expiry to free');
+SELECT ok(public.downgrade_invalid_subscriptions() >= 1,
+    'E2: the downgrade sweep finds the invalid row');
+SELECT is(
+    (SELECT subscription_tier FROM public.users WHERE id = '8b000000-0000-4000-8000-000000000002'),
+    'free'::public.subscription_tier, 'E2: the NULL-expiry row is downgraded');
+SELECT is(
+    (SELECT count(*) FROM public.admin_audit_log
+      WHERE action = 'subscription_auto_downgrade'
+        AND target_id = '8b000000-0000-4000-8000-000000000002'),
+    1::bigint, 'E2: the auto-downgrade is audited');
+
+-- D) Normal expiry keeps a 24h action grace, then downgrades.
+UPDATE public.users SET subscription_tier = 'pro',
+    subscription_expires_at = now() - interval '1 hour',
+    subscription_source = 'revenuecat'
+ WHERE id = '8b000000-0000-4000-8000-000000000003';
+SELECT is(public.has_paid_access('8b000000-0000-4000-8000-000000000003'),
+    true, 'E2: paid actions survive 1 hour past expiry (24h grace)');
+SELECT public.downgrade_invalid_subscriptions();
+SELECT is(
+    (SELECT subscription_tier FROM public.users WHERE id = '8b000000-0000-4000-8000-000000000003'),
+    'pro'::public.subscription_tier, 'E2: the grace window is not downgraded');
+UPDATE public.users SET subscription_expires_at = now() - interval '25 hours'
+ WHERE id = '8b000000-0000-4000-8000-000000000003';
+SELECT is(public.has_paid_access('8b000000-0000-4000-8000-000000000003'),
+    false, 'E2: access stops after the 24h grace');
+SELECT public.downgrade_invalid_subscriptions();
+SELECT is(
+    (SELECT subscription_tier FROM public.users WHERE id = '8b000000-0000-4000-8000-000000000003'),
+    'free'::public.subscription_tier, 'E2: the expired row is downgraded');
+
+-- E) PAUSED/BILLING_ISSUE extends access 7 days past the event.
+UPDATE public.users SET subscription_tier = 'pro',
+    subscription_expires_at = now() - interval '10 days',
+    subscription_source = 'revenuecat'
+ WHERE id = '8b000000-0000-4000-8000-000000000004';
+SELECT public.apply_subscription_grace(
+    '8b000000-0000-4000-8000-000000000004', 'BILLING_ISSUE', now());
+SELECT is(public.has_paid_access('8b000000-0000-4000-8000-000000000004'),
+    true, 'E2: billing issue keeps paid actions');
+SELECT ok(
+    (SELECT subscription_grace_until >= now() + interval '7 days' - interval '1 minute'
+       FROM public.users WHERE id = '8b000000-0000-4000-8000-000000000004'),
+    'E2: grace runs at least 7 days past the event');
+SELECT is(public.effective_tier('8b000000-0000-4000-8000-000000000004'),
+    'pro'::public.subscription_tier, 'E2: effective_tier keeps the tier during grace');
+
+-- F) Admin overrides: reason, 1-year cap, audit.
+SELECT throws_ok(
+    $$SELECT public.admin_grant_subscription(
+        '8b000000-0000-4000-8000-000000000004', 'vip',
+        now() + interval '30 days', '')$$,
+    'P0001', 'reason_required', 'E2: an override requires a reason');
+SELECT throws_ok(
+    $$SELECT public.admin_grant_subscription(
+        '8b000000-0000-4000-8000-000000000004', 'vip',
+        now() - interval '1 day', 'test')$$,
+    'P0001', 'invalid_expiry', 'E2: an override rejects a past expiry');
+SELECT public.admin_grant_subscription(
+    '8b000000-0000-4000-8000-000000000004', 'vip',
+    now() + interval '2 years', 'e2 test grant');
+SELECT ok(
+    (SELECT max(expires_at) <= now() + interval '1 year 1 minute'
+       FROM public.subscription_overrides
+      WHERE user_id = '8b000000-0000-4000-8000-000000000004'),
+    'E2: an override is capped at 1 year');
+SELECT is(
+    (SELECT subscription_source FROM public.users WHERE id = '8b000000-0000-4000-8000-000000000004'),
+    'admin', 'E2: an override marks the admin source');
+SELECT is(
+    (SELECT count(*) FROM public.subscription_overrides
+      WHERE user_id = '8b000000-0000-4000-8000-000000000004' AND revoked = false),
+    1::bigint, 'E2: the override row exists');
+
+-- G) SOVR: RevenueCat wins; the override returns when RC lapses.
+SELECT public.apply_subscription_state(
+    '8b000000-0000-4000-8000-000000000004', 'pro',
+    now() + interval '30 days', 'RENEWAL');
+SELECT public.reconcile_subscription_overrides();
+SELECT is(
+    (SELECT subscription_tier FROM public.users WHERE id = '8b000000-0000-4000-8000-000000000004'),
+    'pro'::public.subscription_tier, 'E2: an active RevenueCat grant wins over the override');
+SELECT public.apply_subscription_state(
+    '8b000000-0000-4000-8000-000000000004', 'free', NULL, 'EXPIRATION');
+SELECT public.reconcile_subscription_overrides();
+SELECT is(
+    (SELECT subscription_tier FROM public.users WHERE id = '8b000000-0000-4000-8000-000000000004'),
+    'vip'::public.subscription_tier, 'E2: the active override returns after RC lapses');
+
+-- H) Revoke.
+SELECT public.admin_revoke_subscription(
+    '8b000000-0000-4000-8000-000000000004', 'e2 test revoke');
+SELECT is(
+    (SELECT subscription_tier FROM public.users WHERE id = '8b000000-0000-4000-8000-000000000004'),
+    'free'::public.subscription_tier, 'E2: revoking the override downgrades an admin row');
+SELECT is(
+    (SELECT count(*) FROM public.subscription_overrides
+      WHERE user_id = '8b000000-0000-4000-8000-000000000004' AND revoked = false),
+    0::bigint, 'E2: revoke flips every active override');
+SELECT is(
+    (SELECT count(*) FROM public.admin_audit_log
+      WHERE action = 'subscription_override_revoke'
+        AND target_id = '8b000000-0000-4000-8000-000000000004'),
+    1::bigint, 'E2: the revoke is audited');
+
+-- I) Immediate free (REFUND/chargeback path) clears grace.
+SELECT public.apply_subscription_state(
+    '8b000000-0000-4000-8000-000000000001', 'free', NULL, 'REFUND');
+SELECT is(
+    (SELECT subscription_source FROM public.users WHERE id = '8b000000-0000-4000-8000-000000000001'),
+    'none', 'E2: an immediate downgrade clears the source');
+SELECT is(public.has_paid_access('8b000000-0000-4000-8000-000000000001'),
+    false, 'E2: an immediate downgrade bypasses grace');
+
+-- J) Retry queue shape.
+SELECT has_column('webhook_failures', 'next_attempt_at',
+    'E2: webhook_failures carries the retry schedule');
+SELECT has_column('webhook_failures', 'resolved_at',
+    'E2: webhook_failures records resolution');
 
 SELECT * FROM finish();
 ROLLBACK;

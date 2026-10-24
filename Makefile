@@ -3,7 +3,7 @@
 # Local dev needs no submodule. Prod (`start PROD=true`, `deploy`) requires the
 # optional <private-ops-repo> submodule (Admin access) + a vault passphrase.
 .PHONY: help init preflight tunnel start stop status reset nuke seed in-db logs \
-        build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image loadtest \
+        build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image build-billingworker loadtest \
         test check lint secrets migrate migrate-adopt fetch-fcm <fetch-rc-secret> hooks guard-prod \
         db api smoke
 
@@ -24,6 +24,7 @@ GO_BIN         := samay
 GO_BIN_LINUX   := samay-linux
 LOADTEST_BIN   := ./samay-loadtest
 PUSHWORKER_BIN := ./samay-pushworker
+BILLINGWORKER_BIN := ./samay-billing-worker
 # Image tag the VM stack expects (vm.env.template PUSHWORKER_IMAGE).
 PUSHWORKER_IMAGE_TAG ?= samay-pushworker:prod
 LOADTEST_URL   ?= https://samay-api.qallariy.lat
@@ -93,7 +94,7 @@ help:
 	@echo "  PUSH:        FCM=true (CLI/env only) fetches the vault + runs samay-pushworker (profile fcm; staging/prod always on)"
 	@echo "  RC:          RC=true [RC_ENV=testing|staging] (CLI/env only) fetches the vault + enables the revenuecat-webhook function"
 	@echo "  SUITES:      test [db|api]        loadtest [smoke]"
-	@echo "  BUILD:       build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image"
+	@echo "  BUILD:       build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image build-billingworker"
 	@echo "  GATES:       check lint secrets migrate migrate-adopt fetch-fcm hooks"
 	@echo "  ENV:         start ENV=staging|prod   deploy   (VM + vault; local default = Docker)"
 
@@ -182,6 +183,8 @@ build-pushworker:
 # `doas docker load` on the VM).
 build-pushworker-image:
 	docker build -f Dockerfile.pushworker -t $(PUSHWORKER_IMAGE_TAG) .
+build-billingworker:
+	go build -o $(BILLINGWORKER_BIN) ./cmd/samay-billing-worker
 
 loadtest: build-loadtest
 	@case "$(filter smoke,$(MAKECMDGOALS))" in \
