@@ -8,7 +8,7 @@ import (
 )
 
 func TestListEvents_PathConstruction(t *testing.T) {
-	baseSelect := "select=id,name,type,status,starts_at,ends_at,created_by_user_id,preshards_pool,featured"
+	baseSelect := "select=id,name,type,status,starts_at,ends_at,created_by_user_id,preshards_pool,capacity,featured"
 
 	tests := []struct {
 		name    string

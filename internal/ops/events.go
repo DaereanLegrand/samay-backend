@@ -25,7 +25,7 @@ type EventDetail struct {
 
 func ListEvents(ctx context.Context, client *db.DBClient, params ListEventsParams) ([]db.Event, error) {
 	qb := db.NewQueryBuilder().
-		Select("id", "name", "type", "status", "starts_at", "ends_at", "created_by_user_id", "preshards_pool", "featured").
+		Select("id", "name", "type", "status", "starts_at", "ends_at", "created_by_user_id", "preshards_pool", "capacity", "featured").
 		Limit(100)
 	if params.Status != "" {
 		qb.Eq("status", params.Status)

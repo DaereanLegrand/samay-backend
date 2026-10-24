@@ -19,6 +19,7 @@
     "preshards_distributed": "boolean",
     "preshards_cap_per_user": "integer|null",
     "preshards_remainder_action": "string|null",
+    "capacity": "integer",
     "dynamic_qr_enabled": "boolean",
     "invite_token": "string",
     "status": "string",
@@ -28,14 +29,26 @@
     "updated_at": "date"
   },
   "enums": {
-    "status": ["upcoming", "live", "ended", "cancelled"],
-    "join_mode": ["open", "approval", "invite"],
-    "preshards_remainder_action": ["return", "redistribute"]
+    "status": [
+      "upcoming",
+      "live",
+      "ended",
+      "cancelled"
+    ],
+    "join_mode": [
+      "open",
+      "approval",
+      "invite"
+    ],
+    "preshards_remainder_action": [
+      "return",
+      "redistribute"
+    ]
   },
   "samples": [
     {
       "id": "22222222-2222-4222-8222-222222222222",
-      "name": "Tarde de fútbol",
+      "name": "Tarde de f\u00fatbol",
       "description": "Partido amistoso",
       "cover_url": null,
       "type": "sport",
@@ -57,10 +70,11 @@
       "featured": false,
       "featured_until": null,
       "created_at": "2026-10-20T12:00:00Z",
-      "updated_at": "2026-10-20T12:00:00Z"
+      "updated_at": "2026-10-20T12:00:00Z",
+      "capacity": 20
     }
   ],
   "notes": [
-    "D16/E3 adds capacity to this shape; update the fixture with that lane."
+    "D16/E3 adds capacity to this shape; it is now frozen here."
   ]
 }

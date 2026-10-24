@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1246);
+SELECT plan(1265);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -727,8 +727,8 @@ SELECT policies_are('group_shard_contributions', ARRAY[
     'active_users_only'
 ], 'group_shard_contributions has expected RLS policies');
 SELECT policies_are('group_rank_snapshots', ARRAY[
-    'grs_read_all'
-], 'group_rank_snapshots is public-readable');
+    'grs_read_tier_gated'
+], 'group_rank_snapshots is tier-gated (E3)');
 SELECT policies_are('minigame_sessions', ARRAY[
     'ms_read_group_member',
     'ms_read_invitee',
@@ -804,8 +804,8 @@ SELECT ok(
     'admin_users has the system admin row (from auto-applied seed-config)'
 );
 SELECT ok(
-    (SELECT count(*) = 43 FROM app_config),
-    'app_config has 43 tuning rows (from auto-applied seed-config; +3 minigame player caps, 2026-08-27, +4 events capacity keys 2026-09-08, +1 code.window_seconds 2026-09-08, −3 legacy QR-token/config rows removed 2026-09-08)'
+    (SELECT count(*) = 46 FROM app_config),
+    'app_config has 46 tuning rows (seed-config + 225 events capacity + 238 group limits)'
 );
 
 -- ============================================================
@@ -6127,6 +6127,215 @@ SELECT has_column('webhook_failures', 'next_attempt_at',
     'E2: webhook_failures carries the retry schedule');
 SELECT has_column('webhook_failures', 'resolved_at',
     'E2: webhook_failures records resolution');
+
+
+-- ============================================================
+-- SECTION 73: limits, create_group, rank gating (238_limits_contracts — E3)
+-- ============================================================
+INSERT INTO public.users (id, username, date_of_birth) VALUES
+    ('9c000000-0000-4000-8000-000000000001', 'e3_free', '1990-01-01'),
+    ('9c000000-0000-4000-8000-000000000002', 'e3_pro', '1990-01-01'),
+    ('9c000000-0000-4000-8000-000000000003', 'e3_host', '1990-01-01')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.users (id, username, date_of_birth)
+SELECT ('9c000000-0000-4000-8000-0000000001' || lpad(i::text, 2, '0'))::uuid,
+       'e3_member_' || i, '1990-01-01'
+  FROM generate_series(1, 14) AS i
+ON CONFLICT (id) DO NOTHING;
+
+SELECT is((SELECT value FROM public.app_config WHERE key = 'groups.free_hosted'),
+    '5', 'E3: free hosted-group cap is 5');
+SELECT is((SELECT value FROM public.app_config WHERE key = 'groups.free_max_members'),
+    '14', 'E3: free group member cap is 14');
+
+-- Event daily cap (free = 3/day).
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9c000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+INSERT INTO public.events (id, name, type, created_by_user_id, starts_at, ends_at,
+    capacity, invite_token, status)
+VALUES
+    ('9c000000-0000-4000-8000-000000000101', 'e3 ev1', 'casual',
+     '9c000000-0000-4000-8000-000000000001', now() + interval '1 day',
+     now() + interval '1 day 1 hour', 5, 'e3-1', 'upcoming'),
+    ('9c000000-0000-4000-8000-000000000102', 'e3 ev2', 'casual',
+     '9c000000-0000-4000-8000-000000000001', now() + interval '1 day',
+     now() + interval '1 day 1 hour', 5, 'e3-2', 'upcoming'),
+    ('9c000000-0000-4000-8000-000000000103', 'e3 ev3', 'casual',
+     '9c000000-0000-4000-8000-000000000001', now() + interval '1 day',
+     now() + interval '1 day 1 hour', 5, 'e3-3', 'upcoming');
+SELECT is(
+    (SELECT count(*) FROM public.events
+      WHERE created_by_user_id = '9c000000-0000-4000-8000-000000000001'),
+    3::bigint, 'E3: free creates 3 events');
+SELECT throws_ok(
+    $$INSERT INTO public.events (name, type, created_by_user_id, starts_at, ends_at,
+        capacity, invite_token, status)
+      VALUES ('e3 ev4', 'casual', '9c000000-0000-4000-8000-000000000001',
+              now() + interval '1 day', now() + interval '1 day 1 hour',
+              5, 'e3-4', 'upcoming')$$,
+    'P0001', 'event_daily_limit', 'E3: the 4th free event is rejected');
+
+-- Rapid cap (pro = 10/day, 3/minute).
+SELECT public.apply_subscription_state(
+    '9c000000-0000-4000-8000-000000000002', 'pro',
+    now() + interval '30 days', 'INITIAL_PURCHASE');
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9c000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
+INSERT INTO public.events (id, name, type, created_by_user_id, starts_at, ends_at,
+    capacity, invite_token, status)
+VALUES
+    ('9c000000-0000-4000-8000-000000000201', 'e3 pro1', 'casual',
+     '9c000000-0000-4000-8000-000000000002', now() + interval '1 day',
+     now() + interval '1 day 1 hour', 5, 'e3-p1', 'upcoming'),
+    ('9c000000-0000-4000-8000-000000000202', 'e3 pro2', 'casual',
+     '9c000000-0000-4000-8000-000000000002', now() + interval '1 day',
+     now() + interval '1 day 1 hour', 5, 'e3-p2', 'upcoming'),
+    ('9c000000-0000-4000-8000-000000000203', 'e3 pro3', 'casual',
+     '9c000000-0000-4000-8000-000000000002', now() + interval '1 day',
+     now() + interval '1 day 1 hour', 5, 'e3-p3', 'upcoming');
+SELECT throws_ok(
+    $$INSERT INTO public.events (name, type, created_by_user_id, starts_at, ends_at,
+        capacity, invite_token, status)
+      VALUES ('e3 pro4', 'casual', '9c000000-0000-4000-8000-000000000002',
+              now() + interval '1 day', now() + interval '1 day 1 hour',
+              5, 'e3-p4', 'upcoming')$$,
+    'P0001', 'rate_limited:event_create', 'E3: the 4th event in a minute is rejected');
+
+-- create_group: 5 hosted cap, transaction, host membership + chat.
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9c000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+DO $$
+DECLARE r jsonb;
+BEGIN
+    FOR i IN 1..5 LOOP
+        r := public.create_group('e3 group ' || i);
+    END LOOP;
+END $$;
+SELECT is(
+    (SELECT count(*) FROM public.groups
+      WHERE created_by_user_id = '9c000000-0000-4000-8000-000000000001'),
+    5::bigint, 'E3: free creates 5 groups');
+SELECT throws_ok(
+    $$SELECT public.create_group('e3 group 6')$$,
+    'P0001', 'group_hosted_limit', 'E3: the 6th free group is rejected');
+SELECT is(
+    (SELECT count(*) FROM public.group_members gm
+       JOIN public.groups g ON g.id = gm.group_id
+      WHERE g.created_by_user_id = '9c000000-0000-4000-8000-000000000001'
+        AND gm.user_id = '9c000000-0000-4000-8000-000000000001'
+        AND gm.role = 'host' AND gm.status = 'active'),
+    5::bigint, 'E3: each group has its host membership');
+SELECT is(
+    (SELECT count(*) FROM public.chats c
+       JOIN public.groups g ON g.id = c.reference_id
+      WHERE g.created_by_user_id = '9c000000-0000-4000-8000-000000000001'
+        AND c.type = 'group'),
+    5::bigint, 'E3: each group has its chat');
+
+-- Member cap (free host = 14 active).
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9c000000-0000-4000-8000-000000000003","role":"authenticated"}', true);
+DO $$
+DECLARE gid uuid;
+BEGIN
+    gid := (public.create_group('e3 member cap group') ->> 'id')::uuid;
+    FOR i IN 1..13 LOOP
+        INSERT INTO public.group_members (group_id, user_id, role, status)
+        VALUES (gid,
+                ('9c000000-0000-4000-8000-0000000001' || lpad(i::text, 2, '0'))::uuid,
+                'member', 'active');
+    END LOOP;
+END $$;
+SELECT is(
+    (SELECT count(*) FROM public.group_members
+      WHERE group_id = (SELECT id FROM public.groups WHERE name = 'e3 member cap group')
+        AND status = 'active'),
+    14::bigint, 'E3: a free group reaches 14 active members');
+SELECT throws_ok(
+    $$INSERT INTO public.group_members (group_id, user_id, role, status)
+      VALUES ((SELECT id FROM public.groups WHERE name = 'e3 member cap group'),
+              '9c000000-0000-4000-8000-000000000114', 'member', 'active')$$,
+    'P0001', 'group_member_limit', 'E3: the 15th member is rejected');
+
+-- Reports: 5/hour.
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9c000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+INSERT INTO public.reports (reporter_id, target_type, target_id, reason)
+SELECT '9c000000-0000-4000-8000-000000000001', 'user', gen_random_uuid(),
+       'spam'
+  FROM generate_series(1, 5);
+SELECT is(
+    (SELECT count(*) FROM public.reports
+      WHERE reporter_id = '9c000000-0000-4000-8000-000000000001'),
+    5::bigint, 'E3: five reports are accepted');
+SELECT throws_ok(
+    $$INSERT INTO public.reports (reporter_id, target_type, target_id, reason)
+      VALUES ('9c000000-0000-4000-8000-000000000001', 'user',
+              gen_random_uuid(), 'spam')$$,
+    'P0001', 'rate_limited:report_hour', 'E3: the 6th report in an hour is rejected');
+
+-- Device tokens: 5/user.
+INSERT INTO public.device_tokens (user_id, token, platform)
+SELECT '9c000000-0000-4000-8000-000000000001', repeat('e3token', 6) || i, 'android'
+  FROM generate_series(1, 5) AS i;
+SELECT is(
+    (SELECT count(*) FROM public.device_tokens
+      WHERE user_id = '9c000000-0000-4000-8000-000000000001'),
+    5::bigint, 'E3: five device tokens are accepted');
+SELECT throws_ok(
+    $$INSERT INTO public.device_tokens (user_id, token, platform)
+      VALUES ('9c000000-0000-4000-8000-000000000001', repeat('e3token', 6) || 6, 'android')$$,
+    'P0001', 'device_token_limit', 'E3: the 6th device token is rejected');
+
+-- Direct groups inserts are denied.
+SET LOCAL role authenticated;
+SELECT throws_ok(
+    $$INSERT INTO public.groups (name, created_by_user_id)
+      VALUES ('e3 direct', '9c000000-0000-4000-8000-000000000001')$$,
+    '42501', NULL, 'E3: direct group inserts are denied');
+RESET role;
+
+-- Rank gating: free -> micro; pro -> +small/medium; vip -> all.
+INSERT INTO public.groups (id, name, created_by_user_id) VALUES
+    ('9c000000-0000-4000-8000-000000000301', 'e3 micro',
+     '9c000000-0000-4000-8000-000000000001'),
+    ('9c000000-0000-4000-8000-000000000302', 'e3 small',
+     '9c000000-0000-4000-8000-000000000001'),
+    ('9c000000-0000-4000-8000-000000000303', 'e3 medium',
+     '9c000000-0000-4000-8000-000000000001'),
+    ('9c000000-0000-4000-8000-000000000304', 'e3 large',
+     '9c000000-0000-4000-8000-000000000001');
+INSERT INTO public.group_rank_snapshots
+    (group_id, size_tier, rank_bracket, rank_position, score, member_count)
+VALUES
+    ('9c000000-0000-4000-8000-000000000301', 'micro', 'b0_20', 1, 10, 1),
+    ('9c000000-0000-4000-8000-000000000302', 'small', 'b0_20', 1, 10, 15),
+    ('9c000000-0000-4000-8000-000000000303', 'medium', 'b0_20', 1, 10, 60),
+    ('9c000000-0000-4000-8000-000000000304', 'large', 'b0_20', 1, 10, 300);
+
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9c000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+SET LOCAL role authenticated;
+SELECT is((SELECT count(*) FROM public.group_rank_snapshots), 1::bigint,
+    'E3: a free user sees only micro rank snapshots');
+RESET role;
+
+SELECT public.apply_subscription_state(
+    '9c000000-0000-4000-8000-000000000001', 'pro',
+    now() + interval '30 days', 'INITIAL_PURCHASE');
+SET LOCAL role authenticated;
+SELECT is((SELECT count(*) FROM public.group_rank_snapshots), 3::bigint,
+    'E3: a pro user sees micro/small/medium snapshots');
+RESET role;
+
+SELECT public.apply_subscription_state(
+    '9c000000-0000-4000-8000-000000000001', 'vip',
+    now() + interval '30 days', 'RENEWAL');
+SET LOCAL role authenticated;
+SELECT is((SELECT count(*) FROM public.group_rank_snapshots), 4::bigint,
+    'E3: a vip user sees all rank snapshots');
+RESET role;
+SELECT set_config('request.jwt.claims', '', true);
 
 SELECT * FROM finish();
 ROLLBACK;

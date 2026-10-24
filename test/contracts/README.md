@@ -45,7 +45,7 @@ No CI: run `go test ./internal/contracts` and `flutter test test/contracts_test.
 | D13 | pending E4 | `user_profile` | `entitlementTier` still on the wire |
 | D14 | pending E4 | — | collage ignores `collage_top_n_photos` |
 | D15 | pending E2 | `subscription_state` | webhook still substring-matches entitlement ids |
-| D16 | pending E3 | `admin_event.contract.json` | Go `db.Event` omits `capacity` |
+| D16 | fixed E3 | `admin_event.contract.json` | `db.Event.capacity` added; admin JSON includes it |
 
 ## Rules
 

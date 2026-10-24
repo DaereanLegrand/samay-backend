@@ -73,6 +73,7 @@ type Event struct {
 	PreshardsDistributed     bool       `json:"preshards_distributed"`
 	PreshardsCapPerUser      *int       `json:"preshards_cap_per_user"`
 	PreshardsRemainderAction *string    `json:"preshards_remainder_action"`
+	Capacity                 int        `json:"capacity"`
 	DynamicQREnabled         bool       `json:"dynamic_qr_enabled"`
 	InviteToken              string     `json:"invite_token"`
 	Status                   string     `json:"status"`

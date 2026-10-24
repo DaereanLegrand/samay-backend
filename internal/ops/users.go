@@ -118,16 +118,41 @@ func setGoTrueBan(ctx context.Context, client *db.DBClient, userID string, banne
 	return nil
 }
 
+// userAuditSnapshot is a best-effort before-image for the admin audit details.
+// A failed read must not block the action; the audit then records before=nil.
+func userAuditSnapshot(ctx context.Context, client *db.DBClient, userID string) map[string]any {
+	body, err := client.Select(ctx, "users",
+		"id,banned_at,ban_reason,deleted_at,subscription_tier,subscription_expires_at,subscription_source,subscription_grace_until&id=eq."+userID, 1, 0)
+	if err != nil {
+		return nil
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(body, &rows); err != nil || len(rows) == 0 {
+		return nil
+	}
+	return rows[0]
+}
+
 func BanUser(ctx context.Context, client *db.DBClient, userID, reason, adminUserID string) error {
+	before := userAuditSnapshot(ctx, client, userID)
+	now := time.Now().UTC()
 	_, err := client.Update(ctx, "users", "id=eq."+userID, map[string]any{
-		"banned_at":  time.Now().UTC(),
+		"banned_at":  now,
 		"ban_reason": reason,
 	})
 	if err != nil {
 		return fmt.Errorf("ban user: %w", err)
 	}
 	authErr := setGoTrueBan(ctx, client, userID, true)
-	details, err := json.Marshal(map[string]string{"reason": reason})
+	details, err := json.Marshal(map[string]any{
+		"reason": reason,
+		"before": before,
+		"after": map[string]any{
+			"banned_at":  now,
+			"ban_reason": reason,
+		},
+		"source": "admin",
+	})
 	if err != nil {
 		return fmt.Errorf("ban user: marshal audit details: %w", err)
 	}
@@ -142,6 +167,7 @@ func BanUser(ctx context.Context, client *db.DBClient, userID, reason, adminUser
 }
 
 func UnbanUser(ctx context.Context, client *db.DBClient, userID, adminUserID string) error {
+	before := userAuditSnapshot(ctx, client, userID)
 	_, err := client.Update(ctx, "users", "id=eq."+userID, map[string]any{
 		"banned_at":  nil,
 		"ban_reason": nil,
@@ -150,11 +176,24 @@ func UnbanUser(ctx context.Context, client *db.DBClient, userID, adminUserID str
 		return fmt.Errorf("unban user: %w", err)
 	}
 	authErr := setGoTrueBan(ctx, client, userID, false)
+	details, err := json.Marshal(map[string]any{
+		"reason": "unban",
+		"before": before,
+		"after": map[string]any{
+			"banned_at":  nil,
+			"ban_reason": nil,
+		},
+		"source": "admin",
+	})
+	if err != nil {
+		return fmt.Errorf("unban user: marshal audit details: %w", err)
+	}
 	auditErr := LogAction(ctx, client, AuditParams{
 		AdminUserID: adminUserID,
 		Action:      "unban_user",
 		TargetType:  "user",
 		TargetID:    userID,
+		Details:     details,
 	})
 	return errors.Join(authErr, auditErr)
 }
@@ -212,17 +251,28 @@ func DeleteUser(ctx context.Context, client *db.DBClient, userID, adminUserID st
 	if len(userID) < 8 {
 		return fmt.Errorf("delete user: invalid user id %q: %w", userID, ErrInvalid)
 	}
+	before := userAuditSnapshot(ctx, client, userID)
 	if _, err := client.RPC(ctx, "purge_user", map[string]any{"p_uid": userID}); err != nil {
 		return fmt.Errorf("delete user: purge_user: %w", err)
 	}
 	if err := deleteGoTrueUser(ctx, client, userID); err != nil {
 		return fmt.Errorf("delete user: verify auth row: %w", err)
 	}
+	details, err := json.Marshal(map[string]any{
+		"reason": "account_deletion",
+		"before": before,
+		"after":  nil,
+		"source": "admin",
+	})
+	if err != nil {
+		return fmt.Errorf("delete user: marshal audit details: %w", err)
+	}
 	return LogAction(ctx, client, AuditParams{
 		AdminUserID: adminUserID,
 		Action:      "delete_user",
 		TargetType:  "user",
 		TargetID:    userID,
+		Details:     details,
 	})
 }
 

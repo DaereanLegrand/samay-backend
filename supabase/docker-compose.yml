@@ -98,7 +98,7 @@ services:
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://127.0.0.1:54386}
       GOTRUE_SITE_URL: http://localhost:3000
-      GOTRUE_ADDITIONAL_REDIRECT_URLS: ""
+      GOTRUE_ADDITIONAL_REDIRECT_URLS: "samay://reset-password"
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_JWT_EXP: 3600
       GOTRUE_JWT_ADMIN_ROLES: service_role
