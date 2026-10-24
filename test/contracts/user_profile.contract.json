@@ -1,0 +1,38 @@
+{
+  "name": "user_profile",
+  "source": "public.users projection -> lib/core/models/user_profile.dart",
+  "fields": {
+    "id": "string",
+    "username": "string",
+    "avatar_url": "string|null",
+    "bio": "string|null",
+    "personal_shards": "integer",
+    "preshards": "integer",
+    "subscription_tier": "string",
+    "entitlement_tier": "string",
+    "deleted_at": "date|null",
+    "date_of_birth": "string|null"
+  },
+  "enums": {
+    "subscription_tier": ["free", "pro", "vip"],
+    "entitlement_tier": ["free", "pro", "vip"]
+  },
+  "samples": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "username": "ana",
+      "avatar_url": null,
+      "bio": null,
+      "personal_shards": 120,
+      "preshards": 30,
+      "subscription_tier": "free",
+      "entitlement_tier": "free",
+      "deleted_at": null,
+      "date_of_birth": "1996-04-12"
+    }
+  ],
+  "notes": [
+    "D13/E4 removes entitlement_tier from this shape; do not drop it before E4.",
+    "D6/E2+E4: the paywall must read subscription_tier from here, never auth metadata."
+  ]
+}

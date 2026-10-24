@@ -1,0 +1,39 @@
+{
+  "name": "group",
+  "source": "groups + caller membership -> lib/core/models/group.dart",
+  "fields": {
+    "id": "string",
+    "name": "string",
+    "description": "string|null",
+    "cover_url": "string|null",
+    "group_shards": "integer",
+    "member_count": "integer",
+    "size_tier": "string|null",
+    "rank_bracket": "string|null",
+    "frozen_at": "date|null",
+    "my_role": "string|null",
+    "my_status": "string|null"
+  },
+  "enums": {
+    "my_role": ["host", "staff", "member"],
+    "my_status": ["active", "invited"]
+  },
+  "samples": [
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "name": "Los Cracks",
+      "description": null,
+      "cover_url": null,
+      "group_shards": 500,
+      "member_count": 12,
+      "size_tier": "medium",
+      "rank_bracket": "silver",
+      "frozen_at": null,
+      "my_role": "host",
+      "my_status": "active"
+    }
+  ],
+  "notes": [
+    "D9/E3: creation becomes one transactional RPC; the read shape stays as frozen here."
+  ]
+}

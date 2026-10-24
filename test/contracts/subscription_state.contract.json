@@ -1,0 +1,23 @@
+{
+  "name": "subscription_state",
+  "source": "public.users subscription columns -> paywall/admin",
+  "fields": {
+    "user_id": "string",
+    "subscription_tier": "string",
+    "subscription_expires_at": "date|null"
+  },
+  "enums": {
+    "subscription_tier": ["free", "pro", "vip"]
+  },
+  "samples": [
+    {
+      "user_id": "11111111-1111-4111-8111-111111111111",
+      "subscription_tier": "pro",
+      "subscription_expires_at": "2027-01-15T00:00:00Z"
+    }
+  ],
+  "notes": [
+    "E2: paid access = tier <> 'free' AND subscription_expires_at > now(). A NULL/past expiry never grants paid.",
+    "D15/E2: the product/entitlement map becomes explicit and fails closed on unknown ids."
+  ]
+}

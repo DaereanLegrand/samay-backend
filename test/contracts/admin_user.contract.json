@@ -1,0 +1,46 @@
+{
+  "name": "admin_user",
+  "source": "internal/db/models.go db.User -> samay-admin JSON",
+  "fields": {
+    "id": "string",
+    "username": "string|null",
+    "avatar_url": "string|null",
+    "date_of_birth": "string|null",
+    "bio": "string|null",
+    "banned_at": "date|null",
+    "ban_reason": "string|null",
+    "deleted_at": "date|null",
+    "personal_shards": "integer",
+    "preshards": "integer",
+    "subscription_tier": "string",
+    "subscription_expires_at": "date|null",
+    "notification_preferences": "object|null",
+    "created_at": "date",
+    "updated_at": "date"
+  },
+  "enums": {
+    "subscription_tier": ["free", "pro", "vip"]
+  },
+  "samples": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "username": "ana",
+      "avatar_url": null,
+      "date_of_birth": "1996-04-12",
+      "bio": null,
+      "banned_at": null,
+      "ban_reason": null,
+      "deleted_at": null,
+      "personal_shards": 120,
+      "preshards": 30,
+      "subscription_tier": "free",
+      "subscription_expires_at": null,
+      "notification_preferences": { "chat": true, "marketing": false, "security": true },
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-10-20T12:00:00Z"
+    }
+  ],
+  "notes": [
+    "E3 enriches the admin audit details (reason/before/after/source); this read shape is frozen."
+  ]
+}

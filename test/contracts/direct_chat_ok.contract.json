@@ -1,0 +1,14 @@
+{
+  "name": "direct_chat_ok",
+  "source": "public.create_direct_chat(uuid) success -> lib/core/services/chat_service.dart",
+  "fields": {
+    "chatId": "string"
+  },
+  "enums": {},
+  "samples": [
+    { "chatId": "33333333-3333-4333-8333-333333333333" }
+  ],
+  "notes": [
+    "D2/E4: a blocked pair must return the blocked variant, which the client handles before reading chatId."
+  ]
+}

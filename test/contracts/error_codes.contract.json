@@ -1,0 +1,31 @@
+{
+  "name": "error_codes",
+  "source": "SQL RAISE ERRCODEs + PostgREST/Go responses",
+  "codes": [
+    "SR001",
+    "SR002",
+    "SR003",
+    "account_inactive",
+    "not_authenticated",
+    "invalid_query_length",
+    "search_rate_limit_exceeded",
+    "blocked"
+  ],
+  "http": {
+    "SR001": 429,
+    "SR002": 400,
+    "SR003": 401,
+    "account_inactive": 403,
+    "blocked": 409
+  },
+  "samples": [
+    { "code": "SR003", "message": "not_authenticated", "status": 401 },
+    { "code": "SR002", "message": "invalid_query_length", "status": 400 },
+    { "code": "SR001", "message": "search_rate_limit_exceeded", "status": 429 },
+    { "code": "account_inactive", "message": "account_inactive", "status": 403 }
+  ],
+  "notes": [
+    "Keep codes stable; clients map them without parsing prose.",
+    "E3 adds the limit/RPC error codes in the same fixture."
+  ]
+}

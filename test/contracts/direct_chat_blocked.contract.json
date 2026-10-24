@@ -1,0 +1,16 @@
+{
+  "name": "direct_chat_blocked",
+  "source": "public.create_direct_chat(uuid) blocked -> 226_chat_moderation/report_block.sql",
+  "fields": {
+    "status": "string"
+  },
+  "enums": {
+    "status": ["blocked"]
+  },
+  "samples": [
+    { "status": "blocked" }
+  ],
+  "notes": [
+    "D2/E4: both directions are blocked; the blocked side must not learn the block. The client currently throws on a missing chatId."
+  ]
+}
