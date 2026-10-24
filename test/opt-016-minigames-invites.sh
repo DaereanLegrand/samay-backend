@@ -132,7 +132,7 @@ done
 
 for pair in "UUID_A:user_opt016_a" "UUID_B:user_opt016_b" "UUID_C:user_opt016_c" "UUID_D:user_opt016_d"; do
   uid_var="${pair%%:*}"; uname="${pair##*:}"; uid="${!uid_var}"
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 
@@ -316,7 +316,7 @@ h1 "TEST G — direct sessions (no group)"
 # G6 setup: 9 throwaway live user rows (no auth session needed — the
 # invitee gate only checks the users table) to overflow the free cap.
 for i in 1 2 3 4 5 6 7 8 9; do
-  svc_post "users" "{\"id\":\"aaaaaaaa-aaaa-aaaa-aaaa-00000000000$i\",\"username\":\"cap_filler_$i\",\"personal_shards\":100,\"preshards\":0}" >/dev/null
+  svc_post "users" "{\"id\":\"aaaaaaaa-aaaa-aaaa-aaaa-00000000000$i\",\"username\":\"cap_filler_$i\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":100,\"preshards\":0}" >/dev/null
 done
 CAP_INVITEES=""
 for i in 1 2 3 4 5 6 7 8 9; do

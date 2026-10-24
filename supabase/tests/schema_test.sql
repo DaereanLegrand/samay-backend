@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1080);
+SELECT plan(1140);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -110,8 +110,8 @@ SELECT ok(
 --  columns stay out of the barrier.)
 -- ============================================================
 SELECT has_view('user_search_view');
-SELECT columns_are('user_search_view', ARRAY['id', 'username', 'avatar_url', 'bio'],
-    'user_search_view exposes only the public identity columns + bio');
+SELECT columns_are('user_search_view', ARRAY['id', 'username', 'avatar_url', 'bio', 'profile_public'],
+    'user_search_view exposes the safe identity columns + profile_public (Q8)');
 
 -- ============================================================
 -- SECTION 8: Triggers — all 9 (migrations 20260510000001, 20260512000007)
@@ -1243,10 +1243,14 @@ SELECT has_trigger('groups', 'assert_safe_group_update_trigger',
 SELECT has_trigger('events', 'assert_safe_event_update_trigger',
     'events has assert_safe_event_update_trigger (migration 20260811000001)');
 
--- 39e: user_search_view authenticated-only
+-- 39e: user_search_view is server-RPC-only (Q8: no directory enumeration)
 SELECT ok(
-    NOT has_table_privilege('anon', 'public.user_search_view', 'SELECT'),
-    'user_search_view is not SELECT-able by anon (authenticated search only)');
+    NOT has_table_privilege('anon', 'public.user_search_view', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.user_search_view', 'SELECT'),
+    'user_search_view is not SELECT-able by anon/authenticated (Q8 RPC-only)');
+SELECT ok(
+    has_table_privilege('service_role', 'public.user_search_view', 'SELECT'),
+    'service_role keeps SELECT on user_search_view');
 
 -- 39f: policy sets asserted in Sections 17/18/26 (updated lists)
 
@@ -2605,8 +2609,8 @@ SELECT ok(
 -- rows FIRST (oldest — the old trigger would prune them) + 4 ordinary rows →
 -- only ordinary rows are pruned; the distribution rows survive.
 SELECT lives_ok($$
-    INSERT INTO public.users (id, username) VALUES
-        ('88888888-8888-8888-8888-888888888801', 'pg56_cap_sender');
+    INSERT INTO public.users (id, username, date_of_birth) VALUES
+        ('88888888-8888-8888-8888-888888888801', 'pg56_cap_sender', DATE '1990-01-01');
     INSERT INTO public.chats (id, type) VALUES
         ('88888888-8888-8888-8888-888888888811', 'direct');
     INSERT INTO public.app_config (key, value) VALUES ('chat.message_cap', '3')
@@ -2962,20 +2966,35 @@ SELECT ok(
     'cleared bio persists as NULL'
 );
 
--- DOB is set-once: heal a legacy NULL, accept identical no-op, refuse change
-SELECT lives_ok(
+-- Q17: DOB is NOT NULL and adult-checked on every write. Legacy rows use the
+-- documented sentinel+flag path instead of NULL.
+SELECT throws_ok(
     $$UPDATE public.users SET date_of_birth = NULL
       WHERE id = '47474747-4747-4747-4747-474747474701'$$,
-    'privileged heal: DOB cleared (simulates a pre-funnel legacy row)'
+    'P0001', 'La fecha de nacimiento es obligatoria.',
+    'privileged NULL DOB is rejected by the Q17 trigger'
+);
+SELECT lives_ok(
+    $$UPDATE public.users SET date_of_birth = DATE '1900-01-01',
+             date_of_birth_backfilled = true
+      WHERE id = '47474747-4747-4747-4747-474747474701'$$,
+    'legacy backfill sentinel + flag written (documented validation path)'
 );
 SELECT lives_ok(
     $$SELECT public.update_my_profile(NULL, DATE '1999-05-05')$$,
-    'DOB heal: NULL -> value accepted through the RPC'
+    'backfilled account may correct its DOB once through the RPC'
 );
-SELECT is(
-    (SELECT date_of_birth FROM public.users WHERE id = '47474747-4747-4747-4747-474747474701'),
-    DATE '1999-05-05',
-    'healed DOB persisted'
+SELECT ok(
+    (SELECT date_of_birth = DATE '1999-05-05'
+        AND date_of_birth_backfilled = false
+     FROM public.users WHERE id = '47474747-4747-4747-4747-474747474701'),
+    'corrected DOB persisted and the backfill flag cleared'
+);
+SELECT throws_ok(
+    $$UPDATE public.users SET date_of_birth = DATE '2020-01-01'
+      WHERE id = '47474747-4747-4747-4747-474747474701'$$,
+    'P0001', 'Debes tener 18 años para usar Samay.',
+    '18+ trigger rejects an underage raw UPDATE (all roles)'
 );
 SELECT lives_ok(
     $$SELECT public.update_my_profile(NULL, DATE '1999-05-05')$$,
@@ -2987,43 +3006,39 @@ SELECT throws_ok(
     'changing an existing DOB raises (age gate stays unfarmable)'
 );
 
--- delete: tombstone rename + re-create block
+-- Q1 delete: immediate hard delete, no tombstone/restore
 SELECT lives_ok(
     $$SELECT public.delete_my_account()$$,
-    'delete_my_account soft-deletes the own row'
+    'delete_my_account hard-deletes the own row immediately'
 );
-SELECT ok(
-    (SELECT deleted_at IS NOT NULL
-        AND username = 'deleted_user_47474747-4747-4747-4747-474747474701'
-        AND avatar_url IS NULL
-        AND bio IS NULL
-     FROM public.users
-     WHERE id = '47474747-4747-4747-4747-474747474701'),
-    'tombstone: deleted_at stamped, renamed, PII columns nulled'
+SELECT is(
+    (SELECT count(*) FROM public.users
+      WHERE id = '47474747-4747-4747-4747-474747474701'),
+    0::bigint,
+    'Q1 hard delete removes the users row (no tombstone)'
 );
-SELECT throws_ok(
-    $$SELECT public.create_my_profile('sofia', DATE '2000-01-15')$$,
-    'P0001', 'Tu perfil ya existe.',
-    're-creating over a tombstone raises (row still exists)'
+SELECT lives_ok(
+    $$SELECT public.create_my_profile('sofia2', DATE '2000-01-15')$$,
+    'Q1: the freed identity can create a fresh profile (no restore row)'
 );
 
 -- CHECK constraint fires even for PRIVILEGED raw writers
 SELECT throws_ok(
-    $$INSERT INTO public.users (id, username) VALUES
-        ('47474747-4747-4747-4747-474747474702', 'abc')$$,
+    $$INSERT INTO public.users (id, username, date_of_birth) VALUES
+        ('47474747-4747-4747-4747-474747474702', 'abc', DATE '1990-01-01')$$,
     '23514', 'new row for relation "users" violates check constraint "users_username_shape"',
     'users_username_shape rejects a short RAW write (any role)'
 );
 SELECT throws_ok(
-    $$INSERT INTO public.users (id, username) VALUES
-        ('47474747-4747-4747-4747-474747474703', 'ｓｏｆｉａ')$$,
+    $$INSERT INTO public.users (id, username, date_of_birth) VALUES
+        ('47474747-4747-4747-4747-474747474703', 'ｓｏｆｉａ', DATE '1990-01-01')$$,
     '23514', 'new row for relation "users" violates check constraint "users_username_shape"',
     'users_username_shape rejects non-NFKC usernames (any role)'
 );
 SELECT lives_ok(
-    $$INSERT INTO public.users (id, username, deleted_at) VALUES
+    $$INSERT INTO public.users (id, username, date_of_birth, deleted_at) VALUES
         ('47474747-4747-4747-4747-474747474704',
-         'deleted_user_' || repeat('y', 70), now())$$,
+         'deleted_user_' || repeat('y', 70), DATE '1990-01-01', now())$$,
     'tombstone rows are exempt from the username shape CHECK'
 );
 
@@ -3189,10 +3204,25 @@ SELECT lives_ok(
 );
 SELECT set_config('request.jwt.claims',
     '{"sub":"88888888-8888-8888-8888-888888881101","role":"authenticated"}', false);
+-- Q8: set B public for the prefix test; keep A private for the exact test.
+UPDATE public.users SET profile_public = true
+ WHERE id = '88888888-8888-8888-8888-888888881102';
 SELECT is(
     (SELECT count(*) FROM public.search_users('pgtapsea')),
     1::bigint,
-    'prefix match returns only the OTHER user (caller excluded)'
+    'prefix match returns only the OTHER opted-in user (caller excluded)'
+);
+UPDATE public.users SET profile_public = false
+ WHERE id = '88888888-8888-8888-8888-888888881102';
+SELECT is(
+    (SELECT count(*) FROM public.search_users('pgtapsea')),
+    0::bigint,
+    'private profile is NOT returned by a prefix (Q8)'
+);
+SELECT is(
+    (SELECT count(*) FROM public.search_users('PGTAPSEARCHB')),
+    1::bigint,
+    'private profile is found by exact username, case-insensitively (Q8)'
 );
 SELECT throws_ok($$SELECT public.search_users('pgta')$$,
     'SR002', 'invalid_query_length',
@@ -4890,12 +4920,12 @@ SELECT ok(
 -- Minimal invariants: the critical abuse paths are closed.
 -- ============================================================
 SELECT ok(
-    has_table_privilege('authenticated', 'public.user_search_view', 'SELECT')
+    NOT has_table_privilege('authenticated', 'public.user_search_view', 'SELECT')
     AND NOT has_table_privilege('authenticated', 'public.user_search_view', 'INSERT')
     AND NOT has_table_privilege('authenticated', 'public.user_search_view', 'UPDATE')
     AND NOT has_table_privilege('authenticated', 'public.user_search_view', 'DELETE')
     AND NOT has_table_privilege('anon', 'public.user_search_view', 'SELECT'),
-    'SEC-001 user_search_view is SELECT-only for authenticated and closed to anon'
+    'SEC-001/Q8 user_search_view is RPC-only (no client SELECT/enumeration)'
 );
 SELECT ok(
     has_table_privilege('authenticated', 'public.discovery_view', 'SELECT')
@@ -5160,6 +5190,291 @@ SELECT ok(
         AND polrelid = 'storage.objects'::regclass),
     'SEC-030 event object relocation re-checks the event path (231)'
 );
+
+
+-- ============================================================
+-- SECTION 63: Identity, privacy and age assurance (233_identity_privacy)
+--   Q17: DOB NOT NULL + 18+ trigger on every writer, legacy sentinel path.
+--   Q8: private profiles exact-username only; no bio/avatar; no ranking;
+--       direct view SELECT revoked (no directory enumeration).
+--   Q1: immediate hard delete, pseudonymized ledger/attendance retention,
+--       restricted report evidence, no restore path, complete export.
+-- ============================================================
+
+-- 62a: Q17
+SELECT ok(
+    (SELECT is_nullable = 'NO' FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'users'
+        AND column_name = 'date_of_birth'),
+    'Q17 users.date_of_birth is NOT NULL'
+);
+SELECT has_column('users', 'date_of_birth_backfilled',
+    'Q17 users.date_of_birth_backfilled exists');
+SELECT col_not_null('users', 'date_of_birth_backfilled',
+    'Q17 date_of_birth_backfilled is NOT NULL');
+SELECT has_trigger('users', 'users_adult_dob_trigger',
+    'Q17 adult-DOB trigger exists on users');
+SELECT has_function('assert_adult_dob', ARRAY[]::name[],
+    'Q17 assert_adult_dob() exists');
+SELECT ok(
+    (SELECT pg_get_constraintdef(oid) LIKE '%1900-01-01%'
+       FROM pg_constraint
+      WHERE conrelid = 'public.users'::regclass
+        AND conname = 'users_date_of_birth_range'),
+    'Q17 users_date_of_birth_range CHECK exists'
+);
+
+-- 62b: Q8
+SELECT columns_are('user_search_view',
+    ARRAY['id', 'username', 'avatar_url', 'bio', 'profile_public'],
+    'Q8 user_search_view exposes profile_public for the server-side filter');
+SELECT has_function('get_public_profiles', ARRAY['uuid[]'],
+    'Q8 get_public_profiles(uuid[]) exists');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%profile_public = true%'
+       FROM pg_proc p WHERE proname = 'get_user_ranking'),
+    'Q8 get_user_ranking filters profile_public = true'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%NOT usv.profile_public%'
+            AND pg_get_functiondef(p.oid) LIKE '%lower(usv.username) = lower(v_trimmed)%'
+       FROM pg_proc p WHERE proname = 'search_users'),
+    'Q8 search_users uses exact username for private rows'
+);
+
+-- 62c: Q1 schema + RPC shape
+SELECT hasnt_function('restore_my_account',
+    'Q1 restore_my_account is removed (no 30-day restore)');
+SELECT hasnt_function('account_deletion_grace_days',
+    'Q1 grace-period helper is removed');
+SELECT has_table('retention_matrix',
+    'Q1 retention_matrix exists');
+SELECT has_table('account_deletion_audit',
+    'Q1/SEC-049 account_deletion_audit exists');
+SELECT has_table('auth_cleanup_queue',
+    'Q1/SEC-049 auth_cleanup_queue exists');
+SELECT has_column('reports', 'reporter_pseudonym',
+    'Q1 reports.reporter_pseudonym exists');
+SELECT has_column('reports', 'retention_until',
+    'Q1 reports.retention_until exists');
+SELECT ok(
+    (SELECT is_nullable = 'YES' FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'reports'
+        AND column_name = 'reporter_id'),
+    'Q1 reports.reporter_id is nullable for pseudonymized evidence'
+);
+SELECT ok(
+    (SELECT confdeltype = 'n' FROM pg_constraint
+      WHERE conname = 'reports_reporter_id_fkey'),
+    'Q1 reports.reporter_id uses ON DELETE SET NULL'
+);
+SELECT has_column('event_attendances', 'retention_until',
+    'Q1 attendance carries a retention clock');
+SELECT ok(
+    (SELECT confdeltype = 'n' FROM pg_constraint
+      WHERE conname = 'event_attendances_user_id_fkey'),
+    'Q1 attendance uses ON DELETE SET NULL (pseudonymized, not cascaded)'
+);
+SELECT has_function('purge_expired_retention', ARRAY[]::name[],
+    'Q1 purge_expired_retention() exists');
+SELECT has_function('retry_auth_cleanup', ARRAY[]::name[],
+    'Q1 retry_auth_cleanup() exists');
+
+-- 62d: ranking excludes private rows, includes opted-in rows
+SELECT lives_ok(
+    $$INSERT INTO public.users
+        (id, username, date_of_birth, personal_shards, profile_public)
+      VALUES
+        ('62626262-6262-4262-8262-626262626201', 'pgtapprivate',
+         DATE '1990-08-01', 999999, false)$$,
+    'Q8 private ranking fixture inserted'
+);
+SELECT is(
+    (SELECT count(*) FROM public.get_user_ranking(100)
+      WHERE user_id = '62626262-6262-4262-8262-626262626201'),
+    0::bigint,
+    'Q8 private profile has no ranking entry'
+);
+UPDATE public.users SET profile_public = true
+ WHERE id = '62626262-6262-4262-8262-626262626201';
+SELECT is(
+    (SELECT count(*) FROM public.get_user_ranking(100)
+      WHERE user_id = '62626262-6262-4262-8262-626262626201'),
+    1::bigint,
+    'Q8 opted-in profile enters the ranking'
+);
+
+-- 62e: Q1 hard delete keeps only pseudonymized facts / restricted evidence
+SELECT lives_ok(
+    $$INSERT INTO public.users (id, username, date_of_birth) VALUES
+        ('62626262-6262-4262-8262-626262626210', 'pgtapowner',
+         DATE '1990-09-01'),
+        ('62626262-6262-4262-8262-626262626211', 'pgtapdeleted',
+         DATE '1990-09-02')$$,
+    'Q1 deletion fixtures inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.events
+        (id, name, type, created_by_user_id, starts_at, ends_at, capacity, status)
+      VALUES
+        ('62626262-6262-4262-8262-626262626220', 'pgtap retained event',
+         'casual', '62626262-6262-4262-8262-626262626210',
+         now() + interval '2 days', now() + interval '2 days 2 hours',
+         5, 'upcoming')$$,
+    'Q1 retention event inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.event_attendances (event_id, user_id) VALUES
+        ('62626262-6262-4262-8262-626262626220',
+         '62626262-6262-4262-8262-626262626211')$$,
+    'Q1 attendance fixture inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.shard_ledger (user_id, delta, reason) VALUES
+        ('62626262-6262-4262-8262-626262626211', 7, 'admin_grant')$$,
+    'Q1 ledger fixture inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.reports (reporter_id, target_type, target_id, reason)
+      VALUES ('62626262-6262-4262-8262-626262626211', 'user',
+              '62626262-6262-4262-8262-626262626210', 'pgtap evidence')$$,
+    'Q1 report evidence fixture inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.chats (id, type) VALUES
+        ('62626262-6262-4262-8262-626262626230', 'direct')$$,
+    'Q1 chat fixture inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.chat_participants (chat_id, user_id) VALUES
+        ('62626262-6262-4262-8262-626262626230',
+         '62626262-6262-4262-8262-626262626210'),
+        ('62626262-6262-4262-8262-626262626230',
+         '62626262-6262-4262-8262-626262626211')$$,
+    'Q1 chat participants inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.messages (chat_id, sender_id, content) VALUES
+        ('62626262-6262-4262-8262-626262626230',
+         '62626262-6262-4262-8262-626262626211', 'ciphertext-pgtap')$$,
+    'Q1 sent message fixture inserted'
+);
+SELECT set_config('request.jwt.claims',
+    '{"sub":"62626262-6262-4262-8262-626262626211","role":"authenticated"}', false);
+SELECT lives_ok($$SELECT public.delete_my_account()$$,
+    'Q1 delete_my_account purges immediately');
+SELECT set_config('request.jwt.claims', '', false);
+SELECT is(
+    (SELECT count(*) FROM public.users
+      WHERE id = '62626262-6262-4262-8262-626262626211'),
+    0::bigint,
+    'Q1 users row is hard-deleted'
+);
+SELECT is(
+    (SELECT count(*) FROM public.reports
+      WHERE reporter_id IS NULL
+        AND reporter_pseudonym LIKE 'deleted:%'),
+    1::bigint,
+    'Q1 report evidence survives with a pseudonym'
+);
+SELECT ok(
+    (SELECT user_id IS NULL AND retention_until > now()
+       FROM public.shard_ledger
+      WHERE id IN (SELECT id FROM public.shard_ledger
+                    WHERE pseudonymized_at IS NOT NULL)
+      ORDER BY id DESC LIMIT 1),
+    'Q1 ledger retained pseudonymized with a 5-year clock'
+);
+SELECT ok(
+    (SELECT user_id IS NULL AND retention_until > now()
+       FROM public.event_attendances
+      WHERE pseudonymized_at IS NOT NULL
+      ORDER BY id DESC LIMIT 1),
+    'Q1 attendance retained pseudonymized with a 5-year clock'
+);
+SELECT is(
+    (SELECT count(*) FROM public.messages
+      WHERE sender_id = '62626262-6262-4262-8262-626262626211'),
+    0::bigint,
+    'Q1 sent messages are hard-deleted'
+);
+
+-- 62f: SEC-050 export completeness
+SELECT lives_ok(
+    $$INSERT INTO public.users (id, username, date_of_birth) VALUES
+        ('62626262-6262-4262-8262-626262626240', 'pgtapexporter',
+         DATE '1990-10-01'),
+        ('62626262-6262-4262-8262-626262626241', 'pgtapsender',
+         DATE '1990-10-02')$$,
+    'SEC-050 export fixtures inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.chats (id, type) VALUES
+        ('62626262-6262-4262-8262-626262626250', 'direct')$$,
+    'SEC-050 export chat inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.chat_participants (chat_id, user_id) VALUES
+        ('62626262-6262-4262-8262-626262626250',
+         '62626262-6262-4262-8262-626262626240'),
+        ('62626262-6262-4262-8262-626262626250',
+         '62626262-6262-4262-8262-626262626241')$$,
+    'SEC-050 export participants inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.messages (chat_id, sender_id, content, recipient_id)
+      VALUES ('62626262-6262-4262-8262-626262626250',
+              '62626262-6262-4262-8262-626262626241',
+              'ciphertext-received',
+              '62626262-6262-4262-8262-626262626240')$$,
+    'SEC-050 received message inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.device_tokens (user_id, token, platform) VALUES
+        ('62626262-6262-4262-8262-626262626240',
+         'pgtap_device_token_1234567890', 'ios')$$,
+    'SEC-050 device token inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.minigame_sessions
+        (id, game_type, status, shard_wager, player_limit, participants)
+      VALUES ('62626262-6262-4262-8262-626262626260',
+              'two_lies_one_truth', 'active', 0, 8,
+              ARRAY['62626262-6262-4262-8262-626262626240',
+                    '62626262-6262-4262-8262-626262626241']::uuid[])$$,
+    'SEC-050 minigame session inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.minigame_answers
+        (session_id, round, subject_id, prompt_type, answer_ciphertext)
+      VALUES ('62626262-6262-4262-8262-626262626260', 1,
+              '62626262-6262-4262-8262-626262626240',
+              'text', 'ciphertext-answer')$$,
+    'SEC-050 minigame answer inserted'
+);
+SELECT lives_ok(
+    $$INSERT INTO public.reports (reporter_id, target_type, target_id, reason)
+      VALUES ('62626262-6262-4262-8262-626262626240', 'user',
+              '62626262-6262-4262-8262-626262626241', 'export evidence')$$,
+    'SEC-050 report fixture inserted'
+);
+SELECT set_config('request.jwt.claims',
+    '{"sub":"62626262-6262-4262-8262-626262626240","role":"authenticated"}', false);
+SELECT ok(jsonb_exists(public.export_my_data(), 'messages_received'),
+    'SEC-050 export includes received messages');
+SELECT ok(jsonb_exists(public.export_my_data(), 'minigame_answers'),
+    'SEC-050 export includes minigame answers');
+SELECT ok(jsonb_exists(public.export_my_data(), 'device_tokens'),
+    'SEC-050 export includes device tokens');
+SELECT ok(jsonb_exists(public.export_my_data(), 'reports'),
+    'SEC-050 export includes submitted reports');
+SELECT ok(jsonb_exists(public.export_my_data(), 'exclusions'),
+    'SEC-050 export discloses its exclusions');
+SELECT ok(jsonb_exists(public.export_my_data(), 'retention'),
+    'Q1 export carries the retention matrix');
+SELECT is(public.export_my_data() ->> 'schema', 'samay.export.v2',
+    'SEC-050 export schema is v2');
+SELECT set_config('request.jwt.claims', '', true);
 
 SELECT * FROM finish();
 ROLLBACK;

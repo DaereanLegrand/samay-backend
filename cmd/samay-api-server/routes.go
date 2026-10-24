@@ -500,7 +500,7 @@ func deleteUserHandler(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	if err := ops.SoftDeleteUser(opsCtx(c), dbClient, id, adminIdentity(c)); err != nil {
+	if err := ops.DeleteUser(opsCtx(c), dbClient, id, adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}

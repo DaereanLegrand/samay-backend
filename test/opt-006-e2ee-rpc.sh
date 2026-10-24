@@ -146,7 +146,7 @@ for pair in "A $UUID_A user_a_opt006 $EMAIL_A" "B $UUID_B user_b_opt006 $EMAIL_B
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$email\",\"password\":\"$PW\",\"email_confirm\":true,\"id\":\"$uid\"}")
   if echo "$resp" | grep -q '"id"'; then ok "Created auth user $name ($uid)"; else nok "Create user $name: $(echo "$resp" | head -c 80)"; fi
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"personal_shards\":1000}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 

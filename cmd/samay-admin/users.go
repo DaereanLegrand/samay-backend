@@ -144,7 +144,7 @@ var usersGrantPreshardsCmd = &cobra.Command{
 
 var usersDeleteCmd = &cobra.Command{
 	Use:   "delete <user_id>",
-	Short: "Soft-delete a user account",
+	Short: "Hard-delete a user account (Q1: no restore)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		confirm, _ := cmd.Flags().GetBool("confirm")
@@ -156,7 +156,7 @@ var usersDeleteCmd = &cobra.Command{
 		}
 		ctx, cancel := rootCtx()
 		defer cancel()
-		if err := ops.SoftDeleteUser(ctx, dbClient, args[0], adminUserID()); err != nil {
+		if err := ops.DeleteUser(ctx, dbClient, args[0], adminUserID()); err != nil {
 			return err
 		}
 		fmt.Printf("user %s deleted\n", args[0])

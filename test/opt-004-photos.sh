@@ -112,8 +112,8 @@ resp=$(curl -s -X POST "$SUPABASE_URL/auth/v1/admin/users" \
   -d "{\"email\":\"$EMAIL_B\",\"password\":\"$PW\",\"email_confirm\":true,\"id\":\"$UUID_B\"}")
 if echo "$resp" | grep -q '"id"'; then ok "Created auth user B ($UUID_B)"; else nok "Create user B: $(echo "$resp" | head -c 80)"; fi
 
-svc_post "users" "{\"id\":\"$UUID_A\",\"username\":\"user_a_opt004\",\"personal_shards\":1000}" > /dev/null
-svc_post "users" "{\"id\":\"$UUID_B\",\"username\":\"user_b_opt004\",\"personal_shards\":1000}" > /dev/null
+svc_post "users" "{\"id\":\"$UUID_A\",\"username\":\"user_a_opt004\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000}" > /dev/null
+svc_post "users" "{\"id\":\"$UUID_B\",\"username\":\"user_b_opt004\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000}" > /dev/null
 ok "Inserted user rows in public.users"
 
 TOKEN_A=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \

@@ -101,7 +101,7 @@ create_user() { # $1 uid $2 email $3 username
     -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" \
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$2\",\"password\":\"$PW\",\"email_confirm\":true,\"id\":\"$1\"}" >/dev/null
-  svc_post "users" "{\"id\":\"$1\",\"username\":\"$3\"}" >/dev/null
+  svc_post "users" "{\"id\":\"$1\",\"username\":\"$3\",\"date_of_birth\":\"1990-01-01\"}" >/dev/null
 }
 
 signin() { # $1 email -> prints JWT
@@ -145,16 +145,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-h1 "A) member list resolves ALL usernames via user_search_view"
+h1 "A) member list resolves ALL usernames via get_public_profiles (Q8)"
 # ---------------------------------------------------------------------------
-ROWS=$(auth_get "$TA" "group_members?select=id,user_id,role,status,user_search_view!inner(username)&group_id=eq.$GROUP_ID&status=eq.active")
+ROWS=$(auth_get "$TA" "group_members?select=id,user_id,role,status&group_id=eq.$GROUP_ID&status=eq.active")
 N=$(echo "$ROWS" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))')
-UNAMES=$(echo "$ROWS" | python3 -c 'import sys,json;print(",".join(sorted(r["user_search_view"]["username"] for r in json.load(sys.stdin))))')
+PAYLOAD=$(echo "$ROWS" | python3 -c 'import sys,json;print(json.dumps({"p_ids":[r["user_id"] for r in json.load(sys.stdin)]}))')
+PROFILES=$(auth_rpc "$TA" "get_public_profiles" "$PAYLOAD")
+UNAMES=$(echo "$PROFILES" | python3 -c 'import sys,json;print(",".join(sorted(r["username"] for r in json.load(sys.stdin))))')
 if [ "$N" = "3" ] && echo "$UNAMES" | grep -q "opt009_a" \
   && echo "$UNAMES" | grep -q "opt009_b" && echo "$UNAMES" | grep -q "opt009_c"; then
   ok "creator sees 3 active members with usernames ($UNAMES)"
 else
-  nok "member list: $ROWS"
+  nok "member list: $ROWS / profiles: $PROFILES"
+fi
+# Q8: direct enumeration of user_search_view is closed to authenticated.
+CODE=$(curl -s -o /dev/null -w '%{http_code}' "$SUPABASE_URL/rest/v1/user_search_view?select=id&limit=1" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TA")
+if [ "$CODE" = "401" ] || [ "$CODE" = "403" ]; then
+  ok "direct user_search_view enumeration denied ($CODE)"
+else
+  nok "direct user_search_view enumeration NOT denied ($CODE)"
 fi
 
 # ---------------------------------------------------------------------------

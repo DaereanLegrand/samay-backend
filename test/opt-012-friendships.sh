@@ -129,7 +129,7 @@ for pair in "UUID_A:user_opt012_a" "UUID_B:user_opt012_b" "UUID_C:user_opt012_c"
   uid_var="${pair%%:*}"
   uname="${pair##*:}"
   uid="${!uid_var}"
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 

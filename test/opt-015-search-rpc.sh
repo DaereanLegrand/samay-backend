@@ -102,8 +102,14 @@ for pair in "A $UUID_A user_a_opt015 $EMAIL_A" "B $UUID_B opt015target $EMAIL_B"
     nok "create auth user $name"
     exit 1
   fi
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\"}"
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\"}"
 done
+
+# Q8: the prefix-discovery test target must be opted in (profile_public).
+curl -s -X PATCH "$SUPABASE_URL/rest/v1/users?id=eq.$UUID_B" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" \
+  -H "Content-Type: application/json" -H "Prefer: return=minimal" \
+  -d '{"profile_public":true}' >/dev/null
 
 TOKEN=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
   -H "apikey: $ANON_KEY" -H "Content-Type: application/json" \

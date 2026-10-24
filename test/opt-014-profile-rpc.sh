@@ -199,13 +199,13 @@ if echo "$BODY" | grep -q "La URL del avatar no es válida"; then ok "non-https 
 h1 "5) delete_my_account"
 BODY=$(auth_rpc "$TOKEN" "delete_my_account" '{}')
 CODE=$(echo "$BODY" | tail -1)
-ROW=$(svc_get "users?id=eq.$UID_A&select=deleted_at,username,avatar_url,bio")
-if [ "$CODE" = "204" ] && echo "$ROW" | grep -q '"deleted_at":"20' && echo "$ROW" | grep -q "\"username\":\"deleted_user_$UID_A\"" && echo "$ROW" | grep -q '"avatar_url":null'; then
-  ok "tombstone written (deleted_at + rename + PII nulled)"
+ROW=$(svc_get "users?id=eq.$UID_A&select=id")
+if [ "$CODE" = "204" ] && [ "$ROW" = "[]" ]; then
+  ok "Q1 hard delete removes the users row immediately"
 else nok "delete: $CODE $ROW"; fi
 
-BODY=$(auth_rpc "$TOKEN" "create_my_profile" '{"p_username":"sofia","p_date_of_birth":"2000-01-15"}')
-if echo "$BODY" | grep -q "Tu perfil ya existe"; then ok "re-create over tombstone blocked"; else nok "re-create: $BODY"; fi
+BODY=$(auth_rpc "$TOKEN" "create_my_profile" '{"p_username":"sofia2","p_date_of_birth":"2000-01-15"}')
+if echo "$BODY" | tail -1 | grep -q "204"; then ok "Q1: identity can create a fresh profile (no tombstone/restore)"; else nok "re-create: $BODY"; fi
 
 # ─── Summary ───────────────────────────────────────────────────────────
 echo ""

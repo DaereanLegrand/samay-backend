@@ -171,7 +171,7 @@ safety_fixture_setup() {
     fi
     safety_svc -X POST "$SAFETY_URL/rest/v1/users" \
       -H 'Content-Type: application/json' -H 'Prefer: return=minimal' \
-      -d "{\"id\":\"$uid\",\"username\":\"$username\",\"personal_shards\":100}" >/dev/null
+      -d "{\"id\":\"$uid\",\"username\":\"$username\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":100}" >/dev/null
   done
 
   token_json="$(safety_auth_token "$SAFETY_EMAIL_A")"
