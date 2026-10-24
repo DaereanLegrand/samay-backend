@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1265);
+SELECT plan(1276);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -733,9 +733,8 @@ SELECT policies_are('minigame_sessions', ARRAY[
     'ms_read_group_member',
     'ms_read_invitee',
     'ms_read_direct_participant',
-    'ms_read_public',
     'active_users_only'
-], 'minigame_sessions has expected RLS policies (ms_read_public added by 211_minigame_public)');
+], 'minigame_sessions has invite/participant-only policies (E4 code-only matches)');
 SELECT col_is_null('minigame_sessions', 'group_id',
     'minigame_sessions.group_id is NULLABLE (NULL = direct session, direct-minigames 2026-08-27)');
 SELECT col_not_null('minigame_sessions', 'player_limit',
@@ -4698,45 +4697,45 @@ SELECT function_privs_are('public', 'stop_drunk_bottle', ARRAY['uuid']::name[], 
 SELECT function_privs_are('public', 'stop_drunk_bottle', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
     'stop_drunk_bottle is authenticated-EXECUTABLE');
 
--- Public partidas (211_minigame_public): additive column + partial index +
--- the ms_read_public SELECT policy, scoped to published/open/direct sessions.
-SELECT has_column('minigame_sessions', 'is_public',
-    'minigame_sessions has is_public (211_minigame_public)');
-SELECT has_index('public', 'minigame_sessions', 'idx_minigame_sessions_public',
-    'idx_minigame_sessions_public partial index exists (211_minigame_public)');
+-- Code-only public matches (239_minigame_join_codes): the open lobby and
+-- publish toggle are gone; discovery is a hashed 6-character code.
+SELECT has_column('minigame_sessions', 'join_code_hash',
+    'E4: minigame_sessions stores only the join-code hash');
+SELECT has_column('minigame_sessions', 'join_code_rotated_at',
+    'E4: join codes record their rotation time');
 SELECT ok(
-    (SELECT count(*)::int FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = 'minigame_sessions'
-        AND policyname = 'ms_read_public') = 1,
-    'minigame_sessions has the ms_read_public policy (211_minigame_public)'
-);
+    NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'minigame_sessions'
+                   AND column_name = 'is_public'),
+    'E4: the is_public publish flag is dropped');
 SELECT ok(
-    (SELECT qual LIKE '%is_public%'
-        AND qual LIKE '%group_id IS NULL%'
-        AND qual LIKE '%active%'
-        AND qual LIKE '%auth.uid() IS NOT NULL%'
-      FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = 'minigame_sessions'
-        AND policyname = 'ms_read_public'),
-    'ms_read_public gates on is_public + direct + active + signed-in (211_minigame_public)'
-);
-SELECT has_function('set_minigame_public', ARRAY['uuid','boolean'],
-    'set_minigame_public(uuid,boolean) exists (211_minigame_public)');
+    NOT EXISTS (SELECT 1 FROM pg_policies
+                 WHERE schemaname = 'public' AND tablename = 'minigame_sessions'
+                   AND policyname = 'ms_read_public'),
+    'E4: the public-lobby read policy is dropped');
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%not_creator%'
-        AND pg_get_functiondef(p.oid) LIKE '%group_session%'
-      FROM pg_proc p WHERE proname = 'set_minigame_public'),
-    'set_minigame_public is host-only and rejects group sessions (211_minigame_public)'
-);
-SELECT has_function('list_public_minigames', ARRAY['text'],
-    'list_public_minigames(text) exists (211_minigame_public)');
-SELECT is_definer('public', 'list_public_minigames', ARRAY['text']::name[],
-    'list_public_minigames is SECURITY DEFINER');
+    NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'list_public_minigames'),
+    'E4: the open-lobby list RPC is dropped');
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%COALESCE(v_is_public, false)%'
+    NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'set_minigame_public'),
+    'E4: the publish toggle RPC is dropped');
+SELECT has_function('set_minigame_join_code', ARRAY['uuid'],
+    'E4: the host can set/rotate a join code');
+SELECT has_function('revoke_minigame_join_code', ARRAY['uuid'],
+    'E4: the host can revoke a join code');
+SELECT has_function('join_minigame_by_code', ARRAY['text'],
+    'E4: anyone signed in can join by code');
+SELECT is_definer('public', 'join_minigame_by_code', ARRAY['text']::name[],
+    'E4: join_minigame_by_code is SECURITY DEFINER');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%digest%'
+        AND pg_get_functiondef(p.oid) LIKE '%invalid_code%'
+      FROM pg_proc p WHERE proname = 'join_minigame_by_code'),
+    'E4: joins compare the hash and hide invalid codes');
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) NOT LIKE '%is_public%'
       FROM pg_proc p WHERE proname = 'join_minigame_session'),
-    'join_minigame_session admits published direct joins (211_minigame_public)'
-);
+    'E4: invite/participant joins no longer read is_public');
 
 -- Charadas turn engine (212/213).
 SELECT has_function('start_charades_turn', ARRAY['uuid','text','integer'],
@@ -6335,6 +6334,83 @@ SET LOCAL role authenticated;
 SELECT is((SELECT count(*) FROM public.group_rank_snapshots), 4::bigint,
     'E3: a vip user sees all rank snapshots');
 RESET role;
+SELECT set_config('request.jwt.claims', '', true);
+
+
+-- ============================================================
+-- SECTION 74: code-only public matches (239_minigame_join_codes — E4)
+-- ============================================================
+INSERT INTO public.users (id, username, date_of_birth) VALUES
+    ('9d000000-0000-4000-8000-000000000001', 'e4_host', '1990-01-01'),
+    ('9d000000-0000-4000-8000-000000000002', 'e4_joiner', '1990-01-01'),
+    ('9d000000-0000-4000-8000-000000000003', 'e4_late', '1990-01-01'),
+    ('9d000000-0000-4000-8000-000000000004', 'e4_brute', '1990-01-01'),
+    ('9d000000-0000-4000-8000-000000000005', 'e4_brute2', '1990-01-01')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.minigame_sessions
+    (id, game_type, status, player_limit, participants)
+VALUES ('9d000000-0000-4000-8000-000000000101', 'truth_dare', 'active', 4,
+        ARRAY['9d000000-0000-4000-8000-000000000001']::uuid[]);
+
+CREATE TEMP TABLE e4_code (code text);
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9d000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+INSERT INTO e4_code
+SELECT public.set_minigame_join_code('9d000000-0000-4000-8000-000000000101') ->> 'code';
+SELECT ok((SELECT code ~ '^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$' FROM e4_code),
+    'E4: the host receives a 6-character code from the allowed alphabet');
+
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9d000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
+SELECT is(
+    (public.join_minigame_by_code('AAAA22') ->> 'status'),
+    'invalid_code', 'E4: a wrong code is rejected without leaking a session');
+SELECT is(
+    (public.join_minigame_by_code((SELECT code FROM e4_code)) ->> 'status'),
+    'joined', 'E4: the matching code joins the session');
+SELECT ok(
+    (SELECT '9d000000-0000-4000-8000-000000000002' = ANY (participants)
+       FROM public.minigame_sessions
+      WHERE id = '9d000000-0000-4000-8000-000000000101'),
+    'E4: the joiner is appended to the participants');
+
+-- Rotate invalidates the previous code.
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9d000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+UPDATE e4_code
+   SET code = public.set_minigame_join_code('9d000000-0000-4000-8000-000000000101') ->> 'code';
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9d000000-0000-4000-8000-000000000003","role":"authenticated"}', true);
+SELECT is(
+    (public.join_minigame_by_code('AAAA22') ->> 'status'),
+    'invalid_code', 'E4: rotating the code invalidates the old one');
+SELECT is(
+    (public.join_minigame_by_code((SELECT code FROM e4_code)) ->> 'status'),
+    'joined', 'E4: the rotated code joins');
+
+-- Revoke invalidates the code entirely.
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9d000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+SELECT public.revoke_minigame_join_code('9d000000-0000-4000-8000-000000000101');
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9d000000-0000-4000-8000-000000000004","role":"authenticated"}', true);
+SELECT is(
+    (public.join_minigame_by_code((SELECT code FROM e4_code)) ->> 'status'),
+    'invalid_code', 'E4: a revoked code cannot join');
+
+-- Brute-force guard: 10 attempts/min/account (fresh user).
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9d000000-0000-4000-8000-000000000005","role":"authenticated"}', true);
+DO $$
+BEGIN
+    FOR i IN 1..10 LOOP
+        PERFORM public.join_minigame_by_code('ZZZZZ2');
+    END LOOP;
+END $$;
+SELECT throws_ok(
+    $$SELECT public.join_minigame_by_code('ZZZZZ2')$$,
+    'P0001', 'rate_limited:minigame_code_join',
+    'E4: the 11th code attempt in a minute is rejected');
 SELECT set_config('request.jwt.claims', '', true);
 
 SELECT * FROM finish();
