@@ -10,6 +10,16 @@
 - CI: `.gitea/workflows/ci.yml`.
 
 ## TODO
+- [x] **Wave 1B consolidated** on `wave1b-conciliated` (tag `wave1b-base`):
+      lanes A→B→C, combined `purge_user`/views/ranking/`search_events`,
+      `232`→`970`; fresh pgTAP `1184/1184`, 1B abuse suites green.
+- [x] **Wave 2 E0–E4 server:** contract fixtures (`test/contracts/`),
+      economy distribution/cancel/reconciliation (`236`), subscription
+      expiry/grace/overrides/retries (`237` + `samay-billing-worker`), limits +
+      `create_group` + rank gating + admin audit (`238`), code-only minigame
+      join codes (`239`). pgTAP `1276/1276`; `opt-067`/`068`/`069` green.
+- [ ] Group theme server (E4 remainder): host-owned `everyone|host_only|locked`,
+      tier palette (free black; pro/vip RGB), rate limit + audit.
 - [x] Chat moderation + store-compliance hardening (Google Play UGC / Apple 1.2):
       - `226_chat_moderation` — `is_blocked_between`; block gate in
         `create_direct_chat`; `assert_message_not_blocked` BEFORE-INSERT trigger
