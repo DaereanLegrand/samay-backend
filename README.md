@@ -8,8 +8,9 @@ layer never touches Postgres — it uses PostgREST via Kong with the
 ## Make
 
 - `make init` → `make start` — dev/testing (local Docker stack, `543xx`); `make tunnel` to expose it.
-- `make init ENV=staging|prod` — reconcile the env vault profile (Reuse/Re-generate) + clone its VM; then `make start ENV=staging|prod`.
-- `make start ENV=staging|prod` · `make deploy` — prod/staging VM + vault (Admin-only, vault passphrase).
+- `make init APP=samay ENV=staging|prod` — reconcile the env vault profile (Reuse/Re-generate) + clone its VM; then `make start APP=samay ENV=staging|prod`.
+- `make start APP=samay ENV=staging|prod` · `make deploy APP=samay ENV=staging|prod` — VM + vault (Admin-only, vault passphrase).
+- `make start APP=samay ENV=testing-local` — local Docker; `ENV=testing` adds the free Cloudflare tunnel (`TUNNEL=named` needs `CLOUDFLARE_TUNNEL_TOKEN`; `TUNNEL=quick` gives a random trycloudflare URL).
 - `make test` · `make test db` (pgTAP) · `make test api` (curl) · `make check` · `make secrets|migrate|hooks`.
 - `make build-cli|build-linux|build-api|build-loadtest` · `make loadtest [smoke]`.
 
@@ -24,7 +25,7 @@ CLI/shell, honored by `start` **and** `reset`:
 - `RC=true` → `tools/<fetch-rc-secret>.sh` (RevenueCat server secrets; `RC_ENV` selects
   `testing` (default) or `staging`).
 
-There is no other edge case. `make start ENV=staging|prod` is vault-gated
+There is no other edge case. `make start APP=samay ENV=staging|prod` is vault-gated
 (everything from the vault); testing is not.
 
 

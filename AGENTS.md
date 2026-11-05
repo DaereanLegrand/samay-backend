@@ -4,9 +4,9 @@ The Go CLI/API (`github.com/samay-app/samay`) plus one self-hosted Supabase
 stack (`supabase/`).
 
 ## Commands
-- Setup: `make init` (gum; bootstraps `supabase/.env`, picks local/tunnel) · `make init ENV=staging|prod` (vault gate + VM clone).
-- Stack: `make start` (local Docker) · `make start ENV=staging|prod` (VM + vault).
-- Lifecycle: `make stop|status|reset|seed` · `make test db|api` · `make tunnel`.
+- Setup: `make init APP=samay ENV=testing-local|testing` (gum; bootstraps `supabase/.env`, picks local/tunnel) · `make init APP=samay ENV=staging|prod` (vault gate + VM clone).
+- Stack: `make start APP=samay ENV=testing-local|testing` (Docker; testing adds the free tunnel) · `ENV=staging|prod` (VM + vault).
+- Lifecycle: `make stop|restart|status|reset|seed APP=samay ENV=…` · `make test db|api` · `make tunnel`.
 - Gates: `make check` · `make secrets` · `make migrate` · `make hooks`.
 - Go: `make build-cli|build-linux|build-api|build-loadtest` · `make test`.
 

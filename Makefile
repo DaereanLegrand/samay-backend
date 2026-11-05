@@ -1,25 +1,28 @@
-# Samay backend — local (Docker) + prod (VM + vault). Supabase-only stack.
+# Samay backend — local (Docker) + VM (staging/prod). Supabase-only stack.
 #
-# Local dev needs no submodule. Prod (`start PROD=true`, `deploy`) requires the
-# optional <private-ops-repo> submodule (Admin access) + a vault passphrase.
-.PHONY: help init preflight tunnel start stop status reset nuke seed in-db logs \
+# APP and ENV are explicit inputs (no defaults):
+#   APP=samay
+#   ENV=testing-local | testing | staging | prod
+# testing-local = Docker on the host; testing = Docker + Cloudflare tunnel;
+# staging/prod = VM + vault and require the optional <private-ops-repo> submodule.
+.PHONY: help init preflight tunnel start stop status restart reset nuke seed in-db logs \
         build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image build-billingworker loadtest \
-        test check lint secrets migrate migrate-adopt fetch-fcm <fetch-rc-secret> hooks guard-prod \
+        test check lint secrets migrate migrate-adopt fetch-fcm <fetch-rc-secret> hooks preflight \
         db api smoke
 
-# Single environment selector. Values: local (default, Docker) | staging | prod.
-# `staging` targets the dedicated staging VM (`samay-staging` profile); `prod`
-# the flat prod profile. `PROD` (VM + vault path) is derived — never typed.
-ENV  ?= local
-PROD := $(if $(filter staging prod,$(ENV)),true,false)
-# Identity (single source of truth) — inferred, never passed by callers.
-APP_DEFAULT := $(shell cat .qallariy-app 2>/dev/null)
-APP := $(if $(filter staging,$(ENV)),$(APP_DEFAULT)-staging,$(APP_DEFAULT))
-export APP
+.NOTPARALLEL:
+
+ifneq ($(filter command line environment,$(origin PROD)),)
+$(error PROD is not an input; use ENV=testing-local|testing|staging|prod)
+endif
+ifneq ($(filter command line environment,$(origin TESTING)),)
+$(error TESTING is not an input; use ENV=testing-local)
+endif
+
 # Optional <private-ops-repo> submodule (monorepo sibling fallback).
 INFRA := $(firstword $(wildcard infra) $(wildcard ../../<private-ops-repo>))
 -include $(INFRA)/make/app.mk
-TUNNEL    ?= quick
+TUNNEL ?= named
 GO_BIN         := samay
 GO_BIN_LINUX   := samay-linux
 LOADTEST_BIN   := ./samay-loadtest
@@ -87,58 +90,101 @@ else
 RC_FETCH :=
 endif
 
+define require_env
+case "$(ENV)" in testing-local|testing|staging|prod) ;; *) echo "ENV is required: testing-local|testing|staging|prod"; exit 2;; esac
+endef
+
+define require_local
+case "$(ENV)" in testing-local|testing) ;; *) echo "ENV=$(ENV): local-only verb (testing-local|testing)"; exit 2;; esac
+endef
+
+define require_vm
+case "$(ENV)" in staging|prod) ;; *) echo "ENV=$(ENV): VM verb (staging|prod)"; exit 2;; esac; \
+[ -n "$(APP)" ] || { echo "APP is required"; exit 2; }; \
+[ -n "$(INFRA)" ] || { echo "VM envs need the <private-ops-repo> submodule (Admin access)"; exit 2; }
+endef
+
 help:
-	@echo "Samay backend — make targets (ENV=local (default) = Docker; ENV=staging|prod = VM + vault)"
+	@echo "Samay backend — APP=<samay> ENV=<testing-local|testing|staging|prod>"
 	@echo "  SETUP:       init"
-	@echo "  DEV/TESTING: start stop status reset nuke seed tunnel in-db logs"
+	@echo "  DEV/TESTING: start stop restart status reset nuke seed tunnel in-db logs"
 	@echo "  PUSH:        FCM=true (CLI/env only) fetches the vault + runs samay-pushworker (profile fcm; staging/prod always on)"
 	@echo "  RC:          RC=true [RC_ENV=testing|staging] (CLI/env only) fetches the vault + enables the revenuecat-webhook function"
 	@echo "  SUITES:      test [db|api]        loadtest [smoke]"
 	@echo "  BUILD:       build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image build-billingworker"
 	@echo "  GATES:       check lint secrets migrate migrate-adopt fetch-fcm hooks"
-	@echo "  ENV:         start ENV=staging|prod   deploy   (VM + vault; local default = Docker)"
+	@echo "  DEPLOY:      deploy (ENV=staging|prod)"
 
 tunnel:
 	@MODE=$(TUNNEL) bash tools/tunnel.sh $(TUNNEL)
 
-# ── Prod gate (PROD=true + interactive TTY for the vault passphrase) ─────────
-guard-prod:
-	@[ "$(PROD)" = "true" ] || { echo "PROD=true required (prod-only)"; exit 1; }
-	@[ -t 0 ] || { echo "prod requires an interactive TTY (vault passphrase)"; exit 1; }
-	@[ -n "$(INFRA)" ] || { echo "prod needs the <private-ops-repo> submodule (Admin access)"; exit 1; }
-	@[ -n "$(APP)" ] || { echo "APP unresolved (missing .qallariy-app)"; exit 1; }
-
-# ── Lifecycle: local Docker by default, VM + vault when PROD=true ────────────
-ifeq ($(PROD),true)
-# Vault-gated env init: reconcile the vault profile (Reuse / Re-generate via the
-# broker gate), then clone/register the env's VM (idempotent).
-init: guard-prod
-	@bash tools/<secret-init>.sh $(APP_DEFAULT) $(ENV)
-	@$(MAKE) -C $(INFRA) init PROD=true APP=$(APP)
-start: guard-prod
-	@$(MAKE) -C $(INFRA) start PROD=true APP=$(APP)
-stop: guard-prod
-	@echo "prod VM has no stop target (use: make restart PROD=true)"
-status: guard-prod
-	@$(MAKE) -C $(INFRA) status PROD=true APP=$(APP)
-else
-init:
-	@bash tools/init.sh
 preflight:
 	@bash tools/check-stack-env.sh "$(STACK_ENV)"
-start: preflight
-	@$(FCM_FETCH)$(RC_FETCH) cd supabase && $(COMPOSE) up -d && \
-		$(COMPOSE) up -d --wait db auth && \
-		bash ../tools/apply_migrations.sh supabase && \
-		PGPASSWORD=postgres psql -h localhost -p $(POSTGRES_PORT) -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed-config.sql
-stop:
-	@cd supabase && $(COMPOSE) down
-status:
-	@cd supabase && $(COMPOSE) ps
+
+# ── Lifecycle: Docker for testing-local/testing; VM + vault for staging/prod ──
+guard-env:
+	@$(call require_env)
+
+ifeq ($(filter staging prod,$(ENV)),)
+init: init-local
+start: start-local
+restart: restart-local
+status: status-local
+else
+init: init-vm
+start: start-vm
+restart: restart-vm
+status: status-vm
 endif
 
+init-local: guard-env
+	@bash tools/init.sh
+init-vm: guard-env
+	@$(call require_vm)
+	@bash tools/<secret-init>.sh "$(APP)" "$(ENV)"
+	@$(MAKE) -C $(INFRA) init APP=$(APP) ENV=$(ENV)
+
+start-local: guard-env preflight
+	@case "$(ENV)" in \
+	  testing-local) ( $(FCM_FETCH)$(RC_FETCH) cd supabase && $(COMPOSE) up -d && \
+	    $(COMPOSE) up -d --wait db auth && \
+	    bash ../tools/apply_migrations.sh supabase && \
+	    PGPASSWORD=postgres psql -h localhost -p $(POSTGRES_PORT) -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed-config.sql ) ;; \
+	  testing) ( $(FCM_FETCH)$(RC_FETCH) cd supabase && $(COMPOSE) up -d && \
+	    $(COMPOSE) up -d --wait db auth && \
+	    bash ../tools/apply_migrations.sh supabase && \
+	    PGPASSWORD=postgres psql -h localhost -p $(POSTGRES_PORT) -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed-config.sql ); \
+	    TUNNEL=$(TUNNEL) bash tools/tunnel.sh $(TUNNEL) ;; \
+	esac
+start-vm: guard-env
+	@$(call require_vm)
+	@$(MAKE) -C $(INFRA) start APP=$(APP) ENV=$(ENV)
+
+stop: guard-env
+	@case "$(ENV)" in \
+	  testing-local) ( cd supabase && $(COMPOSE) down ) ;; \
+	  testing) bash tools/tunnel.sh stop; ( cd supabase && $(COMPOSE) down ) ;; \
+	  staging|prod) echo "VM envs have no stop; use: make restart APP=$(APP) ENV=$(ENV)"; exit 1 ;; \
+	esac
+
+restart-local: guard-env
+	@$(MAKE) stop APP=$(APP) ENV=$(ENV) && $(MAKE) start APP=$(APP) ENV=$(ENV)
+restart-vm: guard-env
+	@$(call require_vm)
+	@$(MAKE) -C $(INFRA) restart APP=$(APP) ENV=$(ENV)
+
+status-local: guard-env
+	@case "$(ENV)" in \
+	  testing-local) ( cd supabase && $(COMPOSE) ps ) ;; \
+	  testing) ( cd supabase && $(COMPOSE) ps ); [ -f .tunnel-url ] && echo "tunnel: $$(cat .tunnel-url)" || true ;; \
+	esac
+status-vm: guard-env
+	@$(call require_vm)
+	@$(MAKE) -C $(INFRA) status APP=$(APP) ENV=$(ENV)
+
 reset: preflight
-	@[ "$(PROD)" != "true" ] || { echo "refusing to reset prod via make; run the VM reset explicitly"; exit 1; }
+	@$(call require_env)
+	@$(call require_local)
 	@$(FCM_FETCH)$(RC_FETCH) cd supabase && $(COMPOSE) down -v && \
 		rm -rf $(STORAGE_DIR) && \
 		(docker volume rm $(STACK_PREFIX)_db-data $(STACK_PREFIX)_rustfs-data 2>/dev/null || true) && \
@@ -151,20 +197,24 @@ reset: preflight
 # `stop` keeps volumes; `reset` also restarts/migrates/seeds. Use before a
 # fresh `make start`.
 nuke:
-	@[ "$(PROD)" != "true" ] || { echo "refusing to nuke prod; run the VM reset explicitly"; exit 1; }
+	@$(call require_env)
+	@$(call require_local)
 	@cd supabase && $(COMPOSE) down -v && \
 		rm -rf $(STORAGE_DIR)
 
 seed:
+	@$(call require_local)
 	@cd supabase && $(COMPOSE) exec -T db psql -U postgres -f /dev/stdin -q < seed-test.sql
 
 in-db:
+	@$(call require_local)
 	PGPASSWORD=postgres psql -h localhost -p $(POSTGRES_PORT) -U postgres -d postgres
 
 # Follow one stack service's logs, e.g. `make logs SVC=pushworker`
 # (no SVC = all services). `make status` (docker compose ps) lists every
 # service, including the `fcm`-profiled `pushworker` when FCM=true.
 logs:
+	@$(call require_local)
 	@cd supabase && $(COMPOSE) logs -f --tail=200 $(SVC)
 
 # ── Go ───────────────────────────────────────────────────────────────────────
@@ -239,7 +289,7 @@ migrate:
 # re-running it, so `make start` only applies pending migrations from then on.
 # Never needed after `make reset` (fresh -> ledger fills as files run).
 migrate-adopt:
-	@[ "$(PROD)" != "true" ] || { echo "refusing local adopt for prod; run the VM adopt"; exit 1; }
+	@$(call require_local)
 	@bash tools/apply_migrations.sh supabase adopt
 # Fetch the testing FCM service account from the vault (owner-run, nothing on
 # disk). `make start FCM=true` calls this automatically.

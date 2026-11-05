@@ -11,7 +11,11 @@ TESTING_URL="samay-api-testing.qallariy.lat"
 case "${1:-quick}" in
   named)
     : "${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN (vault) for the named tunnel}"
-    exec cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN"
+    rm -f .tunnel-url
+    cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN" > .tunnel.log 2>&1 &
+    echo $! > .tunnel.pid
+    printf 'https://%s\n' "$TESTING_URL" > .tunnel-url
+    echo "tunnel: https://$TESTING_URL"
     ;;
   quick)
     rm -f .tunnel-url

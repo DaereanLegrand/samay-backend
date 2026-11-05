@@ -11,7 +11,7 @@
 |---|---|
 | `.gitkeep` | keeps the directory in git |
 | `main/index.ts` | **boot placeholder** — required main-service entrypoint. |
-| `revenuecat-webhook/index.ts` | **RevenueCat webhook handler (RCBH)** — idempotent subscription sync. Requires `REVENUECAT_WEBHOOK_SECRET` (inert/fail-closed without it). Runs in the dedicated `revenuecat-webhook` compose service. Local: `make start RC=true`; staging/prod: the vault `server.env` + the `functions` compose override. |
+| `revenuecat-webhook/index.ts` | **RevenueCat webhook handler (RCBH)** — idempotent subscription sync. Requires `REVENUECAT_WEBHOOK_SECRET` (inert/fail-closed without it). Runs in the dedicated `revenuecat-webhook` compose service. Local: `make start APP=samay ENV=testing-local RC=true`; staging/prod: the vault `server.env` + the `functions` compose override. |
 | `README.md` | this file |
 
 ## EEDG workflow (when functions land)
