@@ -46,6 +46,7 @@ set -uo pipefail
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
 . "$(cd "$(dirname "$0")" && pwd)/dev_env.sh"
+. "$(cd "$(dirname "$0")" && pwd)/minigame_finish_helper.sh"
 
 PASS=0
 FAIL=0
@@ -400,7 +401,7 @@ fi
 # =========================================================================
 h1 "TEST K — finish_minigame_game settlement (pot preserved)"
 
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
+resp=$(finish_game "$UUID_A" "$SESSION_ID")
 if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"'; then
   ok "Session finished (leaderboard settlement)"
 else
@@ -434,7 +435,7 @@ else
 fi
 
 shards_a_before=$(svc_get "users?id=eq.$UUID_A&select=personal_shards")
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
+resp=$(finish_game "$UUID_A" "$SESSION_ID")
 shards_a_after=$(svc_get "users?id=eq.$UUID_A&select=personal_shards")
 if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"' \
    && [ "$shards_a_before" = "$shards_a_after" ]; then
@@ -457,7 +458,7 @@ else
   nok "Second session setup failed: $(echo "$resp" | head -c 80)"
 fi
 
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID_2\"}")
+resp=$(finish_game "$UUID_A" "$SESSION_ID_2")
 if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"'; then
   ok "Session finished via finish_minigame_game"
 else
@@ -499,7 +500,7 @@ h1 "TEST M — finish_minigame_game bystander gate"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0}")
 SESSION_ID_3=$(echo "$resp" | grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
-resp=$(auth_rpc "$TOKEN_C" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID_3\"}")
+resp=$(finish_game "$UUID_C" "$SESSION_ID_3")
 if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"not_allowed"'; then
   ok "Bystander C cannot settle the direct session (not_allowed)"
 else
@@ -513,7 +514,7 @@ else
   nok "Session state after rejected settle: $(echo "$row" | head -c 80)"
 fi
 
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID_3\"}")
+resp=$(finish_game "$UUID_A" "$SESSION_ID_3")
 if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"'; then
   ok "Zero-wager session finishes cleanly via the leaderboard RPC"
 else

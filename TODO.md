@@ -7,7 +7,6 @@
 - Go CLI/API (`github.com/samay-app/samay`) + one self-hosted Supabase stack (`supabase/`).
 - Single stack (no testing mirror); unique ports 543xx; mailpit local sink.
 - `make init APP=samay ENV=testing-local` (gum) · `make start APP=samay ENV=testing-local|testing` Docker · `ENV=staging|prod` VM+vault.
-- CI: `.gitea/workflows/ci.yml`.
 
 ## TODO
 - [x] **Wave 1B consolidated** on `wave1b-conciliated` (tag `wave1b-base`):
@@ -18,8 +17,10 @@
       expiry/grace/overrides/retries (`237` + `samay-billing-worker`), limits +
       `create_group` + rank gating + admin audit (`238`), code-only minigame
       join codes (`239`). pgTAP `1276/1276`; `opt-067`/`068`/`069` green.
-- [ ] Group theme server (E4 remainder): host-owned `everyone|host_only|locked`,
-      tier palette (free black; pro/vip RGB), rate limit + audit.
+- [x] Group theme server (`240_group_theme`): host-owned
+      `everyone|host_only|locked`, tier palette (free black; pro/vip RGB),
+      WCAG-AA auto contrast, 3/min/group + 20/day/user, audit + RLS.
+      pgTAP SECTION 75; `opt-070` 13/13.
 - [x] Chat moderation + store-compliance hardening (Google Play UGC / Apple 1.2):
       - `226_chat_moderation` — `is_blocked_between`; block gate in
         `create_direct_chat`; `assert_message_not_blocked` BEFORE-INSERT trigger
@@ -37,8 +38,13 @@
       - Coverage: pgTAP SECTION 65 (plan 1040) + `test/opt-040-chat-report-block.sh`.
       - Test hygiene: `opt-001`/`opt-006` cleanups delete NO-ACTION-FK rows (no
         user leaks); `opt-021/022/023/028` mark participants ready (219 gate);
-        `opt-034` rewritten for the split CI surface; the store reviewer
-        (`tester@qallariy.lat`) is an Admin-owned staging/prod seed, not backend data.
+        the store reviewer (`tester@qallariy.lat`) is an Admin-owned
+        staging/prod seed, not backend data.
+- [x] E5 verifier: pgTAP `1319/1319`; all 46 `opt-*` green (legacy suites
+      triaged to the E3/E4 contracts); `make test`, `make check`, Go green.
+      Photo-read triage fix `241_event_photo_read` (229 narrowed
+      `events_read_access`, hiding group-scoped photos). CI files deleted per
+      `14-wave2-decisions` §13 (`tools/<ops-tooling>` reduced to the Gitea SCM half).
 - [ ] Comment prune / doc trims (AGENTS.md still carries frontend/infra sections).
 - [ ] TODO(vault): server profile under `qallariy/admin/**` reorg.
 - [ ] TODO: `<deploy-target>` `.200` not provisioned — create (`make init ENV=prod`) then verify.

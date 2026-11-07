@@ -94,6 +94,14 @@ svc_get() {
   curl -s -X GET "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY"
 }
+svc_patch() {
+  local path=$1 data=$2
+  curl -s -X PATCH "$SUPABASE_URL/rest/v1/$path" \
+    -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" \
+    -H "Content-Type: application/json" -H "Prefer: return=representation" \
+    -d "$data"
+}
+
 svc_post() {
   curl -s -X POST "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Content-Type: application/json" \
@@ -228,25 +236,27 @@ else
   nok "Non-member B CAN read group-scoped event: $(echo "$resp" | head -c 60)"
 fi
 
+# 229/SEC-005: direct event reads are host/staff + accepted-invitee only.
+# Group members and anonymous discovery go through search_events instead.
 resp=$(auth_get "$TOKEN_A" "events?id=eq.$EV_GROUP&select=id,name")
-if echo "$resp" | grep -q '"id"'; then
-  ok "Member A CAN read group-scoped event"
+if [ "$resp" = "[]" ] || echo "$resp" | grep -qE '(42501|permission denied)'; then
+  ok "Member A cannot read the raw group-scoped row (search_events only)"
 else
-  nok "Member A CANNOT read group-scoped event: $(echo "$resp" | head -c 60)"
+  nok "Member A read the raw group-scoped event: $(echo "$resp" | head -c 60)"
 fi
 
 resp=$(auth_get "$TOKEN_B" "events?id=eq.$EV_JUERGA&select=id,name")
-if echo "$resp" | grep -q '"id"'; then
-  ok "B CAN read public event (group_id IS NULL branch)"
+if [ "$resp" = "[]" ] || echo "$resp" | grep -qE '(42501|permission denied)'; then
+  ok "B cannot read a raw public event without an invite (search_events only)"
 else
-  nok "B CANNOT read public event: $(echo "$resp" | head -c 60)"
+  nok "B read a raw public event: $(echo "$resp" | head -c 60)"
 fi
 
 resp=$(anon_get "events?id=eq.$EV_JUERGA&select=id")
-if echo "$resp" | grep -q '"id"'; then
-  ok "anon CAN read public event (group_id IS NULL branch)"
+if [ "$resp" = "[]" ] || echo "$resp" | grep -qE '(42501|permission denied)'; then
+  ok "anon cannot read raw events (discovery is search_events)"
 else
-  nok "anon CANNOT read public event: $(echo "$resp" | head -c 60)"
+  nok "anon read a raw public event: $(echo "$resp" | head -c 60)"
 fi
 
 # =========================================================================
@@ -297,14 +307,14 @@ else
 fi
 
 # Trigger fires on UPDATE OF preshards_pool: 5000 -> 0 -> dynamic_qr false.
-resp=$(auth_patch_repr "$TOKEN_A" "events?id=eq.$EV_JUERGA" '{"preshards_pool":0}')
+resp=$(svc_patch "events?id=eq.$EV_JUERGA" '{"preshards_pool":0}')
 qr=$(svc_get "events?id=eq.$EV_JUERGA&select=dynamic_qr_enabled")
 if echo "$qr" | grep -q '"dynamic_qr_enabled":false'; then
   ok "Host A pool update 5000->0 flipped dynamic_qr_enabled to false (trigger)"
 else
   nok "dynamic_qr_enabled not false after pool->0: $qr"
 fi
-resp=$(auth_patch_repr "$TOKEN_A" "events?id=eq.$EV_JUERGA" '{"preshards_pool":5000}')
+resp=$(svc_patch "events?id=eq.$EV_JUERGA" '{"preshards_pool":5000}')
 qr=$(svc_get "events?id=eq.$EV_JUERGA&select=dynamic_qr_enabled")
 if echo "$qr" | grep -q '"dynamic_qr_enabled":true'; then
   ok "Host A pool update 0->5000 flipped dynamic_qr_enabled to true (trigger)"

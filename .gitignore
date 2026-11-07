@@ -57,6 +57,9 @@ fastlane/keys/
 # Agent orchestration locks (ephemeral semaphores)
 repo-locks/
 
+# Agent-local state (never shared)
+.commandcode/
+
 # Stray agent logs
 flutter_*.log
 

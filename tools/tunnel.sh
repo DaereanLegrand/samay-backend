@@ -8,17 +8,27 @@ cd "$(dirname "$0")/.."
 KONG_PORT="${KONG_PORT:-${KONG_HTTP_PORT:-54386}}"
 TESTING_URL="samay-api-testing.qallariy.lat"
 
+stop_existing() {
+  if [ -f .tunnel.pid ]; then
+    pid="$(cat .tunnel.pid 2>/dev/null || true)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  fi
+  rm -f .tunnel.pid .tunnel.log .tunnel-url
+}
+
 case "${1:-quick}" in
   named)
     : "${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN (vault) for the named tunnel}"
-    rm -f .tunnel-url
-    cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN" > .tunnel.log 2>&1 &
+    stop_existing
+    TUNNEL_TOKEN="$CLOUDFLARE_TUNNEL_TOKEN" cloudflared tunnel --no-autoupdate run > .tunnel.log 2>&1 &
     echo $! > .tunnel.pid
     printf 'https://%s\n' "$TESTING_URL" > .tunnel-url
     echo "tunnel: https://$TESTING_URL"
     ;;
   quick)
-    rm -f .tunnel-url
+    stop_existing
     cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$KONG_PORT" > .tunnel.log 2>&1 &
     echo $! > .tunnel.pid
     for _ in $(seq 1 40); do
@@ -29,8 +39,7 @@ case "${1:-quick}" in
     echo "no trycloudflare URL captured (see .tunnel.log)"; exit 1
     ;;
   stop)
-    [ -f .tunnel.pid ] && kill "$(cat .tunnel.pid)" 2>/dev/null || true
-    rm -f .tunnel.pid .tunnel.log .tunnel-url
+    stop_existing
     echo "tunnel stopped"
     ;;
   *)

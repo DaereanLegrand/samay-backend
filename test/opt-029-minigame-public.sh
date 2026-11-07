@@ -107,8 +107,8 @@ TOKEN_C=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
   -H "apikey: $ANON_KEY" -H "Content-Type: application/json" \
   -d "{\"email\":\"$EMAIL_C\",\"password\":\"$PW\"}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
 
-# --- Test A: publish / permissions ---
-h1 "TEST A: set_minigame_public — host-only, direct-only"
+# --- Test A: the open lobby is gone; discovery is code-only (239) ---
+h1 "TEST A: public lobby removed — 6-character code only"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_name\":\"abierta opt029\",\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\",\"p_anonymous\":false}")
@@ -119,96 +119,97 @@ else
   nok "create_minigame_session failed: $resp"
 fi
 
-resp=$(auth_rpc "$TOKEN_A" "set_minigame_public" \
-  "{\"p_session_id\":\"$SESSION_ID\",\"p_is_public\":true}")
-if echo "$resp" | grep -q '"status":"ok"' && echo "$resp" | grep -q '"is_public":true'; then
-  ok "host published the partida (set_minigame_public ok)"
-else
-  nok "publish failed: $resp"
-fi
-
 resp=$(auth_rpc "$TOKEN_B" "set_minigame_public" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_is_public\":true}")
+if echo "$resp" | grep -q "PGRST202"; then
+  ok "set_minigame_public was removed"
+else
+  nok "set_minigame_public still exists: $resp"
+fi
+resp=$(auth_rpc "$TOKEN_B" "list_public_minigames" "{\"p_game_type\":\"truth_dare\"}")
+if echo "$resp" | grep -q "PGRST202"; then
+  ok "list_public_minigames was removed"
+else
+  nok "list_public_minigames still exists: $resp"
+fi
+resp=$(curl -s "$SUPABASE_URL/rest/v1/minigame_sessions?select=is_public&limit=1" \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A")
+if echo "$resp" | grep -qE "PGRST204|does not exist"; then
+  ok "minigame_sessions.is_public was dropped"
+else
+  nok "is_public still selectable: $resp"
+fi
+
+# --- Test B: host-only code issuance ---
+h1 "TEST B: set_minigame_join_code is host-only"
+
+resp=$(auth_rpc "$TOKEN_B" "set_minigame_join_code" "{\"p_session_id\":\"$SESSION_ID\"}")
 if echo "$resp" | grep -q '"status":"not_creator"'; then
-  ok "non-host publish rejected (not_creator)"
+  ok "a non-host cannot issue a join code"
 else
-  nok "non-host publish was not rejected: $resp"
+  nok "non-host code issuance: $resp"
 fi
 
-GROUP_ID=$(python3 -c "import uuid;print(uuid.uuid4())")
-svc_post "groups" "{\"id\":\"$GROUP_ID\",\"name\":\"opt029 group\",\"description\":\"d\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}" >/dev/null
-svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" >/dev/null
-resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_name\":\"g opt029\",\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\",\"p_anonymous\":false}")
-GSESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | head -1 | cut -d'"' -f4)
-resp=$(auth_rpc "$TOKEN_A" "set_minigame_public" \
-  "{\"p_session_id\":\"$GSESSION_ID\",\"p_is_public\":true}")
-if echo "$resp" | grep -q '"status":"group_session"'; then
-  ok "group partida cannot be published (group_session)"
+SET=$(auth_rpc "$TOKEN_A" "set_minigame_join_code" "{\"p_session_id\":\"$SESSION_ID\"}")
+CODE=$(echo "$SET" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("code",""))')
+if [[ "$CODE" =~ ^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$ ]]; then
+  ok "host received a valid 6-character code"
 else
-  nok "group publish was not rejected: $resp"
+  nok "code shape: $SET"
 fi
 
-# --- Test B: the open lobby feed ---
-h1 "TEST B: list_public_minigames"
+# --- Test C: join by code ---
+h1 "TEST C: join_minigame_by_code"
 
-resp=$(auth_rpc "$TOKEN_B" "list_public_minigames" "{\"p_game_type\":\"truth_dare\"}")
-if echo "$resp" | grep -q '"status":"ok"' && echo "$resp" | grep -q "$SESSION_ID"; then
-  ok "published partida appears in the feed"
+resp=$(auth_rpc "$TOKEN_B" "join_minigame_by_code" "{\"p_code\":\"ZZZZZ2\"}")
+if echo "$resp" | grep -q '"status":"invalid_code"'; then
+  ok "a wrong code is rejected (invalid_code)"
 else
-  nok "published partida missing from the feed: $(echo "$resp" | head -c 160)"
+  nok "wrong code: $resp"
 fi
-if echo "$resp" | grep -q '"host_username":"user_opt029_a"'; then
-  ok "feed row carries the host username"
+resp=$(auth_rpc "$TOKEN_B" "join_minigame_by_code" "{\"p_code\":\"$CODE\"}")
+if echo "$resp" | grep -q '"status":"joined"' && echo "$resp" | grep -q "$SESSION_ID"; then
+  ok "the matching code joins the partida"
 else
-  nok "feed row missing host_username: $(echo "$resp" | head -c 160)"
+  nok "join by code: $resp"
 fi
-if echo "$resp" | grep -q '"is_member":false'; then
-  ok "a non-participant reads is_member=false"
+PARTS=$(curl -s "$SUPABASE_URL/rest/v1/minigame_sessions?id=eq.$SESSION_ID&select=participants" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY")
+if echo "$PARTS" | grep -q "$UUID_B"; then
+  ok "the joiner is appended to participants"
 else
-  nok "is_member should be false before joining: $(echo "$resp" | head -c 160)"
+  nok "participants: $PARTS"
 fi
 
-# --- Test C: a stranger joins the published partida ---
-h1 "TEST C: public join"
+# --- Test D: rotate / revoke ---
+h1 "TEST D: rotate and revoke"
 
-resp=$(auth_rpc "$TOKEN_B" "join_minigame_session" "{\"p_session_id\":\"$SESSION_ID\"}")
+SET2=$(auth_rpc "$TOKEN_A" "set_minigame_join_code" "{\"p_session_id\":\"$SESSION_ID\"}")
+CODE2=$(echo "$SET2" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("code",""))')
+resp=$(auth_rpc "$TOKEN_C" "join_minigame_by_code" "{\"p_code\":\"$CODE\"}")
+if echo "$resp" | grep -q '"status":"invalid_code"'; then
+  ok "rotation invalidates the previous code"
+else
+  nok "old code after rotation: $resp"
+fi
+resp=$(auth_rpc "$TOKEN_C" "join_minigame_by_code" "{\"p_code\":\"$CODE2\"}")
 if echo "$resp" | grep -q '"status":"joined"'; then
-  ok "stranger joined the published partida (joined)"
+  ok "the rotated code joins"
 else
-  nok "public join failed: $resp"
+  nok "rotated code: $resp"
 fi
 
-resp=$(auth_rpc "$TOKEN_B" "list_public_minigames" "{\"p_game_type\":\"truth_dare\"}")
-if echo "$resp" | grep -q "$SESSION_ID" && echo "$resp" | grep -q '"is_member":true'; then
-  ok "the joiner now reads is_member=true"
+resp=$(auth_rpc "$TOKEN_A" "revoke_minigame_join_code" "{\"p_session_id\":\"$SESSION_ID\"}")
+if echo "$resp" | grep -q '"status":"ok"'; then
+  ok "the host revoked the code"
 else
-  nok "is_member did not flip after joining: $(echo "$resp" | head -c 160)"
+  nok "revoke: $resp"
 fi
-
-# --- Test D: unpublish closes the lobby door ---
-h1 "TEST D: unpublish"
-
-resp=$(auth_rpc "$TOKEN_A" "set_minigame_public" \
-  "{\"p_session_id\":\"$SESSION_ID\",\"p_is_public\":false}")
-if echo "$resp" | grep -q '"status":"ok"' && echo "$resp" | grep -q '"is_public":false'; then
-  ok "host unpublished the partida"
+resp=$(auth_rpc "$TOKEN_B" "join_minigame_by_code" "{\"p_code\":\"$CODE2\"}")
+if echo "$resp" | grep -q '"status":"invalid_code"'; then
+  ok "a revoked code cannot join"
 else
-  nok "unpublish failed: $resp"
-fi
-
-resp=$(auth_rpc "$TOKEN_B" "list_public_minigames" "{\"p_game_type\":\"truth_dare\"}")
-if echo "$resp" | grep -q "$SESSION_ID"; then
-  nok "unpublished partida still in the feed"
-else
-  ok "unpublished partida left the feed"
-fi
-
-resp=$(auth_rpc "$TOKEN_C" "join_minigame_session" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"not_allowed"'; then
-  ok "a stranger can no longer join an unpublished partida (not_allowed)"
-else
-  nok "unpublished join was not rejected: $resp"
+  nok "revoked code: $resp"
 fi
 
 echo ""

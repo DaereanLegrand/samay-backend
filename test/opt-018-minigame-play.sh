@@ -28,6 +28,7 @@ set -uo pipefail
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
 . "$(cd "$(dirname "$0")" && pwd)/dev_env.sh"
+. "$(cd "$(dirname "$0")" && pwd)/minigame_finish_helper.sh"
 
 PASS=0
 FAIL=0
@@ -93,7 +94,7 @@ wait_playing() {
   local sid=$1 token=$2 tries=0
   while [ "$tries" -lt 20 ]; do
     resp=$(auth_rpc "$token" "start_minigame_match" "{\"p_session_id\":\"$sid\"}")
-    if echo "$resp" | grep -q '"status":"started"'; then
+    if echo "$resp" | grep -qE '"status": *"started"'; then
       return 0
     fi
     sleep 0.5
@@ -161,14 +162,14 @@ h1 "TEST A — not_started before init"
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\"]}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_ID" ]; then
+if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_ID" ]; then
   ok "create_minigame_session returned created ($SESSION_ID)"
 else
   nok "create_minigame_session failed: $(echo "$resp" | head -c 120)"
 fi
 
 resp=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"ok"' && echo "$resp" | grep -q '"round":0'; then
+if echo "$resp" | grep -qE '"status": *"ok"' && echo "$resp" | grep -q '"round":0'; then
   ok "get_minigame_game_state on a fresh session = ok with the seeded row (191)"
 else
   nok "expected seeded state: $resp"
@@ -182,7 +183,7 @@ h1 "TEST A1 — p_name stored on the session row (160_minigame_names)"
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\"],\"p_name\":\"  La revancha  \"}")
 SESSION2_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION2_ID" ]; then
+if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION2_ID" ]; then
   ok "create with p_name returned created ($SESSION2_ID)"
 else
   nok "create with p_name failed: $(echo "$resp" | head -c 120)"
@@ -216,7 +217,7 @@ h1 "TEST B — init_minigame_game_state (server-random subject)"
 
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
 SUBJECT=$(echo "$resp" | grep -o '"subject_id":"[^"]*"' | head -1 | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"started"' && [ -n "$SUBJECT" ]; then
+if echo "$resp" | grep -qE '"status": *"started"' && [ -n "$SUBJECT" ]; then
   ok "init returned started with subject $SUBJECT"
 else
   nok "init failed: $(echo "$resp" | head -c 120)"
@@ -228,7 +229,7 @@ else
 fi
 
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"already_started"'; then
+if echo "$resp" | grep -qE '"status": *"already_started"'; then
   ok "re-init is idempotent (already_started)"
 else
   nok "re-init expected already_started: $resp"
@@ -241,7 +242,7 @@ h1 "TEST C + D — reveal_minigame_prompt"
 
 resp=$(auth_rpc "$TOKEN_A" "reveal_minigame_prompt" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_prompt_type\":\"verdad\"}")
-if echo "$resp" | grep -q '"status":"revealed"'; then
+if echo "$resp" | grep -qE '"status": *"revealed"'; then
   ok "reveal(verdad) = revealed"
   PROMPT_BODY=$(echo "$resp" | grep -o '"body":"[^"]*"' | head -1 | cut -d'"' -f4)
   if [ -n "$PROMPT_BODY" ]; then ok "prompt body drawn: $PROMPT_BODY"; else nok "no prompt body"; fi
@@ -251,7 +252,7 @@ fi
 
 resp=$(auth_rpc "$TOKEN_A" "reveal_minigame_prompt" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_prompt_type\":\"retomadre\"}")
-if echo "$resp" | grep -q '"status":"invalid_prompt_type"'; then
+if echo "$resp" | grep -qE '"status": *"invalid_prompt_type"'; then
   ok "invalid prompt_type = invalid_prompt_type"
 else
   nok "expected invalid_prompt_type: $resp"
@@ -277,7 +278,7 @@ SUBJ=$(auth_rpc "$TOKEN_A" "get_minigame_game_state" "{\"p_session_id\":\"$SESSI
 STOKEN=$([ "$SUBJ" = "$UUID_A" ] && echo "$TOKEN_A" || echo "$TOKEN_B")
 resp=$(auth_rpc "$STOKEN" "submit_minigame_answer" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_answer_ciphertext\":\"cipher_$SUBJ\"}")
-if echo "$resp" | grep -q '"status":"submitted"'; then
+if echo "$resp" | grep -qE '"status": *"submitted"'; then
   ok "subject answered (answer-first)"
 else
   nok "subject answer failed: $(echo "$resp" | head -c 120)"
@@ -285,7 +286,7 @@ fi
 
 resp=$(auth_rpc "$TOKEN_A" "advance_minigame_turn" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_round\":{\"subject_id\":\"$SUBJECT\",\"prompt_type\":\"verdad\",\"outcome\":\"done\"}}")
-if echo "$resp" | grep -q '"status":"advanced"'; then
+if echo "$resp" | grep -qE '"status": *"advanced"'; then
   ok "advance = advanced (creator force)"
 else
   nok "advance failed: $(echo "$resp" | head -c 120)"
@@ -304,36 +305,36 @@ fi
 h1 "TEST F — participant-only gate (bystander)"
 
 resp=$(auth_rpc "$TOKEN_C" "get_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"not_allowed"'; then ok "get denied for bystander"; else nok "bystander get: $resp"; fi
+if echo "$resp" | grep -qE '"status": *"not_allowed"'; then ok "get denied for bystander"; else nok "bystander get: $resp"; fi
 
 resp=$(auth_rpc "$TOKEN_C" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"not_allowed"'; then ok "init denied for bystander"; else nok "bystander init: $resp"; fi
+if echo "$resp" | grep -qE '"status": *"not_allowed"'; then ok "init denied for bystander"; else nok "bystander init: $resp"; fi
 
 resp=$(auth_rpc "$TOKEN_C" "reveal_minigame_prompt" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_prompt_type\":\"verdad\"}")
-if echo "$resp" | grep -q '"status":"not_allowed"'; then ok "reveal denied for bystander"; else nok "bystander reveal: $resp"; fi
+if echo "$resp" | grep -qE '"status": *"not_allowed"'; then ok "reveal denied for bystander"; else nok "bystander reveal: $resp"; fi
 
 resp=$(auth_rpc "$TOKEN_C" "advance_minigame_turn" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_round\":{}}")
-if echo "$resp" | grep -q '"status":"not_allowed"'; then ok "advance denied for bystander"; else nok "bystander advance: $resp"; fi
+if echo "$resp" | grep -qE '"status": *"not_allowed"'; then ok "advance denied for bystander"; else nok "bystander advance: $resp"; fi
 
-resp=$(auth_rpc "$TOKEN_C" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"not_allowed"'; then ok "finish denied for bystander"; else nok "bystander finish: $resp"; fi
+resp=$(finish_game "$UUID_C" "$SESSION_ID")
+if echo "$resp" | grep -qE '"status": *"not_allowed"'; then ok "finish denied for bystander"; else nok "bystander finish: $resp"; fi
 
 # =========================================================================
 # TEST G — finish settles the leaderboard and is idempotent
 # =========================================================================
 h1 "TEST G — finish_minigame_game (leaderboard settlement)"
 
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"finished"'; then
+resp=$(finish_game "$UUID_A" "$SESSION_ID")
+if echo "$resp" | grep -qE '"status": *"finished"'; then
   ok "finish = finished"
 else
   nok "finish failed: $(echo "$resp" | head -c 120)"
 fi
 
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"finished"'; then
+resp=$(finish_game "$UUID_A" "$SESSION_ID")
+if echo "$resp" | grep -qE '"status": *"finished"'; then
   ok "re-finish is idempotent (finished, no double settlement)"
 else
   nok "re-finish expected finished: $resp"

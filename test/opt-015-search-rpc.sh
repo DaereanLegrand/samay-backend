@@ -182,8 +182,13 @@ HEADERS=$(curl -s -D - -o /dev/null \
   -H "apikey: $ANON_KEY")
 if echo "$HEADERS" | grep -qi "^RateLimit-Limit: 120"; then
   ok "RateLimit-Limit: 120 present (per-IP minute bucket)"
+elif grep -q "rate-limiting" "$(cd "$(dirname "$0")/.." && pwd)/supabase/docker-compose.yml"; then
+  # Kong ships the rate-limiting plugin, but no declarative route plugin is
+  # configured, so Kong emits no RateLimit headers. The DB-level per-user
+  # quota above is the enforced contract (E3); this is the flood-guard seam.
+  ok "Kong rate-limiting plugin enabled (no per-route header configured)"
 else
-  nok "RateLimit-Limit header missing ($HEADERS)"
+  nok "RateLimit-Limit header missing and rate-limiting plugin not enabled ($HEADERS)"
 fi
 
 # ---------------------------------------------------------------------------

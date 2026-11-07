@@ -26,6 +26,7 @@ set -uo pipefail
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
 . "$(cd "$(dirname "$0")" && pwd)/dev_env.sh"
+. "$(cd "$(dirname "$0")" && pwd)/minigame_finish_helper.sh"
 
 PASS=0
 FAIL=0
@@ -174,7 +175,7 @@ resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"poke_chain\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 INVITED=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
-if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_ID" ]; then
+if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_ID" ]; then
   ok "create_minigame_session returned created ($SESSION_ID)"
 else
   nok "create_minigame_session failed: $(echo "$resp" | head -c 120)"
@@ -205,7 +206,7 @@ ok "C enabled friends-only invites"
 # A is NOT a friend of C -> invite must be rejected atomically.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"questions\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
-if echo "$resp" | grep -q '"status":"invitee_friends_only"'; then
+if echo "$resp" | grep -qE '"status": *"invitee_friends_only"'; then
   ok "A (non-friend) inviting C is rejected: invitee_friends_only"
 else
   nok "Non-friend invite to friends-only user not rejected: $(echo "$resp" | head -c 100)"
@@ -218,7 +219,7 @@ svc_post "friendships" "{\"requester_id\":\"$UUID_A\",\"addressee_id\":\"$UUID_C
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"questions\",\"p_wager\":10,\"p_invitees\":[\"$UUID_C\"]}")
 SESSION2=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"created"'; then
+if echo "$resp" | grep -qE '"status": *"created"'; then
   ok "A (now friend) can invite C to a wagered session ($SESSION2)"
 else
   nok "Friend invite failed: $(echo "$resp" | head -c 100)"
@@ -234,7 +235,7 @@ if [ -z "$INVITE_ID" ]; then
   nok "C has no pending invite row for session2"
 else
   resp=$(auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_ID\"}")
-  if echo "$resp" | grep -q '"status":"accepted"'; then
+  if echo "$resp" | grep -qE '"status": *"accepted"'; then
     ok "C accepted the invite"
   else
     nok "accept failed: $(echo "$resp" | head -c 100)"
@@ -257,11 +258,11 @@ h1 "TEST E — finished session closes the invite"
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"challenge\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
 SESSION3=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION3\"}" >/dev/null
+finish_game "$UUID_A" "$SESSION3" >/dev/null
 INVITE3=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION3&invitee_id=eq.$UUID_C" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 resp=$(auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE3\"}")
-if echo "$resp" | grep -q '"status":"session_finished"'; then
+if echo "$resp" | grep -qE '"status": *"session_finished"'; then
   ok "Accepting an invite to a finished session is rejected: session_finished"
 else
   nok "Finished-session accept not rejected: $(echo "$resp" | head -c 100)"
@@ -278,7 +279,7 @@ SESSION4=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 INVITE4=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION4&invitee_id=eq.$UUID_C" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 resp=$(auth_rpc "$TOKEN_C" "decline_minigame_invite" "{\"p_invite_id\":\"$INVITE4\"}")
-if echo "$resp" | grep -q '"status":"declined"'; then
+if echo "$resp" | grep -qE '"status": *"declined"'; then
   ok "C declined the invite"
 else
   nok "decline failed: $(echo "$resp" | head -c 100)"
@@ -296,7 +297,7 @@ else
 fi
 # F3: declining again is idempotent (row already gone → invite_not_found).
 resp=$(auth_rpc "$TOKEN_C" "decline_minigame_invite" "{\"p_invite_id\":\"$INVITE4\"}")
-if echo "$resp" | grep -q '"status":"invite_not_found"'; then
+if echo "$resp" | grep -qE '"status": *"invite_not_found"'; then
   ok "re-declining a deleted invite returns invite_not_found (idempotent)"
 else
   nok "re-decline expected invite_not_found: $(echo "$resp" | head -c 100)"
@@ -329,7 +330,7 @@ info "Seeded 9 cap-filler users for the over-cap check"
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":null,\"p_game_type\":\"poke_chain\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
 SESSION5=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION5" ]; then
+if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION5" ]; then
   ok "Direct session created with p_group_id null ($SESSION5)"
 else
   nok "Direct create failed: $(echo "$resp" | head -c 120)"
@@ -357,15 +358,15 @@ else
 fi
 
 # G5: the creator settles (draw); a bystander is rejected.
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION5\"}")
-if echo "$resp" | grep -q '"status":"finished"'; then ok "Creator A finished the direct session"; else nok "finish failed: $(echo "$resp" | head -c 100)"; fi
-resp=$(auth_rpc "$TOKEN_D" "finish_minigame_game" "{\"p_session_id\":\"$SESSION5\"}")
-if echo "$resp" | grep -q '"status":"not_allowed"'; then ok "Bystander D cannot finish the direct session (not_allowed)"; else nok "bystander finish not rejected: $(echo "$resp" | head -c 100)"; fi
+resp=$(finish_game "$UUID_A" "$SESSION5")
+if echo "$resp" | grep -qE '"status": *"finished"'; then ok "Creator A finished the direct session"; else nok "finish failed: $(echo "$resp" | head -c 100)"; fi
+resp=$(finish_game "$UUID_D" "$SESSION5")
+if echo "$resp" | grep -qE '"status": *"not_allowed"'; then ok "Bystander D cannot finish the direct session (not_allowed)"; else nok "bystander finish not rejected: $(echo "$resp" | head -c 100)"; fi
 
 # G6: over-cap roster is rejected atomically (10 invitees + self > free 8).
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_wager\":0,\"p_invitees\":[$CAP_INVITEES]}")
-if echo "$resp" | grep -q '"status":"player_limit_reached"'; then
+if echo "$resp" | grep -qE '"status": *"player_limit_reached"'; then
   ok "Over-cap direct create rejected: player_limit_reached"
 else
   nok "Over-cap create not rejected: $(echo "$resp" | head -c 120)"
@@ -384,7 +385,7 @@ h1 "TEST H — direct-invite notification + auto partida-N"
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
 SESSION_H=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_H" ]; then
+if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_H" ]; then
   ok "Direct truth_dare session created for the notification check ($SESSION_H)"
 else
   nok "Direct create failed for TEST H: $(echo "$resp" | head -c 120)"
@@ -444,7 +445,7 @@ fi
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_wager\":25,\"p_invitees\":[\"$UUID_C\"]}")
 SESSION_W=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_W" ]; then
+if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_W" ]; then
   ok "Wagered direct questions session created for the wager-notice check ($SESSION_W)"
 else
   nok "Wagered direct create failed: $(echo "$resp" | head -c 120)"
@@ -501,7 +502,7 @@ h1 "TEST I — lobby invite RPC (invite_minigame_players)"
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":null,\"p_game_type\":\"poke_chain\",\"p_wager\":0,\"p_invitees\":[]}")
 SESSION_I=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_I" ]; then
+if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_I" ]; then
   ok "Lobby-flow direct session created with zero invitees ($SESSION_I)"
 else
   nok "Zero-invitee create failed: $(echo "$resp" | head -c 120)"
@@ -510,7 +511,7 @@ fi
 resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
   "{\"p_session_id\":\"$SESSION_I\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
 INVITED_I=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
-if echo "$resp" | grep -q '"status":"ok"'; then
+if echo "$resp" | grep -qE '"status": *"ok"'; then
   ok "invite_minigame_players returned ok (lobby invite)"
 else
   nok "invite_minigame_players failed: $(echo "$resp" | head -c 120)"
@@ -519,7 +520,7 @@ if [ "$INVITED_I" = "2" ]; then ok "lobby invite invited 2 players (B, C)"; else
 
 # The invite rows landed (pending) — the invitee-side read (ms_read_invitee).
 resp=$(auth_get "$TOKEN_C" "minigame_invites?select=id,status&session_id=eq.$SESSION_I")
-if echo "$resp" | grep -q '"status":"pending"'; then
+if echo "$resp" | grep -qE '"status": *"pending"'; then
   ok "C has a pending invite row for the lobby-invited session"
 else
   nok "C has no pending invite row: $(echo "$resp" | head -c 100)"
@@ -529,7 +530,7 @@ fi
 resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
   "{\"p_session_id\":\"$SESSION_I\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
 INVITED_I2=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
-if echo "$resp" | grep -q '"status":"ok"' && [ "$INVITED_I2" = "0" ]; then
+if echo "$resp" | grep -qE '"status": *"ok"' && [ "$INVITED_I2" = "0" ]; then
   ok "Re-inviting already-pending players is idempotent (invited 0)"
 else
   nok "Re-invite not idempotent: $(echo "$resp" | head -c 120)"
@@ -538,7 +539,7 @@ fi
 # I3: B (not the creator, not yet a participant) cannot invite.
 resp=$(auth_rpc "$TOKEN_B" "invite_minigame_players" \
   "{\"p_session_id\":\"$SESSION_I\",\"p_invitees\":[\"$UUID_D\"]}")
-if echo "$resp" | grep -q '"status":"not_creator"'; then
+if echo "$resp" | grep -qE '"status": *"not_creator"'; then
   ok "Non-creator B is rejected: not_creator"
 else
   nok "Non-creator invite not rejected: $(echo "$resp" | head -c 120)"
@@ -548,11 +549,11 @@ fi
 INVITE_IB=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION_I&invitee_id=eq.$UUID_B" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 resp=$(auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_IB\"}")
-if echo "$resp" | grep -q '"status":"accepted"'; then ok "B accepted the lobby invite"; else nok "B accept failed: $(echo "$resp" | head -c 100)"; fi
+if echo "$resp" | grep -qE '"status": *"accepted"'; then ok "B accepted the lobby invite"; else nok "B accept failed: $(echo "$resp" | head -c 100)"; fi
 resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
   "{\"p_session_id\":\"$SESSION_I\",\"p_invitees\":[\"$UUID_B\"]}")
 INVITED_I4=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
-if echo "$resp" | grep -q '"status":"ok"' && [ "$INVITED_I4" = "0" ]; then
+if echo "$resp" | grep -qE '"status": *"ok"' && [ "$INVITED_I4" = "0" ]; then
   ok "Re-inviting an already-participant is skipped (invited 0)"
 else
   nok "Already-participant re-invite not skipped: $(echo "$resp" | head -c 120)"
@@ -563,7 +564,7 @@ fi
 auth_rpc "$TOKEN_D" "set_minigame_invite_friends_only" "{\"p_value\":true}" >/dev/null
 resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
   "{\"p_session_id\":\"$SESSION_I\",\"p_invitees\":[\"$UUID_D\"]}")
-if echo "$resp" | grep -q '"status":"invitee_friends_only"'; then
+if echo "$resp" | grep -qE '"status": *"invitee_friends_only"'; then
   ok "Friends-only privacy enforced by the lobby RPC (invitee_friends_only)"
 else
   nok "Lobby invite to friends-only user not rejected: $(echo "$resp" | head -c 120)"
@@ -581,7 +582,7 @@ done
 CAP8="${CAP8%,}"
 resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
   "{\"p_session_id\":\"$SESSION_I6\",\"p_invitees\":[$CAP8]}")
-if echo "$resp" | grep -q '"status":"player_limit_reached"'; then
+if echo "$resp" | grep -qE '"status": *"player_limit_reached"'; then
   ok "Over-cap lobby invite rejected: player_limit_reached"
 else
   nok "Over-cap lobby invite not rejected: $(echo "$resp" | head -c 120)"
@@ -612,7 +613,7 @@ h1 "TEST J — re-invite after decline / kick (fresh invite, no resend path)"
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
 SESSION_J1=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_J1" ]; then
+if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_J1" ]; then
   ok "New session created for the re-invite check ($SESSION_J1)"
 else
   nok "Re-invite session create failed: $(echo "$resp" | head -c 120)"
@@ -625,14 +626,14 @@ auth_rpc "$TOKEN_C" "decline_minigame_invite" "{\"p_invite_id\":\"$INVITE_J1\"}"
 resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
   "{\"p_session_id\":\"$SESSION_J1\",\"p_invitees\":[\"$UUID_C\"]}")
 INVITED_J1=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
-if echo "$resp" | grep -q '"status":"ok"' && [ "$INVITED_J1" = "1" ]; then
+if echo "$resp" | grep -qE '"status": *"ok"' && [ "$INVITED_J1" = "1" ]; then
   ok "Re-inviting after DECLINE is a fresh insert (invited 1)"
 else
   nok "Re-invite after decline expected invited 1: $(echo "$resp" | head -c 120)"
 fi
 INVITE_J1b=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?session_id=eq.$SESSION_J1&invitee_id=eq.$UUID_C&select=id,status" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY")
-if echo "$INVITE_J1b" | grep -q '"status":"pending"'; then
+if echo "$INVITE_J1b" | grep -qE '"status": *"pending"'; then
   ok "The re-invite row is a brand-new pending invite (identical to the first)"
 else
   nok "Re-invite row not pending: $(echo "$INVITE_J1b" | head -c 120)"
@@ -675,7 +676,7 @@ fi
 resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
   "{\"p_session_id\":\"$SESSION_J2\",\"p_invitees\":[\"$UUID_C\"]}")
 INVITED_J2=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
-if echo "$resp" | grep -q '"status":"ok"' && [ "$INVITED_J2" = "1" ]; then
+if echo "$resp" | grep -qE '"status": *"ok"' && [ "$INVITED_J2" = "1" ]; then
   ok "Re-inviting after KICK is a fresh insert (invited 1)"
 else
   nok "Re-invite after kick expected invited 1: $(echo "$resp" | head -c 120)"
@@ -693,7 +694,7 @@ fi
 INVITE_J2b=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?session_id=eq.$SESSION_J2&invitee_id=eq.$UUID_C&select=id" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 resp=$(auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_J2b\"}")
-if echo "$resp" | grep -q '"status":"accepted"'; then ok "Kicked C accepted the re-invite"; else nok "C re-accept failed: $(echo "$resp" | head -c 100)"; fi
+if echo "$resp" | grep -qE '"status": *"accepted"'; then ok "Kicked C accepted the re-invite"; else nok "C re-accept failed: $(echo "$resp" | head -c 100)"; fi
 resp=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_sessions?id=eq.$SESSION_J2&select=participants" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY")
 if echo "$resp" | grep -q "$UUID_C"; then
@@ -707,7 +708,7 @@ fi
 resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
   "{\"p_session_id\":\"$SESSION_J2\",\"p_invitees\":[\"$UUID_C\"]}")
 INVITED_J3=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
-if echo "$resp" | grep -q '"status":"ok"' && [ "$INVITED_J3" = "0" ]; then
+if echo "$resp" | grep -qE '"status": *"ok"' && [ "$INVITED_J3" = "0" ]; then
   ok "Re-inviting a still-pending invitee stays idempotent (invited 0)"
 else
   nok "Still-pending re-invite not idempotent: $(echo "$resp" | head -c 120)"

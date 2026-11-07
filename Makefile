@@ -279,7 +279,7 @@ check: secrets
 	@UNFMT="$$(gofmt -l cmd internal)"; if [ -n "$$UNFMT" ]; then echo "gofmt: unformatted Go files:"; echo "$$UNFMT"; exit 1; fi
 
 lint:
-	@command -v golangci-lint >/dev/null 2>&1 && golangci-lint run ./... || go vet ./...
+	@if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run ./...; else go vet ./...; fi
 
 secrets:
 	@tools/check_secrets.sh

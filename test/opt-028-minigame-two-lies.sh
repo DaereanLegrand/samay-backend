@@ -18,6 +18,7 @@ set -uo pipefail
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
 . "$(cd "$(dirname "$0")" && pwd)/dev_env.sh"
+. "$(cd "$(dirname "$0")" && pwd)/minigame_finish_helper.sh"
 
 PASS=0
 FAIL=0
@@ -84,7 +85,7 @@ wait_playing() {
   local sid=$1 token=$2 tries=0
   while [ "$tries" -lt 20 ]; do
     resp=$(auth_rpc "$token" "start_minigame_match" "{\"p_session_id\":\"$sid\"}")
-    if echo "$resp" | grep -q '"status":"started"'; then
+    if echo "$resp" | grep -qE '"status": *"started"'; then
       return 0
     fi
     sleep 0.5
@@ -140,7 +141,7 @@ resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":null,\"p_game_type\":\"two_lies_one_truth\",\"p_wager\":0,\"p_name\":\"partida 2 mentiras\",\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\",\"p_anonymous\":false}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-if [ -n "$SESSION_ID" ] && echo "$resp" | grep -q '"status":"created"'; then
+if [ -n "$SESSION_ID" ] && echo "$resp" | grep -qE '"status": *"created"'; then
   ok "create_minigame_session accepted 'two_lies_one_truth' (session $SESSION_ID)"
 else
   nok "create_minigame_session failed: $resp"
@@ -151,7 +152,7 @@ h1 "TEST B: Lobby invite and start"
 
 resp=$(auth_rpc "$TOKEN_A" "invite_minigame_players" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
-if echo "$resp" | grep -q '"status":"ok"'; then
+if echo "$resp" | grep -qE '"status": *"ok"'; then
   ok "Invited B and C from lobby"
 else
   nok "Invite players failed: $resp"
@@ -164,13 +165,13 @@ INVITE_C=$(curl -s "$SUPABASE_URL/rest/v1/minigame_invites?session_id=eq.$SESSIO
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | norm_json \
   | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 resp=$(auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_B\"}")
-if echo "$resp" | grep -q '"status":"accepted"'; then
+if echo "$resp" | grep -qE '"status": *"accepted"'; then
   ok "B accepted invite (participant)"
 else
   nok "B accept failed: $resp"
 fi
 resp=$(auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_C\"}")
-if echo "$resp" | grep -q '"status":"accepted"'; then
+if echo "$resp" | grep -qE '"status": *"accepted"'; then
   ok "C accepted invite (participant)"
 else
   nok "C accept failed: $resp"
@@ -207,7 +208,7 @@ fi
 PAYLOAD='{"statements":[{"index":0,"text":"Mentira 1","is_truth":false},{"index":1,"text":"Verdad real","is_truth":true},{"index":2,"text":"Mentira 2","is_truth":false}],"truth_index":1}'
 resp=$(auth_rpc "$SUBJ_TOKEN" "submit_minigame_answer" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_answer_ciphertext\":\"${PAYLOAD//\"/\\\"}\"}")
-if echo "$resp" | grep -q '"status":"submitted"'; then
+if echo "$resp" | grep -qE '"status": *"submitted"'; then
   ok "Subject submitted 3 statements ciphertext with no prompt (217 prompt-less)"
 else
   nok "Subject submit without prompt failed: $resp"
@@ -216,7 +217,7 @@ fi
 # Voter 1 votes for option 1 ('vote_1')
 resp=$(auth_rpc "$VOTER1_TOKEN" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"vote_1\"}")
-if echo "$resp" | grep -q '"status":"submitted"'; then
+if echo "$resp" | grep -qE '"status": *"submitted"'; then
   ok "Voter 1 voted for truth ('vote_1')"
 else
   nok "Voter 1 vote failed: $resp"
@@ -225,7 +226,7 @@ fi
 # Voter 2 votes for option 0 ('vote_0') -> auto-advances the round!
 resp=$(auth_rpc "$VOTER2_TOKEN" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"vote_0\"}")
-if echo "$resp" | grep -q '"status":"advanced"'; then
+if echo "$resp" | grep -qE '"status": *"advanced"'; then
   ok "Voter 2 voted ('vote_0') and round auto-advanced"
 else
   nok "Voter 2 vote / auto-advance failed: $resp"
@@ -234,8 +235,8 @@ fi
 # --- Test D: Settlement ---
 h1 "TEST D: Settle match"
 
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"finished"'; then
+resp=$(finish_game "$UUID_A" "$SESSION_ID")
+if echo "$resp" | grep -qE '"status": *"finished"'; then
   ok "finish_minigame_game settled match with 'two_lies_one_truth'"
 else
   nok "Settlement failed: $resp"

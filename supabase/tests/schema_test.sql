@@ -3,7 +3,7 @@
 -- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
 BEGIN;
 
-SELECT plan(1276);
+SELECT plan(1319);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -803,8 +803,8 @@ SELECT ok(
     'admin_users has the system admin row (from auto-applied seed-config)'
 );
 SELECT ok(
-    (SELECT count(*) = 46 FROM app_config),
-    'app_config has 46 tuning rows (seed-config + 225 events capacity + 238 group limits)'
+    (SELECT count(*) = 48 FROM app_config),
+    'app_config has 48 tuning rows (seed-config + 225 events capacity + 238 group limits + 240 theme)'
 );
 
 -- ============================================================
@@ -6411,6 +6411,201 @@ SELECT throws_ok(
     $$SELECT public.join_minigame_by_code('ZZZZZ2')$$,
     'P0001', 'rate_limited:minigame_code_join',
     'E4: the 11th code attempt in a minute is rejected');
+SELECT set_config('request.jwt.claims', '', true);
+
+-- ============================================================
+-- SECTION 75: group theme — tier/control/contrast/RLS (240_group_theme — E4)
+-- ============================================================
+SELECT has_type('group_theme_mode');
+SELECT has_table('group_themes');
+SELECT has_table('group_theme_changes');
+SELECT has_column('group_themes', 'control_mode');
+SELECT has_column('group_themes', 'foreground_color');
+SELECT has_function('set_group_theme', ARRAY['uuid', 'text', 'text', 'text']);
+SELECT has_function('theme_contrast_ratio', ARRAY['text', 'text']);
+SELECT policies_are('group_themes', ARRAY[
+    'group_themes_read_member',
+    'active_users_only'
+], 'group_themes is member-read with no client write policy');
+SELECT is(public.theme_best_foreground('#777777'), '#000000',
+    'E4 theme: a mid-grey background picks the better (black) foreground');
+SELECT ok(public.theme_contrast_ratio('#777777',
+    public.theme_best_foreground('#777777')) >= 4.5,
+    'E4 theme: the derived foreground meets WCAG AA (>= 4.5:1)');
+SELECT is(public.theme_best_foreground(public.theme_clamp_dark('#FFFFFF')), '#FFFFFF',
+    'E4 theme: a bright colour is auto-darkened so white text stays legible');
+SELECT ok(public.theme_relative_luminance(public.theme_clamp_dark('#FFFFFF')) <= 0.12,
+    'E4 theme: the clamped background sits at <= 0.12 relative luminance');
+SELECT is((SELECT value FROM public.app_config WHERE key = 'theme.changes_per_minute'),
+    '3', 'E4 theme: 3 changes/min/group');
+SELECT is((SELECT value FROM public.app_config WHERE key = 'theme.changes_per_day'),
+    '20', 'E4 theme: 20 changes/day/user');
+
+INSERT INTO public.users (id, username, date_of_birth) VALUES
+    ('9e000000-0000-4000-8000-000000000001', 'e4_theme_free', '1990-01-01'),
+    ('9e000000-0000-4000-8000-000000000002', 'e4_theme_pro', '1990-01-01'),
+    ('9e000000-0000-4000-8000-000000000003', 'e4_theme_member', '1990-01-01'),
+    ('9e000000-0000-4000-8000-000000000004', 'e4_theme_out', '1990-01-01')
+ON CONFLICT (id) DO NOTHING;
+SELECT public.apply_subscription_state(
+    '9e000000-0000-4000-8000-000000000002', 'pro',
+    now() + interval '30 days', 'INITIAL_PURCHASE');
+INSERT INTO public.groups (id, name, created_by_user_id) VALUES
+    ('9e000000-0000-4000-8000-000000000101', 'e4 theme free',
+     '9e000000-0000-4000-8000-000000000001'),
+    ('9e000000-0000-4000-8000-000000000102', 'e4 theme pro',
+     '9e000000-0000-4000-8000-000000000002'),
+    ('9e000000-0000-4000-8000-000000000103', 'e4 theme rate',
+     '9e000000-0000-4000-8000-000000000002'),
+    ('9e000000-0000-4000-8000-000000000104', 'e4 theme lock',
+     '9e000000-0000-4000-8000-000000000002');
+INSERT INTO public.group_members (group_id, user_id, role, status) VALUES
+    ('9e000000-0000-4000-8000-000000000101', '9e000000-0000-4000-8000-000000000001', 'host', 'active'),
+    ('9e000000-0000-4000-8000-000000000102', '9e000000-0000-4000-8000-000000000002', 'host', 'active'),
+    ('9e000000-0000-4000-8000-000000000102', '9e000000-0000-4000-8000-000000000003', 'member', 'active'),
+    ('9e000000-0000-4000-8000-000000000103', '9e000000-0000-4000-8000-000000000002', 'host', 'active'),
+    ('9e000000-0000-4000-8000-000000000104', '9e000000-0000-4000-8000-000000000002', 'host', 'active');
+
+SELECT is((SELECT control_mode FROM public.group_themes
+            WHERE group_id = '9e000000-0000-4000-8000-000000000101'),
+    'locked'::public.group_theme_mode,
+    'E4 theme: a free-hosted group defaults to locked');
+SELECT is((SELECT control_mode FROM public.group_themes
+            WHERE group_id = '9e000000-0000-4000-8000-000000000102'),
+    'everyone'::public.group_theme_mode,
+    'E4 theme: a paid-hosted group defaults to everyone');
+SELECT is((SELECT background_color FROM public.group_themes
+            WHERE group_id = '9e000000-0000-4000-8000-000000000101'),
+    '#000000', 'E4 theme: the free palette is fixed black');
+
+-- Non-member is rejected.
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9e000000-0000-4000-8000-000000000004","role":"authenticated"}', true);
+SELECT throws_ok(
+    $$SELECT public.set_group_theme('9e000000-0000-4000-8000-000000000102', '#1E3A8A')$$,
+    'P0001', 'not_a_member', 'E4 theme: a non-member cannot set the theme');
+
+-- A member changes the colour under `everyone` (default for a paid host).
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9e000000-0000-4000-8000-000000000003","role":"authenticated"}', true);
+SELECT is(
+    (public.set_group_theme('9e000000-0000-4000-8000-000000000102', '#1e3a8a', '#facc15')
+        ->> 'background_color'),
+    '#1E3A8A', 'E4 theme: any member may change a paid group theme (normalized hex)');
+SELECT is((SELECT foreground_color FROM public.group_themes
+            WHERE group_id = '9e000000-0000-4000-8000-000000000102'),
+    '#FFFFFF', 'E4 theme: the foreground is derived automatically');
+SELECT is((SELECT accent_foreground_color FROM public.group_themes
+            WHERE group_id = '9e000000-0000-4000-8000-000000000102'),
+    '#000000', 'E4 theme: the accent foreground is derived automatically');
+SELECT is((SELECT count(*) FROM public.group_theme_changes
+            WHERE group_id = '9e000000-0000-4000-8000-000000000102'),
+    1::bigint, 'E4 theme: the change is audited');
+SELECT is((SELECT actor_id FROM public.group_theme_changes
+            WHERE group_id = '9e000000-0000-4000-8000-000000000102'),
+    '9e000000-0000-4000-8000-000000000003'::uuid,
+    'E4 theme: the audit records the actor');
+SELECT is((SELECT new_background_color FROM public.group_theme_changes
+            WHERE group_id = '9e000000-0000-4000-8000-000000000102'),
+    '#1E3A8A', 'E4 theme: the audit records the new colour');
+SELECT is((SELECT old_control_mode FROM public.group_theme_changes
+            WHERE group_id = '9e000000-0000-4000-8000-000000000102'),
+    'everyone'::public.group_theme_mode,
+    'E4 theme: the audit records the control mode');
+SELECT is((public.get_group_theme('9e000000-0000-4000-8000-000000000102')
+            ->> 'palette_tier'),
+    'pro', 'E4 theme: the read RPC reports the host tier that gates the palette');
+SELECT is((public.get_group_theme('9e000000-0000-4000-8000-000000000102')
+            ->> 'can_change_color'),
+    'true', 'E4 theme: a member may change colours under everyone');
+
+-- Host switches to host_only.
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9e000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
+SELECT is(
+    (public.set_group_theme('9e000000-0000-4000-8000-000000000102', NULL, NULL, 'host_only')
+        ->> 'control_mode'),
+    'host_only', 'E4 theme: the host may switch the control mode to host_only');
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9e000000-0000-4000-8000-000000000003","role":"authenticated"}', true);
+SELECT throws_ok(
+    $$SELECT public.set_group_theme('9e000000-0000-4000-8000-000000000102', '#14532D')$$,
+    'P0001', 'not_host', 'E4 theme: host_only rejects a member colour change');
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9e000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
+SELECT is(
+    (public.set_group_theme('9e000000-0000-4000-8000-000000000102', '#14532D')
+        ->> 'background_color'),
+    '#14532D', 'E4 theme: host_only still lets the host change the colour');
+
+-- Host locks the theme: nobody (the host included) changes colours until the
+-- host reopens the control mode.
+SELECT is(
+    (public.set_group_theme('9e000000-0000-4000-8000-000000000104', NULL, NULL, 'locked')
+        ->> 'control_mode'),
+    'locked', 'E4 theme: the host may lock the theme');
+SELECT throws_ok(
+    $$SELECT public.set_group_theme('9e000000-0000-4000-8000-000000000104', '#4C1D95')$$,
+    'P0001', 'theme_locked', 'E4 theme: locked rejects a colour change');
+
+-- Free host: unlock is allowed, but the palette stays black.
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9e000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+SELECT is(
+    (public.set_group_theme('9e000000-0000-4000-8000-000000000101', NULL, NULL, 'everyone')
+        ->> 'control_mode'),
+    'everyone', 'E4 theme: a free host may change the control mode');
+SELECT throws_ok(
+    $$SELECT public.set_group_theme('9e000000-0000-4000-8000-000000000101', '#1E3A8A')$$,
+    'P0001', 'theme_requires_paid', 'E4 theme: the free palette rejects RGB');
+SELECT throws_ok(
+    $$SELECT public.set_group_theme('9e000000-0000-4000-8000-000000000101', '#XYZ123')$$,
+    'P0001', 'invalid_theme_color', 'E4 theme: malformed hex is rejected');
+SELECT is(jsonb_array_length(
+        public.get_group_theme('9e000000-0000-4000-8000-000000000101') -> 'palette'),
+    1, 'E4 theme: a free host palette is black only');
+
+-- Per-group rate limit: 3/min/group.
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9e000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
+SELECT is(
+    (public.set_group_theme('9e000000-0000-4000-8000-000000000103', '#1E3A8A')
+        ->> 'background_color'),
+    '#1E3A8A', 'E4 theme: rate-limit group change 1');
+SELECT is(
+    (public.set_group_theme('9e000000-0000-4000-8000-000000000103', '#14532D')
+        ->> 'background_color'),
+    '#14532D', 'E4 theme: rate-limit group change 2');
+SELECT is(
+    (public.set_group_theme('9e000000-0000-4000-8000-000000000103', '#4C1D95')
+        ->> 'background_color'),
+    '#4C1D95', 'E4 theme: rate-limit group change 3');
+SELECT throws_ok(
+    $$SELECT public.set_group_theme('9e000000-0000-4000-8000-000000000103', '#991B1B')$$,
+    'P0001', 'rate_limited:group_theme_group',
+    'E4 theme: the 4th change in a minute is rejected');
+
+-- RLS: members read their theme, outsiders read nothing, nobody writes direct.
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9e000000-0000-4000-8000-000000000004","role":"authenticated"}', true);
+SET LOCAL role authenticated;
+SELECT is((SELECT count(*) FROM public.group_themes
+            WHERE group_id = ANY (ARRAY['9e000000-0000-4000-8000-000000000101',
+                                        '9e000000-0000-4000-8000-000000000102',
+                                        '9e000000-0000-4000-8000-000000000103']::uuid[])),
+    0::bigint, 'E4 theme: a non-member sees no group theme');
+RESET role;
+
+SELECT set_config('request.jwt.claims',
+    '{"sub":"9e000000-0000-4000-8000-000000000003","role":"authenticated"}', true);
+SET LOCAL role authenticated;
+SELECT is((SELECT count(*) FROM public.group_themes
+            WHERE group_id = '9e000000-0000-4000-8000-000000000102'),
+    1::bigint, 'E4 theme: an active member can read the theme');
+SELECT throws_ok(
+    $$INSERT INTO public.group_themes (group_id) VALUES ('9e000000-0000-4000-8000-000000000102')$$,
+    '42501', NULL, 'E4 theme: direct client writes are denied');
+RESET role;
 SELECT set_config('request.jwt.claims', '', true);
 
 SELECT * FROM finish();

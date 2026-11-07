@@ -27,7 +27,7 @@ h1()  { echo ""; echo "━━━ $1 ━━━"; }
 q()   { PGPASSWORD=postgres psql "$PGURL" -Atq -v ON_ERROR_STOP=1 -c "$1"; }
 
 UUID="76767676-7676-4676-8676-767676690001"
-EMAIL="recovery_opt069@samay.test"
+EMAIL="recovery_opt069_${RANDOM}_$$@samay.test"
 PW="Pass1234!"
 REDIRECT="samay://reset-password"
 
@@ -49,9 +49,14 @@ q "INSERT INTO public.users (id, username, date_of_birth)
 curl -s -X DELETE "$MAILPIT_URL/api/v1/messages" >/dev/null 2>&1
 
 h1 "1) the recovery request is accepted"
+# GoTrue's own per-IP flood guard persists between test runs; use a fresh
+# Forwarded-For bucket so the suite is idempotent (the E3 per-account reset
+# limit is exercised separately).
+FORWARD_IP="10.$((RANDOM % 250 + 1)).$((RANDOM % 250 + 1)).$((RANDOM % 250 + 1))"
 CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
   "$SUPABASE_URL/auth/v1/recover?redirect_to=$(python3 -c 'import urllib.parse;print(urllib.parse.quote("samay://reset-password",safe=""))')" \
   -H "apikey: $ANON_KEY" -H "Content-Type: application/json" \
+  -H "X-Forwarded-For: $FORWARD_IP" \
   -d "{\"email\":\"$EMAIL\"}")
 [ "$CODE" = "200" ] && ok "recover accepted (200)" || nok "recover (got $CODE)"
 

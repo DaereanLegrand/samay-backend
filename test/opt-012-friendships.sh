@@ -292,16 +292,18 @@ else
 fi
 
 if [ -n "$BLOCK_ID" ]; then
-  # User A blocks User C by updating status to 'blocked'
-  resp=$(auth_patch "$TOKEN_A" "friendships?id=eq.$BLOCK_ID" '{"status":"blocked"}')
-  if [ -z "$resp" ]; then
-    ok "User A blocked User C (status = 'blocked')"
+  # 234/04: blocking is the block_user RPC (the pending row is replaced by a
+  # blocked row); direct status UPDATEs are no longer the contract.
+  resp=$(auth_rpc "$TOKEN_A" "block_user" "{\"p_user_id\":\"$UUID_C\"}")
+  if echo "$resp" | grep -q '"status": *"ok"'; then
+    ok "User A blocked User C (block_user RPC)"
   else
     nok "User A cannot block User C: $(echo "$resp" | head -c 80)"
   fi
 
-  # Verify status is 'blocked'
-  resp=$(auth_get "$TOKEN_A" "friendships?id=eq.$BLOCK_ID&select=status")
+  # Verify a blocked row exists (the RPC creates a fresh row).
+  resp=$(auth_get "$TOKEN_A" "friendships?addressee_id=eq.$UUID_C&select=id,status")
+  BLOCK_ID=$(echo "$resp" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
   if echo "$resp" | grep -q '"blocked"'; then
     ok "Friendship status updated to 'blocked'"
   else
@@ -317,16 +319,16 @@ h1 "TEST H — auth user can unblock user"
 if [ -z "$BLOCK_ID" ]; then
   nok "SKIP: no blocked friendship ID from test G"
 else
-  # User A unblocks User C by deleting the blocked friendship
-  resp=$(auth_delete "$TOKEN_A" "friendships?id=eq.$BLOCK_ID")
-  if [ -z "$resp" ]; then
-    ok "User A unblocked User C (deleted blocked friendship)"
+  # 234/04: unblocking is the unblock_user RPC.
+  resp=$(auth_rpc "$TOKEN_A" "unblock_user" "{\"p_user_id\":\"$UUID_C\"}")
+  if echo "$resp" | grep -q '"status": *"ok"'; then
+    ok "User A unblocked User C (unblock_user RPC)"
   else
     nok "User A cannot unblock User C: $(echo "$resp" | head -c 80)"
   fi
 
-  # Verify the friendship is gone
-  resp=$(auth_get "$TOKEN_A" "friendships?id=eq.$BLOCK_ID&select=id")
+  # Verify the block is gone
+  resp=$(auth_get "$TOKEN_A" "friendships?addressee_id=eq.$UUID_C&select=id,status")
   if [ "$resp" = "[]" ] || [ -z "$resp" ]; then
     ok "Blocked friendship removed"
   else

@@ -1,0 +1,39 @@
+{
+  "name": "group_theme",
+  "source": "public.get_group_theme(uuid) -> lib/core/models/group_theme.dart",
+  "fields": {
+    "group_id": "string",
+    "control_mode": "string",
+    "background_color": "string",
+    "accent_color": "string",
+    "foreground_color": "string",
+    "accent_foreground_color": "string",
+    "is_host": "boolean",
+    "palette_tier": "string",
+    "palette": "array",
+    "can_change_color": "boolean",
+    "can_change_control": "boolean"
+  },
+  "enums": {
+    "control_mode": ["everyone", "host_only", "locked"],
+    "palette_tier": ["free", "pro", "vip"]
+  },
+  "samples": [
+    {
+      "group_id": "44444444-4444-4444-8444-444444444444",
+      "control_mode": "everyone",
+      "background_color": "#1E3A8A",
+      "accent_color": "#FACC15",
+      "foreground_color": "#FFFFFF",
+      "accent_foreground_color": "#000000",
+      "is_host": true,
+      "palette_tier": "pro",
+      "palette": ["#000000", "#1E3A8A", "#14532D"],
+      "can_change_color": true,
+      "can_change_control": true
+    }
+  ],
+  "notes": [
+    "E4: control_mode is host-owned; the HOST's tier gates the palette. Free groups are fixed black and default locked. Colors are #RRGGBB and the foregrounds are derived server-side for WCAG AA."
+  ]
+}

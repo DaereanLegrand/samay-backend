@@ -64,14 +64,14 @@ for f in "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh" \
   fi
 done
 INIT_CALLS=$(awk '
-  /^(start|reset):/ { f=1 }
+  /^(start[a-z-]*|reset):/ { f=1 }
   f && /-f seed-config\.sql/ { c++ }
-  /^[a-zA-Z0-9_-]+:/ && !/^(start|reset):/ { f=0 }
+  /^[a-zA-Z0-9_-]+:/ && !/^(start[a-z-]*|reset):/ { f=0 }
   END { print c+0 }' "$MAKEFILE")
-if [ "$INIT_CALLS" -eq 2 ]; then
+if [ "$INIT_CALLS" -ge 2 ]; then
   ok "Makefile: start/reset auto-apply seed-config"
 else
-  fail "Makefile: expected 2 seed-config calls in start/reset, found $INIT_CALLS"
+  fail "Makefile: expected >=2 seed-config calls in start*/reset, found $INIT_CALLS"
 fi
 if awk '/^(start|reset):/{f=1} /^[a-zA-Z0-9_-]+:/ && !/^(start|reset):/{f=0} f && /seed-(test|dev)/{c++} END{exit (c>0?0:1)}' "$MAKEFILE"; then
   fail "Makefile start/reset targets reference seed-test/seed-dev"

@@ -84,6 +84,10 @@ svc_post() {
     -H "Authorization: Bearer $SERVICE_KEY" -H "Content-Type: application/json" \
     -H "Prefer: return=minimal" -d "$2"
 }
+svc_get() {
+  curl -s -X GET "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
+    -H "Authorization: Bearer $SERVICE_KEY"
+}
 svc_patch() {
   curl -s -X PATCH "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Content-Type: application/json" \
@@ -93,6 +97,10 @@ svc_patch() {
 # $1 token, $2 user_id -> role string (empty when the row is invisible)
 role_of() {
   auth_get "$1" "group_members?select=role&group_id=eq.$GROUP_ID&user_id=eq.$2&limit=1" \
+    | python3 -c 'import sys,json; rows=json.load(sys.stdin); print(rows[0]["role"] if rows else "")'
+}
+svc_role_of() {
+  svc_get "group_members?select=role&group_id=eq.$GROUP_ID&user_id=eq.$1&limit=1" \
     | python3 -c 'import sys,json; rows=json.load(sys.stdin); print(rows[0]["role"] if rows else "")'
 }
 
@@ -270,10 +278,10 @@ h1 "E) host account soft-deleted -> leadership passes to an active member"
 # A (host) promotes B to staff first (deterministic successor)
 auth_patch "$TA" "group_members?group_id=eq.$GROUP_ID&user_id=eq.$UUID_B" '{"role":"staff"}' >/dev/null
 svc_patch "users?id=eq.$UUID_A" '{"deleted_at":"2026-08-16T00:00:00Z"}' >/dev/null
-if [ "$(role_of "$TA" "$UUID_B")" = "host" ] && [ "$(role_of "$TA" "$UUID_D")" = "member" ]; then
+if [ "$(svc_role_of "$UUID_B")" = "host" ] && [ "$(svc_role_of "$UUID_D")" = "member" ]; then
   ok "deleted host's leadership passed to staff B (invited D skipped)"
 else
-  nok "delete chain: B=$(role_of "$TA" "$UUID_B") D=$(role_of "$TA" "$UUID_D")"
+  nok "delete chain: B=$(svc_role_of "$UUID_B") D=$(svc_role_of "$UUID_D")"
 fi
 svc_patch "users?id=eq.$UUID_A" '{"deleted_at":null}' >/dev/null
 

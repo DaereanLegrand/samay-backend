@@ -33,6 +33,7 @@ set -uo pipefail
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
 . "$(cd "$(dirname "$0")" && pwd)/dev_env.sh"
+. "$(cd "$(dirname "$0")" && pwd)/minigame_finish_helper.sh"
 
 PASS=0
 FAIL=0
@@ -99,7 +100,7 @@ wait_playing() {
   local sid=$1 token=$2 tries=0
   while [ "$tries" -lt 20 ]; do
     resp=$(auth_rpc "$token" "start_minigame_match" "{\"p_session_id\":\"$sid\"}")
-    if echo "$resp" | grep -q '"status":"started"'; then
+    if echo "$resp" | grep -qE '"status": *"started"'; then
       return 0
     fi
     sleep 0.5
@@ -173,7 +174,7 @@ h1 "TEST A — create with p_rounds + p_prize_positions"
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":50,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":3,\"p_prize_positions\":3}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_ID" ]; then
+if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_ID" ]; then
   ok "create with rounds=3, prize_positions=3 returned created ($SESSION_ID)"
 else
   nok "create failed: $(echo "$resp" | head -c 120)"
@@ -186,7 +187,7 @@ INVITE_C=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&sess
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 resp=$(auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_B\"}")
 resp2=$(auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_C\"}")
-if echo "$resp" | grep -q '"status":"accepted"' && echo "$resp2" | grep -q '"status":"accepted"'; then
+if echo "$resp" | grep -qE '"status": *"accepted"' && echo "$resp2" | grep -qE '"status": *"accepted"'; then
   ok "B + C accepted the invites (3 participants, pot 150)"
 else
   nok "B/C accept failed: $(echo "$resp" | head -c 120) $(echo "$resp2" | head -c 120)"
@@ -214,7 +215,7 @@ h1 "TEST B — invalid rounds / prize positions rejected"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_rounds\":0}")
-if echo "$resp" | grep -q '"status":"invalid_rounds"'; then
+if echo "$resp" | grep -qE '"status": *"invalid_rounds"'; then
   ok "p_rounds=0 rejected (invalid_rounds)"
 else
   nok "invalid_rounds NOT rejected: $resp"
@@ -222,7 +223,7 @@ fi
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_prize_positions\":0}")
-if echo "$resp" | grep -q '"status":"invalid_prize_positions"'; then
+if echo "$resp" | grep -qE '"status": *"invalid_prize_positions"'; then
   ok "p_prize_positions=0 rejected (invalid_prize_positions)"
 else
   nok "invalid_prize_positions NOT rejected: $resp"
@@ -235,7 +236,7 @@ h1 "TEST C — answer-first gate + submit_minigame_reaction (realtime votes)"
 
 # 219: the host cannot start until every non-host participant is ready.
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"not_everyone_ready"'; then
+if echo "$resp" | grep -qE '"status": *"not_everyone_ready"'; then
   ok "C: init blocked until everyone ready (not_everyone_ready)"
 else
   nok "C: expected not_everyone_ready before ready flags: $(echo "$resp" | head -c 120)"
@@ -245,7 +246,7 @@ auth_rpc "$TOKEN_C" "set_minigame_ready" "{\"p_session_id\":\"$SESSION_ID\",\"p_
 
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$SESSION_ID\"}")
 SUBJECT=$(echo "$resp" | grep -o '"subject_id":"[^"]*"' | head -1 | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"started"' && [ -n "$SUBJECT" ]; then
+if echo "$resp" | grep -qE '"status": *"started"' && [ -n "$SUBJECT" ]; then
   ok "init started with subject $SUBJECT"
 else
   nok "init failed: $(echo "$resp" | head -c 120)"
@@ -260,7 +261,7 @@ fi
 
 resp=$(auth_rpc "$TOKEN_A" "reveal_minigame_prompt" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_prompt_type\":\"verdad\"}")
-if echo "$resp" | grep -q '"status":"revealed"'; then
+if echo "$resp" | grep -qE '"status": *"revealed"'; then
   ok "reveal(verdad) = revealed"
 else
   nok "reveal failed: $(echo "$resp" | head -c 120)"
@@ -283,7 +284,7 @@ info "Round subject=$SUBJECT, voters=$VOTER1/$VOTER2"
 # Negative gate 1: a reaction BEFORE the subject answers is rejected.
 resp=$(auth_rpc "$V1TOKEN" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"heart\"}")
-if echo "$resp" | grep -q '"status":"answer_pending"'; then
+if echo "$resp" | grep -qE '"status": *"answer_pending"'; then
   ok "reaction before the answer rejected (answer_pending)"
 else
   nok "answer_pending NOT enforced: $resp"
@@ -292,7 +293,7 @@ fi
 # Negative gate 2: the subject can never react to their own round.
 resp=$(auth_rpc "$S_TOKEN" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"heart\"}")
-if echo "$resp" | grep -q '"status":"own_round"'; then
+if echo "$resp" | grep -qE '"status": *"own_round"'; then
   ok "subject own-round reaction rejected (own_round)"
 else
   nok "own_round NOT enforced: $resp"
@@ -301,7 +302,7 @@ fi
 # The subject submits their answer → reactions open.
 resp=$(auth_rpc "$S_TOKEN" "submit_minigame_answer" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_answer_ciphertext\":\"cipher_$SUBJECT\"}")
-if echo "$resp" | grep -q '"status":"submitted"'; then
+if echo "$resp" | grep -qE '"status": *"submitted"'; then
   ok "subject answer submitted"
 else
   nok "subject answer failed: $(echo "$resp" | head -c 120)"
@@ -310,7 +311,7 @@ fi
 # VOTER1 votes → mirror carries the vote list + distinct-voter count.
 resp=$(auth_rpc "$V1TOKEN" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"heart\"}")
-if echo "$resp" | grep -q '"status":"submitted"'; then
+if echo "$resp" | grep -qE '"status": *"submitted"'; then
   ok "VOTER1 submitted a heart vote (submitted — not all voters yet)"
 else
   nok "VOTER1 submit failed: $(echo "$resp" | head -c 120)"
@@ -338,7 +339,7 @@ fi
 # A bystander (D, non-member) cannot vote.
 resp=$(auth_rpc "$TOKEN_D" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"sad\"}")
-if echo "$resp" | grep -q '"status":"not_allowed"'; then
+if echo "$resp" | grep -qE '"status": *"not_allowed"'; then
   ok "bystander vote denied (not_allowed)"
 else
   nok "bystander vote NOT denied: $resp"
@@ -347,7 +348,7 @@ fi
 # Invalid emoji key rejected (by a non-subject voter after the answer).
 resp=$(auth_rpc "$V1TOKEN" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"bogus\"}")
-if echo "$resp" | grep -q '"status":"invalid_reaction"'; then
+if echo "$resp" | grep -qE '"status": *"invalid_reaction"'; then
   ok "invalid emoji rejected (invalid_reaction)"
 else
   nok "invalid_reaction NOT rejected: $resp"
@@ -361,7 +362,7 @@ h1 "TEST D — the last required reaction auto-advances + scores the round"
 # VOTER2's reaction closes the round (2 required voters → both voted).
 resp=$(auth_rpc "$V2TOKEN" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"sad\"}")
-if echo "$resp" | grep -q '"status":"advanced"'; then
+if echo "$resp" | grep -qE '"status": *"advanced"'; then
   ok "last-required reaction auto-advanced the round"
 else
   nok "all-reacted auto-advance failed: $(echo "$resp" | head -c 160)"
@@ -386,7 +387,7 @@ h1 "TEST G — reactor Pasar (pass counts toward advance + scores -0.5 to the su
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":2,\"p_prize_positions\":3}")
 GSESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"created"' && [ -n "$GSESSION_ID" ]; then
+if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$GSESSION_ID" ]; then
   ok "G: dedicated Pasar session created ($GSESSION_ID)"
 else
   nok "G: create failed: $(echo "$resp" | head -c 160)"
@@ -402,7 +403,7 @@ auth_rpc "$TOKEN_B" "set_minigame_ready" "{\"p_session_id\":\"$GSESSION_ID\",\"p
 auth_rpc "$TOKEN_C" "set_minigame_ready" "{\"p_session_id\":\"$GSESSION_ID\",\"p_ready\":true}" > /dev/null
 
 resp=$(auth_rpc "$TOKEN_A" "init_minigame_game_state" "{\"p_session_id\":\"$GSESSION_ID\"}")
-if echo "$resp" | grep -q '"status":"started"'; then
+if echo "$resp" | grep -qE '"status": *"started"'; then
   ok "G: init started"
 else
   nok "G: init failed: $(echo "$resp" | head -c 120)"
@@ -429,7 +430,7 @@ info "G: round subject=$GSUB, voters=$GV1/$GV2"
 # A pass BEFORE the subject answers is still rejected (answer-first applies).
 resp=$(auth_rpc "$GV2T" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$GSESSION_ID\",\"p_reaction\":\"pasar\"}")
-if echo "$resp" | grep -q '"status":"answer_pending"'; then
+if echo "$resp" | grep -qE '"status": *"answer_pending"'; then
   ok "G: reactor pass before the answer rejected (answer_pending)"
 else
   nok "G: pass before answer NOT rejected: $resp"
@@ -438,7 +439,7 @@ fi
 # The subject can never pass their own round (own_round gate holds for pass).
 resp=$(auth_rpc "$GSTOKEN" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$GSESSION_ID\",\"p_reaction\":\"pasar\"}")
-if echo "$resp" | grep -q '"status":"own_round"'; then
+if echo "$resp" | grep -qE '"status": *"own_round"'; then
   ok "G: subject own-round pass rejected (own_round)"
 else
   nok "G: subject own-round pass NOT rejected: $resp"
@@ -449,7 +450,7 @@ fi
 # (1 emoji - 0.5 for the pass).
 resp=$(auth_rpc "$GSTOKEN" "submit_minigame_answer" \
   "{\"p_session_id\":\"$GSESSION_ID\",\"p_answer_ciphertext\":\"cipher_g_$GSUB\"}")
-if echo "$resp" | grep -q '"status":"submitted"'; then
+if echo "$resp" | grep -qE '"status": *"submitted"'; then
   ok "G: subject answer submitted"
 else
   nok "G: subject answer failed: $(echo "$resp" | head -c 120)"
@@ -457,7 +458,7 @@ fi
 
 resp=$(auth_rpc "$GV1T" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$GSESSION_ID\",\"p_reaction\":\"heart\"}")
-if echo "$resp" | grep -q '"status":"submitted"'; then
+if echo "$resp" | grep -qE '"status": *"submitted"'; then
   ok "G: VOTER1 emoji-voted (heart)"
 else
   nok "G: VOTER1 emoji vote failed: $(echo "$resp" | head -c 120)"
@@ -466,7 +467,7 @@ fi
 # VOTER2 passes on the answered round — the last required action advances.
 resp=$(auth_rpc "$GV2T" "submit_minigame_reaction" \
   "{\"p_session_id\":\"$GSESSION_ID\",\"p_reaction\":\"pasar\"}")
-if echo "$resp" | grep -q '"status":"advanced"'; then
+if echo "$resp" | grep -qE '"status": *"advanced"'; then
   ok "G: reactor pass auto-advanced the round (passer counts as reacted)"
 else
   nok "G: pass auto-advance failed: $(echo "$resp" | head -c 160)"
@@ -501,7 +502,7 @@ h1 "TEST E — AUTO-FINISH when the round counter reaches round_target"
 for i in 2 3; do
   resp=$(auth_rpc "$TOKEN_A" "reveal_minigame_prompt" \
     "{\"p_session_id\":\"$SESSION_ID\",\"p_prompt_type\":\"verdad\"}")
-  if ! echo "$resp" | grep -q '"status":"revealed"'; then
+  if ! echo "$resp" | grep -qE '"status": *"revealed"'; then
     nok "reveal on round $i failed: $(echo "$resp" | head -c 160)"
     continue
   fi
@@ -521,9 +522,9 @@ for i in 2 3; do
     "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"heart\"}" > /dev/null
   resp=$(auth_rpc "$V2T" "submit_minigame_reaction" \
     "{\"p_session_id\":\"$SESSION_ID\",\"p_reaction\":\"heart\"}")
-  if echo "$resp" | grep -q '"status":"finished"'; then
+  if echo "$resp" | grep -qE '"status": *"finished"'; then
     ok "advance on round $i auto-finished the game"
-  elif echo "$resp" | grep -q '"status":"advanced"'; then
+  elif echo "$resp" | grep -qE '"status": *"advanced"'; then
     ok "advance on round $i still playing (target 3)"
   else
     nok "advance on round $i unexpected: $(echo "$resp" | head -c 160)"
@@ -586,7 +587,7 @@ h1 "TEST H — full ranking: all participants ranked, only N paid"
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":50,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":3,\"p_prize_positions\":2}")
 SESSION2_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
-if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION2_ID" ]; then
+if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION2_ID" ]; then
   ok "H: 3-player session with N=2 created ($SESSION2_ID)"
 else
   nok "H: create failed: $(echo "$resp" | head -c 160)"
@@ -598,8 +599,8 @@ HINV_C=$(svc_get "minigame_invites?select=id&session_id=eq.$SESSION2_ID&invitee_
 auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$HINV_B\"}" > /dev/null
 auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$HINV_C\"}" > /dev/null
 
-resp=$(auth_rpc "$TOKEN_A" "finish_minigame_game" "{\"p_session_id\":\"$SESSION2_ID\"}")
-if echo "$resp" | grep -q '"status":"finished"'; then
+resp=$(finish_game "$UUID_A" "$SESSION2_ID")
+if echo "$resp" | grep -qE '"status": *"finished"'; then
   ok "H: session settled (finished)"
 else
   nok "H: finish failed: $(echo "$resp" | head -c 160)"

@@ -7,7 +7,7 @@ layer never touches Postgres — it uses PostgREST via Kong with the
 
 ## Make
 
-- `make init` → `make start` — dev/testing (local Docker stack, `543xx`); `make tunnel` to expose it.
+- `make init APP=samay ENV=testing-local` → `make start APP=samay ENV=testing-local` — dev/testing (local Docker stack, `543xx`); `make tunnel` to expose it.
 - `make init APP=samay ENV=staging|prod` — reconcile the env vault profile (Reuse/Re-generate) + clone its VM; then `make start APP=samay ENV=staging|prod`.
 - `make start APP=samay ENV=staging|prod` · `make deploy APP=samay ENV=staging|prod` — VM + vault (Admin-only, vault passphrase).
 - `make start APP=samay ENV=testing-local` — local Docker; `ENV=testing` adds the free Cloudflare tunnel (`TUNNEL=named` needs `CLOUDFLARE_TUNNEL_TOKEN`; `TUNNEL=quick` gives a random trycloudflare URL).

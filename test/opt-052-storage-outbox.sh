@@ -79,7 +79,7 @@ echo "── setup ──"
 tmp="$(mktemp "${TMPDIR:-/tmp}/samay-outbox.XXXXXX")"
 printf 'outbox fixture bytes\n' >"$tmp"
 upload="$(svc -X POST "$URL/storage/v1/object/events/$EXISTING_PATH" \
-  -H 'Content-Type: application/octet-stream' -H 'x-upsert: true' \
+  -H 'Content-Type: image/jpeg' -H 'x-upsert: true' \
   --data-binary "@$tmp")"
 rm -f "$tmp"
 if printf '%s' "$upload" | grep -q '"Key"\|"key"\|Successfully'; then

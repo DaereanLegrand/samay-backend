@@ -223,10 +223,11 @@ else
   nok "anon SELECT cosmetics — unexpected: $(echo "$resp" | head -c 60)"
 fi
 
-# A3: anon SELECT on group_rank_snapshots (public read, may be empty)
+# A3: anon SELECT on group_rank_snapshots — E3 made ranking tier-gated and
+# authenticated-only, so anon is denied (42501 or an empty RLS-filtered list).
 resp=$(anon_get "group_rank_snapshots?limit=1")
-if echo "$resp" | grep -qE '^\s*\['; then
-  ok "anon SELECT group_rank_snapshots — allowed (public read)"
+if echo "$resp" | grep -qE '^\s*\[\]' || echo "$resp" | grep -q "42501"; then
+  ok "anon SELECT group_rank_snapshots — denied (E3 tier gating)"
 else
   nok "anon SELECT group_rank_snapshots — unexpected: $(echo "$resp" | head -c 60)"
 fi
@@ -415,17 +416,15 @@ fi
 # I3: authenticated cannot set groups.group_shards (rank fraud) on own group
 GID_I="$(uuidgen | tr 'A-Z' 'a-z')"
 MID_I="$(uuidgen | tr 'A-Z' 'a-z')"
-resp=$(curl -s -X POST "$SUPABASE_URL/rest/v1/groups" \
-  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
-  -H "Content-Type: application/json" -H "Prefer: return=minimal" \
-  -d "{\"id\":\"$GID_I\",\"name\":\"guard-probe\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}")
-# host membership (the groups_update_host policy requires it)
+# E3 moved creation behind the create_group RPC and revoked direct INSERT/
+# UPDATE on groups: the fraud is now denied at the privilege layer (42501).
+svc_post "groups" "{\"id\":\"$GID_I\",\"name\":\"guard-probe\",\"created_by_user_id\":\"$UUID_A\",\"rank_bracket\":\"b0_20\"}" >/dev/null
 svc_post "group_members" "{\"id\":\"$MID_I\",\"group_id\":\"$GID_I\",\"user_id\":\"$UUID_A\",\"role\":\"host\",\"status\":\"active\"}" >/dev/null
 resp=$(curl -s -X PATCH "$SUPABASE_URL/rest/v1/groups?id=eq.$GID_I" \
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_A" \
   -H "Content-Type: application/json" -d '{"group_shards": 5000}')
-if echo "$resp" | grep -q "server-managed columns"; then
-  ok "groups.group_shards fraud rejected by assert_safe_group_update trigger"
+if echo "$resp" | grep -q "server-managed columns" || echo "$resp" | grep -q "42501"; then
+  ok "groups.group_shards fraud rejected (server-managed column / privilege denial)"
 else
   nok "groups.group_shards fraud NOT rejected! Response: $(echo "$resp" | head -c 120)"
 fi

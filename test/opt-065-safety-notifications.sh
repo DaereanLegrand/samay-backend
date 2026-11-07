@@ -70,6 +70,12 @@ svc_delete_quiet() {
   curl -s -X DELETE "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Prefer: return=minimal" >/dev/null 2>&1 || true
 }
+DB_PORT="$(sed -n 's/^POSTGRES_PORT=//p' "$(cd "$(dirname "$0")/.." && pwd)/supabase/.env" | head -1 | awk '{print $1}' | tr -d '"')"
+reset_report_limits() {
+  PGPASSWORD=postgres psql -h 127.0.0.1 -p "${DB_PORT:-54382}" -U postgres -d postgres \
+    -tAc "DELETE FROM public.action_rate_limits;" >/dev/null 2>&1 || true
+}
+
 svc_rpc() {
   curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Content-Type: application/json" -d "$2"
@@ -221,6 +227,7 @@ auth_rpc "$TOKEN_B" "set_notification_preferences" '{"p_prefs":{"friends":true}}
 # =========================================================================
 h1 "C - report_content validates + snapshots; priority derived"
 # =========================================================================
+reset_report_limits
 resp=$(auth_rpc "$TOKEN_A" "report_content" \
   "{\"p_target_type\":\"avatar\",\"p_target_id\":\"$UUID_B\",\"p_category\":\"harassment\",\"p_reason\":\"harassment\"}")
 R_AVATAR=$(printf '%s' "$resp" | pyget report_id)
@@ -240,14 +247,17 @@ if svc_get "moderation_evidence?report_id=eq.$R_AVATAR&select=retention_until" |
 else
   nok "evidence retention_until missing"
 fi
+reset_report_limits
 resp=$(auth_rpc "$TOKEN_A" "report_content" \
   "{\"p_target_type\":\"group_cover\",\"p_target_id\":\"$GROUP_ID\",\"p_category\":\"spam\"}")
 if [ "$(printf '%s' "$resp" | pyget status)" = "ok" ]; then ok "member can report group cover"; else nok "group cover report: $(echo "$resp" | head -c 120)"; fi
+reset_report_limits
 resp=$(auth_rpc "$TOKEN_C" "report_content" \
   "{\"p_target_type\":\"group_cover\",\"p_target_id\":\"$GROUP_ID\",\"p_category\":\"spam\"}")
 if [ "$(printf '%s' "$resp" | pyget status)" = "not_allowed" ]; then ok "non-member group-cover report rejected"; else nok "non-member report not rejected: $(echo "$resp" | head -c 120)"; fi
+reset_report_limits
 resp=$(auth_rpc "$TOKEN_A" "report_content" \
-  "{\"p_target_type\":\"avatar\",\"p_target_id\":\"$UUID_B\",\"p_category\":\"csam\"}")
+  "{\"p_target_type\":\"avatar\",\"p_target_id\":\"$UUID_C\",\"p_category\":\"csam\"}")
 if [ "$(printf '%s' "$resp" | pyget priority)" = "0" ] && [ "$(printf '%s' "$resp" | pyget category)" = "csam" ]; then
   ok "CSAM report is priority 0 (immediate lane)"
 else
@@ -318,6 +328,7 @@ body="{\"id\":\"$MSG_ID\",\"chat_id\":\"$CHAT_ID\",\"sender_id\":\"$UUID_B\",\"c
 curl -s -X POST "$SUPABASE_URL/rest/v1/messages" -H "apikey: $ANON_KEY" \
   -H "Authorization: Bearer $TOKEN_B" -H "Content-Type: application/json" \
   -H "Prefer: return=representation" -d "$body" >/dev/null
+reset_report_limits
 resp=$(auth_rpc "$TOKEN_A" "report_message" \
   "{\"p_message_id\":\"$MSG_ID\",\"p_reason\":\"ncii\",\"p_plaintext\":\"decrypted text\"}")
 REPORT_MSG=$(printf '%s' "$resp" | pyget report_id)
@@ -355,6 +366,7 @@ else
 fi
 
 # A reports B's account; remove bans B; B appeals; admin overturns.
+reset_report_limits
 resp=$(auth_rpc "$TOKEN_A" "report_content" \
   "{\"p_target_type\":\"user\",\"p_target_id\":\"$UUID_B\",\"p_category\":\"harassment\"}")
 R_USER=$(printf '%s' "$resp" | pyget report_id)
