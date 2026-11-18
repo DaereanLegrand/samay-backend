@@ -4,6 +4,9 @@ Backend for Samay, a party/minigames app: a self-hosted Supabase stack that
 serves prompt packs and multi-device game sessions, plus a Go CLI/API for admin
 and operational tasks.
 
+- Client: <https://github.com/DaereanLegrand/samay-frontend>
+- Backend: <https://github.com/DaereanLegrand/samay-backend>
+
 ## What this is
 
 - **Self-hosted Supabase.** Postgres 17, GoTrue, PostgREST, Realtime, Storage and
@@ -53,6 +56,9 @@ Then connect a client to `http://127.0.0.1:54386` using the anon key from
 | `internal/` | Go packages (auth, billing, push, storage, contracts) |
 | `test/` | `opt-*.sh` end-to-end scripts and fixtures |
 | `docs/` | infra and database notes |
+
+The app itself (Flutter, iOS + Android) lives in the
+[client repo](https://github.com/DaereanLegrand/samay-frontend).
 
 ## Testing
 
