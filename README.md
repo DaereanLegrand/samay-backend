@@ -1,71 +1,69 @@
-# Samay backend — slim build
+# Samay — backend
 
-Self-hosted Supabase stack (Postgres 17 + GoTrue + PostgREST + Realtime +
-Storage + Kong) plus a Go admin CLI/API (`github.com/samay-app/samay`). The Go
-layer never touches Postgres — it uses PostgREST via Kong with the
-`service_role` key.
+Backend for Samay, a party/minigames app: a self-hosted Supabase stack that
+serves prompt packs and multi-device game sessions, plus a Go CLI/API for admin
+and operational tasks.
 
-## Make
+## What this is
 
-- `make init APP=samay ENV=testing-local` → `make start APP=samay ENV=testing-local` — dev/testing (local Docker stack, `543xx`); `make tunnel` to expose it.
-- `make init APP=samay ENV=staging|prod` — reconcile the env vault profile (Reuse/Re-generate) + clone its VM; then `make start APP=samay ENV=staging|prod`.
-- `make start APP=samay ENV=staging|prod` · `make deploy APP=samay ENV=staging|prod` — VM + vault (Admin-only, vault passphrase).
-- `make start APP=samay ENV=testing-local` — local Docker; `ENV=testing` adds the free Cloudflare tunnel (`TUNNEL=named` needs `CLOUDFLARE_TUNNEL_TOKEN`; `TUNNEL=quick` gives a random trycloudflare URL).
-- `make test` · `make test db` (pgTAP) · `make test api` (curl) · `make check` · `make secrets|migrate|hooks`.
-- `make build-cli|build-linux|build-api|build-loadtest` · `make loadtest [smoke]`.
+- **Self-hosted Supabase.** Postgres 17, GoTrue, PostgREST, Realtime, Storage and
+  Kong run from `supabase/docker-compose.yml`.
+- **Go CLI/API** (`github.com/samay-app/samay`) for admin and service tasks. It
+  reads and writes through PostgREST (via Kong, `service_role`), never Postgres
+  directly.
+- **Guest-first auth.** Anonymous sign-ins and manual identity linking (guest →
+  Apple/Google, same uid) are enabled in `supabase/config.toml` and
+  `supabase/docker-compose.yml`.
+- **Games-only schema.** `supabase/migrations/300_slim/` is a forward-fix layer
+  after the existing tree: guest onboarding, prompt packs, wager removal,
+  participant leave, and revoked client grants for removed features. Tables for
+  removed features are kept so they can be re-added with a grant plus feature
+  code rather than a schema rebuild.
+- **This is a slim build.** Events, chat, feed, photos, rankings, shards/wagers
+  and cosmetics are not exposed. They will be re-added progressively.
 
-## Testing config
+## Requirements
 
-The testing feed comes from the single **`supabase/.env`** (one `.env` per
-project; `supabase/.env.example` is the committed template, bootstrapped by
-`make init`). The **only** testing-time vault fetches are opt-in on the
-CLI/shell, honored by `start` **and** `reset`:
+- Docker with Compose v2
+- Go 1.26+ (`go.mod`)
+- `make`, `gum` and `python3` (used by `make init`)
+- Supabase CLI for the pgTAP suite (`make test db`)
 
-- `FCM=true` → `tools/<fetch-fcm-secret>.sh` (the push worker's FCM key).
-- `RC=true` → `tools/<fetch-rc-secret>.sh` (RevenueCat server secrets; `RC_ENV` selects
-  `testing` (default) or `staging`).
+## Quick start
 
-There is no other edge case. `make start APP=samay ENV=staging|prod` is vault-gated
-(everything from the vault); testing is not.
+The local stack publishes Postgres on 54382 and Kong on 54386.
 
+```sh
+make init APP=samay ENV=testing-local    # interactive; writes supabase/.env
+make start APP=samay ENV=testing-local   # compose up + migrations + seed config
+```
 
-## Slim layer (this branch)
+Then connect a client to `http://127.0.0.1:54386` using the anon key from
+`supabase/.env`. Other lifecycle verbs: `make stop`, `make restart`,
+`make status`, `make reset`, `make seed`.
 
-The slim app keeps games, auth, profile, settings, notifications, friends,
-groups and prompt packs. Two deliberate choices:
+## Project layout
 
-- **Forward-fix, not a squashed baseline.** `supabase/migrations/300_slim/`
-  sits after `970` and is the only place this branch changes the schema. It is
-  fully idempotent, so it applies cleanly to a fresh stack and to an existing
-  one.
-- **Removed features keep their tables; clients lose the grants.** That makes a
-  progressive re-add a GRANT plus feature code instead of a schema rebuild.
-
-| File | What it does |
+| Path | What lives there |
 |---|---|
-| `300_slim/01_onboarding.sql` | guest columns (`is_guest`, `age_confirmed_at`, `terms_accepted_at`, `terms_version`), `is_onboarded()`, `bootstrap_profile()`, `confirm_my_account()` |
-| `300_slim/02_prompt_packs.sql` | `prompt_packs` + `minigame_prompts.pack_id`, seeded free/paid packs, `list_prompt_packs()`, `get_prompt_pack()`; prompts no longer client-readable |
-| `300_slim/03_remove_wagers.sql` | wager-free `create_minigame_session`; escrow/ledger writes neutralised across the play RPCs |
-| `300_slim/04_leave_session.sql` | `leave_minigame_session()` (participant leave, host transfer) |
-| `300_slim/05_revoke_removed.sql` | revokes client grants on every removed-feature relation |
+| `supabase/migrations/` | one ordered migration tree; `300_slim/` is this branch's layer |
+| `supabase/tests/` | pgTAP suites (`schema_test.sql`, `slim_test.sql`) |
+| `supabase/` | compose stack, `config.toml`, seed SQL, edge functions |
+| `cmd/` | Go entrypoints (admin, api-server, workers, loadtest) |
+| `internal/` | Go packages (auth, billing, push, storage, contracts) |
+| `test/` | `opt-*.sh` end-to-end scripts and fixtures |
+| `docs/` | infra and database notes |
 
-Anonymous sign-ins and manual identity linking are enabled in
-`supabase/config.toml`, `supabase/.env.example` and `supabase/docker-compose.yml`
-(`GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED`, `GOTRUE_SECURITY_MANUAL_LINKING_ENABLED`).
+## Testing
 
-Tests: `supabase/tests/schema_test.sql` (kept surface) and
-`supabase/tests/slim_test.sql` (the slim contracts). Go: `go test ./...`.
-Shell: `make test api`.
+```sh
+make test db    # pgTAP via supabase db test (runs schema_test.sql)
+make test api   # curl opt-tests (test/opt-*.sh, 34 scripts)
+make test       # go test ./... plus static seed/Makefile checks
+make check      # secret scan, go vet, gofmt
+make migrate    # migration ordering/ledger check
+```
 
-## Docs
-
-`<private-ops-repo>/SELFHOSTING.md` (compose stack) · `BACKEND.md` (Go surface) ·
-`DATABASE.md` (schema) · `BACKEND-SERVER-VM.md` (VM) · `DEPLOYMENT-PLACEHOLDER.md`.
-
-## Architecture
-
-![Architecture](docs/diagrams/architecture.svg)
-
-## Deployment
-
-![Deployment](docs/diagrams/deployment.svg)
+`schema_test.sql` holds 901 assertions for the kept surface; the slim contracts
+in `supabase/tests/slim_test.sql` (52) run with the same tool by naming the file
+(`supabase db test --db-url … -- supabase/tests/slim_test.sql`).
