@@ -35,42 +35,6 @@ func TestUsersDeleteWithConfirmProceeds(t *testing.T) {
 	}
 }
 
-func TestUsersGrantShardsInvalidAmount(t *testing.T) {
-	setupTestEnv(t)
-	rootCmd.SetArgs([]string{"users", "grant-shards", "u1", "abc", "--confirm"})
-	_, err := captureStdout(t, rootCmd.Execute)
-	if err == nil || !strings.Contains(err.Error(), "positive integer") {
-		t.Fatalf("expected amount error, got: %v", err)
-	}
-}
-
-func TestUsersGrantShardsZeroAmount(t *testing.T) {
-	setupTestEnv(t)
-	rootCmd.SetArgs([]string{"users", "grant-shards", "u1", "0", "--confirm"})
-	_, err := captureStdout(t, rootCmd.Execute)
-	if err == nil || !strings.Contains(err.Error(), "positive integer") {
-		t.Fatalf("expected amount error, got: %v", err)
-	}
-}
-
-func TestUsersGrantShardsRequiresConfirm(t *testing.T) {
-	setupTestEnv(t)
-	rootCmd.SetArgs([]string{"users", "grant-shards", "u1", "10"})
-	_, err := captureStdout(t, rootCmd.Execute)
-	if err == nil || !strings.Contains(err.Error(), "confirm") {
-		t.Fatalf("expected confirm-required error, got: %v", err)
-	}
-}
-
-func TestUsersGrantPreshardsRequiresConfirm(t *testing.T) {
-	setupTestEnv(t)
-	rootCmd.SetArgs([]string{"users", "grant-preshards", "u1", "10"})
-	_, err := captureStdout(t, rootCmd.Execute)
-	if err == nil || !strings.Contains(err.Error(), "confirm") {
-		t.Fatalf("expected confirm-required error, got: %v", err)
-	}
-}
-
 func TestUsersDeleteInvalidUUID(t *testing.T) {
 	setupTestEnv(t)
 	rootCmd.SetArgs([]string{"users", "delete", "not-a-uuid", "--confirm"})
@@ -189,18 +153,39 @@ func TestUsersUnbanSuccess(t *testing.T) {
 	}
 }
 
-func TestUsersGrantShardsSuccess(t *testing.T) {
+func TestUsersLedgerRequiresArg(t *testing.T) {
 	setupTestEnv(t)
+	rootCmd.SetArgs([]string{"users", "ledger"})
+	_, err := captureStdout(t, rootCmd.Execute)
+	if err == nil || !strings.Contains(err.Error(), "arg") {
+		t.Fatalf("expected arg-count error, got: %v", err)
+	}
+}
+
+func TestUsersLedgerRejectsNonPositiveLimit(t *testing.T) {
+	setupTestEnv(t)
+	rootCmd.SetArgs([]string{"users", "ledger", "u1", "--limit", "0"})
+	_, err := captureStdout(t, rootCmd.Execute)
+	if err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("expected limit error, got: %v", err)
+	}
+}
+
+func TestUsersLedgerTableOutput(t *testing.T) {
+	setupTestEnv(t)
+	resetFlag(t, rootCmd, "json", "false")
 	stubCreateClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`[]`))
+		w.Write([]byte(`[{"id":"s1","delta":50,"reason":"admin_grant","reference_id":null,"created_at":"2026-01-01T00:00:00Z"}]`))
 	})
-	rootCmd.SetArgs([]string{"users", "grant-shards", "12345678-1234-1234-1234-123456789012", "50", "--confirm"})
+	rootCmd.SetArgs([]string{"users", "ledger", "12345678-1234-1234-1234-123456789012"})
 	out, err := captureStdout(t, rootCmd.Execute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "granted") {
-		t.Errorf("expected success message, got: %q", out)
+	for _, want := range []string{"DELTA", "REASON", "admin_grant", "50"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ledger output missing %q: %q", want, out)
+		}
 	}
 }

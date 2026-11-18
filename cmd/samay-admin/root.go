@@ -65,13 +65,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonFlag, "json", false, "output raw JSON instead of tables")
 	rootCmd.AddCommand(
 		usersCmd,
-		eventsCmd,
-		groupsCmd,
 		reportsCmd,
 		appealsCmd,
-		shardsCmd,
 		configCmd,
-		subsCmd,
 		systemCmd,
 		featureRequestsCmd,
 	)

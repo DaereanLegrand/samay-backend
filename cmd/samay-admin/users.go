@@ -14,7 +14,7 @@ import (
 var usersCmd = &cobra.Command{
 	Use:   "users",
 	Short: "Manage users",
-	Long:  "List, inspect, ban, grant shards to, and delete users.",
+	Long:  "List, inspect, ban, delete, and audit users.",
 }
 
 var usersListCmd = &cobra.Command{
@@ -94,50 +94,22 @@ var usersUnbanCmd = &cobra.Command{
 	},
 }
 
-var usersGrantShardsCmd = &cobra.Command{
-	Use:   "grant-shards <user_id> <amount>",
-	Short: "Grant personal shards to a user",
-	Args:  cobra.ExactArgs(2),
+var usersLedgerCmd = &cobra.Command{
+	Use:   "ledger <user_id>",
+	Short: "Show a user's shard transaction history (read-only; the economy is retired)",
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		confirm, _ := cmd.Flags().GetBool("confirm")
-		if !confirm {
-			return fmt.Errorf("refusing to grant shards: pass --confirm to confirm")
+		limit, _ := cmd.Flags().GetInt("limit")
+		if limit <= 0 {
+			return fmt.Errorf("invalid --limit %d: must be a positive integer", limit)
 		}
-		amount, err := validate.ParsePositiveInt(args[1])
+		ctx, cancel := rootCtx()
+		defer cancel()
+		data, err := ops.GetShardLedger(ctx, dbClient, args[0], limit)
 		if err != nil {
 			return err
 		}
-		reason, _ := cmd.Flags().GetString("reason")
-		ctx, cancel := rootCtx()
-		defer cancel()
-		if err := ops.GrantShards(ctx, dbClient, args[0], amount, reason, adminUserID()); err != nil {
-			return err
-		}
-		fmt.Printf("granted %d shards to %s\n", amount, args[0])
-		return nil
-	},
-}
-
-var usersGrantPreshardsCmd = &cobra.Command{
-	Use:   "grant-preshards <user_id> <amount>",
-	Short: "Grant preshards to a user",
-	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		confirm, _ := cmd.Flags().GetBool("confirm")
-		if !confirm {
-			return fmt.Errorf("refusing to grant preshards: pass --confirm to confirm")
-		}
-		amount, err := validate.ParsePositiveInt(args[1])
-		if err != nil {
-			return err
-		}
-		reason, _ := cmd.Flags().GetString("reason")
-		ctx, cancel := rootCtx()
-		defer cancel()
-		if err := ops.GrantPreshards(ctx, dbClient, args[0], amount, reason, adminUserID()); err != nil {
-			return err
-		}
-		fmt.Printf("granted %d preshards to %s\n", amount, args[0])
+		format.Output(data, jsonFlag, shardLedgerTableBuilder)
 		return nil
 	},
 }
@@ -172,13 +144,7 @@ func init() {
 	usersBanCmd.Flags().String("reason", "", "ban reason (required)")
 	_ = usersBanCmd.MarkFlagRequired("reason")
 
-	usersGrantShardsCmd.Flags().String("reason", "admin_grant", "reason for the grant")
-	usersGrantShardsCmd.Flags().Bool("confirm", false, "confirm the grant (required)")
-	_ = usersGrantShardsCmd.MarkFlagRequired("confirm")
-
-	usersGrantPreshardsCmd.Flags().String("reason", "admin_grant", "reason for the grant")
-	usersGrantPreshardsCmd.Flags().Bool("confirm", false, "confirm the grant (required)")
-	_ = usersGrantPreshardsCmd.MarkFlagRequired("confirm")
+	usersLedgerCmd.Flags().Int("limit", 50, "maximum number of entries")
 
 	usersDeleteCmd.Flags().Bool("confirm", false, "confirm the deletion (required)")
 	_ = usersDeleteCmd.MarkFlagRequired("confirm")
@@ -188,8 +154,7 @@ func init() {
 		usersGetCmd,
 		usersBanCmd,
 		usersUnbanCmd,
-		usersGrantShardsCmd,
-		usersGrantPreshardsCmd,
+		usersLedgerCmd,
 		usersDeleteCmd,
 	)
 }
@@ -211,6 +176,22 @@ func usersTableBuilder(data any) ([]string, [][]string) {
 			strconv.Itoa(u.Preshards),
 			fmtTimeVal(u.CreatedAt),
 			boolStr(u.BannedAt != nil, "yes", "no"),
+		})
+	}
+	return headers, rows
+}
+
+func shardLedgerTableBuilder(data any) ([]string, [][]string) {
+	entries := data.([]db.ShardLedgerEntry)
+	headers := []string{"ID", "DELTA", "REASON", "REFERENCE", "CREATED_AT"}
+	rows := make([][]string, 0, len(entries))
+	for _, e := range entries {
+		rows = append(rows, []string{
+			e.ID,
+			strconv.Itoa(e.Delta),
+			e.Reason,
+			deref(e.ReferenceID),
+			fmtTimeVal(e.CreatedAt),
 		})
 	}
 	return headers, rows

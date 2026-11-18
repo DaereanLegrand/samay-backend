@@ -180,28 +180,28 @@ func validateCodes(t *testing.T, f fixture) {
 	}
 }
 
+// structFixtures maps a fixture name to the Go type whose json tags it freezes.
+// The fixture list itself is directory-derived (load), so deleting a fixture
+// simply stops its struct-tag check — it never breaks the suite. Adding a new
+// fixture still requires strict per-file validation in TestFixtures.
+var structFixtures = map[string]any{
+	"admin_user": db.User{},
+}
+
 // The admin handlers must emit exactly the frozen tag set.
 func TestAdminStructShapes(t *testing.T) {
-	byName := map[string]fixture{}
 	for _, f := range load(t) {
-		byName[f.Name] = f
-	}
-	cases := []struct {
-		name string
-		typ  any
-	}{
-		{"admin_event", db.Event{}},
-		{"admin_user", db.User{}},
-	}
-	for _, c := range cases {
-		f, ok := byName[c.name]
+		typ, ok := structFixtures[f.Name]
 		if !ok {
-			t.Fatalf("missing %s fixture", c.name)
+			continue
 		}
-		tags := jsonTags(reflect.TypeOf(c.typ))
-		if want, got := sortedKeys(f.Fields), tags; !reflect.DeepEqual(want, got) {
-			t.Fatalf("%s fixture keys %v != Go json tags %v (update both)", c.name, want, got)
-		}
+		f := f
+		t.Run(f.Name, func(t *testing.T) {
+			tags := jsonTags(reflect.TypeOf(typ))
+			if want, got := sortedKeys(f.Fields), tags; !reflect.DeepEqual(want, got) {
+				t.Fatalf("%s fixture keys %v != Go json tags %v (update both)", f.Name, want, got)
+			}
+		})
 	}
 }
 

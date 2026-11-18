@@ -65,24 +65,8 @@ func newRouter(verifier *auth.Verifier) *gin.Engine {
 		admin.GET("/users/:id", getUserHandler)
 		admin.POST("/users/:id/ban", banUserHandler)
 		admin.POST("/users/:id/unban", unbanUserHandler)
-		admin.POST("/users/:id/grant-shards", grantShardsHandler)
-		admin.POST("/users/:id/grant-preshards", grantPreshardsHandler)
 		admin.POST("/users/:id/delete", deleteUserHandler)
 		admin.GET("/users/:id/ledger", userLedgerHandler)
-
-		// events
-		admin.GET("/events", listEventsHandler)
-		admin.GET("/events/:id", getEventHandler)
-		admin.POST("/events/:id/feature", featureEventHandler)
-		admin.POST("/events/:id/unfeature", unfeatureEventHandler)
-		admin.POST("/events/:id/cancel", cancelEventHandler)
-		admin.POST("/events/:id/distribute-shards", distributeShardsHandler)
-
-		// groups
-		admin.GET("/groups", listGroupsHandler)
-		admin.GET("/groups/:id", getGroupHandler)
-		admin.GET("/groups/:id/members", groupMembersHandler)
-		admin.GET("/groups/:id/ledger", groupLedgerHandler)
 
 		// reports
 		admin.GET("/reports", listReportsHandler)
@@ -95,28 +79,14 @@ func newRouter(verifier *auth.Verifier) *gin.Engine {
 		admin.GET("/appeals/:id", getAppealHandler)
 		admin.POST("/appeals/:id/decision", decideAppealHandler)
 
-		// shards
-		admin.POST("/ranks/recalculate", recalculateRanksHandler)
-
 		// config
 		admin.GET("/config", listConfigHandler)
 		admin.GET("/config/:key", getConfigHandler)
 		admin.POST("/config/:key", setConfigHandler)
 
-		// subs
-		admin.GET("/subs", listSubsHandler)
-		admin.GET("/subs/:id", getSubHandler)
-		admin.POST("/subs/:id/override", overrideSubHandler)
-		admin.POST("/subs/:id/revoke", revokeOverrideHandler)
-
 		// feature requests
 		admin.GET("/feature-requests", listFeatureRequestsHandler)
 	}
-
-	// Post-MVP namespaces (spec §2/§3): the surface exists so the API contract is
-	// complete; the actual handlers land with the host/venue phases.
-	r.Any(apiBase+"/host/*any", notImplemented)
-	r.Any(apiBase+"/venue/*any", notImplemented)
 
 	return r
 }
@@ -253,10 +223,6 @@ func notAllowed(c *gin.Context) {
 	c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "method not allowed"})
 }
 
-func notImplemented(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
-}
-
 // ── response/error helpers ────────────────────────────────────────────────────
 
 // opsCtx derives the context for internal/ops calls from the request context
@@ -351,19 +317,6 @@ func queryBool(c *gin.Context, key string) (bool, error) {
 
 // ── request bodies ─────────────────────────────────────────────────────────────
 
-type grantRequest struct {
-	Amount int    `json:"amount"`
-	Reason string `json:"reason"`
-}
-
-type featureRequest struct {
-	Expires string `json:"expires"`
-}
-
-type cancelRequest struct {
-	Reason string `json:"reason"`
-}
-
 type banRequest struct {
 	Reason string `json:"reason"`
 }
@@ -379,16 +332,6 @@ type appealDecisionRequest struct {
 
 type setConfigRequest struct {
 	Value string `json:"value"`
-}
-
-type overrideRequest struct {
-	Tier    string `json:"tier"`
-	Expires string `json:"expires"`
-	Reason  string `json:"reason"`
-}
-
-type recalcRequest struct {
-	Tier string `json:"tier"`
 }
 
 // ── handlers: health ──────────────────────────────────────────────────────────
@@ -477,46 +420,6 @@ func unbanUserHandler(c *gin.Context) {
 	ok(c)
 }
 
-func grantShardsHandler(c *gin.Context) {
-	var req grantRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-	if req.Amount <= 0 {
-		writeError(c, fmt.Errorf("invalid amount %d: must be a positive integer", req.Amount))
-		return
-	}
-	reason := req.Reason
-	if reason == "" {
-		reason = "admin_grant"
-	}
-	if err := ops.GrantShards(opsCtx(c), dbClient, c.Param("id"), req.Amount, reason, adminIdentity(c)); err != nil {
-		writeError(c, err)
-		return
-	}
-	ok(c)
-}
-
-func grantPreshardsHandler(c *gin.Context) {
-	var req grantRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-	if req.Amount <= 0 {
-		writeError(c, fmt.Errorf("invalid amount %d: must be a positive integer", req.Amount))
-		return
-	}
-	reason := req.Reason
-	if reason == "" {
-		reason = "admin_grant"
-	}
-	if err := ops.GrantPreshards(opsCtx(c), dbClient, c.Param("id"), req.Amount, reason, adminIdentity(c)); err != nil {
-		writeError(c, err)
-		return
-	}
-	ok(c)
-}
-
 func deleteUserHandler(c *gin.Context) {
 	id := c.Param("id")
 	if err := validate.ParseUUID(id); err != nil {
@@ -537,148 +440,6 @@ func userLedgerHandler(c *gin.Context) {
 		return
 	}
 	data, err := ops.GetShardLedger(opsCtx(c), dbClient, c.Param("id"), limit)
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, data)
-}
-
-// ── handlers: events ──────────────────────────────────────────────────────────
-
-func listEventsHandler(c *gin.Context) {
-	status := c.Query("status")
-	if status != "" {
-		if err := validate.OneOf(status, "draft", "upcoming", "live", "ended", "cancelled"); err != nil {
-			writeError(c, err)
-			return
-		}
-	}
-	eventType := c.Query("type")
-	if eventType != "" {
-		if err := validate.OneOf(eventType, "casual", "juerga", "tono"); err != nil {
-			writeError(c, err)
-			return
-		}
-	}
-	data, err := ops.ListEvents(opsCtx(c), dbClient, ops.ListEventsParams{
-		Status: status,
-		Type:   eventType,
-		Host:   c.Query("host"),
-	})
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, data)
-}
-
-func getEventHandler(c *gin.Context) {
-	data, err := ops.GetEvent(opsCtx(c), dbClient, c.Param("id"))
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, data)
-}
-
-func featureEventHandler(c *gin.Context) {
-	var req featureRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-	expiresAt, err := validate.ParseDate(req.Expires)
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	if err := ops.FeatureEvent(opsCtx(c), dbClient, c.Param("id"), expiresAt, adminIdentity(c)); err != nil {
-		writeError(c, err)
-		return
-	}
-	ok(c)
-}
-
-func unfeatureEventHandler(c *gin.Context) {
-	if err := ops.UnfeatureEvent(opsCtx(c), dbClient, c.Param("id"), adminIdentity(c)); err != nil {
-		writeError(c, err)
-		return
-	}
-	ok(c)
-}
-
-func cancelEventHandler(c *gin.Context) {
-	var req cancelRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-	if req.Reason == "" {
-		writeError(c, fmt.Errorf("invalid request: reason is required"))
-		return
-	}
-	if err := ops.CancelEvent(opsCtx(c), dbClient, c.Param("id"), req.Reason, adminIdentity(c)); err != nil {
-		writeError(c, err)
-		return
-	}
-	ok(c)
-}
-
-func distributeShardsHandler(c *gin.Context) {
-	if err := ops.DistributeShards(opsCtx(c), dbClient, c.Param("id"), adminIdentity(c)); err != nil {
-		writeError(c, err)
-		return
-	}
-	ok(c)
-}
-
-// ── handlers: groups ──────────────────────────────────────────────────────────
-
-func listGroupsHandler(c *gin.Context) {
-	tier := c.Query("tier")
-	if tier != "" {
-		if err := validate.OneOf(tier, "micro", "small", "medium", "large"); err != nil {
-			writeError(c, err)
-			return
-		}
-	}
-	bracket := c.Query("bracket")
-	if bracket != "" {
-		if err := validate.OneOf(bracket, "b0_20", "b20_40", "b40_60", "b60_80", "b80_90", "b90_100"); err != nil {
-			writeError(c, err)
-			return
-		}
-	}
-	data, err := ops.ListGroups(opsCtx(c), dbClient, ops.ListGroupsParams{
-		SizeTier: tier,
-		Bracket:  bracket,
-	})
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, data)
-}
-
-func getGroupHandler(c *gin.Context) {
-	data, err := ops.GetGroup(opsCtx(c), dbClient, c.Param("id"))
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, data)
-}
-
-func groupMembersHandler(c *gin.Context) {
-	data, err := ops.ListGroupMembers(opsCtx(c), dbClient, c.Param("id"))
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, data)
-}
-
-func groupLedgerHandler(c *gin.Context) {
-	data, err := ops.GetGroupShardLedger(opsCtx(c), dbClient, c.Param("id"))
 	if err != nil {
 		writeError(c, err)
 		return
@@ -838,26 +599,6 @@ func decideAppealHandler(c *gin.Context) {
 	ok(c)
 }
 
-// ── handlers: shards ──────────────────────────────────────────────────────────
-
-func recalculateRanksHandler(c *gin.Context) {
-	var req recalcRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-	if req.Tier != "" {
-		if err := validate.OneOf(req.Tier, "micro", "small", "medium", "large"); err != nil {
-			writeError(c, err)
-			return
-		}
-	}
-	if err := ops.RecalculateRanks(opsCtx(c), dbClient, req.Tier); err != nil {
-		writeError(c, err)
-		return
-	}
-	ok(c)
-}
-
 // ── handlers: config ──────────────────────────────────────────────────────────
 
 func listConfigHandler(c *gin.Context) {
@@ -884,62 +625,6 @@ func setConfigHandler(c *gin.Context) {
 		return
 	}
 	if err := ops.SetConfig(opsCtx(c), dbClient, c.Param("key"), req.Value, adminIdentity(c)); err != nil {
-		writeError(c, err)
-		return
-	}
-	ok(c)
-}
-
-// ── handlers: subs ────────────────────────────────────────────────────────────
-
-func listSubsHandler(c *gin.Context) {
-	tier := c.Query("tier")
-	if tier != "" {
-		if err := validate.OneOf(tier, "free", "pro", "vip"); err != nil {
-			writeError(c, err)
-			return
-		}
-	}
-	data, err := ops.ListSubs(opsCtx(c), dbClient, ops.ListSubsParams{Tier: tier})
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, data)
-}
-
-func getSubHandler(c *gin.Context) {
-	data, err := ops.GetSub(opsCtx(c), dbClient, c.Param("id"))
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, data)
-}
-
-func overrideSubHandler(c *gin.Context) {
-	var req overrideRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-	if err := validate.OneOf(req.Tier, "pro", "vip"); err != nil {
-		writeError(c, err)
-		return
-	}
-	expiresAt, err := validate.ParseDate(req.Expires)
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	if err := ops.OverrideSub(opsCtx(c), dbClient, c.Param("id"), req.Tier, adminIdentity(c), expiresAt, req.Reason); err != nil {
-		writeError(c, err)
-		return
-	}
-	ok(c)
-}
-
-func revokeOverrideHandler(c *gin.Context) {
-	if err := ops.RevokeOverride(opsCtx(c), dbClient, c.Param("id"), adminIdentity(c)); err != nil {
 		writeError(c, err)
 		return
 	}

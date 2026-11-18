@@ -200,12 +200,12 @@ func TestAdminRoutes_RejectWithoutToken(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/users"},
 		{http.MethodGet, "/api/v1/admin/users/00000000-0000-0000-0000-000000000001"},
 		{http.MethodPost, "/api/v1/admin/users/00000000-0000-0000-0000-000000000001/ban"},
-		{http.MethodGet, "/api/v1/admin/events"},
-		{http.MethodGet, "/api/v1/admin/groups"},
+		{http.MethodPost, "/api/v1/admin/users/00000000-0000-0000-0000-000000000001/unban"},
+		{http.MethodPost, "/api/v1/admin/users/00000000-0000-0000-0000-000000000001/delete"},
+		{http.MethodGet, "/api/v1/admin/users/00000000-0000-0000-0000-000000000001/ledger"},
 		{http.MethodGet, "/api/v1/admin/reports"},
 		{http.MethodGet, "/api/v1/admin/appeals"},
 		{http.MethodGet, "/api/v1/admin/config"},
-		{http.MethodGet, "/api/v1/admin/subs"},
 		{http.MethodGet, "/api/v1/admin/feature-requests"},
 	}
 
@@ -296,19 +296,13 @@ func TestAdminListEndpoints_Return200WithAdminJWT(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/v1/admin/users"},
 		{http.MethodGet, "/api/v1/admin/users/00000000-0000-0000-0000-000000000001"},
-		{http.MethodGet, "/api/v1/admin/events"},
-		{http.MethodGet, "/api/v1/admin/events/00000000-0000-0000-0000-000000000002"},
-		{http.MethodGet, "/api/v1/admin/groups"},
-		{http.MethodGet, "/api/v1/admin/groups/00000000-0000-0000-0000-000000000003"},
-		{http.MethodGet, "/api/v1/admin/groups/00000000-0000-0000-0000-000000000003/members"},
+		{http.MethodGet, "/api/v1/admin/users/00000000-0000-0000-0000-000000000001/ledger"},
 		{http.MethodGet, "/api/v1/admin/reports"},
 		{http.MethodGet, "/api/v1/admin/reports/00000000-0000-0000-0000-000000000004"},
-		{http.MethodGet, "/api/v1/admin/users/00000000-0000-0000-0000-000000000001/ledger"},
-		{http.MethodGet, "/api/v1/admin/groups/00000000-0000-0000-0000-000000000003/ledger"},
+		{http.MethodGet, "/api/v1/admin/appeals"},
+		{http.MethodGet, "/api/v1/admin/appeals/00000000-0000-0000-0000-000000000005"},
 		{http.MethodGet, "/api/v1/admin/config"},
 		{http.MethodGet, "/api/v1/admin/config/some.key"},
-		{http.MethodGet, "/api/v1/admin/subs"},
-		{http.MethodGet, "/api/v1/admin/subs/00000000-0000-0000-0000-000000000001"},
 		{http.MethodGet, "/api/v1/admin/feature-requests"},
 	}
 
@@ -345,20 +339,11 @@ func TestAdminMutationEndpoints_Return200WithAdminJWT(t *testing.T) {
 	}{
 		{"/api/v1/admin/users/00000000-0000-0000-0000-000000000001/ban", `{"reason":"spam"}`},
 		{"/api/v1/admin/users/00000000-0000-0000-0000-000000000001/unban", `{}`},
-		{"/api/v1/admin/users/00000000-0000-0000-0000-000000000001/grant-shards", `{"amount":100,"reason":"admin_grant"}`},
-		{"/api/v1/admin/users/00000000-0000-0000-0000-000000000001/grant-preshards", `{"amount":50,"reason":"admin_grant"}`},
 		{"/api/v1/admin/users/00000000-0000-0000-0000-000000000001/delete", `{}`},
-		{"/api/v1/admin/events/00000000-0000-0000-0000-000000000002/feature", `{"expires":"2026-09-01"}`},
-		{"/api/v1/admin/events/00000000-0000-0000-0000-000000000002/unfeature", `{}`},
-		{"/api/v1/admin/events/00000000-0000-0000-0000-000000000002/cancel", `{"reason":"postponed"}`},
-		{"/api/v1/admin/events/00000000-0000-0000-0000-000000000002/distribute-shards", `{}`},
 		{"/api/v1/admin/reports/00000000-0000-0000-0000-000000000004/action", `{"action":"remove"}`},
 		{"/api/v1/admin/reports/00000000-0000-0000-0000-000000000004/claim", `{}`},
 		{"/api/v1/admin/appeals/00000000-0000-0000-0000-000000000005/decision", `{"decision":"overturned","note":"ok"}`},
 		{"/api/v1/admin/config/feature.flag", `{"value":"true"}`},
-		{"/api/v1/admin/subs/00000000-0000-0000-0000-000000000001/override", `{"tier":"vip","expires":"2026-12-31","reason":"comp"}`},
-		{"/api/v1/admin/subs/00000000-0000-0000-0000-000000000001/revoke", `{}`},
-		{"/api/v1/admin/ranks/recalculate", `{}`},
 	}
 
 	for _, tc := range cases {
@@ -406,15 +391,10 @@ func TestAdminValidationErrors_Return400(t *testing.T) {
 		path string
 		body string
 	}{
-		{"/api/v1/admin/users/00000000-0000-0000-0000-000000000001/grant-shards", `{"amount":0}`},
-		{"/api/v1/admin/users/00000000-0000-0000-0000-000000000001/grant-shards", `{"amount":"lots"}`},
-		{"/api/v1/admin/events/00000000-0000-0000-0000-000000000002/feature", `{}`},
-		{"/api/v1/admin/events/00000000-0000-0000-0000-000000000002/cancel", `{}`},
 		{"/api/v1/admin/users/00000000-0000-0000-0000-000000000001/ban", `{}`},
 		{"/api/v1/admin/reports/00000000-0000-0000-0000-000000000004/action", `{"action":"nuke"}`},
 		{"/api/v1/admin/appeals/00000000-0000-0000-0000-000000000005/decision", `{"decision":"nuke"}`},
 		{"/api/v1/admin/users/not-a-uuid/delete", `{}`},
-		{"/api/v1/admin/subs/00000000-0000-0000-0000-000000000001/override", `{"tier":"gold"}`},
 		{"/api/v1/admin/config/feature.flag", `not-json`},
 	}
 
@@ -436,11 +416,8 @@ func TestAdminOpsNotFound_Returns404(t *testing.T) {
 		path   string
 	}{
 		{http.MethodGet, "/api/v1/admin/users/00000000-0000-0000-0000-000000000001"},
-		{http.MethodGet, "/api/v1/admin/events/00000000-0000-0000-0000-000000000002"},
-		{http.MethodGet, "/api/v1/admin/groups/00000000-0000-0000-0000-000000000003"},
 		{http.MethodGet, "/api/v1/admin/reports/00000000-0000-0000-0000-000000000004"},
 		{http.MethodGet, "/api/v1/admin/config/missing.key"},
-		{http.MethodGet, "/api/v1/admin/subs/00000000-0000-0000-0000-000000000001"},
 	}
 
 	for _, tc := range cases {
@@ -524,13 +501,35 @@ func TestAdminRateLimit_PerAdminReturns429(t *testing.T) {
 	}
 }
 
-func TestHostAndVenueNamespaces_Return501(t *testing.T) {
-	r := newTestRouter(t, jsonStub(`[]`))
+// TestRemovedRoutes_Return404 locks the slim surface: the admin route groups
+// for removed domains (events, groups, shards, subs overrides) must not
+// register, so each path falls through to the JSON 404 (or 405 where a sibling
+// verb still exists on the same path).
+func TestRemovedRoutes_Return404(t *testing.T) {
+	r := newTestRouter(t, jsonStub(`[{"id":"x"}]`))
+	authz := adminBearer(t)
 
 	cases := []struct {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/api/v1/admin/events"},
+		{http.MethodGet, "/api/v1/admin/events/00000000-0000-0000-0000-000000000002"},
+		{http.MethodPost, "/api/v1/admin/events/00000000-0000-0000-0000-000000000002/feature"},
+		{http.MethodPost, "/api/v1/admin/events/00000000-0000-0000-0000-000000000002/unfeature"},
+		{http.MethodPost, "/api/v1/admin/events/00000000-0000-0000-0000-000000000002/cancel"},
+		{http.MethodPost, "/api/v1/admin/events/00000000-0000-0000-0000-000000000002/distribute-shards"},
+		{http.MethodGet, "/api/v1/admin/groups"},
+		{http.MethodGet, "/api/v1/admin/groups/00000000-0000-0000-0000-000000000003"},
+		{http.MethodGet, "/api/v1/admin/groups/00000000-0000-0000-0000-000000000003/members"},
+		{http.MethodGet, "/api/v1/admin/groups/00000000-0000-0000-0000-000000000003/ledger"},
+		{http.MethodPost, "/api/v1/admin/ranks/recalculate"},
+		{http.MethodGet, "/api/v1/admin/subs"},
+		{http.MethodGet, "/api/v1/admin/subs/00000000-0000-0000-0000-000000000001"},
+		{http.MethodPost, "/api/v1/admin/subs/00000000-0000-0000-0000-000000000001/override"},
+		{http.MethodPost, "/api/v1/admin/subs/00000000-0000-0000-0000-000000000001/revoke"},
+		{http.MethodPost, "/api/v1/admin/users/00000000-0000-0000-0000-000000000001/grant-shards"},
+		{http.MethodPost, "/api/v1/admin/users/00000000-0000-0000-0000-000000000001/grant-preshards"},
 		{http.MethodGet, "/api/v1/host/events"},
 		{http.MethodPost, "/api/v1/host/events"},
 		{http.MethodGet, "/api/v1/host/paid-events/00000000-0000-0000-0000-000000000005"},
@@ -540,11 +539,11 @@ func TestHostAndVenueNamespaces_Return501(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			w := doRequest(t, r, tc.method, tc.path, "", "")
-			assertStatus(t, w, http.StatusNotImplemented)
+			w := doRequest(t, r, tc.method, tc.path, authz, "")
+			assertStatus(t, w, http.StatusNotFound)
 			body := decodeJSON(t, w)
-			if body["error"] == nil {
-				t.Error("expected error field in 501 body")
+			if body["error"] != "not found" {
+				t.Errorf("expected not found error, got %v", body["error"])
 			}
 		})
 	}

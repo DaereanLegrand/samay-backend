@@ -46,12 +46,6 @@ func TestStatsTableBuilder_AllMetrics(t *testing.T) {
 		UsersLast7Days:         3,
 		UsersLast30Days:        6,
 		ActiveUsers7Days:       2,
-		TotalEvents:            5,
-		EventsByStatus:         map[string]int{"draft": 3, "live": 2},
-		EventsByType:           map[string]int{"casual": 5},
-		ShardsInCirculation:    100,
-		PreshardsInCirculation: 20,
-		TotalShardsDistributed: 500,
 		PendingReportsCount:    1,
 		PendingFeatureRequests: 2,
 	}
@@ -61,20 +55,14 @@ func TestStatsTableBuilder_AllMetrics(t *testing.T) {
 	if len(headers) != 2 || headers[0] != "METRIC" || headers[1] != "VALUE" {
 		t.Fatalf("unexpected headers: %v", headers)
 	}
-	if len(rows) != 12 {
-		t.Fatalf("expected 12 rows, got %d: %v", len(rows), rows)
+	if len(rows) != 6 {
+		t.Fatalf("expected 6 rows, got %d: %v", len(rows), rows)
 	}
 	expect := map[string]string{
 		"registered_users":         "10",
 		"users_last_7_days":        "3",
 		"users_last_30_days":       "6",
 		"active_users_7_days":      "2",
-		"total_events":             "5",
-		"events_by_status":         "draft: 3, live: 2",
-		"events_by_type":           "casual: 5",
-		"shards_in_circulation":    "100",
-		"preshards_in_circulation": "20",
-		"total_shards_distributed": "500",
 		"pending_reports_count":    "1",
 		"pending_feature_requests": "2",
 	}
@@ -90,19 +78,6 @@ func TestStatsTableBuilder_AllMetrics(t *testing.T) {
 	}
 }
 
-func TestStatsTableBuilder_EmptyMaps(t *testing.T) {
-	stats := &ops.SystemStats{
-		EventsByStatus: map[string]int{},
-		EventsByType:   map[string]int{},
-	}
-	_, rows := statsTableBuilder(stats)
-	for _, row := range rows {
-		if (row[0] == "events_by_status" || row[0] == "events_by_type") && row[1] != "0" {
-			t.Errorf("%s = %q, want \"0\"", row[0], row[1])
-		}
-	}
-}
-
 func TestSystemStatsJSONOutput(t *testing.T) {
 	setupTestEnv(t)
 	stubCreateClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -110,10 +85,6 @@ func TestSystemStatsJSONOutput(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "users"):
 			w.Write([]byte(`[{"created_at":"2026-08-01T00:00:00Z","updated_at":"2026-08-08T00:00:00Z","personal_shards":10,"preshards":2}]`))
-		case strings.Contains(r.URL.Path, "events"):
-			w.Write([]byte(`[{"status":"live","type":"tono"}]`))
-		case strings.Contains(r.URL.Path, "shard_ledger"):
-			w.Write([]byte(`[{"delta":50}]`))
 		case strings.Contains(r.URL.Path, "reports"):
 			w.Write([]byte(`[{"id":"r1","status":"pending"}]`))
 		case strings.Contains(r.URL.Path, "feature_requests"):
@@ -128,8 +99,8 @@ func TestSystemStatsJSONOutput(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	for _, want := range []string{
-		"registered_users", "users_last_30_days", "events_by_status",
-		"events_by_type", "total_shards_distributed", "pending_reports_count",
+		"registered_users", "users_last_30_days", "pending_reports_count",
+		"pending_feature_requests",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in JSON output, got:\n%s", want, out)
