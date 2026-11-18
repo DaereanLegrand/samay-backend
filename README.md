@@ -73,3 +73,8 @@ make migrate    # migration ordering/ledger check
 `schema_test.sql` holds 901 assertions for the kept surface; the slim contracts
 in `supabase/tests/slim_test.sql` (52) run with the same tool by naming the file
 (`supabase db test --db-url … -- supabase/tests/slim_test.sql`).
+
+## Branch notes
+
+This is the `slim-prod` branch. What it is, what was changed on both the client
+and the backend, and why: [SLIM-PROD.md](https://github.com/DaereanLegrand/samay-frontend/blob/slim-prod/docs/SLIM-PROD.md).
