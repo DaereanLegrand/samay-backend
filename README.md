@@ -1,4 +1,4 @@
-# Samay backend
+# Samay backend — slim build
 
 Self-hosted Supabase stack (Postgres 17 + GoTrue + PostgREST + Realtime +
 Storage + Kong) plus a Go admin CLI/API (`github.com/samay-app/samay`). The Go
@@ -28,6 +28,34 @@ CLI/shell, honored by `start` **and** `reset`:
 There is no other edge case. `make start APP=samay ENV=staging|prod` is vault-gated
 (everything from the vault); testing is not.
 
+
+## Slim layer (this branch)
+
+The slim app keeps games, auth, profile, settings, notifications, friends,
+groups and prompt packs. Two deliberate choices:
+
+- **Forward-fix, not a squashed baseline.** `supabase/migrations/300_slim/`
+  sits after `970` and is the only place this branch changes the schema. It is
+  fully idempotent, so it applies cleanly to a fresh stack and to an existing
+  one.
+- **Removed features keep their tables; clients lose the grants.** That makes a
+  progressive re-add a GRANT plus feature code instead of a schema rebuild.
+
+| File | What it does |
+|---|---|
+| `300_slim/01_onboarding.sql` | guest columns (`is_guest`, `age_confirmed_at`, `terms_accepted_at`, `terms_version`), `is_onboarded()`, `bootstrap_profile()`, `confirm_my_account()` |
+| `300_slim/02_prompt_packs.sql` | `prompt_packs` + `minigame_prompts.pack_id`, seeded free/paid packs, `list_prompt_packs()`, `get_prompt_pack()`; prompts no longer client-readable |
+| `300_slim/03_remove_wagers.sql` | wager-free `create_minigame_session`; escrow/ledger writes neutralised across the play RPCs |
+| `300_slim/04_leave_session.sql` | `leave_minigame_session()` (participant leave, host transfer) |
+| `300_slim/05_revoke_removed.sql` | revokes client grants on every removed-feature relation |
+
+Anonymous sign-ins and manual identity linking are enabled in
+`supabase/config.toml`, `supabase/.env.example` and `supabase/docker-compose.yml`
+(`GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED`, `GOTRUE_SECURITY_MANUAL_LINKING_ENABLED`).
+
+Tests: `supabase/tests/schema_test.sql` (kept surface) and
+`supabase/tests/slim_test.sql` (the slim contracts). Go: `go test ./...`.
+Shell: `make test api`.
 
 ## Docs
 
