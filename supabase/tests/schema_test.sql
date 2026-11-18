@@ -1,9 +1,19 @@
--- Samay Schema pgTAP Tests — Comprehensive
--- Covers the MSQ-01 baseline tree (feature-organized migrations; squash of
--- the historical 49-file pile). Schema-identical to that pile (pg_dump-proven).
+-- Samay Schema pgTAP Tests — slim-prod surface
+-- Covers the SURVIVING schema of slim production Samay: extensions, enums,
+-- the kept tables (users, friendships, groups, group_members, group_themes,
+-- notifications, device_tokens, minigame_*, prompt_packs, app_config,
+-- admin_*, reports, appeals, action_rate_limits, signup_tracker, ...), their
+-- keys/indexes/RLS policies/ACLs, and the kept RPCs and their signatures.
+--
+-- Removed features (events, E2EE chat, feed, photos, rankings,
+-- shards/wagers/cosmetics, event share links) keep their tables but no
+-- client role may touch them (300_slim/05_revoke_removed.sql); that closed
+-- ACL IS asserted (Sections 19/26/29). The 300_slim forward-fix contracts
+-- (onboarding, prompt packs, wager removal, leave-session) are covered by
+-- supabase/tests/slim_test.sql and only spot-checked here.
 BEGIN;
 
-SELECT plan(1319);
+SELECT plan(901);
 
 -- ============================================================
 -- SECTION 1: Extensions (migration 20260510000001)
@@ -13,7 +23,11 @@ SELECT has_extension('moddatetime');
 SELECT has_extension('pg_cron');
 
 -- ============================================================
--- SECTION 2: Enums — all 21 (migrations 20260510000001, 20260520000001)
+-- SECTION 2: Enums — the 22 baseline types (migrations 20260510000001,
+-- 20260520000001). The event/cosmetic/shard enums are kept even though their
+-- features are removed (enum types are cheap and the removed tables still
+-- reference them). mini_game_invite_status and group_theme_mode are asserted
+-- in Sections 49b and 75.
 -- ============================================================
 SELECT has_type('subscription_tier');
 SELECT has_type('friendship_status');
@@ -32,44 +46,41 @@ SELECT has_type('mini_game_status');
 SELECT has_type('shard_reason');
 SELECT has_type('preshard_reason');
 SELECT has_type('report_target_type');
+SELECT has_type('report_category');
 SELECT has_type('report_status');
 SELECT has_type('admin_role');
 SELECT has_type('preshard_remainder_action');
 SELECT has_type('feature_request_status');
 
 -- ============================================================
--- SECTION 3: Tables — 29 (migration 20260510000001);
--- the legacy static QR-token table was removed 2026-09-08 (superseded by the code flow)
+-- SECTION 3: Kept tables (slim-prod surface). The removed-feature tables
+-- (events*, chat*, shards/cosmetics/rankings) still EXIST — their data is
+-- retained and the migration history is immutable — but no client role may
+-- touch them (asserted in Sections 19/26/29).
 -- ============================================================
 SELECT has_table('users');
-SELECT has_table('cosmetics');
-SELECT has_table('user_cosmetics');
-SELECT has_table('group_cosmetics');
 SELECT has_table('friendships');
 SELECT has_table('groups');
 SELECT has_table('group_members');
-SELECT has_table('group_shard_contributions');
-SELECT has_table('group_rank_snapshots');
-SELECT has_table('events');
-SELECT has_table('event_hosts');
-SELECT has_table('event_invites');
-SELECT has_table('event_attendances');
-SELECT has_table('event_photos');
-SELECT has_table('event_photo_likes');
-SELECT has_table('chats');
-SELECT has_table('messages');
-SELECT has_table('chat_participants');
-SELECT has_table('shard_ledger');
-SELECT has_table('preshard_ledger');
-SELECT has_table('minigame_sessions');
+SELECT has_table('group_themes');
+SELECT has_table('group_theme_changes');
 SELECT has_table('notifications');
+SELECT has_table('device_tokens');
 SELECT has_table('feature_requests');
 SELECT has_table('reports');
+SELECT has_table('appeals');
+SELECT has_table('user_mutes');
+SELECT has_table('moderation_evidence');
 SELECT has_table('admin_users');
 SELECT has_table('admin_audit_log');
 SELECT has_table('subscription_overrides');
-SELECT has_table('app_config');
 SELECT has_table('processed_webhooks');
+SELECT has_table('webhook_failures');
+SELECT has_table('app_config');
+SELECT has_table('action_rate_limits');
+SELECT has_table('retention_matrix');
+SELECT has_table('account_deletion_audit');
+SELECT has_table('auth_cleanup_queue');
 
 -- ============================================================
 -- SECTION 4: Migration 20260512000010 — display_name dropped from users
@@ -114,56 +125,22 @@ SELECT columns_are('user_search_view', ARRAY['id', 'username', 'avatar_url', 'bi
     'user_search_view exposes the safe identity columns + profile_public (Q8)');
 
 -- ============================================================
--- SECTION 8: Triggers — all 9 (migrations 20260510000001, 20260512000007)
+-- SECTION 8: Triggers — kept feature tables (migrations
+-- 20260510000001, 20260512000007)
 -- ============================================================
 SELECT has_trigger('users', 'users_updated_at');
 SELECT has_trigger('groups', 'groups_updated_at');
-SELECT has_trigger('events', 'events_updated_at');
 SELECT has_trigger('group_members', 'group_size_tier_trigger');
-SELECT has_trigger('events', 'dynamic_qr_enabled_trigger');
-SELECT has_trigger('messages', 'message_cap_trigger');
-SELECT has_trigger('group_shard_contributions', 'group_shards_increment_trigger');
-SELECT has_trigger('event_photo_likes', 'photo_likes_count_trigger');
-SELECT has_trigger('events', 'shard_distribution_dispatch_trigger');
 
 -- ============================================================
--- SECTION 9: Trigger Functions (6 SECURITY DEFINER)
+-- SECTION 9: Trigger Functions — kept (SECURITY DEFINER)
 -- ============================================================
 SELECT has_function('update_group_size_tier');
-SELECT has_function('set_dynamic_qr_enabled');
-SELECT has_function('enforce_message_cap');
-SELECT has_function('increment_group_shards');
-SELECT has_function('update_photo_likes_count');
-SELECT has_function('dispatch_shard_distribution');
-
--- ============================================================
--- SECTION 10: RPC — donate_shards_to_group
--- (migrations 20260512000001, 20260724000002)
--- ============================================================
--- Migration 20260724000002 hardened the RPC: an auth.uid() != p_user_id
--- guard rejects cross-user donations and EXECUTE was REVOKEd from PUBLIC
--- and GRANTed to authenticated only. Behavioral checks (anon denied,
--- cross-user donation blocked) are covered by the curl integration test
--- test/opt-001-rls-security.sh (TEST H1-H3) — run it once the stack is up.
-SELECT has_function('donate_shards_to_group', ARRAY['uuid', 'uuid', 'integer', 'timestamptz'],
-    'donate_shards_to_group(p_group_id, p_user_id, p_amount, p_expires_at)');
 
 -- ============================================================
 -- SECTION 11: RPC — hard_delete_expired_users (migration 20260510000002)
 -- ============================================================
 SELECT has_function('hard_delete_expired_users');
-
--- ============================================================
--- SECTION 12: RPCs — Admin RPCs (migration 20260520000001)
--- ============================================================
-SELECT has_function('grant_shards', ARRAY['uuid', 'integer', 'text'],
-    'grant_shards(p_user_id, p_amount, p_reason)');
-SELECT has_function('grant_preshards', ARRAY['uuid', 'integer', 'text'],
-    'grant_preshards(p_user_id, p_amount, p_reason)');
-SELECT has_function('distribute_shards', ARRAY['uuid'],
-    'distribute_shards(p_event_id)');
-SELECT has_function('recalculate_ranks', ARRAY['text'],
-    'recalculate_ranks(p_tier)');
 
 -- ============================================================
 -- SECTION 13: Migration 20260513000001/02 — handle_signup RPC was dropped
@@ -237,498 +214,93 @@ SELECT policies_are('group_members', ARRAY[
 ], 'group_members has expected RLS policies (no recursion)');
 
 -- ============================================================
--- SECTION 19: RLS Policies — events (no recursion)
+-- SECTION 19: Removed event surface — clients cannot read it
+-- (300_slim/05_revoke_removed.sql). The tables still exist (data retained)
+-- but anon/authenticated hold NO grant; the events feature is not part of
+-- slim-prod, and re-granting is the whole re-add.
 -- ============================================================
-SELECT policies_are('events', ARRAY[
-    'events_read_access',
-    'events_update_host',
-    'events_insert_own',
-    'active_users_only'
-], 'events has expected RLS policies');
-
--- ============================================================
--- SECTION 20: RLS Policies — event_hosts (no recursion)
--- ============================================================
--- 060_events/06_staff.sql (Stage 3): ep_insert_host was DROPPED (its
--- creator/host INSERT branch bypassed the frozen capacity — event_hosts
--- writes are exclusively the create_event / designate_event_staff SECURITY
--- DEFINER RPCs). ep_read_event_access opens the FULL roster to the event's
--- hosts/staff (via the security-barrier event_host_access_view, because a
--- direct self-referencing SELECT policy recurses infinitely); ep_read_own
--- stays for everyone else.
-SELECT policies_are('event_hosts', ARRAY[
-    'ep_read_own',
-    'ep_read_event_access',
-    'ep_read_member_roster',
-    'active_users_only'
-], 'event_hosts has expected RLS policies (ep_insert_host dropped — RPC-only writes; ep_read_member_roster opens the organizer roster to event members, 09_attendee_roster.sql)');
-
--- ============================================================
--- SECTION 21: RLS Policies — event_invites
--- ============================================================
-SELECT policies_are('event_invites', ARRAY[
-    'ei_read_own',
-    'ei_read_event_access',
-    'ei_read_confirmed_roster',
-    'active_users_only'
-], 'event_invites has expected RLS policies (own-row read + host/staff event-read + member confirmed-roster read; ei_update_own dropped for the SECURITY DEFINER invite family)');
-
--- ============================================================
--- SECTION 21b: Events manual invites RPC family (migration
--- 060_events/05_manual_invites.sql, 2026-09-08) — host invites specific
--- guests (search + multi-select), invitees accept/decline, frozen capacity
--- is seat-reservation-enforced while inviting. Behavior: opt-025. Here:
--- presence + ACL posture (SECURITY DEFINER, PUBLIC revoked).
--- ============================================================
-SELECT has_function('invite_event_guests', ARRAY['uuid', 'uuid[]'],
-    'invite_event_guests(uuid, uuid[]) exists (060_events/05 manual invites)');
-SELECT has_function('accept_event_invite', ARRAY['uuid'],
-    'accept_event_invite(uuid) exists (060_events/05 manual invites)');
-SELECT has_function('decline_event_invite', ARRAY['uuid'],
-    'decline_event_invite(uuid) exists (060_events/05 manual invites)');
-
 SELECT ok(
-    (SELECT count(*) FROM pg_catalog.pg_proc p
-     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-     WHERE n.nspname = 'public'
-       AND p.proname IN ('invite_event_guests', 'accept_event_invite',
-                         'decline_event_invite')
-       AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 3,
-    'event invite RPC family has no PUBLIC/anon EXECUTE (authenticated + service_role only)'
-);
-
--- ============================================================
--- SECTION 21c: Events staff RPC family + roster view (migration
--- 060_events/06_staff.sql, 2026-09-08) — the host designates/removes staff
--- (capacity + conversion semantics) and hosts/staff read the full roster.
--- Behavior: opt-026. Here: presence + ACL posture (SECURITY DEFINER, PUBLIC
--- revoked) + the recursion-free roster view exists.
--- ============================================================
-SELECT has_function('designate_event_staff', ARRAY['uuid', 'uuid[]'],
-    'designate_event_staff(uuid, uuid[]) exists (060_events/06 staff)');
-SELECT has_function('remove_event_staff', ARRAY['uuid', 'uuid'],
-    'remove_event_staff(uuid, uuid) exists (060_events/06 staff)');
-
-SELECT ok(
-    (SELECT count(*) FROM pg_catalog.pg_proc p
-     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-     WHERE n.nspname = 'public'
-       AND p.proname IN ('designate_event_staff', 'remove_event_staff')
-       AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 2,
-    'staff RPC family has no PUBLIC/anon EXECUTE (authenticated + service_role only)'
-);
-
-SELECT has_view('public', 'event_host_access_view',
-    'event_host_access_view (security-barrier event_hosts projection) exists — recursion-free roster read');
-
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_hosts'::regclass),
-    'event_hosts keeps FORCE ROW LEVEL SECURITY (RPC writes still RLS-checked reads)'
-);
-
--- ============================================================
--- SECTION 21d: Events attendance code (migration
--- 060_events/07_code.sql, 2026-09-08) — authenticator-style 24-hex code
--- derived from a per-attendee secret + 30-s window (event_code), issued
--- to attendees (get_my_code) and validated host/staff-only ONCE
--- (validate_code). Behavior: opt-027. Here: presence + ACL posture
--- (SECURITY DEFINER, PUBLIC revoked, zero client table grants) + FORCE RLS,
--- and (2026-09-09 security fix) the CONFIRMED-invite attendee gate — a PENDING
--- invitee is not an attendee (no code, never confirmable).
--- ============================================================
-SELECT has_table('event_code_keys',
-    'event_code_keys exists (060_events/07 code secrets)');
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_code_keys'::regclass),
-    'event_code_keys has FORCE ROW LEVEL SECURITY (secrets RPC-only)'
+    NOT has_table_privilege('authenticated', 'public.event_hosts', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.event_invites', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.event_attendances', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.event_photos', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.event_photo_likes', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.event_scan_nonces', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.event_code_keys', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.event_join_requests', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.share_links', 'SELECT'),
+    'authenticated cannot read any removed event relation (event_* + share_links)'
 );
 SELECT ok(
-    (SELECT count(*)::int FROM pg_policies
-     WHERE schemaname = 'public' AND tablename = 'event_code_keys') = 0,
-    'event_code_keys has NO client RLS policies (only the SECURITY DEFINER RPC touches it)'
-);
-SELECT ok(
-    (SELECT count(*)::int FROM pg_constraint
-     WHERE conname = 'event_code_keys_event_id_user_id_key') = 1,
-    'event_code_keys has a UNIQUE (event_id, user_id) key (one secret per attendee)'
-);
-SELECT has_function('event_code', ARRAY['text', 'bigint'],
-    'event_code(text, bigint) exists (060_events/07 code derivation)');
-SELECT has_function('get_my_code', ARRAY['uuid'],
-    'get_my_code(uuid) exists (060_events/07 code issue)');
-SELECT has_function('validate_code', ARRAY['uuid', 'text'],
-    'validate_code(uuid, text) exists (060_events/07 code validate)');
-
-SELECT ok(
-    (SELECT count(*) FROM pg_catalog.pg_proc p
-     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-     WHERE n.nspname = 'public'
-       AND p.proname IN ('event_code', 'get_my_code',
-                         'validate_code')
-       AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')) = 3,
-    'code RPC family has no PUBLIC/anon EXECUTE (authenticated/service_role only)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%AND status = ''accepted''%'
-       AND pg_get_functiondef(p.oid) NOT LIKE '%status = ''attended''%'
-       AND pg_get_functiondef(p.oid) LIKE '%not_invited%'
-     FROM pg_proc p WHERE proname = 'get_my_code'),
-    'get_my_code requires an ACCEPTED invite (accepted-only; attended/pending → not_invited, 2026-09-10)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%status = ''accepted'' OR status = ''attended''%'
-       AND pg_get_functiondef(p.oid) LIKE '%not_invited%'
-     FROM pg_proc p WHERE proname = 'validate_code'),
-    'validate_code refuses to confirm a PENDING invitee (CONFIRMED-invite gate, 2026-09-09)'
-);
-
-SELECT has_trigger('event_invites', 'code_key_purge_on_invite_delete',
-    'event_invites purge trigger removes code keys on invite-row deletion (declined/converted)');
-SELECT has_trigger('event_hosts', 'code_key_purge_on_host_delete',
-    'event_hosts purge trigger removes code keys on staff removal');
-
--- SECTION 21e: Events guest-roster realtime (060_events/08_realtime.sql +
--- 960_realtime, 2026-09-09) — event_invites joins supabase_realtime with
--- REPLICA IDENTITY FULL so the host/staff guest roster on the event detail
--- live-updates when an invitee accepts/declines on their own device (client
--- invalidates eventGuestsProvider on every row event for the event). Delivery
--- stays RLS-gated: hosts/staff get full-roster rows, invitees their own.
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_publication_tables
-        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'event_invites'
-    ),
-    'event_invites joins the supabase_realtime publication (guest-roster live updates, 060_events/08_realtime.sql)'
-);
-SELECT is(
-    (SELECT relreplident FROM pg_class WHERE oid = 'public.event_invites'::regclass),
-    'f',
-    'event_invites has REPLICA IDENTITY FULL (full-row realtime UPDATE/DELETE payloads, 060_events/08_realtime.sql)'
-);
-
--- SECTION 21f: Attendee-side event roster (060_events/09_attendee_roster.sql,
--- 2026-09-09, tightened 2026-09-09) — event members read the organizer roster
--- (`event_hosts`) and the event's CONFIRMED invite rows only; other people's
--- pending invites stay host/own-only. Membership is CONFIRMED only
--- (accepted/attended): a PENDING invitee reads no roster (security fix,
--- 2026-09-09) and keeps `ei_read_own` for the accept/decline card. The
--- membership check rides a security-barrier view (recursion-free); event_hosts
--- joins supabase_realtime with REPLICA IDENTITY FULL so the organizer roster
--- streams live. Behavior: opt-025 TEST H. Here: view + policy + realtime
--- posture.
-SELECT has_view('public', 'event_roster_membership_view',
-    'event_roster_membership_view (security-barrier caller invite projection) exists — recursion-free member check');
-SELECT ok(
-    (SELECT pg_get_viewdef('public.event_roster_membership_view'::regclass, true)
-            LIKE '%status = ''accepted''::invite_status%'
-       AND pg_get_viewdef('public.event_roster_membership_view'::regclass, true)
-            LIKE '%status = ''attended''::invite_status%'),
-    'event_roster_membership_view projects only CONFIRMED (accepted/attended) memberships — pending invitees read no roster (2026-09-09)'
-);
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = 'event_hosts'
-          AND policyname = 'ep_read_member_roster'
-    ),
-    'event_hosts has ep_read_member_roster (members read the organizer roster)'
-);
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = 'event_invites'
-          AND policyname = 'ei_read_confirmed_roster'
-    ),
-    'event_invites has ei_read_confirmed_roster (members read accepted/attended rows only)'
-);
-SELECT is(
-    (SELECT relreplident FROM pg_class WHERE oid = 'public.event_hosts'::regclass),
-    'f',
-    'event_hosts has REPLICA IDENTITY FULL (full-row realtime payloads for the organizer roster, 060_events/09_attendee_roster.sql)'
-);
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_publication_tables
-        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'event_hosts'
-    ),
-    'event_hosts joins the supabase_realtime publication (organizer roster streams live to members, 060_events/09_attendee_roster.sql)'
-);
-
--- SECTION 21g: Attendance realtime (060_events/08_realtime.sql +
--- 960_realtime, 2026-09-10, Task C) — event_attendances joins
--- supabase_realtime with REPLICA IDENTITY FULL so a scan that confirms the
--- caller (guest OR host/staff — only this table records a host/staff member)
--- flips an already-open detail/QR screen to the terminal "Ya te registraste"
--- state (client invalidates myAttendanceProvider on every row event). Delivery
--- stays RLS-gated (ea_read_access).
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_publication_tables
-        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'event_attendances'
-    ),
-    'event_attendances joins the supabase_realtime publication (assist flip streams live, 060_events/08_realtime.sql)'
-);
-SELECT is(
-    (SELECT relreplident FROM pg_class WHERE oid = 'public.event_attendances'::regclass),
-    'f',
-    'event_attendances has REPLICA IDENTITY FULL (full-row realtime payloads for the assist flip, 060_events/08_realtime.sql)'
+    NOT has_table_privilege('anon', 'public.event_hosts', 'SELECT')
+    AND NOT has_table_privilege('anon', 'public.event_invites', 'SELECT')
+    AND NOT has_table_privilege('anon', 'public.event_attendances', 'SELECT')
+    AND NOT has_table_privilege('anon', 'public.event_photos', 'SELECT')
+    AND NOT has_table_privilege('anon', 'public.event_photo_likes', 'SELECT')
+    AND NOT has_table_privilege('anon', 'public.share_links', 'SELECT'),
+    'anon cannot read any removed event relation'
 );
 
 -- ============================================================
--- SECTION 23: RLS Policies — event_attendances
+-- SECTION 26: Removed E2EE chat surface — clients cannot read it
+-- (300_slim/05_revoke_removed.sql). Chats/messages/read receipts/prekeys
+-- and the group-chat notice table remain for data retention only.
 -- ============================================================
-SELECT policies_are('event_attendances', ARRAY[
-    'ea_read_access',
-    'active_users_only'
-], 'event_attendances has expected RLS policies');
-
--- ============================================================
--- SECTION 24: RLS Policies — event_photos
--- ============================================================
-SELECT policies_are('event_photos', ARRAY[
-    'eph_read_access',
-    'eph_insert_own',
-    'eph_delete_own_or_host',
-    'active_users_only'
-], 'event_photos has expected RLS policies');
-
--- ============================================================
--- SECTION 25: RLS Policies — event_photo_likes
--- ============================================================
-SELECT policies_are('event_photo_likes', ARRAY[
-    'epl_read_access',
-    'epl_insert_own',
-    'epl_delete_own',
-    'active_users_only'
-], 'event_photo_likes has expected RLS policies');
-
--- ============================================================
--- SECTION 26: RLS Policies — chats
--- chats_delete_related added by migration 20260809000002 (I-32) — creator
--- deletes the group/event chat during leaveGroup cleanup.
--- ============================================================
-SELECT policies_are('chats', ARRAY[
-    'chats_insert_related',
-    'chats_read_participant',
-    'chats_delete_related',
-    'active_users_only'
-], 'chats has expected RLS policies');
-
--- 26a: the direct branches must correlate to the OUTER chats.id. The original
--- policies used an unqualified `id` (shadowed by chat_participants.id →
--- chat_participants.chat_id = chat_participants.id, never true): direct chats
--- were invisible to participants and every messages INSERT violated
--- messages_insert_participant with 42501. Fixed 20260815000003.
 SELECT ok(
-    (SELECT pg_get_expr(polqual, polrelid) FROM pg_policy
-      WHERE polname = 'chats_read_participant' AND polrelid = 'public.chats'::regclass)
-        LIKE '%chat_participants.chat_id = chats.id%'
-      AND (SELECT pg_get_expr(polqual, polrelid) FROM pg_policy
-            WHERE polname = 'chats_read_participant' AND polrelid = 'public.chats'::regclass)
-        NOT LIKE '%chat_participants.chat_id = chat_participants.id%',
-    'chats_read_participant correlates the direct branch to chats.id (20260815000003)'
+    NOT has_table_privilege('authenticated', 'public.messages', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.chat_participants', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.message_reads', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.deleted_messages', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.message_reports', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.e2ee_identity_keys', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.minigame_group_messages', 'SELECT'),
+    'authenticated cannot read any removed chat/E2EE relation'
 );
 SELECT ok(
-    (SELECT pg_get_expr(polwithcheck, polrelid) FROM pg_policy
-      WHERE polname = 'chats_insert_related' AND polrelid = 'public.chats'::regclass)
-        LIKE '%chat_participants.chat_id = chats.id%'
-      AND (SELECT pg_get_expr(polwithcheck, polrelid) FROM pg_policy
-            WHERE polname = 'chats_insert_related' AND polrelid = 'public.chats'::regclass)
-        NOT LIKE '%chat_participants.chat_id = chat_participants.id%',
-    'chats_insert_related correlates the direct branch to chats.id (20260815000003)'
+    NOT has_table_privilege('anon', 'public.messages', 'SELECT')
+    AND NOT has_table_privilege('anon', 'public.chat_participants', 'SELECT')
+    AND NOT has_table_privilege('anon', 'public.message_reads', 'SELECT'),
+    'anon cannot read any removed chat relation'
 );
 
 -- ============================================================
--- SECTION 27: RLS Policies — messages
+-- SECTION 28c: users.profile_public — kept privacy flag (search_users reads
+-- it to keep private profiles exact-match only, Q8).
 -- ============================================================
-SELECT policies_are('messages', ARRAY[
-    'messages_read_participant',
-    'messages_insert_participant',
-    'active_users_only'
-], 'messages has expected RLS policies');
-
--- ============================================================
--- SECTION 28: RLS Policies — chat_participants
--- ============================================================
-SELECT policies_are('chat_participants', ARRAY[
-    'cp_read_own',
-    'cp_read_participant',
-    'active_users_only'
-], 'chat_participants has expected RLS policies');
-
--- 28a: chat inbox (migration 20260815000004) — read watermark + RPCs
-SELECT has_column('chat_participants', 'last_read_at',
-    'chat_participants has the last_read_at read watermark');
-SELECT col_type_is('chat_participants', 'last_read_at', 'timestamp with time zone',
-    'last_read_at is timestamptz');
-SELECT col_not_null('chat_participants', 'last_read_at',
-    'last_read_at defaults now() — existing participants start read');
-SELECT has_function('get_chat_inbox',
-    'get_chat_inbox() exists (SECURITY DEFINER RPC, migration 20260815000004)');
-SELECT is_definer('public', 'get_chat_inbox', ARRAY[]::name[],
-    'get_chat_inbox is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'get_chat_inbox'),
-    'get_chat_inbox sets search_path = '''' (migration 20260815000004)'
-);
-SELECT function_privs_are('public', 'get_chat_inbox', ARRAY[]::name[], 'public', ARRAY[]::name[],
-    'get_chat_inbox is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'get_chat_inbox', ARRAY[]::name[], 'authenticated', ARRAY['EXECUTE'],
-    'get_chat_inbox is authenticated-EXECUTABLE');
-SELECT has_function('mark_chat_read', ARRAY['uuid'],
-    'mark_chat_read(p_chat_id uuid) exists (SECURITY DEFINER RPC)');
-SELECT is_definer('public', 'mark_chat_read', ARRAY['uuid'],
-    'mark_chat_read is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'mark_chat_read'),
-    'mark_chat_read sets search_path = '''' (migration 20260815000004)'
-);
-SELECT function_privs_are('public', 'mark_chat_read', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
-    'mark_chat_read is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'mark_chat_read', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'mark_chat_read is authenticated-EXECUTABLE');
-
--- 28b: chat read receipts (migration 20260815000005) — read_at + privacy switch
-SELECT has_column('messages', 'read_at',
-    'messages has the read_at read-receipt timestamp');
-SELECT col_type_is('messages', 'read_at', 'timestamp with time zone',
-    'read_at is timestamptz');
-SELECT col_is_null('messages', 'read_at',
-    'read_at is nullable — NULL until the recipient marks the message read');
-SELECT has_column('users', 'read_receipts_enabled',
-    'users has the read_receipts_enabled privacy switch');
-SELECT col_type_is('users', 'read_receipts_enabled', 'boolean',
-    'read_receipts_enabled is boolean');
-SELECT col_not_null('users', 'read_receipts_enabled',
-    'read_receipts_enabled is NOT NULL');
-SELECT col_default_is('users', 'read_receipts_enabled', 'true',
-    'read_receipts_enabled defaults true — receipts on by default');
-SELECT has_function('mark_messages_read', ARRAY['uuid'],
-    'mark_messages_read(p_chat_id uuid) exists (SECURITY DEFINER RPC)');
-SELECT is_definer('public', 'mark_messages_read', ARRAY['uuid'],
-    'mark_messages_read is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'mark_messages_read'),
-    'mark_messages_read sets search_path = '''' (migration 20260815000005)'
-);
-SELECT function_privs_are('public', 'mark_messages_read', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
-    'mark_messages_read is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'mark_messages_read', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'mark_messages_read is authenticated-EXECUTABLE');
-
--- 28c: global user ranking (migration 20260818000002) — profile_public + get_user_ranking
 SELECT has_column('users', 'profile_public',
-    'users has the profile_public privacy flag (migration 20260818000002)');
+    'users has the profile_public privacy flag');
 SELECT col_type_is('users', 'profile_public', 'boolean',
     'profile_public is boolean');
 SELECT col_not_null('users', 'profile_public',
     'profile_public is NOT NULL — every account starts private');
 SELECT col_default_is('users', 'profile_public', 'false',
     'profile_public defaults false — anonymous until the user opts in');
-SELECT has_function('get_user_ranking', ARRAY['integer'],
-    'get_user_ranking(p_limit integer) exists (SECURITY DEFINER RPC, migration 20260818000002)');
-SELECT is_definer('public', 'get_user_ranking', ARRAY['integer'],
-    'get_user_ranking is SECURITY DEFINER');
+
+-- ============================================================
+-- SECTION 29: Removed shard / cosmetics / ranking surface — clients cannot
+-- read or write it (300_slim/05_revoke_removed.sql). Wagers and cosmetics
+-- are retired from slim-prod; the ledgers and rank snapshots are retained
+-- server-side only.
+-- ============================================================
 SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'get_user_ranking'),
-    'get_user_ranking sets search_path = '''' (migration 20260818000002)'
+    NOT has_table_privilege('authenticated', 'public.preshard_ledger', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.group_shard_contributions', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.group_rank_snapshots', 'SELECT')
+    AND NOT has_table_privilege('anon', 'public.group_rank_snapshots', 'SELECT'),
+    'authenticated/anon cannot read preshard, contribution or rank-snapshot rows'
 );
-SELECT function_privs_are('public', 'get_user_ranking', ARRAY['integer']::name[], 'public', ARRAY[]::name[],
-    'get_user_ranking is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'get_user_ranking', ARRAY['integer']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'get_user_ranking is authenticated-EXECUTABLE');
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%deleted_at IS NULL%'
-      AND pg_get_functiondef(p.oid) LIKE '%ORDER BY u.personal_shards DESC%'
-     FROM pg_proc p WHERE proname = 'get_user_ranking'),
-    'get_user_ranking excludes deleted users and orders by personal_shards DESC (20260818000002)'
+    NOT has_table_privilege('authenticated', 'public.cosmetics', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.group_cosmetics', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.user_cosmetics', 'INSERT')
+    AND NOT has_table_privilege('authenticated', 'public.user_cosmetics', 'UPDATE')
+    AND NOT has_table_privilege('anon', 'public.cosmetics', 'SELECT'),
+    'cosmetics are fully closed to clients (no read, no equip write)'
 );
-
--- 28c: message deletion (migration 20260815000006) — 5-min delete_for_everyone
---      + undecryptable cleanup + audit trail
-SELECT has_table('deleted_messages',
-    'deleted_messages audit trail exists (migration 20260815000006)');
-SELECT has_column('messages', 'sent_at',
-    'messages has the server-authoritative sent_at send timestamp');
-SELECT col_type_is('messages', 'sent_at', 'timestamp with time zone',
-    'sent_at is timestamptz');
-SELECT col_not_null('messages', 'sent_at',
-    'sent_at is NOT NULL');
-SELECT col_default_is('messages', 'sent_at', 'now()',
-    'sent_at defaults to now() — the SERVER clock anchors the 5-minute delete window');
-SELECT has_function('delete_message_for_everyone', ARRAY['uuid'],
-    'delete_message_for_everyone(p_message_id uuid) exists (SECURITY DEFINER RPC)');
-SELECT is_definer('public', 'delete_message_for_everyone', ARRAY['uuid'],
-    'delete_message_for_everyone is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'delete_message_for_everyone'),
-    'delete_message_for_everyone sets search_path = '''' (migration 20260815000006)'
-);
-SELECT function_privs_are('public', 'delete_message_for_everyone', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
-    'delete_message_for_everyone is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'delete_message_for_everyone', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'delete_message_for_everyone is authenticated-EXECUTABLE');
-SELECT has_function('delete_undecryptable_messages', ARRAY['uuid', 'uuid[]'],
-    'delete_undecryptable_messages(p_chat_id uuid, p_message_ids uuid[]) exists (SECURITY DEFINER RPC)');
-SELECT is_definer('public', 'delete_undecryptable_messages', ARRAY['uuid', 'uuid[]'],
-    'delete_undecryptable_messages is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'delete_undecryptable_messages'),
-    'delete_undecryptable_messages sets search_path = '''' (migration 20260815000006)'
-);
-SELECT function_privs_are('public', 'delete_undecryptable_messages', ARRAY['uuid', 'uuid[]']::name[], 'public', ARRAY[]::name[],
-    'delete_undecryptable_messages is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'delete_undecryptable_messages', ARRAY['uuid', 'uuid[]']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'delete_undecryptable_messages is authenticated-EXECUTABLE');
-
--- ============================================================
--- SECTION 29: RLS Policies — shard_ledger / preshard_ledger
--- ============================================================
-SELECT policies_are('shard_ledger', ARRAY[
-    'sl_read_own',
-    'active_users_only'
-], 'shard_ledger has expected RLS policies');
-
-SELECT policies_are('preshard_ledger', ARRAY[
-    'pl_read_own',
-    'active_users_only'
-], 'preshard_ledger has expected RLS policies');
-
--- ============================================================
--- SECTION 30: RLS Policies — user_cosmetics
--- ============================================================
-SELECT policies_are('user_cosmetics', ARRAY[
-    'user_cosmetics_read_own',
-    'user_cosmetics_update_own',
-    'active_users_only'
-], 'user_cosmetics has expected RLS policies');
-
--- ============================================================
--- SECTION 31: RLS Policies — cosmetics, group_cosmetics (public read)
--- ============================================================
-SELECT policies_are('cosmetics', ARRAY[
-    'cosmetics_read_all'
-], 'cosmetics is public-readable');
-SELECT policies_are('group_cosmetics', ARRAY[
-    'group_cosmetics_select'
-], 'group_cosmetics is public-readable');
 
 -- ============================================================
 -- SECTION 32: RLS Policies — remaining non-admin tables
 -- ============================================================
-SELECT policies_are('group_shard_contributions', ARRAY[
-    'gsc_read_member',
-    'active_users_only'
-], 'group_shard_contributions has expected RLS policies');
-SELECT policies_are('group_rank_snapshots', ARRAY[
-    'grs_read_tier_gated'
-], 'group_rank_snapshots is tier-gated (E3)');
 SELECT policies_are('minigame_sessions', ARRAY[
     'ms_read_group_member',
     'ms_read_invitee',
@@ -768,6 +340,20 @@ SELECT policies_are('reports', ARRAY[
 SELECT policies_are('app_config', ARRAY[
     'app_config_read_all'
 ], 'app_config is public-readable');
+-- prompt_packs — the RevenueCat-tiered prompt-pack catalogue (300_slim/02).
+-- Its seed + RPC contracts live in slim_test.sql; here we pin the schema.
+SELECT columns_are('prompt_packs',
+    ARRAY['id', 'game_type', 'name', 'tier_requirement', 'pack_version',
+          'is_active', 'created_at', 'updated_at'],
+    'prompt_packs exposes exactly the pack columns (300_slim/02)');
+SELECT col_is_pk('prompt_packs', 'id', 'prompt_packs.id is the primary key');
+SELECT col_type_is('prompt_packs', 'game_type', 'public.mini_game_type',
+    'prompt_packs.game_type is the mini_game_type enum');
+SELECT col_type_is('prompt_packs', 'tier_requirement', 'public.subscription_tier',
+    'prompt_packs.tier_requirement is the subscription_tier enum (free/pro/vip)');
+SELECT fk_ok('minigame_prompts', ARRAY['pack_id'::name], 'prompt_packs', ARRAY['id'::name],
+    'minigame_prompts.pack_id references prompt_packs.id (300_slim/02)');
+
 
 -- ============================================================
 -- SECTION 33: RLS Policies — admin tables (service_role only)
@@ -787,24 +373,18 @@ SELECT policies_are('processed_webhooks', ARRAY[
 
 -- ============================================================
 -- SECTION 34: Seed data
--- NOTE (I-33, 2026-08-09): seed INSERTs were removed from
--- migrations/20260510000001_full_schema.sql §7 — supabase/seed.sql is now the
--- single source of truth (SUP-04). Applied post-migration via config.toml
--- [db.seed] / reset.sh / migrate.sh. Post-reset state is unchanged except for
--- app.search_debounce_ms which I-33 added to seed.sql (read by invite/search
--- screens, PERF-05/L-24) and ranking.anonymize_names which C-social added for
--- the global user-ranking censor (20260818000002) → count is 39.
+-- seed-config.sql is the auto-applied fundamental config (app_config tuning
+-- keys + the system admin row); it seeds NO user accounts. Test data is
+-- explicit-only (`make supabase-seed-test`). The row counts below pin the
+-- current seed-config surface; a removable tuning key changes the total.
 -- ============================================================
--- MSQ-01 contract (user directive 2026-08-23): init/reset apply migrations
--- PLUS required seed-config.sql automatically (fundamental app config,
--- zero user data). Test data is explicit-only (`make supabase-seed-test`).
 SELECT ok(
     (SELECT count(*) = 1 FROM admin_users),
     'admin_users has the system admin row (from auto-applied seed-config)'
 );
 SELECT ok(
     (SELECT count(*) = 48 FROM app_config),
-    'app_config has 48 tuning rows (seed-config + 225 events capacity + 238 group limits + 240 theme)'
+    'app_config has 48 tuning rows (seed-config baseline)'
 );
 
 -- ============================================================
@@ -813,18 +393,9 @@ SELECT ok(
 SELECT has_column('admin_users', 'display_name',
     'admin_users retains display_name (only dropped from users)');
 SELECT ok(
-    (SELECT count(*) = 0 FROM users),
-    'users table is empty after init/reset; seed-config seeds no user rows (reviewer is staging-only)'
-);
-
--- ============================================================
--- SECTION 36: Verify handle_signup was actually dropped
--- ============================================================
-SELECT ok(
-    NOT EXISTS (
-        SELECT 1 FROM pg_proc WHERE proname = 'handle_signup'
-    ),
-    'handle_signup function is confirmed absent from pg_proc'
+    (SELECT NOT EXISTS (
+        SELECT 1 FROM users WHERE username = 'reviewer')),
+    'seed-config seeds no user rows (reviewer is staging-only)'
 );
 
 -- ============================================================
@@ -875,10 +446,9 @@ SELECT throws_ok($$SELECT public.upsert_signup_tracker('tracker-probe@test.local
 
 -- ============================================================
 -- SECTION 38: Hardening migration 20260809000001 (agent I-31)
---   38a. FORCE ROW LEVEL SECURITY on all 31 RLS-enabled tables
---        (30 from 20260510000001 §6 + signup_tracker, re-asserted).
---        relforcerowsecurity mirrors D-04's signup_tracker pattern (Section 6).
---   38b. SET search_path = '' on all 12 hardened SECURITY DEFINER
+--   38a. FORCE ROW LEVEL SECURITY on the kept, RLS-enabled tables (the
+--        signup_tracker pattern from Section 6).
+--   38b. SET search_path = '' on the kept hardened SECURITY DEFINER
 --        functions — asserted via pg_proc.proconfig containing 'search_path='.
 --   38c. service_role BYPASSRLS — FORCE RLS must NOT lock out the admin CLI
 --        (Go + SUPABASE_SERVICE_ROLE_KEY via PostgREST as service_role;
@@ -886,22 +456,10 @@ SELECT throws_ok($$SELECT public.upsert_signup_tracker('tracker-probe@test.local
 --        00-initial-schema.sql, verified against upstream at commit 8d3216973).
 -- ============================================================
 
--- 38a: FORCE ROW LEVEL SECURITY
+-- 38a: FORCE ROW LEVEL SECURITY — kept tables only
 SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'users'::regclass),
     'users has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'user_cosmetics'::regclass),
-    'user_cosmetics has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'cosmetics'::regclass),
-    'cosmetics has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'group_cosmetics'::regclass),
-    'group_cosmetics has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
 );
 SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'friendships'::regclass),
@@ -914,58 +472,6 @@ SELECT ok(
 SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'group_members'::regclass),
     'group_members has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'group_shard_contributions'::regclass),
-    'group_shard_contributions has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'group_rank_snapshots'::regclass),
-    'group_rank_snapshots has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'events'::regclass),
-    'events has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_hosts'::regclass),
-    'event_hosts has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_invites'::regclass),
-    'event_invites has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_attendances'::regclass),
-    'event_attendances has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_photos'::regclass),
-    'event_photos has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'event_photo_likes'::regclass),
-    'event_photo_likes has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'chats'::regclass),
-    'chats has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'messages'::regclass),
-    'messages has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'chat_participants'::regclass),
-    'chat_participants has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'shard_ledger'::regclass),
-    'shard_ledger has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'preshard_ledger'::regclass),
-    'preshard_ledger has FORCE ROW LEVEL SECURITY (migration 20260809000001)'
 );
 SELECT ok(
     (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'minigame_sessions'::regclass),
@@ -1014,48 +520,8 @@ SELECT ok(
     'update_group_size_tier sets search_path = '''' (migration 20260809000001)'
 );
 SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'set_dynamic_qr_enabled'),
-    'set_dynamic_qr_enabled sets search_path = '''' (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'enforce_message_cap'),
-    'enforce_message_cap sets search_path = '''' (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'increment_group_shards'),
-    'increment_group_shards sets search_path = '''' (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'update_photo_likes_count'),
-    'update_photo_likes_count sets search_path = '''' (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'dispatch_shard_distribution'),
-    'dispatch_shard_distribution sets search_path = '''' (migration 20260809000001)'
-);
-SELECT ok(
     (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'hard_delete_expired_users'),
     'hard_delete_expired_users sets search_path = '''' (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'donate_shards_to_group'),
-    'donate_shards_to_group sets search_path = '''' (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'grant_shards'),
-    'grant_shards sets search_path = '''' (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'grant_preshards'),
-    'grant_preshards sets search_path = '''' (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'distribute_shards'),
-    'distribute_shards sets search_path = '''' (migration 20260809000001)'
-);
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig) FROM pg_proc WHERE proname = 'recalculate_ranks'),
-    'recalculate_ranks sets search_path = '''' (migration 20260809000001)'
 );
 
 -- 38c: service_role BYPASSRLS — admin CLI keeps bypassing RLS under FORCE
@@ -1063,33 +529,6 @@ SELECT ok(
     (SELECT rolbypassrls FROM pg_roles WHERE rolname = 'service_role'),
     'service_role has BYPASSRLS — FORCE RLS does not lock out admin (migration 20260809000001)'
 );
-
--- ============================================================
--- SECTION 39: RLS audit fixes migration 20260809000002 (agent I-32)
---   39a. G-03 users UPDATE mass-assignment: column-level REVOKE UPDATE on
---        the 7 protected columns (personal_shards, preshards,
---        subscription_tier, subscription_expires_at, banned_at, ban_reason,
---        date_of_birth). PostgREST-safe standard approach — RLS policies
---        cannot restrict columns. REVOKE'd from authenticated + anon.
---   39b. assert_safe_user_update_trigger + function. SECURITY INVOKER on
---        purpose: SECURITY DEFINER would set current_user = postgres
---        (superuser) and the BYPASSRLS/superuser gate would always pass —
---        the trigger would never block anyone.
---   39c. Admin RPCs no longer PUBLIC-EXECUTABLE: grant_shards,
---        grant_preshards, distribute_shards, recalculate_ranks,
---        hard_delete_expired_users were SECURITY DEFINER with default
---        PUBLIC EXECUTE → any anon/authenticated caller could mint shards
---        or drain event pools via PostgREST. Now service_role only
---        (pg_cron runs as postgres — unaffected).
---   39d. Server-managed groups/events columns revoked from authenticated:
---        groups INSERT (group_shards, size_tier, frozen_at) + UPDATE
---        (group_shards, size_tier, frozen_at, rank_bracket); events UPDATE
---        (preshards_distributed, featured, featured_until).
---   39e. user_search_view anon SELECT revoked (authenticated search only).
---   39f. Recreated/added policies asserted via policies_are (Section
---        17/18/26 lists updated in place).
--- ============================================================
-
 -- 39a: users protected columns carry no column-level grants. NOTE: the
 -- image's default privileges grant TABLE-level UPDATE to authenticated, so
 -- has_column_privilege() still resolves UPDATE — the real enforcement for
@@ -1147,29 +586,11 @@ SELECT ok(
     (SELECT NOT prosecdef FROM pg_proc WHERE proname = 'assert_safe_user_update'),
     'assert_safe_user_update is SECURITY INVOKER (gate must see the real caller)'
 );
-
 -- 39c: admin RPC EXECUTE lockdown (REVOKE PUBLIC / GRANT service_role)
-SELECT function_privs_are('public', 'grant_shards', ARRAY['uuid', 'integer', 'text']::name[], 'public', ARRAY[]::name[],
-    'grant_shards is not PUBLIC-EXECUTABLE (migration 20260809000002)');
-SELECT function_privs_are('public', 'grant_shards', ARRAY['uuid', 'integer', 'text']::name[], 'service_role', ARRAY['EXECUTE'],
-    'grant_shards is service_role-EXECUTABLE');
-SELECT function_privs_are('public', 'grant_preshards', ARRAY['uuid', 'integer', 'text']::name[], 'public', ARRAY[]::name[],
-    'grant_preshards is not PUBLIC-EXECUTABLE (migration 20260809000002)');
-SELECT function_privs_are('public', 'grant_preshards', ARRAY['uuid', 'integer', 'text']::name[], 'service_role', ARRAY['EXECUTE'],
-    'grant_preshards is service_role-EXECUTABLE');
-SELECT function_privs_are('public', 'distribute_shards', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
-    'distribute_shards is not PUBLIC-EXECUTABLE (migration 20260809000002)');
-SELECT function_privs_are('public', 'distribute_shards', ARRAY['uuid']::name[], 'service_role', ARRAY['EXECUTE'],
-    'distribute_shards is service_role-EXECUTABLE');
-SELECT function_privs_are('public', 'recalculate_ranks', ARRAY['text']::name[], 'public', ARRAY[]::name[],
-    'recalculate_ranks is not PUBLIC-EXECUTABLE (migration 20260809000002)');
-SELECT function_privs_are('public', 'recalculate_ranks', ARRAY['text']::name[], 'service_role', ARRAY['EXECUTE'],
-    'recalculate_ranks is service_role-EXECUTABLE');
 SELECT function_privs_are('public', 'hard_delete_expired_users', ARRAY[]::text[]::name[], 'public', ARRAY[]::name[],
     'hard_delete_expired_users is not PUBLIC-EXECUTABLE (migration 20260809000002)');
 SELECT function_privs_are('public', 'hard_delete_expired_users', ARRAY[]::text[]::name[], 'service_role', ARRAY['EXECUTE'],
     'hard_delete_expired_users is service_role-EXECUTABLE');
-
 -- 39d: server-managed groups/events columns carry no column-level grants;
 -- enforcement is the assert_safe_group_update/assert_safe_event_update
 -- triggers (migration 20260811000001 — table-level grants from the image
@@ -1217,31 +638,9 @@ SELECT ok(
           AND a.attacl IS NOT NULL
           AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
     'groups.rank_bracket has no column-level UPDATE grant');
-SELECT ok(
-    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
-        WHERE a.attrelid = 'public.events'::regclass AND a.attname = 'preshards_distributed'
-          AND a.attacl IS NOT NULL
-          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
-    'events.preshards_distributed has no column-level UPDATE grant');
-SELECT ok(
-    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
-        WHERE a.attrelid = 'public.events'::regclass AND a.attname = 'featured'
-          AND a.attacl IS NOT NULL
-          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
-    'events.featured has no column-level UPDATE grant');
-SELECT ok(
-    (SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
-        WHERE a.attrelid = 'public.events'::regclass AND a.attname = 'featured_until'
-          AND a.attacl IS NOT NULL
-          AND EXISTS (SELECT 1 FROM unnest(a.attacl) AS c(i) WHERE c.i::text ~ '^authenticated=[A-Za-z]*w'))),
-    'events.featured_until has no column-level UPDATE grant');
-
 -- 39g: server-managed groups/events triggers (migration 20260811000001)
 SELECT has_trigger('groups', 'assert_safe_group_update_trigger',
     'groups has assert_safe_group_update_trigger (migration 20260811000001)');
-SELECT has_trigger('events', 'assert_safe_event_update_trigger',
-    'events has assert_safe_event_update_trigger (migration 20260811000001)');
-
 -- 39e: user_search_view is server-RPC-only (Q8: no directory enumeration)
 SELECT ok(
     NOT has_table_privilege('anon', 'public.user_search_view', 'SELECT')
@@ -1251,77 +650,12 @@ SELECT ok(
     has_table_privilege('service_role', 'public.user_search_view', 'SELECT'),
     'service_role keeps SELECT on user_search_view');
 
--- 39f: policy sets asserted in Sections 17/18/26 (updated lists)
-
 -- ============================================================
--- SECTION 41: E2EE prekey table + fetch RPC (migration 20260809000003,
--- agent I-38) — table, own-row RLS, FORCE RLS, index, SECURITY DEFINER
--- RPC with SET search_path = '' and authenticated-only EXECUTE.
+-- SECTION 41: friendships realtime (20260815000002) — the kept social graph
+-- streams live. The removed chat tables keep their publication membership
+-- but no client can read them, so their realtime presence is not part of
+-- the slim contract.
 -- ============================================================
-SELECT has_table('e2ee_identity_keys',
-    'e2ee_identity_keys exists (migration 20260809000003)');
-SELECT has_column('e2ee_identity_keys', 'user_id');
-SELECT has_column('e2ee_identity_keys', 'identity_key');
-SELECT has_column('e2ee_identity_keys', 'identity_sig_key');
-SELECT has_column('e2ee_identity_keys', 'signed_prekey_id');
-SELECT has_column('e2ee_identity_keys', 'signed_prekey');
-SELECT has_column('e2ee_identity_keys', 'signed_prekey_sig');
-SELECT has_column('e2ee_identity_keys', 'signed_prekey_expires_at');
-SELECT has_column('e2ee_identity_keys', 'one_time_prekeys');
-SELECT has_column('e2ee_identity_keys', 'consumed_one_time_prekeys');
-SELECT has_column('e2ee_identity_keys', 'updated_at');
-SELECT col_is_pk('e2ee_identity_keys', 'user_id',
-    'e2ee_identity_keys.user_id is the primary key');
-SELECT col_type_is('e2ee_identity_keys', 'identity_key', 'text',
-    'identity_key is text (base64url X25519 public)');
-SELECT col_type_is('e2ee_identity_keys', 'one_time_prekeys', 'jsonb',
-    'one_time_prekeys is jsonb');
-SELECT col_not_null('e2ee_identity_keys', 'user_id');
-SELECT col_not_null('e2ee_identity_keys', 'identity_key');
-SELECT col_not_null('e2ee_identity_keys', 'identity_sig_key');
-SELECT col_not_null('e2ee_identity_keys', 'signed_prekey_id');
-SELECT col_not_null('e2ee_identity_keys', 'signed_prekey');
-SELECT col_not_null('e2ee_identity_keys', 'signed_prekey_sig');
-SELECT col_not_null('e2ee_identity_keys', 'signed_prekey_expires_at');
-SELECT ok(
-    (SELECT relrowsecurity FROM pg_class WHERE oid = 'e2ee_identity_keys'::regclass),
-    'e2ee_identity_keys has RLS enabled'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'e2ee_identity_keys'::regclass),
-    'e2ee_identity_keys has FORCE ROW LEVEL SECURITY (migration 20260809000003)'
-);
-SELECT policies_are('e2ee_identity_keys', ARRAY[
-    'e2ee_identity_keys_select_own',
-    'e2ee_identity_keys_insert_own',
-    'e2ee_identity_keys_update_own',
-    'e2ee_identity_keys_delete_own'
-], 'e2ee_identity_keys has own-row (user_id = auth.uid()) RLS policies');
-SELECT has_index('e2ee_identity_keys', 'e2ee_identity_keys_user_id_idx',
-    'e2ee_identity_keys has an index on user_id');
-SELECT has_function('fetch_prekey_bundle', ARRAY['uuid'],
-    'fetch_prekey_bundle(p_user_id uuid) exists (SECURITY DEFINER RPC)');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'fetch_prekey_bundle'),
-    'fetch_prekey_bundle sets search_path = '''' (migration 20260809000003)'
-);
-SELECT function_privs_are('public', 'fetch_prekey_bundle', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
-    'fetch_prekey_bundle is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'fetch_prekey_bundle', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'fetch_prekey_bundle is authenticated-EXECUTABLE');
-SELECT is(
-    (SELECT relreplident FROM pg_class WHERE oid = 'public.messages'::regclass),
-    'f',
-    'messages has REPLICA IDENTITY FULL (realtime full-row delivery, E2EE §9.3)'
-);
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_publication_tables
-        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'messages'
-    ),
-    'messages is in the supabase_realtime publication (E2EE §9.3)'
-);
 SELECT ok(
     EXISTS (
         SELECT 1 FROM pg_publication_tables
@@ -1331,18 +665,14 @@ SELECT ok(
 );
 
 -- ============================================================
--- SECTION 43: Party Finder discovery (migration 20260809000004,
--- agent I-60) — users.interest_tags + users.discovery_opt_in (user-owned,
--- self-editable), discovery_view security-barrier view (authenticated only).
---   43a. Columns exist with the right type/default/NOT NULL.
---   43b. Trigger/REVOKE interplay (documented decision): the two columns are
---        deliberately NOT in assert_safe_user_update()'s protected set nor in
---        the I-32 column-level REVOKE UPDATE list → authenticated keeps
---        UPDATE (users_update_own, id = auth.uid()) so the opt-in toggle and
---        tags editor persist. Asserted via has_column_priv (UPDATE = true).
---   43c. discovery_view: security barrier, exact column projection
---        (id, username, avatar_url, interest_tags), authenticated SELECT
---        only (anon revoked — no pre-auth enumeration, mirrors I-32 §13).
+-- SECTION 43: discovery columns + view (migration 20260809000004, agent I-60)
+--   43a. users.interest_tags + users.discovery_opt_in exist with the right
+--        type/default/NOT NULL (kept columns; the Party Finder itself is
+--        removed and discovery_view is closed to both client roles).
+--   43b. clients cannot UPDATE either column (profile-RPC lockdown).
+--   43c. discovery_view keeps its security-barrier shape and exact column
+--        projection; it is not SELECT-able by anon (and no longer by
+--        authenticated — 300_slim/05_revoke_removed.sql).
 -- ============================================================
 
 -- 43a: columns + defaults
@@ -1378,43 +708,45 @@ SELECT ok(
     NOT has_column_privilege('authenticated', 'public.users', 'discovery_opt_in', 'UPDATE'),
     'users.discovery_opt_in is NOT UPDATE-able by authenticated (mutated via set_discovery_opt_in)');
 
--- 43c: discovery_view
-SELECT has_view('discovery_view',
-    'discovery_view exists (migration 20260809000004)');
-SELECT columns_are('discovery_view',
-    ARRAY['id', 'username', 'avatar_url', 'interest_tags'],
-    'discovery_view exposes only id, username, avatar_url, interest_tags');
-SELECT ok(
-    has_table_privilege('authenticated', 'public.discovery_view', 'SELECT'),
-    'discovery_view is SELECT-able by authenticated');
+-- 43c: discovery_view — Party Finder is removed, so the view is closed to the
+-- pre-auth role (the authenticated closure is pinned by slim_test.sql).
 SELECT ok(
     NOT has_table_privilege('anon', 'public.discovery_view', 'SELECT'),
-    'discovery_view is not SELECT-able by anon (no pre-auth enumeration)');
-SELECT ok(
-    (SELECT 'security_barrier=true' = ANY (c.reloptions)
-     FROM pg_class c WHERE c.oid = 'discovery_view'::regclass),
-    'discovery_view is a security_barrier view (no predicate-pushdown leaks)'
+    'discovery_view is not SELECT-able by anon (no pre-auth enumeration)'
 );
 
 -- ============================================================
--- SECTION 45: create_minigame_session RPC (migration 20260809000006,
--- agent I-63 + 140_minigame_invites 2026-08-26) — GMCR/GWAG foundation:
--- SECURITY DEFINER + SET search_path = '' (I-31 pattern), membership gate
--- via the I-32 is_group_member helper, atomic wager deduct + minigame_wager
--- ledger + session insert (escrow contract, GWAG), business outcomes
--- returned as jsonb statuses, PUBLIC EXECUTE revoked, authenticated-only
--- EXECUTE. The invite-aware 4-arg overload (p_invitees uuid[]) replaces the
--- 3-arg baseline: per-invitee blocked/deleted + friends-only privacy gates
--- and one minigame_invites row per invitee, all atomic.
+-- SECTION 45: create_minigame_session RPC (300_slim/03_remove_wagers —
+-- wager-free 10-arg signature). SECURITY DEFINER + SET search_path = '',
+-- membership gate via is_group_member, invite validation (blocked/deleted +
+-- friends-only privacy + player cap), one minigame_invites row per invitee,
+-- a session insert with NO wager/escrow and the game-state row seeded at
+-- creation. Business outcomes are typed jsonb statuses; PUBLIC/anon EXECUTE
+-- revoked, authenticated-only.
 -- ============================================================
-SELECT has_function('create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone'],
-    'create_minigame_session(p_group_id uuid, p_game_type text, p_wager integer, p_invitees uuid[], p_name text, p_rounds integer, p_prize_positions integer, p_play_mode text, p_anonymous boolean, p_async_rounds_per_player integer, p_async_ends_at timestamp with time zone) exists (202_minigame_play_v2)');
+SELECT has_function('create_minigame_session',
+    ARRAY['uuid', 'text', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone'],
+    'create_minigame_session(p_group_id, p_game_type, p_invitees, p_name, p_rounds, p_prize_positions, p_play_mode, p_anonymous, p_async_rounds_per_player, p_async_ends_at) exists (wager-free 10-arg)');
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'create_minigame_session' AND pronargs = 11
+    ),
+    'the 11-arg wager overload is dropped (wagers removed)'
+);
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'create_minigame_session' AND 'p_wager' = ANY (proargnames)
+    ),
+    'no create_minigame_session overload takes p_wager'
+);
 SELECT ok(
     NOT EXISTS (
         SELECT 1 FROM pg_proc
         WHERE proname = 'create_minigame_session' AND pronargs = 3
     ),
-    'the pre-invite 3-arg create_minigame_session overload is dropped (CREATE OR REPLACE cannot change the arg list)'
+    'the pre-invite 3-arg create_minigame_session overload is dropped'
 );
 SELECT ok(
     (SELECT prosecdef FROM pg_proc WHERE proname = 'create_minigame_session'),
@@ -1423,7 +755,7 @@ SELECT ok(
 SELECT ok(
     (SELECT 'search_path=""' = ANY (proconfig)
      FROM pg_proc WHERE proname = 'create_minigame_session'),
-    'create_minigame_session sets search_path = '''' (migration 20260809000006)'
+    'create_minigame_session sets search_path = '''' '
 );
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%public.is_group_member(p_group_id)%'
@@ -1431,17 +763,18 @@ SELECT ok(
     'create_minigame_session references is_group_member'
 );
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_wager%'
-       AND pg_get_functiondef(p.oid) LIKE '%public.shard_ledger%'
+    (SELECT pg_get_functiondef(p.oid) NOT LIKE '%minigame_wager%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%public.shard_ledger%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%insufficient_shards%'
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
-    'create_minigame_session writes the minigame_wager ledger'
+    'create_minigame_session writes no wager/ledger/escrow (wagers removed)'
 );
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%''insufficient_shards''%'
-       AND pg_get_functiondef(p.oid) LIKE '%''not_member''%'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%''not_member''%'
        AND pg_get_functiondef(p.oid) LIKE '%''created''%'
+       AND pg_get_functiondef(p.oid) LIKE '%''invited''%'
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
-    'create_minigame_session returns typed jsonb statuses (I-57 contract)'
+    'create_minigame_session returns typed jsonb statuses'
 );
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%public.minigame_invites%'
@@ -1466,17 +799,15 @@ SELECT ok(
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
     'create_minigame_session rejects blocked invitees (either direction)'
 );
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone']::name[], 'public', ARRAY[]::name[],
+SELECT function_privs_are('public', 'create_minigame_session',
+    ARRAY['uuid', 'text', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone']::name[], 'public', ARRAY[]::name[],
     'create_minigame_session is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone']::name[], 'authenticated', ARRAY['EXECUTE'],
+SELECT function_privs_are('public', 'create_minigame_session',
+    ARRAY['uuid', 'text', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone']::name[], 'authenticated', ARRAY['EXECUTE'],
     'create_minigame_session is authenticated-EXECUTABLE');
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%player_limit%'
-       AND pg_get_functiondef(p.oid) LIKE '%app_config%'
-       AND pg_get_functiondef(p.oid) LIKE '%array_length%'
-     FROM pg_proc p WHERE proname = 'create_minigame_session'),
-    'create_minigame_session computes the player cap from the creator subscription tier via app_config'
-);
+SELECT function_privs_are('public', 'create_minigame_session',
+    ARRAY['uuid', 'text', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone']::name[], 'anon', ARRAY[]::name[],
+    'create_minigame_session is not anon-EXECUTABLE');
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%minigame.free_max_players%'
        AND pg_get_functiondef(p.oid) LIKE '%minigame.pro_max_players%'
@@ -1498,33 +829,17 @@ SELECT ok(
 
 -- ============================================================
 -- SECTION 46: Static trigger/constraint/RPC contract (agent I-77,
--- I-76 handoff + I-31/I-32/I-38/I-57/I-63 regression net)
---   46a. Trigger→function bindings (trigger_is) for all 9 triggers from
---        migration 20260510000001 §5 (existence already asserted in
---        Section 8; binding guards against a trigger pointing at the
---        wrong function after a CREATE OR REPLACE).
---   46b. Trigger-function BODY contract (pg_get_functiondef LIKE, I-63
---        Section 45 pattern) — the static equivalent of the behavioral
---        coverage that opt-002/003/004 delegate to pgTAP: message_cap
---        reads app_config chat.message_cap with the 1000 fallback,
---        dynamic_qr derives the flag from preshards_pool in both
---        branches, likes-count recomputes from event_photo_likes.
---   46c. Constraints: check_casual_no_preshards + group_members_status_check
---        (name-anchored pg_constraint checks — pgTAP has_check() only
---        asserts "some check exists", not the name/table) and the UNIQUE
---        column pairs (col_is_unique) that opt-002/004 exercise
---        (event_photo_likes(photo_id,user_id) → 23505, group_members
---        (group_id,user_id), events.invite_token, ...).
---   46d. e2ee_identity_keys full structure (completes Section 41):
---        exact column projection + types + jsonb defaults; fetch_prekey_bundle
---        SECURITY DEFINER (is_definer — Section 41 asserts search_path +
---        grants only).
---   46e. RPC completeness: is_group_member helper
---        (20260809000002 §11.1) existence + SECURITY DEFINER + STABLE +
---        search_path hardening (used by create_minigame_session and
---        group_members_read_same). (The legacy QR-token prosecdef check that
---        lived here was removed 2026-09-08 with the static QR-token surface —
---        the code family's posture is pinned in Section 21d.)
+-- I-76 handoff + I-31/I-32/I-57 regression net)
+--   46a. Trigger→function bindings (trigger_is) — existence is asserted in
+--        Section 8; the binding guards against a trigger pointing at the
+--        wrong function after a CREATE OR REPLACE.
+--   46b. Trigger-function BODY contract — update_group_size_tier maps
+--        member_count to size_tier thresholds.
+--   46c. Constraint contract — group_members_status_check (name-anchored
+--        pg_constraint check) and the UNIQUE (group_id, user_id) key.
+--   46e. RPC completeness: is_group_member helper existence + SECURITY
+--        DEFINER + STABLE + search_path hardening (used by
+--        create_minigame_session and group_members_read_same).
 -- ============================================================
 
 -- 46a: trigger → function bindings
@@ -1532,40 +847,9 @@ SELECT trigger_is('public', 'users', 'users_updated_at', 'extensions', 'moddatet
     'users_updated_at fires extensions.moddatetime');
 SELECT trigger_is('public', 'groups', 'groups_updated_at', 'extensions', 'moddatetime',
     'groups_updated_at fires extensions.moddatetime');
-SELECT trigger_is('public', 'events', 'events_updated_at', 'extensions', 'moddatetime',
-    'events_updated_at fires extensions.moddatetime');
 SELECT trigger_is('public', 'group_members', 'group_size_tier_trigger', 'public', 'update_group_size_tier',
     'group_size_tier_trigger fires update_group_size_tier');
-SELECT trigger_is('public', 'events', 'dynamic_qr_enabled_trigger', 'public', 'set_dynamic_qr_enabled',
-    'dynamic_qr_enabled_trigger fires set_dynamic_qr_enabled');
-SELECT trigger_is('public', 'messages', 'message_cap_trigger', 'public', 'enforce_message_cap',
-    'message_cap_trigger fires enforce_message_cap');
-SELECT trigger_is('public', 'group_shard_contributions', 'group_shards_increment_trigger', 'public', 'increment_group_shards',
-    'group_shards_increment_trigger fires increment_group_shards');
-SELECT trigger_is('public', 'event_photo_likes', 'photo_likes_count_trigger', 'public', 'update_photo_likes_count',
-    'photo_likes_count_trigger fires update_photo_likes_count');
-SELECT trigger_is('public', 'events', 'shard_distribution_dispatch_trigger', 'public', 'dispatch_shard_distribution',
-    'shard_distribution_dispatch_trigger fires dispatch_shard_distribution');
-
 -- 46b: trigger-function bodies (static behavioral contract)
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%public.app_config%'
-       AND pg_get_functiondef(p.oid) LIKE '%chat.message_cap%'
-       AND pg_get_functiondef(p.oid) LIKE '%1000%'
-     FROM pg_proc p WHERE proname = 'enforce_message_cap'),
-    'enforce_message_cap reads app_config chat.message_cap with 1000 fallback (I-76 full-cap contract)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%NEW.dynamic_qr_enabled = (NEW.preshards_pool > 0)%'
-     FROM pg_proc p WHERE proname = 'set_dynamic_qr_enabled'),
-    'set_dynamic_qr_enabled derives dynamic_qr_enabled from preshards_pool (both INSERT and UPDATE branches)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%UPDATE public.event_photos SET likes_count = (%'
-       AND pg_get_functiondef(p.oid) LIKE '%SELECT COUNT(*) FROM public.event_photo_likes WHERE photo_id = target_photo_id%'
-     FROM pg_proc p WHERE proname = 'update_photo_likes_count'),
-    'update_photo_likes_count recomputes likes_count from event_photo_likes (count accuracy)'
-);
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%UPDATE public.groups SET size_tier = CASE%'
        AND pg_get_functiondef(p.oid) LIKE '%member_count >= 257%'
@@ -1573,22 +857,7 @@ SELECT ok(
      FROM pg_proc p WHERE proname = 'update_group_size_tier'),
     'update_group_size_tier maps member_count to size_tier thresholds (large 257+ / small 15+)'
 );
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%UPDATE public.groups SET group_shards = group_shards + NEW.shards_contributed%'
-     FROM pg_proc p WHERE proname = 'increment_group_shards'),
-    'increment_group_shards adds shards_contributed to groups.group_shards'
-);
-
 -- 46c: constraints
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conrelid = 'events'::regclass
-          AND conname = 'check_casual_no_preshards'
-          AND contype = 'c'
-    ),
-    'events has check_casual_no_preshards (casual events cannot carry a preshards pool, opt-002 TEST B)'
-);
 SELECT ok(
     EXISTS (
         SELECT 1 FROM pg_constraint
@@ -1598,62 +867,8 @@ SELECT ok(
     ),
     'group_members has group_members_status_check (status IN active/invited, migration 20260512000011)'
 );
-SELECT col_is_unique('event_photo_likes', ARRAY['photo_id', 'user_id'],
-    'event_photo_likes has UNIQUE (photo_id, user_id) — duplicate likes are 23505 (opt-004 TEST D)');
 SELECT col_is_unique('group_members', ARRAY['group_id', 'user_id'],
     'group_members has UNIQUE (group_id, user_id)');
-SELECT col_is_unique('event_attendances', ARRAY['event_id', 'user_id'],
-    'event_attendances has UNIQUE (event_id, user_id)');
-SELECT col_is_unique('user_cosmetics', ARRAY['user_id', 'cosmetic_id'],
-    'user_cosmetics has UNIQUE (user_id, cosmetic_id)');
-SELECT col_is_unique('event_hosts', ARRAY['event_id', 'user_id'],
-    'event_hosts has UNIQUE (event_id, user_id) (opt-002 host contract)');
-SELECT col_is_unique('event_invites', ARRAY['event_id', 'user_id'],
-    'event_invites has UNIQUE (event_id, user_id)');
-SELECT col_is_unique('chat_participants', ARRAY['chat_id', 'user_id'],
-    'chat_participants has UNIQUE (chat_id, user_id)');
-SELECT col_is_unique('group_cosmetics', ARRAY['group_id', 'cosmetic_id'],
-    'group_cosmetics has UNIQUE (group_id, cosmetic_id)');
-SELECT col_is_unique('events', 'invite_token',
-    'events.invite_token is UNIQUE (invite links, opt-002 TEST A)');
-
--- 46d: e2ee_identity_keys structure (completes Section 41)
-SELECT columns_are('e2ee_identity_keys', ARRAY[
-    'user_id', 'identity_key', 'identity_sig_key', 'signed_prekey_id',
-    'signed_prekey', 'signed_prekey_sig', 'signed_prekey_expires_at',
-    'one_time_prekeys', 'consumed_one_time_prekeys', 'updated_at'
-], 'e2ee_identity_keys exposes exactly the 10 X3DH columns (migration 20260809000003)');
-SELECT col_type_is('e2ee_identity_keys', 'user_id', 'uuid',
-    'e2ee_identity_keys.user_id is uuid (FK to users.id)');
-SELECT col_type_is('e2ee_identity_keys', 'identity_sig_key', 'text',
-    'identity_sig_key is text (base64url Ed25519)');
-SELECT col_type_is('e2ee_identity_keys', 'signed_prekey_id', 'integer',
-    'signed_prekey_id is integer (spk_id carried by init envelopes)');
-SELECT col_type_is('e2ee_identity_keys', 'signed_prekey', 'text',
-    'signed_prekey is text (base64url X25519 signed prekey)');
-SELECT col_type_is('e2ee_identity_keys', 'signed_prekey_sig', 'text',
-    'signed_prekey_sig is text (Ed25519 sig over signed_prekey)');
-SELECT col_type_is('e2ee_identity_keys', 'signed_prekey_expires_at', 'timestamptz',
-    'signed_prekey_expires_at is timestamptz');
-SELECT col_type_is('e2ee_identity_keys', 'consumed_one_time_prekeys', 'jsonb',
-    'consumed_one_time_prekeys is jsonb (audit trail)');
-SELECT col_type_is('e2ee_identity_keys', 'updated_at', 'timestamptz',
-    'updated_at is timestamptz');
-SELECT ok(
-    (SELECT pg_get_expr(adbin, adrelid)::text = '''[]''::jsonb'
-     FROM pg_catalog.pg_attrdef d
-     JOIN pg_catalog.pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
-     WHERE a.attrelid = 'e2ee_identity_keys'::regclass AND a.attname = 'one_time_prekeys'),
-    'one_time_prekeys defaults to the empty array');
-SELECT ok(
-    (SELECT pg_get_expr(adbin, adrelid)::text = '''[]''::jsonb'
-     FROM pg_catalog.pg_attrdef d
-     JOIN pg_catalog.pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
-     WHERE a.attrelid = 'e2ee_identity_keys'::regclass AND a.attname = 'consumed_one_time_prekeys'),
-    'consumed_one_time_prekeys defaults to the empty array');
-SELECT is_definer('public', 'fetch_prekey_bundle', ARRAY['uuid'],
-    'fetch_prekey_bundle is SECURITY DEFINER');
-
 -- 46e: RPC completeness
 SELECT has_function('is_group_member', ARRAY['uuid'],
     'is_group_member(p_group_id uuid) exists (migration 20260809000002 §11.1)');
@@ -1676,12 +891,12 @@ SELECT ok(
 --        NOT by the app migrations; the bucket rows + objects RLS policies
 --        below are what 20260810000007 adds. has_table with an explicit
 --        schema also guards against the storage schema being dropped.
---   47b. Bucket rows exist with the exact public flags: avatars=true,
---        groups=true (public reads via getPublicUrl), events=false (private
---        — PHUP signed-URL retrieval only).
---   47c. storage.objects RLS is enabled (relrowsecurity) and the five
---        migration policies are present under their exact names
---        (policies_are).
+--   47b. Kept bucket rows exist with the exact public flags: avatars=true,
+--        groups=true (public reads via getPublicUrl), minigame_images=false
+--        (private encrypted-image store, signed-URL retrieval only). The
+--        events bucket row is retained but belongs to a removed feature.
+--   47c. storage.objects RLS is enabled (relrowsecurity) and the six kept
+--        policies are present under their exact names.
 -- ============================================================
 
 -- 47a: storage schema tables
@@ -1692,9 +907,9 @@ SELECT has_table('storage', 'objects',
 
 -- 47b: bucket rows + public flags (migration 20260810000007 §1)
 SELECT results_eq(
-    'SELECT id FROM storage.buckets WHERE id IN (''avatars'', ''groups'', ''events'') ORDER BY id',
-    ARRAY['avatars', 'events', 'groups']::text[],
-    'avatars/groups/events bucket rows exist (migration 20260810000007)'
+    'SELECT id FROM storage.buckets WHERE id IN (''avatars'', ''groups'', ''minigame_images'') ORDER BY id',
+    ARRAY['avatars', 'groups', 'minigame_images']::text[],
+    'kept bucket rows exist — avatars, groups and minigame_images (migration 20260810000007)'
 );
 SELECT ok(
     (SELECT public FROM storage.buckets WHERE id = 'avatars'),
@@ -1705,8 +920,8 @@ SELECT ok(
     'groups bucket is public=true (app reads group covers via getPublicUrl)'
 );
 SELECT ok(
-    NOT (SELECT public FROM storage.buckets WHERE id = 'events'),
-    'events bucket is public=false (private — PHUP signed-URL retrieval only)'
+    NOT (SELECT public FROM storage.buckets WHERE id = 'minigame_images'),
+    'minigame_images bucket is private (public=false, signed-URL retrieval only)'
 );
 
 -- 47c: objects RLS enabled + exact policy set
@@ -1715,22 +930,25 @@ SELECT ok(
      WHERE oid = 'storage.objects'::regclass),
     'storage.objects has ROW LEVEL SECURITY enabled (storage-api 0002)'
 );
-SELECT policies_are('storage', 'objects', ARRAY[
-    'storage_objects_delete_own',
-    'storage_objects_events_select_access',
-    'storage_objects_insert_own',
-    'storage_objects_public_read_avatars_groups',
-    'storage_objects_update_own',
-    'storage_objects_minigame_images_select',
-    'storage_objects_minigame_images_insert'
-], 'storage.objects has exactly the 7 policies (public read avatars/groups, events select-access, minigame-images select/insert, own insert/update/delete)');
+SELECT ok(
+    (SELECT count(*) = 6
+       FROM pg_policies
+      WHERE schemaname = 'storage' AND tablename = 'objects'
+        AND policyname IN ('storage_objects_delete_own',
+                           'storage_objects_insert_own',
+                           'storage_objects_update_own',
+                           'storage_objects_public_read_avatars_groups',
+                           'storage_objects_minigame_images_select',
+                           'storage_objects_minigame_images_insert')),
+    'storage.objects carries the 6 kept policies (own insert/update/delete, public read avatars/groups, minigame-images select/insert)'
+);
 
 -- ============================================================
 -- SECTION 48: Function EXECUTE hardening (20260811000001)
 -- The supabase image's default privileges granted anon EXECUTE on every
 -- function created by postgres/supabase_admin in public; prior per-function
 -- REVOKE ... FROM PUBLIC only removed the PUBLIC entry. Section asserts the
--- hardened posture (anon excluded everywhere except the two intended cases).
+-- hardened posture (anon excluded everywhere except the four intended cases).
 -- ============================================================
 
 SELECT ok(
@@ -1757,21 +975,23 @@ SELECT ok(
     (SELECT count(*) FROM pg_catalog.pg_proc p
      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public'
-       AND p.proname IN ('donate_shards_to_group', 'fetch_prekey_bundle',
-                         'validate_code', 'create_minigame_session',
-                         'join_minigame_session', 'abandon_minigame_game')
+       AND p.proname IN ('create_minigame_session', 'join_minigame_session',
+                         'join_minigame_by_code', 'get_minigame_game_state',
+                         'leave_minigame_session', 'abandon_minigame_game')
        AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) = 6,
-    'authenticated can EXECUTE the 6 client RPCs (finish is server-only; abandon is the client path)'
+    'authenticated can EXECUTE the 6 kept minigame client RPCs (finish is server-only)'
 );
 
 SELECT ok(
     (SELECT count(*) FROM pg_catalog.pg_proc p
      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public'
-       AND p.proname IN ('grant_shards', 'grant_preshards', 'distribute_shards',
-                         'recalculate_ranks', 'hard_delete_expired_users')
-       AND has_function_privilege('service_role', p.oid, 'EXECUTE')) = 5,
-    'service_role can EXECUTE the 5 admin RPCs'
+       AND p.proname IN ('hard_delete_expired_users', 'admin_grant_subscription',
+                         'admin_revoke_subscription', 'purge_expired_retention',
+                         'retry_auth_cleanup', 'moderate_report',
+                         'decide_appeal', 'claim_report')
+       AND has_function_privilege('service_role', p.oid, 'EXECUTE')) = 8,
+    'service_role can EXECUTE the 8 kept admin/CLI RPCs'
 );
 
 SELECT ok(
@@ -1784,23 +1004,14 @@ SELECT ok(
     'is_group_member remains anon-callable (invoked from RLS policies)'
 );
 
--- donate_shards_to_group NULL-uid guard: unauthenticated sessions have
--- auth.uid() = NULL; the old `auth.uid() != p_user_id` guard evaluated NULL
--- (not TRUE) and silently passed. Setting empty jwt claims reproduces it.
-SELECT set_config('request.jwt.claims', '{}', true);
-SELECT throws_ok($$SELECT public.donate_shards_to_group('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 50, '2026-12-31T23:59:59Z')$$,
-    'P0001', 'Not authorized',
-    'donate_shards_to_group NULL-uid guard raises Not authorized (20260811000001)');
-
 -- ============================================================
--- SECTION 49: join/finish minigame session RPCs (migration
--- 20260813000001, agent R4) — closes the I-77/S-03 server RPC gap:
+-- SECTION 49: join/settlement minigame RPCs (migration 20260813000001,
+-- agent R4; wager-free after 300_slim/03_remove_wagers):
 -- join_minigame_session (session-exists + is_group_member gate, idempotent
--- participants append, escrow deduction mirroring create_minigame_session)
--- and finish_minigame_session (winner pot credit via minigame_win ledger /
--- draw refunds via minigame_refund, status='finished' + winner_id). Both
--- are SECURITY DEFINER + SET search_path = '' (I-31 pattern), jsonb status
--- outcomes (I-57 contract), PUBLIC EXECUTE revoked, authenticated-only.
+-- participants append, NO escrow) and the finish_minigame_game settlement
+-- that replaced finish_minigame_session. Both are SECURITY DEFINER +
+-- SET search_path = '' (I-31 pattern), jsonb status outcomes (I-57
+-- contract), PUBLIC EXECUTE revoked, client RPCs authenticated-only.
 -- ============================================================
 
 -- 49a: join_minigame_session(uuid)
@@ -1821,11 +1032,11 @@ SELECT ok(
     'join_minigame_session validates membership via is_group_member'
 );
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_wager%'
-       AND pg_get_functiondef(p.oid) LIKE '%public.shard_ledger%'
-       AND pg_get_functiondef(p.oid) LIKE '%participants || ARRAY[v_current_user]%'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%participants || ARRAY[v_current_user]%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%minigame_wager%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%public.shard_ledger%'
      FROM pg_proc p WHERE proname = 'join_minigame_session'),
-    'join_minigame_session deducts the wager into the minigame_wager ledger and appends the participant'
+    'join_minigame_session appends the participant with no wager/ledger write (wagers removed)'
 );
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%public.minigame_invites%'
@@ -1843,9 +1054,9 @@ SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%''joined''%'
        AND pg_get_functiondef(p.oid) LIKE '%''session_not_found''%'
        AND pg_get_functiondef(p.oid) LIKE '%''session_not_active''%'
-       AND pg_get_functiondef(p.oid) LIKE '%''insufficient_shards''%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%''insufficient_shards''%'
      FROM pg_proc p WHERE proname = 'join_minigame_session'),
-    'join_minigame_session returns typed jsonb statuses (I-57 contract)'
+    'join_minigame_session returns typed jsonb statuses (no insufficient_shards)'
 );
 SELECT function_privs_are('public', 'join_minigame_session', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
     'join_minigame_session is not PUBLIC-EXECUTABLE');
@@ -1935,9 +1146,10 @@ SELECT ok(
     'accept_minigame_invite rejects finished sessions and appends the participant'
 );
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_wager%'
+    (SELECT pg_get_functiondef(p.oid) NOT LIKE '%minigame_wager%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%public.shard_ledger%'
      FROM pg_proc p WHERE proname = 'accept_minigame_invite'),
-    'accept_minigame_invite mirrors the escrow deduction (GWAG)'
+    'accept_minigame_invite writes no wager/escrow (wagers removed)'
 );
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%array_length(v_participants, 1) >= v_player_limit%'
@@ -1986,16 +1198,16 @@ SELECT ok(
 
 -- ============================================================
 -- SECTION 49c: Minigame game state (migration 150_minigame_play) —
--- the reusable play engine for all 5 game types (poke_chain, questions,
--- truth_dare, drunk_bottle, challenge). Two tables + five RPCs:
+-- the reusable play engine for all game types. Two tables + five RPCs:
 --   * minigame_game_state — one row per minigame session (state jsonb:
 --     judge_index/round/phase + game-specific keys, rounds jsonb[]
 --     append-only history, updated_at touch trigger), FORCE RLS with the
 --     single mgs_read_participant SELECT (session-row-visible check).
 --   * minigame_prompts — the generic prompt bank (game_type +
---     prompt_type + category + body), FORCE RLS, mgs_prompts_select
---     (authenticated reads active prompts), seeded es-first content.
---   * get/init/reveal/advance/complete RPCs: SECURITY DEFINER +
+--     prompt_type + category + body + pack_id), FORCE RLS with NO client
+--     policy: prompt bodies are served only through SECURITY DEFINER RPCs
+--     (mgs_prompts_select dropped by 300_slim/02_prompt_packs.sql).
+--   * get/init/reveal/advance RPCs: SECURITY DEFINER +
 --     SET search_path = '' (I-31 pattern), typed jsonb statuses (I-57
 --     contract), auth gate first, participant-only gates, PUBLIC EXECUTE
 --     revoked + authenticated (+service_role for settle) grants.
@@ -2099,9 +1311,11 @@ SELECT col_has_default('minigame_prompts', 'category',
     'minigame_prompts.category defaults to general');
 SELECT col_has_default('minigame_prompts', 'is_active',
     'minigame_prompts.is_active defaults true');
-SELECT policies_are('minigame_prompts', ARRAY[
-    'mgs_prompts_select'
-], 'minigame_prompts policies: active-prompt SELECT only (no client writes)');
+SELECT ok(
+    (SELECT count(*) = 0 FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'minigame_prompts'),
+    'minigame_prompts has no client RLS policies — prompt bodies are RPC-only (mgs_prompts_select dropped)'
+);
 SELECT ok(
     (SELECT count(*) >= 8 FROM public.minigame_prompts WHERE game_type = 'truth_dare'),
     'truth_dare prompt bank is seeded with at least 8 prompts (150_minigame_play seed)'
@@ -2292,40 +1506,13 @@ SELECT ok(
 );
 
 -- ============================================================
--- SECTION 50: create_direct_chat RPC + chat RLS (migration 20260814000001)
--- ============================================================
-SELECT has_function('create_direct_chat', ARRAY['uuid'],
-    'create_direct_chat(p_peer_id uuid) exists');
-SELECT is((SELECT prosecdef FROM pg_proc WHERE proname = 'create_direct_chat'),
-    true, 'create_direct_chat is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY(proconfig) FROM pg_proc WHERE proname = 'create_direct_chat'),
-    'create_direct_chat sets search_path = '''' (I-31 pattern)'
-);
-SELECT has_function('is_chat_participant', ARRAY['uuid', 'uuid'],
-    'is_chat_participant(p_chat_id, p_user_id) exists');
-SELECT is((SELECT prosecdef FROM pg_proc WHERE proname = 'is_chat_participant'),
-    true, 'is_chat_participant is SECURITY DEFINER (RLS-recursion-safe)');
-SELECT function_privs_are('public', 'is_chat_participant', ARRAY['uuid', 'uuid']::name[], 'anon', ARRAY['EXECUTE'],
-    'anon has EXECUTE on is_chat_participant (policy evaluation, mirrors is_group_member)');
-SELECT function_privs_are('public', 'create_direct_chat', ARRAY['uuid']::name[], 'anon', ARRAY[]::name[],
-    'anon has NO EXECUTE on create_direct_chat');
-SELECT function_privs_are('public', 'create_direct_chat', ARRAY['uuid']::name[], 'service_role', ARRAY[]::name[],
-    'service_role has NO EXECUTE on create_direct_chat (client RPC only)');
-SELECT function_privs_are('public', 'create_direct_chat', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'create_direct_chat is authenticated-EXECUTABLE');
-
--- ============================================================
--- SECTION 51: Blocked-user view exclusion + rank_bracket INSERT
--- normalization (migration 20260814000002)
+-- SECTION 51: Blocked-user view exclusion + assert_safe_group_update
+-- (migration 20260814000002) — user_search_view hides blocked pairs and the
+-- group-update gate is refreshed.
 -- ============================================================
 SELECT ok(
     (SELECT pg_get_viewdef('user_search_view') LIKE '%blocked%'),
     'user_search_view excludes blocked friendships (20260814000002)'
-);
-SELECT ok(
-    (SELECT pg_get_viewdef('discovery_view') LIKE '%blocked%'),
-    'discovery_view excludes blocked friendships (20260814000002)'
 );
 SELECT has_function('public', 'assert_safe_group_update', ARRAY[]::name[],
     'assert_safe_group_update exists (refreshed by 20260814000002)');
@@ -2335,8 +1522,7 @@ SELECT ok(
 );
 
 -- ============================================================
--- SECTION 52: Rank recalc decay + notifications + cron
--- (migration 20260814000003)
+-- SECTION 52: notifications producer helper (migration 20260814000003)
 -- ============================================================
 SELECT has_function('insert_notification',
     ARRAY['uuid', 'text', 'text', 'text', 'jsonb'],
@@ -2353,42 +1539,17 @@ SELECT function_privs_are('public', 'insert_notification',
 SELECT function_privs_are('public', 'insert_notification',
     ARRAY['uuid', 'text', 'text', 'text', 'jsonb']::name[], 'authenticated', ARRAY[]::name[],
     'authenticated has NO EXECUTE on insert_notification (trigger/CLI only)');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY(proconfig) FROM pg_proc WHERE proname = 'recalculate_ranks'),
-    'recalculate_ranks sets search_path = '''' (hardened by 20260814000003)'
-);
-SELECT ok(
-    (SELECT count(*) FROM cron.job WHERE jobname = 'ranks-recalculate') = 1,
-    'ranks-recalculate cron job exists (GRCK Step 0, ranks.update_cron)'
-);
 
 -- ============================================================
 -- SECTION 54: Notification producer triggers (migration 20260814000005)
+-- Kept features only: friend requests, minigame invites, feature requests.
+-- (The event/message producers stay attached to their retained tables, but
+-- those features are removed and no client can reach them.)
 -- ============================================================
-SELECT has_function('notify_event_invite', ARRAY[]::name[],
-    'notify_event_invite exists (NTRG #1)');
-SELECT has_trigger('event_invites', 'notify_event_invite_trigger',
-    'event_invites has notify_event_invite_trigger');
 SELECT has_function('notify_friend_request', ARRAY[]::name[],
     'notify_friend_request exists (NTRG #2)');
 SELECT has_trigger('friendships', 'notify_friend_request_trigger',
     'friendships has notify_friend_request_trigger');
-SELECT has_function('notify_event_live', ARRAY[]::name[],
-    'notify_event_live exists (NTRG #3)');
-SELECT has_trigger('events', 'notify_event_live_trigger',
-    'events has notify_event_live_trigger');
-SELECT has_function('notify_event_cancelled', ARRAY[]::name[],
-    'notify_event_cancelled exists (NTRG #4)');
-SELECT has_trigger('events', 'notify_event_cancelled_trigger',
-    'events has notify_event_cancelled_trigger');
-SELECT has_function('notify_attendance_confirmed', ARRAY[]::name[],
-    'notify_attendance_confirmed exists (NTRG #5)');
-SELECT has_trigger('event_attendances', 'notify_attendance_confirmed_trigger',
-    'event_attendances has notify_attendance_confirmed_trigger');
-SELECT has_function('notify_new_message', ARRAY[]::name[],
-    'notify_new_message exists (NTRG #6 — generic body, E2EE-safe)');
-SELECT has_trigger('messages', 'notify_new_message_trigger',
-    'messages has notify_new_message_trigger');
 SELECT has_function('notify_minigame_invite', ARRAY[]::name[],
     'notify_minigame_invite exists (NTRG #7)');
 SELECT has_trigger('minigame_invites', 'notify_minigame_invite_trigger',
@@ -2431,7 +1592,6 @@ SELECT has_function('notify_minigame_turn', ARRAY[]::name[],
     'notify_minigame_turn exists (224 — generic minigame turn)');
 SELECT has_trigger('minigame_game_state', 'notify_minigame_turn_trigger',
     'minigame_game_state has notify_minigame_turn_trigger (224)');
-
 
 -- ============================================================
 -- SECTION 55: Group chain of command (migration 20260816000001)
@@ -2484,19 +1644,12 @@ SELECT has_trigger('users', 'reassign_group_host_user_trigger',
     'users has the host-reassignment ban/delete trigger');
 
 -- ============================================================
--- SECTION 56: Group chat E2EE support (migrations 20260817000001
--- through 20260817000004, ISSUE 4 — D1/D3 + the F5/F6/F7 fix round)
+-- SECTION 56: group realtime + friend-request acceptance
 --   56a. 20260817000001 — group_members realtime (publication + REPLICA
---        IDENTITY FULL, mirroring the messages/friendships pattern).
---   56b. 20260817000002 — participant-sync triggers + SECURITY DEFINER
---        functions (search_path = '', not PUBLIC-executable); active-only
---        RLS gates on the group branches of the three chat policies;
---        get_chat_inbox group branch (groups.name join, peer_id NULL).
---   56c. 20260817000003 — messages.recipient_id (uuid, nullable).
+--        IDENTITY FULL) drives the live member roster.
 --   56d. 20260817000004 — accept_friend_request RPC (addressee-only,
---        pending-only, authenticated-only) + get_chat_inbox now carries
---        last_message_recipient_id + enforce_message_cap skips
---        recipient_id (distribution) rows (behavioral, rolled back).
+--        pending-only, authenticated-only) belongs to the kept friends
+--        feature; the chat-side parts of these migrations are removed.
 -- ============================================================
 
 -- 56a: group_members realtime (20260817000001)
@@ -2512,229 +1665,6 @@ SELECT is(
     'f',
     'group_members has REPLICA IDENTITY FULL (realtime full-row delivery, 20260817000001)'
 );
-
--- 56b: participant-sync triggers + functions + active RLS gates (20260817000002)
-SELECT has_trigger('group_members', 'sync_group_chat_participant_trigger',
-    'group_members has the chat-participant sync trigger (D1b)');
-SELECT has_trigger('chats', 'sync_group_chat_participants_on_chats_trigger',
-    'chats has the participant-backfill sync trigger (D1c)');
-SELECT has_function('public', 'sync_group_chat_participant', ARRAY[]::name[],
-    'sync_group_chat_participant exists (D1b trigger function)');
-SELECT is_definer('public', 'sync_group_chat_participant', ARRAY[]::name[],
-    'sync_group_chat_participant is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'sync_group_chat_participant'),
-    'sync_group_chat_participant sets search_path = '''' (I-31 pattern)'
-);
-SELECT function_privs_are('public', 'sync_group_chat_participant', ARRAY[]::name[], 'public', ARRAY[]::name[],
-    'sync_group_chat_participant is not PUBLIC-EXECUTABLE (Section 48 posture)');
-SELECT has_function('public', 'sync_group_chat_participants_on_chats', ARRAY[]::name[],
-    'sync_group_chat_participants_on_chats exists (D1c trigger function)');
-SELECT is_definer('public', 'sync_group_chat_participants_on_chats', ARRAY[]::name[],
-    'sync_group_chat_participants_on_chats is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'sync_group_chat_participants_on_chats'),
-    'sync_group_chat_participants_on_chats sets search_path = '''' (I-31 pattern)'
-);
-SELECT function_privs_are('public', 'sync_group_chat_participants_on_chats', ARRAY[]::name[], 'public', ARRAY[]::name[],
-    'sync_group_chat_participants_on_chats is not PUBLIC-EXECUTABLE (Section 48 posture)');
--- 56b: active-only gates on the group branches (D1e) — invited users are
--- excluded from group chats until they accept.
-SELECT ok(
-    EXISTS (SELECT 1 FROM pg_policies p
-            WHERE p.schemaname = 'public' AND p.tablename = 'messages'
-              AND p.policyname = 'messages_read_participant'
-              AND EXISTS (SELECT 1 FROM regexp_matches(p.qual, 'status = ''active'''))),
-    'messages_read_participant group branch gates on status = ''active'' (D1e)'
-);
-SELECT ok(
-    EXISTS (SELECT 1 FROM pg_policies p
-            WHERE p.schemaname = 'public' AND p.tablename = 'messages'
-              AND p.policyname = 'messages_insert_participant'
-              AND EXISTS (SELECT 1 FROM regexp_matches(p.with_check, 'status = ''active'''))),
-    'messages_insert_participant group branch gates on status = ''active'' (D1e)'
-);
-SELECT ok(
-    EXISTS (SELECT 1 FROM pg_policies p
-            WHERE p.schemaname = 'public' AND p.tablename = 'chats'
-              AND p.policyname = 'chats_read_participant'
-              AND EXISTS (SELECT 1 FROM regexp_matches(p.qual, 'status = ''active'''))),
-    'chats_read_participant group branch gates on status = ''active'' (D1e)'
-);
--- 56b: get_chat_inbox group branch (D1d) — groups.name join + peer_id NULL.
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%public.groups g%'
-       AND pg_get_functiondef(p.oid) LIKE '%g.name%'
-       AND pg_get_functiondef(p.oid) LIKE '%THEN NULL ELSE usv.id%'
-     FROM pg_proc p WHERE proname = 'get_chat_inbox'),
-    'get_chat_inbox group branch joins groups.name and keeps peer_id NULL (D1d)'
-);
-
--- 56c: distribution addressing (20260817000003)
-SELECT has_column('messages', 'recipient_id',
-    'messages.recipient_id exists — sender-key distribution targeting (20260817000003)');
-SELECT col_type_is('messages', 'recipient_id', 'uuid',
-    'messages.recipient_id is uuid (the target member id)');
-SELECT col_is_null('messages', 'recipient_id',
-    'messages.recipient_id is nullable — NULL on ordinary message rows');
-
--- 56d: fix round (20260817000004)
-SELECT has_function('public', 'accept_friend_request', ARRAY['uuid']::name[],
-    'accept_friend_request(p_friendship_id uuid) exists (F6 — addressee-only acceptance)');
-SELECT is_definer('public', 'accept_friend_request', ARRAY['uuid']::name[],
-    'accept_friend_request is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'accept_friend_request'),
-    'accept_friend_request sets search_path = '''' (I-31 pattern)'
-);
-SELECT function_privs_are('public', 'accept_friend_request', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
-    'accept_friend_request is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'accept_friend_request', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'accept_friend_request is authenticated-EXECUTABLE');
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%last_message_recipient_id%'
-     FROM pg_proc p WHERE proname = 'get_chat_inbox'),
-    'get_chat_inbox returns last_message_recipient_id (F5 — preview skips non-target distribution rows)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%recipient_id IS NULL%'
-     FROM pg_proc p WHERE proname = 'enforce_message_cap'),
-    'enforce_message_cap rolling-window DELETE skips recipient_id rows (F7)'
-);
--- 56d: behavioral cap check (rolled back with the suite): cap=3, 2 recipient
--- rows FIRST (oldest — the old trigger would prune them) + 4 ordinary rows →
--- only ordinary rows are pruned; the distribution rows survive.
-SELECT lives_ok($$
-    INSERT INTO public.users (id, username, date_of_birth) VALUES
-        ('88888888-8888-8888-8888-888888888801', 'pg56_cap_sender', DATE '1990-01-01');
-    INSERT INTO public.chats (id, type) VALUES
-        ('88888888-8888-8888-8888-888888888811', 'direct');
-    INSERT INTO public.app_config (key, value) VALUES ('chat.message_cap', '3')
-        ON CONFLICT (key) DO UPDATE SET value = '3';
-    INSERT INTO public.messages (id, chat_id, sender_id, content, recipient_id, created_at) VALUES
-        ('88888888-8888-8888-8888-888888888825', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'r1', '88888888-8888-8888-8888-888888888802', '2026-08-17T00:00:01Z'),
-        ('88888888-8888-8888-8888-888888888826', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'r2', '88888888-8888-8888-8888-888888888802', '2026-08-17T00:00:02Z'),
-        ('88888888-8888-8888-8888-888888888821', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'n1', NULL, '2026-08-17T00:00:03Z'),
-        ('88888888-8888-8888-8888-888888888822', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'n2', NULL, '2026-08-17T00:00:04Z'),
-        ('88888888-8888-8888-8888-888888888823', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'n3', NULL, '2026-08-17T00:00:05Z'),
-        ('88888888-8888-8888-8888-888888888824', '88888888-8888-8888-8888-888888888811', '88888888-8888-8888-8888-888888888801', 'n4', NULL, '2026-08-17T00:00:06Z');
-$$, 'cap behavior (F7): inserting beyond the cap with recipient_id rows succeeds');
-SELECT is(
-    (SELECT count(*) FROM public.messages
-      WHERE chat_id = '88888888-8888-8888-8888-888888888811'
-        AND recipient_id IS NOT NULL),
-    2::bigint,
-    'cap behavior (F7): both recipient_id rows survive beyond the cap'
-);
-SELECT is(
-    (SELECT count(*) FROM public.messages
-      WHERE chat_id = '88888888-8888-8888-8888-888888888811'),
-    3::bigint,
-    'cap behavior (F7): the chat holds cap + surviving distribution rows (n4 + r1 + r2)'
-);
-SELECT is(
-    (SELECT count(*) FROM public.messages
-      WHERE chat_id = '88888888-8888-8888-8888-888888888811'
-        AND id IN ('88888888-8888-8888-8888-888888888821',
-                   '88888888-8888-8888-8888-888888888822',
-                   '88888888-8888-8888-8888-888888888823')),
-    0::bigint,
-    'cap behavior (F7): the three oldest ordinary rows are pruned (n1..n3 gone)'
-);
-SELECT is(
-    (SELECT count(*) FROM public.messages
-      WHERE chat_id = '88888888-8888-8888-8888-888888888811'
-        AND recipient_id IS NULL),
-    1::bigint,
-    'cap behavior (F7): ordinary rows are pruned down to the cap (n4 survives)'
-);
-
--- ============================================================
--- 56e: deleted_messages RLS (migration 20260817000005 — K1 re-audit:
--- the deletion audit trail was created WITHOUT RLS; it now ENABLEs +
--- FORCEs RLS and carries the admin_audit_log no-access policy, so no
--- anon/authenticated client can read or write the deletion trail. The
--- SECURITY DEFINER RPCs (delete_message_for_everyone /
--- delete_undecryptable_messages) run as the definer (superuser) and
--- bypass RLS — they keep writing the audit rows unchanged.
--- ============================================================
-SELECT ok(
-    (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.deleted_messages'::regclass),
-    'deleted_messages has RLS enabled (migration 20260817000005)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.deleted_messages'::regclass),
-    'deleted_messages has FORCE ROW LEVEL SECURITY (migration 20260817000005)'
-);
-SELECT policies_are('deleted_messages', ARRAY[
-    'deleted_messages_no_access'
-], 'deleted_messages is service_role only (no_access policy, migration 20260817000005)');
-
-
--- ============================================================
--- 57: group read receipts (migration 20260817000006) —
---     message_reads per-member table + mark_group_messages_read
---     (the ISSUE 2026-08-17 fix: a group sender's blue check must
---     require EVERY other member's read, so reads are tracked per
---     (message, reader) instead of the 1:1 read_at column).
--- ============================================================
-SELECT has_table('message_reads',
-    'message_reads exists (migration 20260817000006)');
-SELECT col_type_is('message_reads', 'message_id', 'uuid',
-    'message_reads.message_id is uuid');
-SELECT col_type_is('message_reads', 'user_id', 'uuid',
-    'message_reads.user_id is uuid');
-SELECT col_type_is('message_reads', 'read_at', 'timestamp with time zone',
-    'message_reads.read_at is timestamptz');
-SELECT col_not_null('message_reads', 'read_at',
-    'message_reads.read_at is NOT NULL');
-SELECT col_default_is('message_reads', 'read_at', 'now()',
-    'message_reads.read_at defaults now()');
-SELECT has_pk('message_reads',
-    'message_reads has a primary key (message_id, user_id)');
-SELECT ok(
-    (SELECT contype = 'p' AND array_length(conkey, 1) = 2
-     FROM pg_constraint
-     WHERE conrelid = 'public.message_reads'::regclass AND contype = 'p'),
-    'message_reads PK is composite (message_id, user_id)'
-);
-SELECT fk_ok('message_reads', ARRAY['message_id'::name], 'messages', ARRAY['id'::name],
-    'message_reads.message_id cascades from messages.id (ON DELETE CASCADE)');
-SELECT ok(
-    (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.message_reads'::regclass),
-    'message_reads has RLS enabled (migration 20260817000006)'
-);
-SELECT ok(
-    (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.message_reads'::regclass),
-    'message_reads has FORCE ROW LEVEL SECURITY (migration 20260817000006)'
-);
-SELECT policies_are('message_reads', ARRAY[
-    'message_reads_insert_own',
-    'message_reads_select_participant',
-    'active_users_only'
-], 'message_reads policies: own-row INSERT (participation-gated) + participant SELECT');
-SELECT ok(
-    (SELECT count(*) = 1 FROM pg_publication_tables
-     WHERE pubname = 'supabase_realtime'
-       AND schemaname = 'public' AND tablename = 'message_reads'),
-    'message_reads joins the supabase_realtime publication (20260817000006)'
-);
-SELECT has_function('mark_group_messages_read', ARRAY['uuid'],
-    'mark_group_messages_read(p_chat_id uuid) exists (SECURITY DEFINER RPC)');
-SELECT is_definer('public', 'mark_group_messages_read', ARRAY['uuid'],
-    'mark_group_messages_read is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc WHERE proname = 'mark_group_messages_read'),
-    'mark_group_messages_read sets search_path = empty (migration 20260817000006)'
-);
-SELECT function_privs_are('public', 'mark_group_messages_read', ARRAY['uuid']::name[], 'public', ARRAY[]::name[],
-    'mark_group_messages_read is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'mark_group_messages_read', ARRAY['uuid']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'mark_group_messages_read is authenticated-EXECUTABLE');
 
 -- ============================================================
 -- SECTION 60: users profile-RPC lockdown (baseline 020_core/02_users.sql,
@@ -3259,181 +2189,20 @@ SELECT is(
 SELECT set_config('request.jwt.claims', '', true);
 
 -- ============================================================
--- SECTION 61e: event discovery search (baseline 131_events_search) —
--- search_events(p_query, p_lat, p_lng, p_radius_km, p_limit) SECURITY
--- DEFINER + public.haversine_km helper. Same SR001/SR002/SR003 hardening as
--- search_users, plus server-side radius filtering HARD-CAPPED at 100 km and
--- the accepted-friend activity signal (friends_going + 0.5 * friends_pending).
--- ============================================================
-SELECT has_function('search_events',
-    ARRAY['text', 'double precision', 'double precision', 'double precision', 'integer'],
-    'search_events(p_query text, p_lat float8, p_lng float8, p_radius_km float8, p_limit int) exists (131_events_search)');
-SELECT is_definer('public', 'search_events',
-    ARRAY['text', 'double precision', 'double precision', 'double precision', 'integer'],
-    'search_events is SECURITY DEFINER');
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-       FROM pg_proc WHERE proname = 'search_events'),
-    'search_events sets search_path = '''' (131_events_search)'
-);
-SELECT function_privs_are('public', 'search_events',
-    ARRAY['text', 'double precision', 'double precision', 'double precision', 'integer']::name[],
-    'public', ARRAY[]::name[],
-    'search_events is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'search_events',
-    ARRAY['text', 'double precision', 'double precision', 'double precision', 'integer']::name[],
-    'authenticated', ARRAY['EXECUTE'],
-    'search_events is authenticated-EXECUTABLE');
-SELECT has_function('haversine_km',
-    ARRAY['double precision', 'double precision', 'double precision', 'double precision'],
-    'haversine_km(lat1, lng1, lat2, lng2) exists (131_events_search)');
-SELECT ok(
-    public.haversine_km(-16.4090, -71.5375, -16.4090, -71.5375) < 0.001,
-    'haversine_km is 0 for identical points'
-);
-SELECT ok(
-    public.haversine_km(-16.4090, -71.5375, -12.0464, -77.0428) BETWEEN 700 AND 800,
-    'haversine_km Arequipa-Lima is ~766 km'
-);
-
--- 61e fixtures: caller + 2 accepted friends + 2 public events (near / ~167 km far)
-SELECT lives_ok(
-    $$INSERT INTO public.users (id, username, date_of_birth) VALUES
-        ('88888888-8888-8888-8888-888888882101', 'pgtapeventsa', DATE '1990-07-01'),
-        ('88888888-8888-8888-8888-888888882102', 'pgtapeventsb', DATE '1990-07-02'),
-        ('88888888-8888-8888-8888-888888882103', 'pgtapeventsc', DATE '1990-07-03')$$,
-    'event-search fixture users inserted'
-);
-SELECT lives_ok(
-    $$INSERT INTO public.friendships (requester_id, addressee_id, status) VALUES
-        ('88888888-8888-8888-8888-888888882101', '88888888-8888-8888-8888-888888882102', 'accepted'),
-        ('88888888-8888-8888-8888-888888882101', '88888888-8888-8888-8888-888888882103', 'accepted')$$,
-    'event-search fixture friendships inserted (2 accepted)'
-);
-SELECT lives_ok(
-    $$INSERT INTO public.events
-        (id, name, type, created_by_user_id, location_name, location_lat, location_lng,
-         starts_at, ends_at, capacity, status)
-      VALUES
-        ('88888888-8888-8888-8888-888888882201', 'pgtap near event', 'casual',
-         '88888888-8888-8888-8888-888888882101', 'Arequipa', -16.4090, -71.5375,
-         now() + interval '2 days', now() + interval '2 days 4 hours', 5, 'upcoming'),
-        ('88888888-8888-8888-8888-888888882202', 'pgtap far event', 'casual',
-         '88888888-8888-8888-8888-888888882101', 'Far', -15.0000, -71.0000,
-         now() + interval '3 days', now() + interval '3 days 4 hours', 5, 'upcoming')$$,
-    'event-search fixture events inserted (near + ~167 km far)'
-);
-SELECT lives_ok(
-    $$INSERT INTO public.event_invites (event_id, user_id, invited_by_user_id, status) VALUES
-        ('88888888-8888-8888-8888-888888882201', '88888888-8888-8888-8888-888888882102', '88888888-8888-8888-8888-888888882101', 'accepted'),
-        ('88888888-8888-8888-8888-888888882201', '88888888-8888-8888-8888-888888882103', '88888888-8888-8888-8888-888888882101', 'pending')$$,
-    'event-search fixture invites inserted (friend going + friend pending)'
-);
-
-SELECT set_config('request.jwt.claims', '', true);
-SELECT throws_ok($$SELECT public.search_events('abc')$$,
-    'SR003', 'not_authenticated',
-    'search_events anon caller rejected (SR003)');
-SELECT set_config('request.jwt.claims',
-    '{"sub":"88888888-8888-8888-8888-888888882101","role":"authenticated"}', false);
-SELECT throws_ok($$SELECT public.search_events('a')$$,
-    'SR002', 'invalid_query_length',
-    'search_events 1-char query rejected (SR002)');
-SELECT throws_ok(
-    $$SELECT public.search_events('pgtapsearchapgtapsearchapgtapsearchapgtapsearchapgtapsea')$$,
-    'SR002', 'invalid_query_length',
-    'search_events 51-char query rejected (SR002)'
-);
-SELECT is(
-    (SELECT count(*) FROM public.search_events(p_query => 'pgtap near')
-      WHERE name = 'pgtap near event'),
-    1::bigint,
-    'text search matches the near event by name'
-);
-SELECT is(
-    (SELECT count(*) FROM public.search_events(p_query => 'zzz no match zzz')),
-    0::bigint,
-    'text search with no match returns 0 rows'
-);
-SELECT is(
-    (SELECT count(*) FROM public.search_events(
-        p_query => 'pgtap', p_lat => -16.4090, p_lng => -71.5375, p_radius_km => 50)
-      WHERE name LIKE 'pgtap%'),
-    1::bigint,
-    '50 km radius returns only the near fixture event'
-);
-SELECT is(
-    (SELECT count(*) FROM public.search_events(
-        p_query => 'pgtap', p_lat => -16.4090, p_lng => -71.5375, p_radius_km => 1000)
-      WHERE name LIKE 'pgtap%'),
-    1::bigint,
-    'radius is hard-capped at 100 km (a 1000 km request still excludes the far event)'
-);
-SELECT is(
-    (SELECT friends_going FROM public.search_events(p_query => 'pgtap near')
-      WHERE name = 'pgtap near event'),
-    1,
-    'friends_going counts the accepted friend invite'
-);
-SELECT is(
-    (SELECT friends_pending FROM public.search_events(p_query => 'pgtap near')
-      WHERE name = 'pgtap near event'),
-    1,
-    'friends_pending counts the pending friend invite'
-);
-SELECT is(
-    (SELECT score::numeric FROM public.search_events(p_query => 'pgtap near')
-      WHERE name = 'pgtap near event'),
-    1.5::numeric,
-    'discovery score weights pending invites at half (1 + 0.5)'
-);
-SELECT set_config('request.jwt.claims', '', true);
-
--- ============================================================
 -- SECTION 49d: Minigame partida names (migration 160_minigame_names) —
--- the per-game page flow lets a player name their partida (or fall back to
--- the auto "partida-XX" display): minigame_sessions.name carries the
--- optional user-supplied title, and create_minigame_session gains the
--- nullable p_name text argument (the 4-arg overload is dropped — CREATE OR
--- REPLACE cannot change the argument list).
+-- a player may name their partida (or fall back to the auto "partida-XX"
+-- display): minigame_sessions.name carries the optional title and
+-- create_minigame_session stores the nullable p_name.
 -- ============================================================
 SELECT has_column('minigame_sessions', 'name',
     'minigame_sessions.name exists (160_minigame_names)');
 SELECT col_is_null('minigame_sessions', 'name',
     'minigame_sessions.name is NULLABLE (null/empty = auto "partida-XX" display, 160_minigame_names)');
-SELECT has_function('create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone'],
-    'create_minigame_session(p_group_id uuid, p_game_type text, p_wager integer, p_invitees uuid[], p_name text, p_rounds integer, p_prize_positions integer, p_play_mode text, p_anonymous boolean, p_async_rounds_per_player integer, p_async_ends_at timestamp with time zone) exists (202_minigame_play_v2)');
-SELECT ok(
-    NOT EXISTS (
-        SELECT 1 FROM pg_proc
-        WHERE proname = 'create_minigame_session'
-          AND pronargs = 4
-          AND pg_get_function_arguments(pg_proc.oid) LIKE '%uuid[], text%'
-    ),
-    'the pre-name 4-arg create_minigame_session overload is dropped (CREATE OR REPLACE cannot change the arg list)'
-);
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%INSERT INTO public.minigame_sessions%'
-       AND pg_get_functiondef(p.oid) LIKE '%name%'
+       AND pg_get_functiondef(p.oid) LIKE '%p_name%'
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
     'create_minigame_session stores p_name on the session row (160_minigame_names)'
-);
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone']::name[], 'public', ARRAY[]::name[],
-    'create_minigame_session is not PUBLIC-EXECUTABLE');
-SELECT function_privs_are('public', 'create_minigame_session', ARRAY['uuid', 'text', 'integer', 'uuid[]', 'text', 'integer', 'integer', 'text', 'boolean', 'integer', 'timestamp with time zone']::name[], 'authenticated', ARRAY['EXECUTE'],
-    'create_minigame_session is authenticated-EXECUTABLE');
-SELECT ok(
-    (SELECT prosecdef FROM pg_proc
-     WHERE proname = 'create_minigame_session'
-       AND pg_get_function_arguments(pg_proc.oid) LIKE '%p_rounds integer%'),
-    'create_minigame_session is SECURITY DEFINER'
-);
-SELECT ok(
-    (SELECT 'search_path=""' = ANY (proconfig)
-     FROM pg_proc
-     WHERE proname = 'create_minigame_session'
-       AND pg_get_function_arguments(pg_proc.oid) LIKE '%p_rounds integer%'),
-    'create_minigame_session sets search_path = '''' (I-31 pattern)'
 );
 
 -- ============================================================
@@ -3475,8 +2244,7 @@ SELECT ok(
 --     invitee resolve the SAME canonical name from the row in isolation
 --     (160 kept the auto-name client-side from a list index, which is not
 --     resolvable for a session shown alone). Duplicates allowed.
---   * create_minigame_session (same 5-arg signature as 160, CREATE OR
---     REPLACE) computes + stores auto_name at creation.
+--   * create_minigame_session computes + stores auto_name at creation.
 --   * notify_minigame_invite now fires for BOTH direct and group sessions
 --     (the 140 early-return for group_id IS NULL is gone) and carries
 --     gameType + sessionName in the notification data so the client groups
@@ -3614,16 +2382,10 @@ SELECT ok(
     'remove_minigame_participant sets search_path = '''' (I-31 pattern)'
 );
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%v_participants[1] <> auth.uid()%'
-       AND pg_get_functiondef(p.oid) LIKE '%''not_creator''%'
+    (SELECT pg_get_functiondef(p.oid) NOT LIKE '%minigame_refund%'
+       AND pg_get_functiondef(p.oid) NOT LIKE '%personal_shards%'
      FROM pg_proc p WHERE proname = 'remove_minigame_participant'),
-    'remove_minigame_participant is CREATOR-ONLY, backend-enforced via participants[0] (not_creator)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%minigame_refund%'
-       AND pg_get_functiondef(p.oid) LIKE '%personal_shards + v_wager%'
-     FROM pg_proc p WHERE proname = 'remove_minigame_participant'),
-    'remove_minigame_participant refunds the removed player''s wager escrow (GWAG minigame_refund)'
+    'remove_minigame_participant removes without a wager refund (wagers removed)'
 );
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%DELETE FROM public.minigame_invites%'
@@ -3680,34 +2442,19 @@ SELECT ok(
 );
 
 -- SECTION 49i: Minigame invite notice (migration 200_minigame_invite_notice,
--- 2026-08-30) — the invite notification must state the wager explicitly (the
--- amount taken from each participant until the game ends or is cancelled; a
--- player without the funds cannot participate — accept enforces
--- insufficient_shards server-side) AND identify the inviter (the username for
--- a DIRECT session, or the group name for a GROUP session):
---   * notify_minigame_invite reads shard_wager from the session.
---   * The body states the cost: "{N} shards." when wagered, "FREE" for a
---     free (0-wager) game.
---   * The data payload carries "wager" so clients render the cost without a
---     re-query, plus "inviterName" (user_search_view) and "groupName" (the
---     group row, null for direct) — the RLS-invisible who-invited context the
---     accept surfaces must show. gameType + sessionName + sessionId + inviteId
---     stay intact.
+-- 2026-08-30) — the invite notification states the cost (FREE while wagers are
+-- retired by 300_slim/03_remove_wagers) and identifies the inviter (the
+-- username for a DIRECT session, or the group name for a GROUP session):
+--   * The body states the cost: "FREE" for the wager-free game.
+--   * The data payload keeps the "wager" key (0) plus "inviterName"
+--     (user_search_view) and "groupName" (the group row, null for direct) —
+--     the RLS-invisible who-invited context the accept surfaces must show.
+--     gameType + sessionName + sessionId + inviteId stay intact.
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%shard_wager%'
+    (SELECT pg_get_functiondef(p.oid) LIKE '%FREE%'
+       AND pg_get_functiondef(p.oid) LIKE '%''wager''%'
      FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
-    'notify_minigame_invite reads shard_wager from the session (200_minigame_invite_notice)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%shards.%'
-       AND pg_get_functiondef(p.oid) LIKE '%FREE%'
-     FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
-    'notify_minigame_invite body states the cost explicitly: "{N} shards." or "FREE" for free games'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%''wager'', v_wager%'
-     FROM pg_proc p WHERE proname = 'notify_minigame_invite'),
-    'notify_minigame_invite data payload carries the wager amount (200_minigame_invite_notice)'
+    'notify_minigame_invite body states the cost explicitly (FREE while wagers are retired)'
 );
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%inviterName%'
@@ -3732,8 +2479,8 @@ SELECT ok(
 -- 201_minigame_voting, 2026-08-30) — the round target, the paid-position
 -- count N, the realtime emoji voting, and the harmonic leaderboard payout:
 --   * minigame_sessions.round_target (int) + prize_positions (int, default 3)
---     frozen at creation by the 7-arg create_minigame_session
---     (+ p_rounds, p_prize_positions).
+--     frozen at creation by create_minigame_session (p_rounds,
+--     p_prize_positions).
 --   * minigame_reactions — one vote per (session, round, voter), FORCE RLS,
 --     reads by participants/invitees/group members, writes ONLY through
 --     submit_minigame_reaction.
@@ -4217,15 +2964,18 @@ SELECT ok(
     NOT (SELECT public FROM storage.buckets WHERE id = 'minigame_images'),
     'minigame_images bucket is private (public=false, signed-URL retrieval only, 2026-08-31)'
 );
-SELECT policies_are('storage', 'objects',
-    ARRAY['storage_objects_delete_own',
-          'storage_objects_events_select_access',
-          'storage_objects_insert_own',
-          'storage_objects_minigame_images_insert',
-          'storage_objects_minigame_images_select',
-          'storage_objects_public_read_avatars_groups',
-          'storage_objects_update_own'],
-    'storage.objects carries the minigame_images select + insert policies (2026-08-31)');
+SELECT ok(
+    (SELECT count(*) = 6
+       FROM pg_policies
+      WHERE schemaname = 'storage' AND tablename = 'objects'
+        AND policyname IN ('storage_objects_delete_own',
+                           'storage_objects_insert_own',
+                           'storage_objects_update_own',
+                           'storage_objects_public_read_avatars_groups',
+                           'storage_objects_minigame_images_select',
+                           'storage_objects_minigame_images_insert')),
+    'storage.objects carries the 6 kept policies (minigame-images select/insert, own writes, public read)'
+);
 
 -- The insert policy must read the object PATH (storage.objects.name), NOT the
 -- correlated minigame_sessions.name column (partida name — NULL/empty for most
@@ -4659,12 +3409,13 @@ SELECT ok(
 );
 
 -- ======================================================================
--- SECTION 49t: merged PR — extra games + public partidas (2026-09-14):
+-- SECTION 49t: merged PR — extra games + code-only matches (2026-09-14):
 --   209_minigame_drunk_bottle, 210_minigame_bottle_pizza,
---   211_minigame_public, 212_minigame_charades, 213_charades_no_repeats.
--- Cover the new PUBLIC READ surface (ms_read_public widens minigame_sessions
--- read to any signed-in user on a published, open, direct partida) and the
--- new SECURITY DEFINER RPC posture.
+--   211_minigame_public, 212_minigame_charades, 213_charades_no_repeats,
+--   239_minigame_join_codes. The public-lobby surface (is_public /
+--   ms_read_public / list_public_minigames / set_minigame_public) was
+--   replaced by a hashed 6-character join code; the drunk-bottle and charades
+--   game RPC families are kept.
 -- ======================================================================
 SELECT ok(
     (SELECT count(*) = 1 FROM pg_enum
@@ -4749,6 +3500,7 @@ SELECT ok(
     'minigame_prompts has seeded charades words (212_minigame_charades)'
 );
 
+-- ============================================================
 -- SECTION 62: get_minigame_invite_context (215_minigame_invite_context,
 -- 2026-09-11) — the pending-invite lobby shows ONLY the inviter
 -- ("INVITADO POR" + avatar), never the participant roster, so the invitee's
@@ -4788,34 +3540,22 @@ SELECT ok(
     'get_minigame_invite_context is authenticated-only (PUBLIC/anon revoked, 215)'
 );
 
--- ======================================================================
+-- ============================================================
 -- SECTION 63: minigame group message + member fan-out
 -- (216_minigame_group_message, 2026-09-15)
 --   * 2a — create_minigame_session fans out an invite to EVERY active group
 --     member (creator excluded) for a group session.
---   * 2b — a group session insert drops a notice in the group chat via the
---     `minigame_group_messages` table (E2EE messages cannot carry it), readable
---     by active group members only and streamed realtime.
--- ======================================================================
-SELECT has_table('minigame_group_messages',
-    'minigame_group_messages exists (216_minigame_group_message)');
-
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = 'minigame_group_messages'
-          AND policyname = 'mgm_read_group_member'
-    ),
-    'minigame_group_messages has mgm_read_group_member (group members read, 216)'
-);
-
+--   * 2b — a group session insert drops a notice via the
+--     `minigame_group_messages` table (E2EE messages cannot carry it). The
+--     table and its trigger are retained; the client read grant was revoked
+--     with the chat surface (300_slim/05_revoke_removed.sql).
+-- ============================================================
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%group_members%'
        AND pg_get_functiondef(p.oid) LIKE '%status = ''active''%'
      FROM pg_proc p WHERE proname = 'create_minigame_session'),
     'create_minigame_session fans out to every active group member (2a, 216)'
 );
-
 SELECT ok(
     EXISTS (
         SELECT 1 FROM pg_trigger t
@@ -4826,85 +3566,12 @@ SELECT ok(
     ),
     'minigame_sessions has the group-message trigger (2b, 216)'
 );
-
 SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%SECURITY DEFINER%'
        AND pg_get_functiondef(p.oid) LIKE '%minigame_group_messages%'
      FROM pg_proc p WHERE proname = 'notify_minigame_group_message'),
     'notify_minigame_group_message is SECURITY DEFINER and writes the notice (2b, 216)'
 );
-
--- ======================================================================
--- SECTION 64: group-chat guarantee + inbox notice activity
--- (216/P1, 2026-09-15)
---   * one group chat per group (partial unique index) + backfilled all groups
---   * the notice trigger creates a missing group chat (server guarantee)
---   * get_chat_inbox counts a minigame notice as chat activity
--- ======================================================================
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_indexes
-        WHERE schemaname = 'public' AND tablename = 'chats'
-          AND indexname = 'chats_group_reference_uniq'
-    ),
-    'chats has chats_group_reference_uniq (one group chat per group, 216/P1)'
-);
-
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%INSERT INTO public.chats%'
-     FROM pg_proc p WHERE proname = 'notify_minigame_group_message'),
-    'notify_minigame_group_message creates the group chat if missing (216/P1)'
-);
-
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%last_activity_kind%'
-       AND pg_get_functiondef(p.oid) LIKE '%minigame_group_messages%'
-     FROM pg_proc p WHERE proname = 'get_chat_inbox'),
-    'get_chat_inbox counts minigame notices as chat activity (216/P1)'
-);
-
--- ======================================================================
--- SECTION 65: chat moderation — block enforcement + message report
--- (226_chat_moderation) and the sober bottle bank (227_bottle_sober)
---   * message_reports snapshot table (moderator-only)
---   * is_blocked_between helper
---   * report_message RPC (SECURITY DEFINER, writes the snapshot)
---   * create_direct_chat block gate + the direct-message block trigger
---   * no drinking dares left in the drunk_bottle prompt bank
--- ======================================================================
-SELECT has_table('message_reports',
-    'message_reports exists (226_chat_moderation)');
-
-SELECT has_function('is_blocked_between', ARRAY['uuid', 'uuid'],
-    'is_blocked_between exists (226)');
-
-SELECT has_function('report_message', ARRAY['uuid', 'text', 'text'],
-    'report_message exists (226)');
-
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%is_blocked_between%'
-     FROM pg_proc p WHERE proname = 'create_direct_chat'),
-    'create_direct_chat enforces the block gate (226)'
-);
-
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_trigger t
-        JOIN pg_class c ON c.oid = t.tgrelid
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public' AND c.relname = 'messages'
-          AND t.tgname = 'assert_message_not_blocked_trigger'
-    ),
-    'messages has the block-enforcement trigger (226)'
-);
-
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%SECURITY DEFINER%'
-       AND pg_get_functiondef(p.oid) LIKE '%message_reports%'
-     FROM pg_proc p WHERE proname = 'report_message'),
-    'report_message is SECURITY DEFINER and writes the snapshot (226)'
-);
-
 SELECT ok(
     NOT EXISTS (
         SELECT 1 FROM public.minigame_prompts
@@ -4927,50 +3594,15 @@ SELECT ok(
     'SEC-001/Q8 user_search_view is RPC-only (no client SELECT/enumeration)'
 );
 SELECT ok(
-    has_table_privilege('authenticated', 'public.discovery_view', 'SELECT')
-    AND NOT has_table_privilege('authenticated', 'public.discovery_view', 'INSERT')
-    AND NOT has_table_privilege('authenticated', 'public.discovery_view', 'UPDATE')
-    AND NOT has_table_privilege('authenticated', 'public.discovery_view', 'DELETE')
-    AND NOT has_table_privilege('anon', 'public.discovery_view', 'SELECT'),
-    'SEC-001 discovery_view is SELECT-only for authenticated and closed to anon'
-);
-SELECT ok(
     NOT has_table_privilege('authenticated', 'public.shard_ledger', 'INSERT')
     AND NOT has_table_privilege('authenticated', 'public.preshard_ledger', 'INSERT')
     AND NOT has_table_privilege('authenticated', 'public.group_shard_contributions', 'INSERT'),
     'SEC-002 clients cannot mint shard/group ledger rows'
 );
-SELECT has_function('purchase_cosmetic', ARRAY['uuid'],
-    'SEC-003 purchase_cosmetic(uuid) exists');
-SELECT ok(
-    NOT has_table_privilege('authenticated', 'public.user_cosmetics', 'INSERT')
-    AND has_column_privilege('authenticated', 'public.user_cosmetics', 'equipped', 'UPDATE'),
-    'SEC-003 user_cosmetics is purchase-RPC-only; clients may only equip'
-);
 SELECT ok(
     NOT has_function_privilege('authenticated', 'public.finish_minigame_game(uuid)', 'EXECUTE')
     AND has_function_privilege('authenticated', 'public.abandon_minigame_game(uuid)', 'EXECUTE'),
     'SEC-004 settlement is server-only; abandonment is the client path'
-);
-SELECT ok(
-    NOT has_function_privilege('anon', 'public.refund_event_pool_on_cancel()', 'EXECUTE')
-    AND NOT has_function_privilege('authenticated', 'public.refund_event_pool_on_cancel()', 'EXECUTE'),
-    'SEC-007 pool-refund trigger function is not client-callable'
-);
-SELECT ok(
-    (SELECT pg_get_expr(polqual, polrelid) FROM pg_policy
-      WHERE polname = 'events_read_access' AND polrelid = 'public.events'::regclass)
-        NOT LIKE '%group_id IS NULL%'
-    AND (SELECT pg_get_expr(polqual, polrelid) FROM pg_policy
-          WHERE polname = 'events_read_access' AND polrelid = 'public.events'::regclass)
-        LIKE '%accepted%',
-    'SEC-005 events_read_access requires host/staff or accepted invitee'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%NULL::numeric%'
-       AND pg_get_functiondef(p.oid) LIKE '%upcoming%'
-     FROM pg_proc p WHERE proname = 'search_events'),
-    'SEC-005 search_events returns a safe projection and hides non-live rows'
 );
 SELECT ok(
     (SELECT pg_get_expr(polwithcheck, polrelid) FROM pg_policy
@@ -4980,21 +3612,6 @@ SELECT ok(
           WHERE polname = 'friendships_insert_own' AND polrelid = 'public.friendships'::regclass)
         LIKE '%blocked%',
     'SEC-006 friendship insert cannot forge an accepted row'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%not_a_group_member%'
-       AND pg_get_functiondef(p.oid) LIKE '%event_pool_set%'
-     FROM pg_proc p WHERE proname = 'create_event'),
-    'SEC-007 create_event validates membership and escrows the pool'
-);
-SELECT ok(
-    (SELECT pg_get_expr(polwithcheck, polrelid) FROM pg_policy
-      WHERE polname = 'eph_insert_own' AND polrelid = 'public.event_photos'::regclass)
-        LIKE '%event_attendances%'
-    AND (SELECT pg_get_expr(polwithcheck, polrelid) FROM pg_policy
-          WHERE polname = 'eph_insert_own' AND polrelid = 'public.event_photos'::regclass)
-        LIKE '%/photos/%',
-    'SEC-010 photo upload requires attendance and an event-bound path'
 );
 
 -- ============================================================
@@ -5017,67 +3634,14 @@ SELECT ok(
     AND EXISTS (
         SELECT 1 FROM pg_trigger t
         JOIN pg_class c ON c.oid = t.tgrelid
-        WHERE c.relname = 'messages' AND t.tgname = 'active_actor_guard'
+        WHERE c.relname = 'device_tokens' AND t.tgname = 'active_actor_guard'
     ),
-    'SEC-008/009 evidence is service-only and messages carry the active-actor guard'
+    'SEC-008/009 evidence is service-only and the kept write tables carry the active-actor guard'
 );
 
 -- ============================================================
 -- SECTION 68: Wave 1 DB hardening (231_wave1_hardening)
 -- ============================================================
-SELECT ok(
-    (SELECT pg_get_expr(polqual, polrelid) LIKE '%event_hosts%'
-       AND pg_get_expr(polqual, polrelid) LIKE '%host%'
-     FROM pg_policy
-      WHERE polname = 'events_update_host'
-        AND polrelid = 'public.events'::regclass),
-    'SEC-014 events_update_host requires the host role (231)'
-);
-SELECT ok(
-    (SELECT polwithcheck IS NOT NULL
-       AND pg_get_expr(polwithcheck, polrelid) LIKE '%created_by_user_id%'
-     FROM pg_policy
-      WHERE polname = 'events_update_host'
-        AND polrelid = 'public.events'::regclass),
-    'SEC-014 events_update_host has an owner-pinning WITH CHECK (231)'
-);
-SELECT ok(
-    (SELECT pg_get_expr(polqual, polrelid) LIKE '%event_invites%'
-       AND pg_get_expr(polqual, polrelid) LIKE '%accepted%'
-       AND pg_get_expr(polqual, polrelid) LIKE '%attended%'
-     FROM pg_policy
-      WHERE polname = 'chats_read_participant'
-        AND polrelid = 'public.chats'::regclass),
-    'SEC-018 event chat read requires accepted/attended (231)'
-);
-SELECT ok(
-    (SELECT pg_get_expr(polqual, polrelid) LIKE '%event_invites%'
-       AND pg_get_expr(polqual, polrelid) LIKE '%accepted%'
-       AND pg_get_expr(polqual, polrelid) LIKE '%attended%'
-     FROM pg_policy
-      WHERE polname = 'messages_read_participant'
-        AND polrelid = 'public.messages'::regclass),
-    'SEC-018 event message read requires accepted/attended (231)'
-);
-SELECT ok(
-    (SELECT pg_get_expr(polwithcheck, polrelid) LIKE '%event_invites%'
-       AND pg_get_expr(polwithcheck, polrelid) LIKE '%accepted%'
-       AND pg_get_expr(polwithcheck, polrelid) LIKE '%attended%'
-     FROM pg_policy
-      WHERE polname = 'messages_insert_participant'
-        AND polrelid = 'public.messages'::regclass),
-    'SEC-018 event message write requires accepted/attended (231)'
-);
-SELECT ok(
-    (SELECT count(*) = 2
-       AND bool_and(pg_get_expr(
-               CASE WHEN polcmd = 'a' THEN polwithcheck ELSE polqual END,
-               polrelid) LIKE '%accepted%')
-     FROM pg_policy
-      WHERE polrelid = 'public.message_reads'::regclass
-        AND polname IN ('message_reads_insert_own', 'message_reads_select_participant')),
-    'SEC-018 read receipts require accepted/attended event membership (231)'
-);
 SELECT ok(
     (SELECT pg_get_expr(polqual, polrelid) LIKE '%status = ''active''%'
      FROM pg_policy
@@ -5092,31 +3656,6 @@ SELECT ok(
       WHERE polname = 'groups_update_host'
         AND polrelid = 'public.groups'::regclass),
     'SEC-018 group update requires active host/staff (231)'
-);
-SELECT ok(
-    (SELECT pg_get_expr(polqual, polrelid) LIKE '%status = ''active''%'
-     FROM pg_policy
-      WHERE polname = 'gsc_read_member'
-        AND polrelid = 'public.group_shard_contributions'::regclass),
-    'SEC-018 group contributions require active membership (231)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%event_invites%'
-       AND pg_get_functiondef(p.oid) LIKE '%accepted%'
-       AND pg_get_functiondef(p.oid) LIKE '%attended%'
-     FROM pg_proc p WHERE proname = 'report_message'),
-    'SEC-018 report_message requires accepted/attended event membership (231)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%sender_id = v_me%'
-     FROM pg_proc p WHERE proname = 'delete_undecryptable_messages'),
-    'SEC-015 undecryptable cleanup deletes only the caller''s messages (231)'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%BATCH_TOO_LARGE%'
-       AND pg_get_functiondef(p.oid) LIKE '%> 50%'
-     FROM pg_proc p WHERE proname = 'delete_undecryptable_messages'),
-    'SEC-015 undecryptable cleanup caps the batch at 50 (231)'
 );
 SELECT ok(
     NOT has_table_privilege('authenticated', 'public.deleted_messages', 'INSERT')
@@ -5162,7 +3701,7 @@ SELECT ok(
                      AND NOT (allowed_mime_types && ARRAY['text/html', 'image/svg+xml']::text[])
                      AND file_size_limit IS NOT NULL)
      FROM storage.buckets
-      WHERE id IN ('avatars', 'groups', 'events')),
+      WHERE id IN ('avatars', 'groups')),
     'SEC-030 image buckets allow only raster image MIME types with a size cap (231)'
 );
 SELECT ok(
@@ -5172,40 +3711,29 @@ SELECT ok(
       WHERE id = 'minigame_images'),
     'SEC-030 minigame_images accepts only encrypted octets with a size cap (231)'
 );
-SELECT ok(
-    (SELECT pg_get_expr(polwithcheck, polrelid) LIKE '%event_hosts%'
-       AND pg_get_expr(polwithcheck, polrelid) LIKE '%event_invites%'
-       AND pg_get_expr(polwithcheck, polrelid) LIKE '%accepted%'
-     FROM pg_policy
-      WHERE polname = 'storage_objects_insert_own'
-        AND polrelid = 'storage.objects'::regclass),
-    'SEC-030 event uploads are bound to an accessible event path (231)'
-);
-SELECT ok(
-    (SELECT pg_get_expr(polwithcheck, polrelid) LIKE '%event_hosts%'
-       AND pg_get_expr(polwithcheck, polrelid) LIKE '%event_invites%'
-     FROM pg_policy
-      WHERE polname = 'storage_objects_update_own'
-        AND polrelid = 'storage.objects'::regclass),
-    'SEC-030 event object relocation re-checks the event path (231)'
-);
-
 
 -- ============================================================
--- SECTION 63: Identity, privacy and age assurance (233_identity_privacy)
---   Q17: DOB NOT NULL + 18+ trigger on every writer, legacy sentinel path.
---   Q8: private profiles exact-username only; no bio/avatar; no ranking;
---       direct view SELECT revoked (no directory enumeration).
---   Q1: immediate hard delete, pseudonymized ledger/attendance retention,
---       restricted report evidence, no restore path, complete export.
+-- SECTION 68b: Identity, privacy and age assurance (233_identity_privacy)
+--   Q17: DOB is now nullable for guest rows (300_slim); the 18+ trigger stays
+--        for non-guest accounts.
+--   Q8: private profiles exact-username only; no bio/avatar.
+--   Q1: immediate hard delete, pseudonymized ledger retention, restricted
+--       report evidence, no restore path, complete export.
 -- ============================================================
 
--- 62a: Q17
+-- 62a: Q17 — the former NOT NULL DOB contract was relaxed for guest rows by
+-- 300_slim/01_onboarding.sql.
 SELECT ok(
-    (SELECT is_nullable = 'NO' FROM information_schema.columns
+    (SELECT is_nullable = 'YES' FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = 'users'
         AND column_name = 'date_of_birth'),
-    'Q17 users.date_of_birth is NOT NULL'
+    'Q17 users.date_of_birth is nullable so guest rows can omit DOB (300_slim)'
+);
+SELECT ok(
+    (SELECT pg_get_functiondef(p.oid) LIKE '%is_guest%'
+       AND pg_get_functiondef(p.oid) LIKE '%La fecha de nacimiento es obligatoria.%'
+     FROM pg_proc p WHERE proname = 'assert_adult_dob'),
+    'Q17 assert_adult_dob still requires a DOB for non-guest rows (300_slim)'
 );
 SELECT has_column('users', 'date_of_birth_backfilled',
     'Q17 users.date_of_birth_backfilled exists');
@@ -5230,11 +3758,6 @@ SELECT columns_are('user_search_view',
 SELECT has_function('get_public_profiles', ARRAY['uuid[]'],
     'Q8 get_public_profiles(uuid[]) exists');
 SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%profile_public = true%'
-       FROM pg_proc p WHERE proname = 'get_user_ranking'),
-    'Q8 get_user_ranking filters profile_public = true'
-);
-SELECT ok(
     (SELECT pg_get_functiondef(p.oid) LIKE '%NOT usv.profile_public%'
             AND pg_get_functiondef(p.oid) LIKE '%lower(usv.username) = lower(v_trimmed)%'
        FROM pg_proc p WHERE proname = 'search_users'),
@@ -5256,53 +3779,6 @@ SELECT has_column('reports', 'reporter_pseudonym',
     'Q1 reports.reporter_pseudonym exists');
 SELECT has_column('reports', 'retention_until',
     'Q1 reports.retention_until exists');
-SELECT ok(
-    (SELECT is_nullable = 'YES' FROM information_schema.columns
-      WHERE table_schema = 'public' AND table_name = 'reports'
-        AND column_name = 'reporter_id'),
-    'Q1 reports.reporter_id is nullable for pseudonymized evidence'
-);
-SELECT ok(
-    (SELECT confdeltype = 'n' FROM pg_constraint
-      WHERE conname = 'reports_reporter_id_fkey'),
-    'Q1 reports.reporter_id uses ON DELETE SET NULL'
-);
-SELECT has_column('event_attendances', 'retention_until',
-    'Q1 attendance carries a retention clock');
-SELECT ok(
-    (SELECT confdeltype = 'n' FROM pg_constraint
-      WHERE conname = 'event_attendances_user_id_fkey'),
-    'Q1 attendance uses ON DELETE SET NULL (pseudonymized, not cascaded)'
-);
-SELECT has_function('purge_expired_retention', ARRAY[]::name[],
-    'Q1 purge_expired_retention() exists');
-SELECT has_function('retry_auth_cleanup', ARRAY[]::name[],
-    'Q1 retry_auth_cleanup() exists');
-
--- 62d: ranking excludes private rows, includes opted-in rows
-SELECT lives_ok(
-    $$INSERT INTO public.users
-        (id, username, date_of_birth, personal_shards, profile_public)
-      VALUES
-        ('62626262-6262-4262-8262-626262626201', 'pgtapprivate',
-         DATE '1990-08-01', 999999, false)$$,
-    'Q8 private ranking fixture inserted'
-);
-SELECT is(
-    (SELECT count(*) FROM public.get_user_ranking(100)
-      WHERE user_id = '62626262-6262-4262-8262-626262626201'),
-    0::bigint,
-    'Q8 private profile has no ranking entry'
-);
-UPDATE public.users SET profile_public = true
- WHERE id = '62626262-6262-4262-8262-626262626201';
-SELECT is(
-    (SELECT count(*) FROM public.get_user_ranking(100)
-      WHERE user_id = '62626262-6262-4262-8262-626262626201'),
-    1::bigint,
-    'Q8 opted-in profile enters the ranking'
-);
-
 -- 62e: Q1 hard delete keeps only pseudonymized facts / restricted evidence
 SELECT lives_ok(
     $$INSERT INTO public.users (id, username, date_of_birth) VALUES
@@ -5311,22 +3787,6 @@ SELECT lives_ok(
         ('62626262-6262-4262-8262-626262626211', 'pgtapdeleted',
          DATE '1990-09-02')$$,
     'Q1 deletion fixtures inserted'
-);
-SELECT lives_ok(
-    $$INSERT INTO public.events
-        (id, name, type, created_by_user_id, starts_at, ends_at, capacity, status)
-      VALUES
-        ('62626262-6262-4262-8262-626262626220', 'pgtap retained event',
-         'casual', '62626262-6262-4262-8262-626262626210',
-         now() + interval '2 days', now() + interval '2 days 2 hours',
-         5, 'upcoming')$$,
-    'Q1 retention event inserted'
-);
-SELECT lives_ok(
-    $$INSERT INTO public.event_attendances (event_id, user_id) VALUES
-        ('62626262-6262-4262-8262-626262626220',
-         '62626262-6262-4262-8262-626262626211')$$,
-    'Q1 attendance fixture inserted'
 );
 SELECT lives_ok(
     $$INSERT INTO public.shard_ledger (user_id, delta, reason) VALUES
@@ -5338,25 +3798,6 @@ SELECT lives_ok(
       VALUES ('62626262-6262-4262-8262-626262626211', 'user',
               '62626262-6262-4262-8262-626262626210', 'pgtap evidence')$$,
     'Q1 report evidence fixture inserted'
-);
-SELECT lives_ok(
-    $$INSERT INTO public.chats (id, type) VALUES
-        ('62626262-6262-4262-8262-626262626230', 'direct')$$,
-    'Q1 chat fixture inserted'
-);
-SELECT lives_ok(
-    $$INSERT INTO public.chat_participants (chat_id, user_id) VALUES
-        ('62626262-6262-4262-8262-626262626230',
-         '62626262-6262-4262-8262-626262626210'),
-        ('62626262-6262-4262-8262-626262626230',
-         '62626262-6262-4262-8262-626262626211')$$,
-    'Q1 chat participants inserted'
-);
-SELECT lives_ok(
-    $$INSERT INTO public.messages (chat_id, sender_id, content) VALUES
-        ('62626262-6262-4262-8262-626262626230',
-         '62626262-6262-4262-8262-626262626211', 'ciphertext-pgtap')$$,
-    'Q1 sent message fixture inserted'
 );
 SELECT set_config('request.jwt.claims',
     '{"sub":"62626262-6262-4262-8262-626262626211","role":"authenticated"}', false);
@@ -5371,7 +3812,8 @@ SELECT is(
 );
 SELECT is(
     (SELECT count(*) FROM public.reports
-      WHERE reporter_id IS NULL
+      WHERE target_id = '62626262-6262-4262-8262-626262626210'
+        AND reporter_id IS NULL
         AND reporter_pseudonym LIKE 'deleted:%'),
     1::bigint,
     'Q1 report evidence survives with a pseudonym'
@@ -5384,20 +3826,6 @@ SELECT ok(
       ORDER BY id DESC LIMIT 1),
     'Q1 ledger retained pseudonymized with a 5-year clock'
 );
-SELECT ok(
-    (SELECT user_id IS NULL AND retention_until > now()
-       FROM public.event_attendances
-      WHERE pseudonymized_at IS NOT NULL
-      ORDER BY id DESC LIMIT 1),
-    'Q1 attendance retained pseudonymized with a 5-year clock'
-);
-SELECT is(
-    (SELECT count(*) FROM public.messages
-      WHERE sender_id = '62626262-6262-4262-8262-626262626211'),
-    0::bigint,
-    'Q1 sent messages are hard-deleted'
-);
-
 -- 62f: SEC-050 export completeness
 SELECT lives_ok(
     $$INSERT INTO public.users (id, username, date_of_birth) VALUES
@@ -5406,27 +3834,6 @@ SELECT lives_ok(
         ('62626262-6262-4262-8262-626262626241', 'pgtapsender',
          DATE '1990-10-02')$$,
     'SEC-050 export fixtures inserted'
-);
-SELECT lives_ok(
-    $$INSERT INTO public.chats (id, type) VALUES
-        ('62626262-6262-4262-8262-626262626250', 'direct')$$,
-    'SEC-050 export chat inserted'
-);
-SELECT lives_ok(
-    $$INSERT INTO public.chat_participants (chat_id, user_id) VALUES
-        ('62626262-6262-4262-8262-626262626250',
-         '62626262-6262-4262-8262-626262626240'),
-        ('62626262-6262-4262-8262-626262626250',
-         '62626262-6262-4262-8262-626262626241')$$,
-    'SEC-050 export participants inserted'
-);
-SELECT lives_ok(
-    $$INSERT INTO public.messages (chat_id, sender_id, content, recipient_id)
-      VALUES ('62626262-6262-4262-8262-626262626250',
-              '62626262-6262-4262-8262-626262626241',
-              'ciphertext-received',
-              '62626262-6262-4262-8262-626262626240')$$,
-    'SEC-050 received message inserted'
 );
 SELECT lives_ok(
     $$INSERT INTO public.device_tokens (user_id, token, platform) VALUES
@@ -5459,8 +3866,6 @@ SELECT lives_ok(
 );
 SELECT set_config('request.jwt.claims',
     '{"sub":"62626262-6262-4262-8262-626262626240","role":"authenticated"}', false);
-SELECT ok(jsonb_exists(public.export_my_data(), 'messages_received'),
-    'SEC-050 export includes received messages');
 SELECT ok(jsonb_exists(public.export_my_data(), 'minigame_answers'),
     'SEC-050 export includes minigame answers');
 SELECT ok(jsonb_exists(public.export_my_data(), 'device_tokens'),
@@ -5607,22 +4012,10 @@ SELECT ok(
 SELECT ok(
     EXISTS (
         SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
-        WHERE c.relname = 'event_invites'
-          AND t.tgname = 'event_invites_no_blocked_trigger'
-    )
-    AND EXISTS (
-        SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
         WHERE c.relname = 'group_members'
           AND t.tgname = 'group_members_no_blocked_trigger'
     ),
-    'Q4b blocked pairs cannot create new event/group invites'
-);
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%is_hidden_between%'
-     FROM pg_proc p WHERE proname = 'search_events')
-    AND (SELECT pg_get_functiondef(p.oid) LIKE '%is_hidden_between%'
-     FROM pg_proc p WHERE proname = 'get_user_ranking'),
-    'Q4b feed and ranking filter blocked/muted actors'
+    'Q4b blocked pairs cannot create new group invites'
 );
 SELECT ok(
     NOT (SELECT attnotnull FROM pg_attribute
@@ -5649,323 +4042,6 @@ SELECT ok(
     ),
     'Q6 evidence carries retention + legal-hold columns'
 );
--- SECTION 70: 235_events_links — Q2 location precision + Q9 bearer links
--- ============================================================
-SELECT has_column('events', 'location_city',
-    '235: events carries the coarse location_city field');
-SELECT has_table('share_links',
-    '235: share_links stores hashed bearer tokens');
-SELECT has_table('event_join_requests',
-    '235: private event links create revocable join requests');
-SELECT has_table('event_scan_nonces',
-    '235: SEC-023 confirmed scans write a one-time nonce');
-SELECT has_function('create_share_link',
-    ARRAY['text', 'uuid', 'timestamp with time zone', 'boolean'],
-    '235: create_share_link(kind, subject, expires_at, single_use) exists');
-SELECT has_function('resolve_share_link',
-    ARRAY['text', 'double precision', 'double precision'],
-    '235: resolve_share_link(token, lat, lng) exists');
-SELECT has_function('join_event_by_link',
-    ARRAY['text', 'text'],
-    '235: join_event_by_link(token, note) exists');
-SELECT has_function('join_group_by_link',
-    ARRAY['text'],
-    '235: join_group_by_link(token) exists');
-SELECT has_function('request_friend_by_profile_link',
-    ARRAY['text'],
-    '235: request_friend_by_profile_link(token) exists');
-SELECT ok(
-    (SELECT relrowsecurity AND relforcerowsecurity
-       FROM pg_class WHERE oid = 'public.share_links'::regclass)
-    AND NOT EXISTS (
-        SELECT 1 FROM pg_policy WHERE polrelid = 'public.share_links'::regclass
-    ),
-    '235: share_links is FORCE RLS with no client policies');
-SELECT ok(
-    NOT has_table_privilege('authenticated', 'public.event_scan_nonces', 'SELECT')
-    AND NOT has_table_privilege('authenticated', 'public.event_scan_nonces', 'INSERT')
-    AND NOT has_table_privilege('anon', 'public.event_scan_nonces', 'SELECT'),
-    '235: scan nonce audit rows are not client-readable/writable');
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%location_city%'
-       AND pg_get_functiondef(p.oid) LIKE '%NULL::numeric%'
-       AND pg_get_functiondef(p.oid) LIKE '%upcoming%'
-     FROM pg_proc p WHERE proname = 'search_events'),
-    '235: search_events projects city + distance and never coordinates');
-SELECT ok(
-    (SELECT pg_get_functiondef(p.oid) LIKE '%location_city%'
-       AND pg_get_functiondef(p.oid) LIKE '%p_location_city%'
-     FROM pg_proc p WHERE proname = 'create_event'),
-    '235: create_event accepts the coarse city without changing the venue');
-SELECT has_trigger('event_attendances', 'scan_nonce_on_attendance',
-    '235: confirmed attendance fires the one-time scan nonce trigger');
-SELECT has_column('share_links', 'token_hash',
-    '235: only the hashed bearer token (token_hash) is stored');
-
-
--- ============================================================
--- SECTION 71: economy distribution, cancellation and reconciliation
--- (236_economy_distribution — E1)
--- ============================================================
-INSERT INTO public.users (id, username, date_of_birth, preshards) VALUES
-    ('7a000000-0000-4000-8000-000000000001', 'econ_h1', '1990-01-01', 1000),
-    ('7a000000-0000-4000-8000-000000000002', 'econ_h2', '1990-01-01', 1000),
-    ('7a000000-0000-4000-8000-000000000003', 'econ_a1', '1990-01-01', 0),
-    ('7a000000-0000-4000-8000-000000000004', 'econ_a2', '1990-01-01', 0),
-    ('7a000000-0000-4000-8000-000000000005', 'econ_a3', '1990-01-01', 0)
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO public.preshard_ledger (user_id, delta, reason)
-SELECT u.id, 1000, 'admin_grant'
-  FROM public.users u
- WHERE u.id IN (
-    '7a000000-0000-4000-8000-000000000001',
-    '7a000000-0000-4000-8000-000000000002')
-   AND NOT EXISTS (
-       SELECT 1 FROM public.preshard_ledger l
-        WHERE l.user_id = u.id AND l.reason = 'admin_grant');
-
-INSERT INTO public.events
-    (id, name, type, created_by_user_id, starts_at, ends_at,
-     preshards_pool, preshards_remainder_action, capacity, invite_token, status)
-VALUES
-    ('7e000000-0000-4000-8000-000000000001', 'E1 single host', 'juerga',
-     '7a000000-0000-4000-8000-000000000001', now() - interval '2 hours',
-     now() - interval '1 hour', 100, NULL, 5, 'econ-e1', 'ended'),
-    ('7e000000-0000-4000-8000-000000000002', 'E2 host attendee', 'juerga',
-     '7a000000-0000-4000-8000-000000000001', now() - interval '2 hours',
-     now() - interval '1 hour', 100, NULL, 5, 'econ-e2', 'ended'),
-    ('7e000000-0000-4000-8000-000000000003', 'E3 redistribute', 'juerga',
-     '7a000000-0000-4000-8000-000000000001', now() - interval '2 hours',
-     now() - interval '1 hour', 101, 'redistribute', 5, 'econ-e3', 'ended'),
-    ('7e000000-0000-4000-8000-000000000004', 'E4 remainder return', 'juerga',
-     '7a000000-0000-4000-8000-000000000002', now() - interval '2 hours',
-     now() - interval '1 hour', 100, NULL, 5, 'econ-e4', 'ended'),
-    ('7e000000-0000-4000-8000-000000000005', 'E5 cancel', 'juerga',
-     '7a000000-0000-4000-8000-000000000001', now() + interval '1 day',
-     now() + interval '1 day 2 hours', 60, NULL, 5, 'econ-e5', 'upcoming'),
-    ('7e000000-0000-4000-8000-000000000006', 'E6 multi host cancel', 'juerga',
-     '7a000000-0000-4000-8000-000000000001', now() + interval '1 day',
-     now() + interval '1 day 2 hours', 100, NULL, 5, 'econ-e6', 'upcoming'),
-    ('7e000000-0000-4000-8000-000000000007', 'E7 cancel after end', 'juerga',
-     '7a000000-0000-4000-8000-000000000001', now() - interval '2 hours',
-     now() - interval '1 hour', 40, NULL, 5, 'econ-e7', 'ended'),
-    ('7e000000-0000-4000-8000-000000000008', 'E8 trigger dispatch', 'juerga',
-     '7a000000-0000-4000-8000-000000000001', now() + interval '1 day',
-     now() + interval '1 day 2 hours', 20, NULL, 5, 'econ-e8', 'upcoming');
-
-INSERT INTO public.event_hosts (event_id, user_id, role, preshards_contributed) VALUES
-    ('7e000000-0000-4000-8000-000000000001', '7a000000-0000-4000-8000-000000000001', 'host', 100),
-    ('7e000000-0000-4000-8000-000000000002', '7a000000-0000-4000-8000-000000000001', 'host', 100),
-    ('7e000000-0000-4000-8000-000000000003', '7a000000-0000-4000-8000-000000000001', 'host', 0),
-    ('7e000000-0000-4000-8000-000000000004', '7a000000-0000-4000-8000-000000000002', 'host', 100),
-    ('7e000000-0000-4000-8000-000000000005', '7a000000-0000-4000-8000-000000000001', 'host', 60),
-    ('7e000000-0000-4000-8000-000000000006', '7a000000-0000-4000-8000-000000000001', 'host', 60),
-    ('7e000000-0000-4000-8000-000000000006', '7a000000-0000-4000-8000-000000000002', 'host', 40),
-    ('7e000000-0000-4000-8000-000000000007', '7a000000-0000-4000-8000-000000000001', 'host', 40),
-    ('7e000000-0000-4000-8000-000000000008', '7a000000-0000-4000-8000-000000000001', 'host', 0);
-
--- Model the create_event deductions + ledgers so the reconciliation invariant
--- holds (one bulk deduction per host, one ledger row per event).
-UPDATE public.users SET preshards = preshards - 360
- WHERE id = '7a000000-0000-4000-8000-000000000001';
-UPDATE public.users SET preshards = preshards - 140
- WHERE id = '7a000000-0000-4000-8000-000000000002';
-INSERT INTO public.preshard_ledger (user_id, delta, reason, reference_id) VALUES
-    ('7a000000-0000-4000-8000-000000000001', -100, 'event_pool_set', '7e000000-0000-4000-8000-000000000001'),
-    ('7a000000-0000-4000-8000-000000000001', -100, 'event_pool_set', '7e000000-0000-4000-8000-000000000002'),
-    ('7a000000-0000-4000-8000-000000000001', -60, 'event_pool_set', '7e000000-0000-4000-8000-000000000005'),
-    ('7a000000-0000-4000-8000-000000000001', -60, 'event_pool_set', '7e000000-0000-4000-8000-000000000006'),
-    ('7a000000-0000-4000-8000-000000000001', -40, 'event_pool_set', '7e000000-0000-4000-8000-000000000007'),
-    ('7a000000-0000-4000-8000-000000000002', -100, 'event_pool_set', '7e000000-0000-4000-8000-000000000004'),
-    ('7a000000-0000-4000-8000-000000000002', -40, 'event_pool_set', '7e000000-0000-4000-8000-000000000006');
-
-CREATE TEMP TABLE e1_start AS
-SELECT id, preshards, personal_shards
-  FROM public.users
- WHERE username LIKE 'econ_%';
-
-INSERT INTO public.event_attendances (event_id, user_id) VALUES
-    ('7e000000-0000-4000-8000-000000000001', '7a000000-0000-4000-8000-000000000003'),
-    ('7e000000-0000-4000-8000-000000000001', '7a000000-0000-4000-8000-000000000004'),
-    ('7e000000-0000-4000-8000-000000000002', '7a000000-0000-4000-8000-000000000001'),
-    ('7e000000-0000-4000-8000-000000000002', '7a000000-0000-4000-8000-000000000003'),
-    ('7e000000-0000-4000-8000-000000000003', '7a000000-0000-4000-8000-000000000003'),
-    ('7e000000-0000-4000-8000-000000000003', '7a000000-0000-4000-8000-000000000004'),
-    ('7e000000-0000-4000-8000-000000000003', '7a000000-0000-4000-8000-000000000005'),
-    ('7e000000-0000-4000-8000-000000000004', '7a000000-0000-4000-8000-000000000003'),
-    ('7e000000-0000-4000-8000-000000000004', '7a000000-0000-4000-8000-000000000004'),
-    ('7e000000-0000-4000-8000-000000000004', '7a000000-0000-4000-8000-000000000005'),
-    ('7e000000-0000-4000-8000-000000000007', '7a000000-0000-4000-8000-000000000003'),
-    ('7e000000-0000-4000-8000-000000000008', '7a000000-0000-4000-8000-000000000003');
-
-SELECT is(
-    (public.distribute_shards('7e000000-0000-4000-8000-000000000001') ->> 'status'),
-    'completed', 'E1: distribution completes on an ended event');
-SELECT is(
-    (public.distribute_shards('7e000000-0000-4000-8000-000000000001') ->> 'reason'),
-    'already distributed', 'E1: a second call is a no-op');
-SELECT is(
-    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000003'),
-    50, 'E1: confirmed attendee A1 paid 50');
-SELECT is(
-    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000004'),
-    50, 'E1: confirmed attendee A2 paid 50');
-SELECT is(
-    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000001'),
-    0, 'E1: the host receives no attendance payout');
-SELECT is(
-    (SELECT SUM(shards_received) FROM public.event_attendances
-      WHERE event_id = '7e000000-0000-4000-8000-000000000001'),
-    100::bigint, 'E1: exactly the pool is distributed');
-SELECT ok(
-    (SELECT preshards_pool = 0 AND preshards_distributed
-       FROM public.events WHERE id = '7e000000-0000-4000-8000-000000000001'),
-    'E1: the pool is zeroed and marked distributed');
-SELECT is(
-    (SELECT SUM(delta) FROM public.shard_ledger
-      WHERE user_id = '7a000000-0000-4000-8000-000000000003'
-        AND reference_id = '7e000000-0000-4000-8000-000000000001'),
-    50::bigint, 'E1: the attendee payout is in the ledger');
-SELECT is(
-    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000003'),
-    50, 'E1: the no-op re-run does not pay twice');
-
--- Host attendance rows are not eligible.
-SELECT is(
-    (public.distribute_shards('7e000000-0000-4000-8000-000000000002') ->> 'attendees'),
-    '1', 'E1: a host attendance row is excluded');
-SELECT is(
-    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000001'),
-    0, 'E1: the host is still not paid as an attendee');
-SELECT is(
-    (SELECT personal_shards FROM public.users WHERE id = '7a000000-0000-4000-8000-000000000003'),
-    150, 'E1: the only non-host attendee receives the pool');
-
--- Redistribute: 101 across 3 attendees, exact sum.
-SELECT is(
-    (public.distribute_shards('7e000000-0000-4000-8000-000000000003') ->> 'remainder'),
-    '2', 'E1: redistribute keeps a 2-shard remainder');
-SELECT is(
-    (SELECT shards_received FROM public.event_attendances
-      WHERE event_id = '7e000000-0000-4000-8000-000000000003'
-        AND user_id = '7a000000-0000-4000-8000-000000000005'),
-    33, 'E1: the last attendee gets the base share');
-SELECT is(
-    (SELECT SUM(shards_received) FROM public.event_attendances
-      WHERE event_id = '7e000000-0000-4000-8000-000000000003'),
-    101::bigint, 'E1: redistribute distributes the remainder, never burns it');
-
--- Return: 100 across 3 attendees leaves 1 for the host.
-SELECT is(
-    (public.distribute_shards('7e000000-0000-4000-8000-000000000004') ->> 'returned'),
-    '1', 'E1: the default remainder returns to the host');
-SELECT is(
-    (SELECT u.preshards - s.preshards
-       FROM public.users u JOIN e1_start s USING (id)
-      WHERE u.id = '7a000000-0000-4000-8000-000000000002'),
-    1, 'E1: the host receives the remainder back');
-SELECT ok(
-    (SELECT preshards_pool = 0 AND preshards_distributed
-       FROM public.events WHERE id = '7e000000-0000-4000-8000-000000000004'),
-    'E1: the returned pool is closed');
-
--- Cancellation before start refunds each host its own contribution.
-UPDATE public.events SET status = 'cancelled'
- WHERE id = '7e000000-0000-4000-8000-000000000005';
-SELECT is(
-    (SELECT u.preshards - s.preshards
-       FROM public.users u JOIN e1_start s USING (id)
-      WHERE u.id = '7a000000-0000-4000-8000-000000000001'),
-    60, 'E1: cancellation refunds the single host');
-SELECT ok(
-    (SELECT preshards_pool = 0 AND preshards_distributed
-       FROM public.events WHERE id = '7e000000-0000-4000-8000-000000000005'),
-    'E1: cancellation closes the pool');
-
-UPDATE public.events SET status = 'cancelled'
- WHERE id = '7e000000-0000-4000-8000-000000000006';
-SELECT is(
-    (SELECT u.preshards - s.preshards
-       FROM public.users u JOIN e1_start s USING (id)
-      WHERE u.id = '7a000000-0000-4000-8000-000000000001'),
-    120, 'E1: multi-host cancellation refunds host 1 its own 60');
-SELECT is(
-    (SELECT u.preshards - s.preshards
-       FROM public.users u JOIN e1_start s USING (id)
-      WHERE u.id = '7a000000-0000-4000-8000-000000000002'),
-    41, 'E1: multi-host cancellation refunds host 2 its own 40');
-SELECT is(
-    (SELECT SUM(delta) FROM public.preshard_ledger
-      WHERE reference_id = '7e000000-0000-4000-8000-000000000006'
-        AND reason = 'event_pool_returned'),
-    100::bigint, 'E1: the multi-host refund sums to the pool');
-
--- Distribution then cancellation is rejected.
-SELECT public.distribute_shards('7e000000-0000-4000-8000-000000000007');
-SELECT throws_ok(
-    $$UPDATE public.events SET status = 'cancelled'
-       WHERE id = '7e000000-0000-4000-8000-000000000007'$$,
-    'P0001', 'cancel_only_before_start',
-    'E1: cancelling an ended/distributed event is rejected');
-
--- The status update itself must dispatch (no manual call).
-CREATE TEMP TABLE e8_before AS
-SELECT personal_shards FROM public.users
- WHERE id = '7a000000-0000-4000-8000-000000000003';
-UPDATE public.events SET status = 'ended'
- WHERE id = '7e000000-0000-4000-8000-000000000008';
-SELECT ok(
-    (SELECT preshards_distributed FROM public.events
-      WHERE id = '7e000000-0000-4000-8000-000000000008'),
-    'E1: status=ended dispatches distribution');
-SELECT is(
-    (SELECT u.personal_shards - b.personal_shards
-       FROM public.users u, e8_before b
-      WHERE u.id = '7a000000-0000-4000-8000-000000000003'),
-    20, 'E1: the trigger pays the confirmed attendee');
-
--- Read-only reconciliation.
-SELECT is(
-    (SELECT count(*) FROM public.economy_ledger_reconciliation() r
-       JOIN public.users u ON u.id = r.user_id
-      WHERE u.username LIKE 'econ_%'
-        AND (r.shard_delta <> 0 OR r.preshard_delta <> 0)),
-    0::bigint, 'E1: wallet and ledger sums reconcile after every payout');
-SELECT is(
-    (SELECT SUM(shards_received)::bigint FROM public.event_economy_reconciliation(
-        '7e000000-0000-4000-8000-000000000001')
-      WHERE role = 'attendee'),
-    100::bigint, 'E1: per-event reconciliation matches the payout');
-SELECT is(
-    (SELECT count(*) FROM public.economy_ledger_reconciliation()
-      WHERE user_id = '7a000000-0000-4000-8000-000000000004'
-        AND shard_delta = 0),
-    1::bigint, 'E1: reconciliation is read-only and reports zero delta');
-
--- Audited manual correction (service_role only).
-CREATE TEMP TABLE corr_before AS
-SELECT personal_shards FROM public.users
- WHERE id = '7a000000-0000-4000-8000-000000000003';
-SELECT public.admin_correct_balance(
-    '7a000000-0000-4000-8000-000000000003', 5, 2, 'pgTAP correction');
-SELECT is(
-    (SELECT u.personal_shards - b.personal_shards
-       FROM public.users u, corr_before b
-      WHERE u.id = '7a000000-0000-4000-8000-000000000003'),
-    5, 'E1: a manual correction adjusts the wallet');
-SELECT is(
-    (SELECT count(*) FROM public.admin_audit_log
-      WHERE action = 'economy_correction'
-        AND target_id = '7a000000-0000-4000-8000-000000000003'),
-    1::bigint, 'E1: a manual correction writes an audit row');
-SELECT is(
-    (SELECT count(*) FROM public.economy_ledger_reconciliation() r
-       JOIN public.users u ON u.id = r.user_id
-      WHERE u.username LIKE 'econ_%'
-        AND (r.shard_delta <> 0 OR r.preshard_delta <> 0)),
-    0::bigint, 'E1: the corrected balance still reconciles');
-
 
 -- ============================================================
 -- SECTION 72: subscriptions — expiry, grace, overrides, retries
@@ -6127,9 +4203,9 @@ SELECT has_column('webhook_failures', 'next_attempt_at',
 SELECT has_column('webhook_failures', 'resolved_at',
     'E2: webhook_failures records resolution');
 
-
 -- ============================================================
--- SECTION 73: limits, create_group, rank gating (238_limits_contracts — E3)
+-- SECTION 73: limits + create_group (238_limits_contracts — E3)
+-- (The rank-snapshot tier gating is removed with the rankings feature.)
 -- ============================================================
 INSERT INTO public.users (id, username, date_of_birth) VALUES
     ('9c000000-0000-4000-8000-000000000001', 'e3_free', '1990-01-01'),
@@ -6146,60 +4222,6 @@ SELECT is((SELECT value FROM public.app_config WHERE key = 'groups.free_hosted')
     '5', 'E3: free hosted-group cap is 5');
 SELECT is((SELECT value FROM public.app_config WHERE key = 'groups.free_max_members'),
     '14', 'E3: free group member cap is 14');
-
--- Event daily cap (free = 3/day).
-SELECT set_config('request.jwt.claims',
-    '{"sub":"9c000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
-INSERT INTO public.events (id, name, type, created_by_user_id, starts_at, ends_at,
-    capacity, invite_token, status)
-VALUES
-    ('9c000000-0000-4000-8000-000000000101', 'e3 ev1', 'casual',
-     '9c000000-0000-4000-8000-000000000001', now() + interval '1 day',
-     now() + interval '1 day 1 hour', 5, 'e3-1', 'upcoming'),
-    ('9c000000-0000-4000-8000-000000000102', 'e3 ev2', 'casual',
-     '9c000000-0000-4000-8000-000000000001', now() + interval '1 day',
-     now() + interval '1 day 1 hour', 5, 'e3-2', 'upcoming'),
-    ('9c000000-0000-4000-8000-000000000103', 'e3 ev3', 'casual',
-     '9c000000-0000-4000-8000-000000000001', now() + interval '1 day',
-     now() + interval '1 day 1 hour', 5, 'e3-3', 'upcoming');
-SELECT is(
-    (SELECT count(*) FROM public.events
-      WHERE created_by_user_id = '9c000000-0000-4000-8000-000000000001'),
-    3::bigint, 'E3: free creates 3 events');
-SELECT throws_ok(
-    $$INSERT INTO public.events (name, type, created_by_user_id, starts_at, ends_at,
-        capacity, invite_token, status)
-      VALUES ('e3 ev4', 'casual', '9c000000-0000-4000-8000-000000000001',
-              now() + interval '1 day', now() + interval '1 day 1 hour',
-              5, 'e3-4', 'upcoming')$$,
-    'P0001', 'event_daily_limit', 'E3: the 4th free event is rejected');
-
--- Rapid cap (pro = 10/day, 3/minute).
-SELECT public.apply_subscription_state(
-    '9c000000-0000-4000-8000-000000000002', 'pro',
-    now() + interval '30 days', 'INITIAL_PURCHASE');
-SELECT set_config('request.jwt.claims',
-    '{"sub":"9c000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
-INSERT INTO public.events (id, name, type, created_by_user_id, starts_at, ends_at,
-    capacity, invite_token, status)
-VALUES
-    ('9c000000-0000-4000-8000-000000000201', 'e3 pro1', 'casual',
-     '9c000000-0000-4000-8000-000000000002', now() + interval '1 day',
-     now() + interval '1 day 1 hour', 5, 'e3-p1', 'upcoming'),
-    ('9c000000-0000-4000-8000-000000000202', 'e3 pro2', 'casual',
-     '9c000000-0000-4000-8000-000000000002', now() + interval '1 day',
-     now() + interval '1 day 1 hour', 5, 'e3-p2', 'upcoming'),
-    ('9c000000-0000-4000-8000-000000000203', 'e3 pro3', 'casual',
-     '9c000000-0000-4000-8000-000000000002', now() + interval '1 day',
-     now() + interval '1 day 1 hour', 5, 'e3-p3', 'upcoming');
-SELECT throws_ok(
-    $$INSERT INTO public.events (name, type, created_by_user_id, starts_at, ends_at,
-        capacity, invite_token, status)
-      VALUES ('e3 pro4', 'casual', '9c000000-0000-4000-8000-000000000002',
-              now() + interval '1 day', now() + interval '1 day 1 hour',
-              5, 'e3-p4', 'upcoming')$$,
-    'P0001', 'rate_limited:event_create', 'E3: the 4th event in a minute is rejected');
-
 -- create_group: 5 hosted cap, transaction, host membership + chat.
 SELECT set_config('request.jwt.claims',
     '{"sub":"9c000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
@@ -6224,12 +4246,6 @@ SELECT is(
         AND gm.user_id = '9c000000-0000-4000-8000-000000000001'
         AND gm.role = 'host' AND gm.status = 'active'),
     5::bigint, 'E3: each group has its host membership');
-SELECT is(
-    (SELECT count(*) FROM public.chats c
-       JOIN public.groups g ON g.id = c.reference_id
-      WHERE g.created_by_user_id = '9c000000-0000-4000-8000-000000000001'
-        AND c.type = 'group'),
-    5::bigint, 'E3: each group has its chat');
 
 -- Member cap (free host = 14 active).
 SELECT set_config('request.jwt.claims',
@@ -6294,51 +4310,8 @@ SELECT throws_ok(
     '42501', NULL, 'E3: direct group inserts are denied');
 RESET role;
 
--- Rank gating: free -> micro; pro -> +small/medium; vip -> all.
-INSERT INTO public.groups (id, name, created_by_user_id) VALUES
-    ('9c000000-0000-4000-8000-000000000301', 'e3 micro',
-     '9c000000-0000-4000-8000-000000000001'),
-    ('9c000000-0000-4000-8000-000000000302', 'e3 small',
-     '9c000000-0000-4000-8000-000000000001'),
-    ('9c000000-0000-4000-8000-000000000303', 'e3 medium',
-     '9c000000-0000-4000-8000-000000000001'),
-    ('9c000000-0000-4000-8000-000000000304', 'e3 large',
-     '9c000000-0000-4000-8000-000000000001');
-INSERT INTO public.group_rank_snapshots
-    (group_id, size_tier, rank_bracket, rank_position, score, member_count)
-VALUES
-    ('9c000000-0000-4000-8000-000000000301', 'micro', 'b0_20', 1, 10, 1),
-    ('9c000000-0000-4000-8000-000000000302', 'small', 'b0_20', 1, 10, 15),
-    ('9c000000-0000-4000-8000-000000000303', 'medium', 'b0_20', 1, 10, 60),
-    ('9c000000-0000-4000-8000-000000000304', 'large', 'b0_20', 1, 10, 300);
-
-SELECT set_config('request.jwt.claims',
-    '{"sub":"9c000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
-SET LOCAL role authenticated;
-SELECT is((SELECT count(*) FROM public.group_rank_snapshots), 1::bigint,
-    'E3: a free user sees only micro rank snapshots');
-RESET role;
-
-SELECT public.apply_subscription_state(
-    '9c000000-0000-4000-8000-000000000001', 'pro',
-    now() + interval '30 days', 'INITIAL_PURCHASE');
-SET LOCAL role authenticated;
-SELECT is((SELECT count(*) FROM public.group_rank_snapshots), 3::bigint,
-    'E3: a pro user sees micro/small/medium snapshots');
-RESET role;
-
-SELECT public.apply_subscription_state(
-    '9c000000-0000-4000-8000-000000000001', 'vip',
-    now() + interval '30 days', 'RENEWAL');
-SET LOCAL role authenticated;
-SELECT is((SELECT count(*) FROM public.group_rank_snapshots), 4::bigint,
-    'E3: a vip user sees all rank snapshots');
-RESET role;
-SELECT set_config('request.jwt.claims', '', true);
-
-
 -- ============================================================
--- SECTION 74: code-only public matches (239_minigame_join_codes — E4)
+-- SECTION 74: code-only matches (239_minigame_join_codes — E4)
 -- ============================================================
 INSERT INTO public.users (id, username, date_of_birth) VALUES
     ('9d000000-0000-4000-8000-000000000001', 'e4_host', '1990-01-01'),
