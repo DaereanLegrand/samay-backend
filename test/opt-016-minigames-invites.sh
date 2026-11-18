@@ -133,7 +133,7 @@ done
 
 for pair in "UUID_A:user_opt016_a" "UUID_B:user_opt016_b" "UUID_C:user_opt016_c" "UUID_D:user_opt016_d"; do
   uid_var="${pair%%:*}"; uname="${pair##*:}"; uid="${!uid_var}"
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10,\"age_confirmed_at\":\"2026-01-01T00:00:00Z\",\"terms_accepted_at\":\"2026-01-01T00:00:00Z\"}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 
@@ -172,7 +172,7 @@ info "A and B are now accepted friends"
 h1 "TEST A — create session with invitees (non-member C)"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"poke_chain\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"poke_chain\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 INVITED=$(echo "$resp" | grep -o '"invited":[0-9]*' | cut -d':' -f2)
 if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_ID" ]; then
@@ -205,7 +205,7 @@ ok "C enabled friends-only invites"
 
 # A is NOT a friend of C -> invite must be rejected atomically.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"questions\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"questions\",\"p_invitees\":[\"$UUID_C\"]}")
 if echo "$resp" | grep -qE '"status": *"invitee_friends_only"'; then
   ok "A (non-friend) inviting C is rejected: invitee_friends_only"
 else
@@ -217,7 +217,7 @@ resp=$(svc_post "friendships" "{\"requester_id\":\"$UUID_A\",\"addressee_id\":\"
 # Use RPC for cleanliness — insert a pending then accept via B? simpler: service row
 svc_post "friendships" "{\"requester_id\":\"$UUID_A\",\"addressee_id\":\"$UUID_C\",\"status\":\"accepted\"}" >/dev/null
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"questions\",\"p_wager\":10,\"p_invitees\":[\"$UUID_C\"]}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"questions\",\"p_invitees\":[\"$UUID_C\"]}")
 SESSION2=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -qE '"status": *"created"'; then
   ok "A (now friend) can invite C to a wagered session ($SESSION2)"
@@ -256,7 +256,7 @@ h1 "TEST E — finished session closes the invite"
 
 # Create a fresh session inviting C, decline-capable path: finish it first.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"challenge\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"challenge\",\"p_invitees\":[\"$UUID_C\"]}")
 SESSION3=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 finish_game "$UUID_A" "$SESSION3" >/dev/null
 INVITE3=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION3&invitee_id=eq.$UUID_C" \
@@ -274,7 +274,7 @@ fi
 h1 "TEST F — decline a pending invite"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_C\"]}")
 SESSION4=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 INVITE4=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION4&invitee_id=eq.$UUID_C" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
@@ -317,7 +317,7 @@ h1 "TEST G — direct sessions (no group)"
 # G6 setup: 9 throwaway live user rows (no auth session needed — the
 # invitee gate only checks the users table) to overflow the free cap.
 for i in 1 2 3 4 5 6 7 8 9; do
-  svc_post "users" "{\"id\":\"aaaaaaaa-aaaa-aaaa-aaaa-00000000000$i\",\"username\":\"cap_filler_$i\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":100,\"preshards\":0}" >/dev/null
+  svc_post "users" "{\"id\":\"aaaaaaaa-aaaa-aaaa-aaaa-00000000000$i\",\"username\":\"cap_filler_$i\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":100,\"preshards\":0,\"age_confirmed_at\":\"2026-01-01T00:00:00Z\",\"terms_accepted_at\":\"2026-01-01T00:00:00Z\"}" >/dev/null
 done
 CAP_INVITEES=""
 for i in 1 2 3 4 5 6 7 8 9; do
@@ -328,7 +328,7 @@ info "Seeded 9 cap-filler users for the over-cap check"
 
 # G1 + G2: direct create with p_group_id null.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"poke_chain\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
+  "{\"p_group_id\":null,\"p_game_type\":\"poke_chain\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
 SESSION5=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION5" ]; then
   ok "Direct session created with p_group_id null ($SESSION5)"
@@ -365,7 +365,7 @@ if echo "$resp" | grep -qE '"status": *"not_allowed"'; then ok "Bystander D cann
 
 # G6: over-cap roster is rejected atomically (10 invitees + self > free 8).
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_wager\":0,\"p_invitees\":[$CAP_INVITEES]}")
+  "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_invitees\":[$CAP_INVITEES]}")
 if echo "$resp" | grep -qE '"status": *"player_limit_reached"'; then
   ok "Over-cap direct create rejected: player_limit_reached"
 else
@@ -383,7 +383,7 @@ h1 "TEST H — direct-invite notification + auto partida-N"
 
 # H1: A creates a DIRECT truth_dare inviting C; C must get a notification.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
+  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_C\"]}")
 SESSION_H=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_H" ]; then
   ok "Direct truth_dare session created for the notification check ($SESSION_H)"
@@ -439,28 +439,27 @@ else
   nok "Group-invite notification missing groupName: $(echo "$notif_g" | head -c 120)"
 fi
 
-# H1c: a WAGERED direct invite must state the exact amount in the body
-# ("{N} shards.") and carry the wager in the payload — the invitee knows up
-# front how many shards will be taken.
+# H1c: a DIRECT invite is wager-free in slim-prod (the shard economy is
+# removed), so the body says FREE and the payload carries wager 0.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_wager\":25,\"p_invitees\":[\"$UUID_C\"]}")
+  "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_invitees\":[\"$UUID_C\"]}")
 SESSION_W=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_W" ]; then
-  ok "Wagered direct questions session created for the wager-notice check ($SESSION_W)"
+  ok "Direct questions session created for the invite-notice check ($SESSION_W)"
 else
-  nok "Wagered direct create failed: $(echo "$resp" | head -c 120)"
+  nok "Direct create failed: $(echo "$resp" | head -c 120)"
 fi
 notif_w=$(curl -s -X GET "$SUPABASE_URL/rest/v1/notifications?user_id=eq.$UUID_C&type=eq.minigame_invite&data->>sessionId=eq.$SESSION_W&order=created_at.desc&limit=1&select=data,body" \
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $TOKEN_C" | norm_json)
-if echo "$notif_w" | grep -q '"body":"25 shards."'; then
-  ok "The wagered (25) invite notification body states the exact cost: \"25 shards.\""
+if echo "$notif_w" | grep -q '"body":"FREE"'; then
+  ok "The direct invite notification body says FREE (wager economy removed)"
 else
-  nok "Wagered notification body missing the amount: $(echo "$notif_w" | head -c 120)"
+  nok "Direct invite notification body not FREE: $(echo "$notif_w" | head -c 120)"
 fi
-if echo "$notif_w" | grep -q '"wager":25'; then
-  ok "The wagered notification payload carries wager 25"
+if echo "$notif_w" | grep -q '"wager":0'; then
+  ok "The direct invite payload carries wager 0 (retired column)"
 else
-  nok "Wagered notification data missing wager 25: $(echo "$notif_w" | head -c 120)"
+  nok "Direct invite payload missing wager 0: $(echo "$notif_w" | head -c 120)"
 fi
 # H1d: a DIRECT invite must carry the inviter's username (user_search_view) so
 # the accept surface can show who invited you; groupName must be null.
@@ -500,7 +499,7 @@ h1 "TEST I — lobby invite RPC (invite_minigame_players)"
 
 # I1: A creates a DIRECT session with ZERO invitees, then invites B + C.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"poke_chain\",\"p_wager\":0,\"p_invitees\":[]}")
+  "{\"p_group_id\":null,\"p_game_type\":\"poke_chain\",\"p_invitees\":[]}")
 SESSION_I=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_I" ]; then
   ok "Lobby-flow direct session created with zero invitees ($SESSION_I)"
@@ -572,7 +571,7 @@ fi
 
 # I6: frozen player cap re-checked — A + 8 cap-fillers > free 8.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_wager\":0,\"p_invitees\":[]}")
+  "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_invitees\":[]}")
 SESSION_I6=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 # Reuse the 9 seeded cap-filler users (TEST G6) — invite 8 of them.
 CAP8=""
@@ -611,7 +610,7 @@ h1 "TEST J — re-invite after decline / kick (fresh invite, no resend path)"
 # J1: A invites C (who already declined SESSION4) into a NEW session; the
 #     previous declined row is gone, so the re-invite is a fresh pending row.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_wager\":0,\"p_invitees\":[\"$UUID_C\"]}")
+  "{\"p_group_id\":null,\"p_game_type\":\"questions\",\"p_invitees\":[\"$UUID_C\"]}")
 SESSION_J1=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_J1" ]; then
   ok "New session created for the re-invite check ($SESSION_J1)"
@@ -650,7 +649,7 @@ fi
 #     → participants array grows. remove_minigame_participant deletes the
 #     invite row, so the re-invite is again a plain fresh INSERT.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
+  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"]}")
 SESSION_J2=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 # B and C accept → participants = A, B, C.
 for uid in $UUID_B $UUID_C; do

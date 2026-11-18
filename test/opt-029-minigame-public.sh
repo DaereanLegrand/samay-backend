@@ -93,7 +93,7 @@ done
 
 for pair in "UUID_A:user_opt029_a" "UUID_B:user_opt029_b" "UUID_C:user_opt029_c"; do
   uid_var="${pair%%:*}"; uname="${pair##*:}"; uid="${!uid_var}"
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10,\"age_confirmed_at\":\"2026-01-01T00:00:00Z\",\"terms_accepted_at\":\"2026-01-01T00:00:00Z\"}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 
@@ -111,7 +111,7 @@ TOKEN_C=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
 h1 "TEST A: public lobby removed — 6-character code only"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_name\":\"abierta opt029\",\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\",\"p_anonymous\":false}")
+  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_name\":\"abierta opt029\",\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\",\"p_anonymous\":false}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | head -1 | cut -d'"' -f4)
 if [ -n "$SESSION_ID" ] && echo "$resp" | grep -q '"status":"created"'; then
   ok "A created a direct partida ($SESSION_ID)"

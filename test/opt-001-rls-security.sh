@@ -215,10 +215,11 @@ else
   nok "anon SELECT app_config — unexpected: $(echo "$resp" | head -c 60)"
 fi
 
-# A2: anon SELECT on cosmetics (public read, may be empty)
+# A2: anon SELECT on cosmetics — slim-prod removed cosmetics, so the table is
+# closed to every client role (300_slim/05_revoke_removed).
 resp=$(anon_get "cosmetics?limit=1")
-if echo "$resp" | grep -qE '^\s*\['; then
-  ok "anon SELECT cosmetics — allowed (public read)"
+if echo "$resp" | grep -qE '(42501|permission denied)'; then
+  ok "anon SELECT cosmetics — denied (removed feature)"
 else
   nok "anon SELECT cosmetics — unexpected: $(echo "$resp" | head -c 60)"
 fi

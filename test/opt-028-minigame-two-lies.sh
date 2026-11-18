@@ -120,7 +120,7 @@ done
 
 for pair in "UUID_A:user_opt022_a" "UUID_B:user_opt022_b" "UUID_C:user_opt022_c"; do
   uid_var="${pair%%:*}"; uname="${pair##*:}"; uid="${!uid_var}"
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10,\"age_confirmed_at\":\"2026-01-01T00:00:00Z\",\"terms_accepted_at\":\"2026-01-01T00:00:00Z\"}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 
@@ -138,7 +138,7 @@ TOKEN_C=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
 h1 "TEST A: Create session with game_type = 'two_lies_one_truth'"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"two_lies_one_truth\",\"p_wager\":0,\"p_name\":\"partida 2 mentiras\",\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\",\"p_anonymous\":false}")
+  "{\"p_group_id\":null,\"p_game_type\":\"two_lies_one_truth\",\"p_name\":\"partida 2 mentiras\",\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\",\"p_anonymous\":false}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | head -1 | cut -d'"' -f4)
 
 if [ -n "$SESSION_ID" ] && echo "$resp" | grep -qE '"status": *"created"'; then

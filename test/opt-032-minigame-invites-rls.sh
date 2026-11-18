@@ -136,7 +136,7 @@ done
 
 for pair in "UUID_A:user_opt032_a" "UUID_X:user_opt032_x" "UUID_O:user_opt032_o"; do
   uid_var="${pair%%:*}"; uname="${pair##*:}"; uid="${!uid_var}"
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10,\"age_confirmed_at\":\"2026-01-01T00:00:00Z\",\"terms_accepted_at\":\"2026-01-01T00:00:00Z\"}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 
@@ -167,7 +167,7 @@ fi
 
 h1 "SETUP: A creates a direct session inviting X"
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"poke_chain\",\"p_wager\":0,\"p_invitees\":[\"$UUID_X\"]}")
+  "{\"p_group_id\":null,\"p_game_type\":\"poke_chain\",\"p_invitees\":[\"$UUID_X\"]}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_ID" ]; then
   ok "create_minigame_session created a direct session ($SESSION_ID)"

@@ -1,12 +1,11 @@
-# Contract fixtures (E0)
+# Contract fixtures
 
-Wave 2 freezes the wire shapes shared by the Go server and the Flutter client
-before the E1–E4 lanes split. Fixtures live here as `*.contract.json`; both
-`backend/internal/contracts` (Go) and `frontend/test/contracts_test.dart`
-(Dart) validate the same files.
+Freezes the wire shapes shared by the Go server and the Flutter client.
+Fixtures live here as `*.contract.json`; `backend/internal/contracts` (Go)
+validates the same files. The fixture list is directory-derived, so deleting a
+fixture removes only its own check — per-file shape validation stays strict.
 
-No CI (removed by owner decision): run `go test ./internal/contracts` and
-`flutter test test/contracts_test.dart`.
+No CI (removed by owner decision): run `go test ./internal/contracts`.
 
 ## Fixture format
 
@@ -27,27 +26,24 @@ No CI (removed by owner decision): run `go test ./internal/contracts` and
 - `enums` constrain non-null values.
 - `codes` (error fixture) is a list of stable error codes.
 
-## D1–D16 inventory against `wave1b-base`
+## Fixture inventory (slim-prod)
 
-| ID | State at base | Contract owner | Notes |
-|---|---|---|---|
-| D1 | fixed (`229`) | `event.contract.json` (shards) | `purchase_cosmetic` exists; direct writes revoked |
-| D2 | fixed E4 | `direct_chat_*.contract.json` | 226 returns `{status:"blocked"}`; client maps it to a generic error |
-| D3 | fixed 1B | `event_search_row` / notification | recipient filtering + push prefs |
-| D4 | fixed E3 | — | in-app reset route + allow-listed `samay://reset-password` |
-| D5 | fixed 1B (`235`) | — | join RPCs + native link registration; universal links need the website deploy |
-| D6 | fixed E4 | `user_profile` / `subscription_state` | paywall reads server tier + expiry; IAP hidden outside dev |
-| D7 | fixed E3 | — | photo upload limits enforced server-side |
-| D8 | fixed 1B (`234`) | `event_search_row` (push) | `notifications.push_allowed` + server prefs; worker filters |
-| D9 | fixed E3 | `group.contract.json` | `create_group` RPC is the only creation path |
-| D10 | fixed 1B | — | `internal/ops/users.go` uses `time.Now()` |
-| D11 | fixed E1 | — | real distribution on `ended` + cron fallback |
-| D12 | fixed 1B (`234/01`) | — | `notify_group_invite` trigger |
-| D13 | fixed E4 | `user_profile` | `entitlement_tier` removed from the client/wire |
-| D14 | fixed E4 | — | collage honours `collage_top_n_photos` |
-| D15 | fixed E2 | `subscription_state` | explicit product/entitlement map; fail closed |
-| D16 | fixed E3 | `admin_event.contract.json` | `db.Event.capacity` added; admin JSON includes it |
-| E4 | fixed E4 | `group_theme.contract.json` | host-owned theme + tier palette, WCAG-AA foregrounds, `can_change_*` |
+Slim-prod keeps games, auth, profile, settings, notifications/push, friends,
+groups and prompt packs. The fixtures for removed domains (events, E2EE chat,
+photos, user ranking) were deleted with those features:
+
+| Fixture | Surface |
+|---|---|
+| `admin_user.contract.json` | `internal/db/models.go db.User` → `samay-admin` JSON (frozen tags) |
+| `group.contract.json` | `groups` + caller membership → client group model |
+| `group_theme.contract.json` | `get_group_theme(uuid)` → theme model |
+| `user_profile.contract.json` | `public.users` projection → profile model |
+| `subscription_state.contract.json` | `public.users` subscription columns → paywall/admin |
+| `error_codes.contract.json` | stable SQL ERRCODEs + PostgREST/Go response codes |
+
+Deleted with their features: `event.contract.json`, `event_search_row.contract.json`,
+`admin_event.contract.json`, `direct_chat_ok.contract.json`,
+`direct_chat_blocked.contract.json`, `user_ranking_row.contract.json`.
 
 ## Rules
 

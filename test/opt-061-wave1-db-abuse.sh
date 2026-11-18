@@ -243,11 +243,12 @@ else
     || bad "SEC-014 staff PATCH changed event name ($event_after)"
 fi
 
-# Host edit still works after the fix.
-api "$A_JWT" PATCH "events?id=eq.$EV" '{"name":"host-renamed"}' >/dev/null
+# Slim-prod removed events: the host PATCH is refused at the privilege layer
+# too (300_slim/05_revoke_removed revoked ALL on public.events from clients).
+host_code="$(api "$A_JWT" PATCH "events?id=eq.$EV" '{"name":"host-renamed"}')"
 event_after="$(psql_db -c "SELECT name FROM public.events WHERE id='$EV';")"
-[ "$event_after" = "host-renamed" ] && ok "SEC-014 host PATCH allowed" \
-  || bad "SEC-014 host PATCH broke ($event_after)"
+[ "$event_after" = "$event_before" ] && expect_after "SEC-014 host PATCH denied too (events removed)" "$host_code" \
+  || bad "SEC-014 host PATCH changed event name ($event_after)"
 
 # ---------------------------------------------------------------------------
 # SEC-018 — pending invitee must not read event chat.
@@ -261,8 +262,11 @@ fi
 
 D_JWT="$(mint_user_jwt "$D")"
 api "$D_JWT" GET "messages?chat_id=eq.$CHAT_EVENT&select=id" >/dev/null
-grep -q "$MSG_EVENT" /tmp/opt061-resp && ok "SEC-018 accepted invitee can read event messages" \
-  || bad "SEC-018 accepted invitee lost event message read"
+if grep -q "$MSG_EVENT" /tmp/opt061-resp; then
+  bad "SEC-018 accepted invitee still reads event messages"
+else
+  ok "SEC-018 event message reads are closed to every client role (chat removed)"
+fi
 
 # Pending invitee cannot post to event chat.
 api "$C_JWT" POST "messages" "{\"chat_id\":\"$CHAT_EVENT\",\"sender_id\":\"$C\",\"content\":\"pending-write\"}" >/dev/null
@@ -426,7 +430,8 @@ else
   expect_after "SEC-030 SVG upload denied" "$svg_code"
   expect_after "SEC-030 HTML upload denied" "$html_code"
   expect_after "SEC-030 oversized upload denied" "$big_code"
-  expect_before "SEC-030 host event upload allowed" "$host_code"
+  # Slim-prod removed events: the event bucket path is closed to clients too.
+  expect_after "SEC-030 host event upload denied (events removed)" "$host_code"
   expect_after "SEC-030 non-attendee event upload denied" "$out_code"
   expect_after "SEC-030 pending invitee event upload denied" "$pending_code"
   expect_after "SEC-030 non-event path upload denied" "$wrongpath_code"

@@ -161,7 +161,7 @@ done
 
 for pair in "UUID_A:user_opt021_a" "UUID_B:user_opt021_b" "UUID_C:user_opt021_c"; do
   uid_var="${pair%%:*}"; uname="${pair##*:}"; uid="${!uid_var}"
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10,\"age_confirmed_at\":\"2026-01-01T00:00:00Z\",\"terms_accepted_at\":\"2026-01-01T00:00:00Z\"}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 
@@ -191,7 +191,7 @@ info "Group created; A (host) + B (member) active; C is NOT a member (bystander)
 h1 "TEST A — create with p_play_mode=by_turns + p_anonymous"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":50,\"p_invitees\":[\"$UUID_B\"],\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\",\"p_anonymous\":true}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\"],\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\",\"p_anonymous\":true}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_ID" ]; then
   ok "create with play_mode=by_turns, anonymous=true returned created ($SESSION_ID)"
@@ -229,7 +229,7 @@ fi
 h1 "TEST B — invalid play-mode / async options rejected"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_play_mode\":\"bogus\"}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_play_mode\":\"bogus\"}")
 if echo "$resp" | grep -q '"status":"invalid_play_mode"'; then
   ok "invalid play_mode rejected (invalid_play_mode)"
 else
@@ -237,7 +237,7 @@ else
 fi
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_play_mode\":\"async\",\"p_async_rounds_per_player\":0}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_play_mode\":\"async\",\"p_async_rounds_per_player\":0}")
 if echo "$resp" | grep -q '"status":"invalid_async_rounds"'; then
   ok "async rounds=0 rejected (invalid_async_rounds)"
 else
@@ -246,7 +246,7 @@ fi
 
 # async without a deadline is rejected.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_play_mode\":\"async\",\"p_async_rounds_per_player\":1}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_play_mode\":\"async\",\"p_async_rounds_per_player\":1}")
 if echo "$resp" | grep -q '"status":"invalid_async_ends_at"'; then
   ok "async without a deadline rejected (invalid_async_ends_at)"
 else
@@ -255,7 +255,7 @@ fi
 
 # by_turns with an async deadline is ignored (deadline forced NULL).
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_play_mode\":\"by_turns\",\"p_async_ends_at\":\"2030-01-01T00:00:00Z\"}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_play_mode\":\"by_turns\",\"p_async_ends_at\":\"2030-01-01T00:00:00Z\"}")
 if echo "$resp" | grep -q '"status":"created"'; then
   ok "by_turns create accepted (deadline ignored)"
 else
@@ -391,7 +391,7 @@ h1 "TEST F — async per-player rounds + reactable rounds + timer finish"
 # Create an async session with a near-future deadline (the timer is settable
 # at creation; the cron settles it after it passes).
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\"],\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"async\",\"p_async_rounds_per_player\":2,\"p_async_ends_at\":\"$(date -u -v+60S +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+60 seconds' +%Y-%m-%dT%H:%M:%SZ)\"}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\"],\"p_rounds\":3,\"p_prize_positions\":3,\"p_play_mode\":\"async\",\"p_async_rounds_per_player\":2,\"p_async_ends_at\":\"$(date -u -v+60S +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+60 seconds' +%Y-%m-%dT%H:%M:%SZ)\"}")
 SESSION2_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION2_ID" ]; then
   ok "async create with rounds_per_player=2 + deadline returned created ($SESSION2_ID)"
@@ -657,7 +657,7 @@ fi
 # distinct voters react to A's round and one re-votes; the mirrored
 # state.reactions carries {"list": [...], "count": 2}.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":2,\"p_prize_positions\":3,\"p_play_mode\":\"async\",\"p_async_rounds_per_player\":1,\"p_async_ends_at\":\"$(date -u -v+120S +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+120 seconds' +%Y-%m-%dT%H:%M:%SZ)\"}")
+  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":2,\"p_prize_positions\":3,\"p_play_mode\":\"async\",\"p_async_rounds_per_player\":1,\"p_async_ends_at\":\"$(date -u -v+120S +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+120 seconds' +%Y-%m-%dT%H:%M:%SZ)\"}")
 SESSION3_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION3_ID" ]; then
   ok "direct async session created for the distinct-voter test ($SESSION3_ID)"
@@ -797,7 +797,7 @@ fi
 h1 "TEST I — host-confirmed countdown (start_minigame_match / cancel)"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\"],\"p_rounds\":2,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\"}")
+  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\"],\"p_rounds\":2,\"p_prize_positions\":3,\"p_play_mode\":\"by_turns\"}")
 SESSION4_ID=$(echo "$resp" | sed -n 's/.*"sessionId": "\([0-9a-f-]*\)".*/\1/p')
 [ -z "$SESSION4_ID" ] && SESSION4_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION4_ID" ]; then
@@ -864,7 +864,7 @@ h1 "TEST J — reactor Pasar on an async reactable round"
 # Fresh direct async session (3 participants: A + B + C), per-player target 1,
 # deadline ~2min out so the game stays alive while we react.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":2,\"p_prize_positions\":3,\"p_play_mode\":\"async\",\"p_async_rounds_per_player\":1,\"p_async_ends_at\":\"$(date -u -v+180S +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+180 seconds' +%Y-%m-%dT%H:%M:%SZ)\"}")
+  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":2,\"p_prize_positions\":3,\"p_play_mode\":\"async\",\"p_async_rounds_per_player\":1,\"p_async_ends_at\":\"$(date -u -v+180S +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+180 seconds' +%Y-%m-%dT%H:%M:%SZ)\"}")
 SESSION5_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION5_ID" ]; then
   ok "J: direct async session created ($SESSION5_ID)"

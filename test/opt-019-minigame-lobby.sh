@@ -98,7 +98,7 @@ done
 
 for pair in "UUID_A:user_opt019_a" "UUID_B:user_opt019_b" "UUID_C:user_opt019_c"; do
   uid_var="${pair%%:*}"; uname="${pair##*:}"; uid="${!uid_var}"
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10,\"age_confirmed_at\":\"2026-01-01T00:00:00Z\",\"terms_accepted_at\":\"2026-01-01T00:00:00Z\"}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 
@@ -124,7 +124,7 @@ info "Group created; A (host) + B (member) active; C is NOT a member (bystander)
 
 # A creates a wagered session inviting B (wager 50 → removal must refund).
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":50,\"p_invitees\":[\"$UUID_B\"]}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\"]}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_ID" ]; then
   ok "create_minigame_session returned created ($SESSION_ID)"
@@ -202,23 +202,19 @@ ROW=$(curl -s "$SUPABASE_URL/rest/v1/minigame_game_state?session_id=eq.$SESSION_
 if echo "$ROW" | grep -q '"ready":{}'; then ok "ready map cleared on Start"; else nok "ready not cleared: $ROW"; fi
 
 # =========================================================================
-# TEST D — remove_minigame_participant is CREATOR-ONLY + wager refund
+# TEST D — remove_minigame_participant is CREATOR-ONLY (no wager in slim-prod)
 # =========================================================================
-h1 "TEST D — creator-only removal (wager refund)"
+h1 "TEST D — creator-only removal"
 
-# Re-open a lobby (second session, wagered 30).
+# Re-open a lobby (second session).
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":30,\"p_invitees\":[\"$UUID_B\"]}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\"]}")
 SESSION2_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 INVITE_B2=$(curl -s "$SUPABASE_URL/rest/v1/minigame_invites?session_id=eq.$SESSION2_ID&invitee_id=eq.$UUID_B&select=id" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | norm_json \
   | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_B2\"}" > /dev/null
 auth_rpc "$TOKEN_B" "set_minigame_ready" "{\"p_session_id\":\"$SESSION2_ID\",\"p_ready\":true}" > /dev/null
-
-BAL_BEFORE=$(curl -s "$SUPABASE_URL/rest/v1/users?id=eq.$UUID_B&select=personal_shards" \
-  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | norm_json \
-  | grep -o '"personal_shards":[0-9]*' | cut -d: -f2)
 
 resp=$(auth_rpc "$TOKEN_B" "remove_minigame_participant" "{\"p_session_id\":\"$SESSION2_ID\",\"p_user_id\":\"$UUID_A\"}")
 if echo "$resp" | grep -q '"status":"not_creator"'; then
@@ -236,15 +232,6 @@ fi
 
 resp=$(auth_rpc "$TOKEN_A" "remove_minigame_participant" "{\"p_session_id\":\"$SESSION2_ID\",\"p_user_id\":\"$UUID_B\"}")
 if echo "$resp" | grep -q '"status":"removed"'; then ok "creator A removed participant B"; else nok "A remove failed: $resp"; fi
-
-BAL_AFTER=$(curl -s "$SUPABASE_URL/rest/v1/users?id=eq.$UUID_B&select=personal_shards" \
-  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | norm_json \
-  | grep -o '"personal_shards":[0-9]*' | cut -d: -f2)
-if [ -n "$BAL_BEFORE" ] && [ "$BAL_AFTER" = "$((BAL_BEFORE + 30))" ]; then
-  ok "B's wager escrow refunded (+30 → $BAL_AFTER)"
-else
-  nok "refund missing: before=$BAL_BEFORE after=$BAL_AFTER"
-fi
 
 ROW=$(curl -s "$SUPABASE_URL/rest/v1/minigame_sessions?id=eq.$SESSION2_ID&select=participants" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | norm_json)

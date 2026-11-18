@@ -5,11 +5,16 @@ set -uo pipefail
 # Runs all opt-*.sh test scripts in order and reports summary.
 #
 # Suite (all auto-discovered via the test/opt-*.sh glob — no registration).
-# The stack-free static gates are opt-005 (seed-config/seed-test parity),
-# opt-007 (compose/config/ports) and opt-008 (Makefile/platform/signing
-# contract); every other script is a LIVE curl/psql test against the local
-# stack. CI was removed by owner decision (14-wave2-decisions §13), so there
-# is no CI-workflow static gate any more.
+# Slim-prod composition: 34 scripts. The stack-free static gates are opt-005
+# (seed-config/seed-test parity), opt-008 (Makefile/platform/signing contract)
+# and opt-063 (compose secrets); every other script is a LIVE curl/psql test
+# against the local stack. Kept surfaces: RLS (001), minigame sessions (006,
+# 016, 018-023, 028-032), groups (009/010/011/070), friendships (012), profile
+# (014), search (015), safety/abuse (050/051/052, 060-065), subscriptions
+# (068) and password recovery (069). Removed with their features: events,
+# E2EE chat, photos, user ranking and the shard economy. CI was removed by
+# owner decision (14-wave2-decisions §13), so there is no CI-workflow static
+# gate any more.
 #
 # The vault is verified ONLY by `test/vault.sh`: a single human-only test that
 # needs an interactive TTY + the vault password. It is deliberately not named

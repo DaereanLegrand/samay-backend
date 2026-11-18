@@ -104,7 +104,7 @@ done
 
 for pair in "UUID_A:user_opt029_a" "UUID_B:user_opt029_b" "UUID_C:user_opt029_c" "UUID_D:user_opt029_d"; do
   uid_var="${pair%%:*}"; uname="${pair##*:}"; uid="${!uid_var}"
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10,\"age_confirmed_at\":\"2026-01-01T00:00:00Z\",\"terms_accepted_at\":\"2026-01-01T00:00:00Z\"}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 
@@ -135,7 +135,7 @@ info "Group created; A host + B/C members; D bystander; NO chat row (trigger mus
 h1 "TEST A/B/C — group match creation"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"poke_chain\",\"p_wager\":0,\"p_invitees\":[]}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"poke_chain\",\"p_invitees\":[]}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_ID" ]; then
   ok "Group session created ($SESSION_ID)"
@@ -185,11 +185,14 @@ fi
 # =========================================================================
 h1 "TEST D — notice visibility"
 
+# Slim-prod revoked direct client table access to minigame_group_messages
+# (300_slim/05_revoke_removed): the notice is reached through the
+# SECURITY-DEFINER inbox, never a raw PostgREST read.
 B_READ=$(auth_get "minigame_group_messages?group_id=eq.$GROUP_ID&select=id" "$TOKEN_B")
-if [ "$(count_rows "$B_READ")" -ge 1 ]; then
-  ok "Active group member B reads the notice"
+if echo "$B_READ" | grep -q '42501\|permission denied'; then
+  ok "Direct notice read denied to the client role (inbox-mediated only)"
 else
-  nok "Member B cannot read the notice: $(echo "$B_READ" | head -c 140)"
+  nok "Direct notice read not denied: $(echo "$B_READ" | head -c 140)"
 fi
 
 # P1: the inbox treats the notice as chat activity (preview/bump/unread).
@@ -201,10 +204,10 @@ else
 fi
 
 D_READ=$(auth_get "minigame_group_messages?group_id=eq.$GROUP_ID&select=id" "$TOKEN_D")
-if [ "$(count_rows "$D_READ")" -eq 0 ]; then
-  ok "Non-member D reads nothing (RLS)"
+if echo "$D_READ" | grep -q '42501\|permission denied'; then
+  ok "Non-member D is denied too (table revoked for every client role)"
 else
-  nok "Non-member D read the notice: $(echo "$D_READ" | head -c 140)"
+  nok "Non-member D read path unexpected: $(echo "$D_READ" | head -c 140)"
 fi
 
 SVC_READ=$(svc_get "minigame_group_messages?session_id=eq.$SESSION_ID&select=id")

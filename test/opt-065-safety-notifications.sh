@@ -321,43 +321,24 @@ if [ -n "$CHAT_ID" ]; then ok "mute still allows a new DM (weaker than block)"; 
 auth_rpc "$TOKEN_A" "unmute_user" "{\"p_user_id\":\"$UUID_B\"}" >/dev/null
 
 # =========================================================================
-h1 "F - report_message ncii priority + plaintext snapshot"
-# =========================================================================
-MSG_ID="77777777-7777-7777-7777-777777777704"
-body="{\"id\":\"$MSG_ID\",\"chat_id\":\"$CHAT_ID\",\"sender_id\":\"$UUID_B\",\"content\":\"SME2.ncii.ciphertext\"}"
-curl -s -X POST "$SUPABASE_URL/rest/v1/messages" -H "apikey: $ANON_KEY" \
-  -H "Authorization: Bearer $TOKEN_B" -H "Content-Type: application/json" \
-  -H "Prefer: return=representation" -d "$body" >/dev/null
-reset_report_limits
-resp=$(auth_rpc "$TOKEN_A" "report_message" \
-  "{\"p_message_id\":\"$MSG_ID\",\"p_reason\":\"ncii\",\"p_plaintext\":\"decrypted text\"}")
-REPORT_MSG=$(printf '%s' "$resp" | pyget report_id)
-if [ "$(printf '%s' "$resp" | pyget category)" = "ncii" ] \
-   && [ "$(printf '%s' "$resp" | pyget priority)" = "2" ]; then
-  ok "message report mapped to ncii / priority 2"
-else
-  nok "message report: $(echo "$resp" | head -c 160)"
-fi
-plain=$(svc_get "message_reports?report_id=eq.$REPORT_MSG&select=plaintext" | pyget plaintext)
-if [ "$plain" = "decrypted text" ]; then ok "disclosed plaintext snapshot stored"; else nok "plaintext snapshot='$plain'"; fi
-
-# =========================================================================
 h1 "G - moderation review/dismiss, reporter outcome, ban appeal"
 # =========================================================================
-resp=$(svc_rpc "moderate_report" "{\"p_report_id\":\"$REPORT_MSG\",\"p_action\":\"review\",\"p_admin_user_id\":\"$ADMIN_ID\"}")
-st=$(svc_get "reports?id=eq.$REPORT_MSG&select=status,reviewed_by" | pyget status)
-rb=$(svc_get "reports?id=eq.$REPORT_MSG&select=status,reviewed_by" | pyget reviewed_by)
+# Slim-prod removed chat, so the review lane is exercised on the avatar report
+# captured in section C (reports/appeals are kept, message reports are not).
+resp=$(svc_rpc "moderate_report" "{\"p_report_id\":\"$R_AVATAR\",\"p_action\":\"review\",\"p_admin_user_id\":\"$ADMIN_ID\"}")
+st=$(svc_get "reports?id=eq.$R_AVATAR&select=status,reviewed_by" | pyget status)
+rb=$(svc_get "reports?id=eq.$R_AVATAR&select=status,reviewed_by" | pyget reviewed_by)
 if [ "$(printf '%s' "$resp" | pyget status)" = "ok" ] && [ "$st" = "reviewed" ] && [ "$rb" = "$ADMIN_ID" ]; then
   ok "review state recorded with the real admin actor"
 else
   nok "review state wrong (status=$st reviewed_by=$rb)"
 fi
-audit=$(svc_get "admin_audit_log?action=eq.report_review&target_id=eq.$MSG_ID&select=admin_user_id" | pyget admin_user_id)
+audit=$(svc_get "admin_audit_log?action=eq.report_review&target_id=eq.$UUID_B&select=admin_user_id" | pyget admin_user_id)
 if [ "$audit" = "$ADMIN_ID" ]; then ok "audit row carries the real actor"; else nok "audit actor='$audit'"; fi
 svc_delete_quiet "notifications?user_id=eq.$UUID_A&type=eq.report_outcome"
-svc_rpc "moderate_report" "{\"p_report_id\":\"$REPORT_MSG\",\"p_action\":\"dismiss\",\"p_admin_user_id\":\"$ADMIN_ID\"}" >/dev/null
-st=$(svc_get "reports?id=eq.$REPORT_MSG&select=status,reporter_outcome" | pyget status)
-outcome=$(svc_get "reports?id=eq.$REPORT_MSG&select=status,reporter_outcome" | pyget reporter_outcome)
+svc_rpc "moderate_report" "{\"p_report_id\":\"$R_AVATAR\",\"p_action\":\"dismiss\",\"p_admin_user_id\":\"$ADMIN_ID\"}" >/dev/null
+st=$(svc_get "reports?id=eq.$R_AVATAR&select=status,reporter_outcome" | pyget status)
+outcome=$(svc_get "reports?id=eq.$R_AVATAR&select=status,reporter_outcome" | pyget reporter_outcome)
 count=$(svc_get "notifications?user_id=eq.$UUID_A&type=eq.report_outcome&select=id" | grep -o '"id"' | wc -l | tr -d ' ')
 if [ "$st" = "dismissed" ] && [ "$outcome" = "dismissed" ] && [ "$count" = "1" ]; then
   ok "dismiss records reporter outcome + notifies the reporter"

@@ -91,7 +91,7 @@ done
 
 for pair in "UUID_A:user_opt028_a" "UUID_B:user_opt028_b" "UUID_C:user_opt028_c"; do
   uid_var="${pair%%:*}"; uname="${pair##*:}"; uid="${!uid_var}"
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10,\"age_confirmed_at\":\"2026-01-01T00:00:00Z\",\"terms_accepted_at\":\"2026-01-01T00:00:00Z\"}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 
@@ -121,7 +121,7 @@ info "Group created; A host + B member; C bystander"
 h1 "TEST A/B — direct invite context (inviter only, no participants)"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"poke_chain\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\"]}")
+  "{\"p_group_id\":null,\"p_game_type\":\"poke_chain\",\"p_invitees\":[\"$UUID_B\"]}")
 SESSION_D=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_D" ]; then
   ok "Direct session created ($SESSION_D)"
@@ -179,7 +179,7 @@ fi
 h1 "TEST D — group invite context carries the group name"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"questions\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\"]}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"questions\",\"p_invitees\":[\"$UUID_B\"]}")
 SESSION_G=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -q '"status":"created"' && [ -n "$SESSION_G" ]; then
   ok "Group session created ($SESSION_G)"
@@ -204,7 +204,7 @@ fi
 h1 "TEST E — lobby invite context"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[]}")
+  "{\"p_group_id\":null,\"p_game_type\":\"truth_dare\",\"p_invitees\":[]}")
 SESSION_L=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 auth_rpc "$TOKEN_A" "invite_minigame_players" "{\"p_session_id\":\"$SESSION_L\",\"p_invitees\":[\"$UUID_B\"]}" > /dev/null
 CTX_L=$(auth_rpc "$TOKEN_B" "get_minigame_invite_context" "{\"p_session_id\":\"$SESSION_L\"}")

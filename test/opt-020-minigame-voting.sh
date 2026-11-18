@@ -138,7 +138,7 @@ done
 
 for pair in "UUID_A:user_opt020_a" "UUID_B:user_opt020_b" "UUID_C:user_opt020_c" "UUID_D:user_opt020_d"; do
   uid_var="${pair%%:*}"; uname="${pair##*:}"; uid="${!uid_var}"
-  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10}" > /dev/null
+  svc_post "users" "{\"id\":\"$uid\",\"username\":\"$uname\",\"date_of_birth\":\"1990-01-01\",\"personal_shards\":1000,\"preshards\":10,\"age_confirmed_at\":\"2026-01-01T00:00:00Z\",\"terms_accepted_at\":\"2026-01-01T00:00:00Z\"}" > /dev/null
 done
 ok "Inserted user rows in public.users"
 
@@ -172,7 +172,7 @@ info "Group created; A (host) + B + C (members) active; D is NOT a member (bysta
 h1 "TEST A — create with p_rounds + p_prize_positions"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":50,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":3,\"p_prize_positions\":3}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":3,\"p_prize_positions\":3}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION_ID" ]; then
   ok "create with rounds=3, prize_positions=3 returned created ($SESSION_ID)"
@@ -214,7 +214,7 @@ fi
 h1 "TEST B — invalid rounds / prize positions rejected"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_rounds\":0}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_rounds\":0}")
 if echo "$resp" | grep -qE '"status": *"invalid_rounds"'; then
   ok "p_rounds=0 rejected (invalid_rounds)"
 else
@@ -222,7 +222,7 @@ else
 fi
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_prize_positions\":0}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_prize_positions\":0}")
 if echo "$resp" | grep -qE '"status": *"invalid_prize_positions"'; then
   ok "p_prize_positions=0 rejected (invalid_prize_positions)"
 else
@@ -385,7 +385,7 @@ fi
 h1 "TEST G — reactor Pasar (pass counts toward advance + scores -0.5 to the subject)"
 
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":0,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":2,\"p_prize_positions\":3}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":2,\"p_prize_positions\":3}")
 GSESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$GSESSION_ID" ]; then
   ok "G: dedicated Pasar session created ($GSESSION_ID)"
@@ -550,29 +550,13 @@ else
   nok "minigame_results missing: $(echo "$results" | head -c 160)"
 fi
 
-# The pot was 50 x 3 = 150. The subject is server-random each round, so the
-# exact per-player split is non-deterministic — the invariant is that the FULL
-# pot is preserved (three players wagered 50 → total 3000 shards across them,
-# back to exactly 3000 after the settlement, with the pot paid out).
-shards_a=$(svc_get "users?id=eq.$UUID_A&select=personal_shards" | norm_json)
-shards_b=$(svc_get "users?id=eq.$UUID_B&select=personal_shards" | norm_json)
-shards_c=$(svc_get "users?id=eq.$UUID_C&select=personal_shards" | norm_json)
-A_VAL=$(echo "$shards_a" | grep -o '"personal_shards":[0-9]*' | cut -d: -f2)
-B_VAL=$(echo "$shards_b" | grep -o '"personal_shards":[0-9]*' | cut -d: -f2)
-C_VAL=$(echo "$shards_c" | grep -o '"personal_shards":[0-9]*' | cut -d: -f2)
-if [ "$((A_VAL + B_VAL + C_VAL))" = "3000" ] && [ "$A_VAL" -ne 950 ] && [ "$B_VAL" -ne 950 ] && [ "$C_VAL" -ne 950 ]; then
-  ok "The full 150-shard pot was paid out (A+B+C back to 3000, winners credited)"
-else
-  nok "Pot not preserved: A=$A_VAL B=$B_VAL C=$C_VAL (want sum 3000)"
-fi
-
-# The winners got minigame_win ledger entries summing to the pot.
+# Slim-prod removed the shard wager/escrow economy: settling a match writes
+# the ranking but moves NO shards. The players' ledgers must stay untouched.
 ledger=$(svc_get "shard_ledger?reference_id=eq.$SESSION_ID&select=reason,delta" | norm_json)
-WIN_TOTAL=$(echo "$ledger" | grep -o '"reason":"minigame_win"' | wc -l | tr -d ' ')
-if [ "$WIN_TOTAL" -ge 1 ]; then
-  ok "minigame_win ledger rows written for the prize split"
+if [ "$ledger" = "[]" ]; then
+  ok "settlement writes no shard_ledger rows (wager economy removed)"
 else
-  nok "no minigame_win ledger rows: $ledger"
+  nok "unexpected shard_ledger rows after settlement: $ledger"
 fi
 
 # =========================================================================
@@ -585,7 +569,7 @@ h1 "TEST H — full ranking: all participants ranked, only N paid"
 # Settled straight from create (status active, no rounds) — every score is 0
 # and the tie-break is participant order (A=1, B=2, C=3), fully deterministic.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
-  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_wager\":50,\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":3,\"p_prize_positions\":2}")
+  "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\",\"$UUID_C\"],\"p_rounds\":3,\"p_prize_positions\":2}")
 SESSION2_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -qE '"status": *"created"' && [ -n "$SESSION2_ID" ]; then
   ok "H: 3-player session with N=2 created ($SESSION2_ID)"
@@ -619,28 +603,14 @@ else
   nok "H: ranks 1..3 missing: $(echo "$results" | head -c 220)"
 fi
 
-# Pot = 50 x 3 = 150, split harmonically across N = 2 (250/3 -> 100 + 50).
+# No wager → no shard pot → every prize is 0 (the ranking still records N).
 PRIZES=$(echo "$results" | grep -o '"prize":[0-9]*' | cut -d: -f2)
-NONZERO=$(echo "$PRIZES" | awk '$1>0{c++} END{print c+0}')
 ZEROS=$(echo "$PRIZES" | awk '$1==0{c++} END{print c+0}')
 PRIZE_SUM=$(echo "$PRIZES" | awk '{s+=$1} END{print s+0}')
-if [ "$NONZERO" = "2" ] && [ "$ZEROS" = "1" ]; then
-  ok "H: exactly N=2 players paid, the rank-3 player wrote prize 0"
+if [ "$ZEROS" = "3" ] && [ "$PRIZE_SUM" = "0" ]; then
+  ok "H: every prize is 0 (no wager pot in slim-prod)"
 else
-  nok "H: expected 2 paid + 1 zero, got nonzero=$NONZERO zeros=$ZEROS: $PRIZES"
-fi
-if [ "$PRIZE_SUM" = "150" ]; then
-  ok "H: harmonic split still sums to the full pot (150)"
-else
-  nok "H: prize sum $PRIZE_SUM != pot 150: $PRIZES"
-fi
-
-# The unpaid rank-3 player (C, participant order) is the one with prize 0.
-UNPAID_RANK3_PRIZE=$(echo "$results" | grep -o '"rank":3,"prize":[0-9]*' | grep -o '[0-9]*$')
-if [ "$UNPAID_RANK3_PRIZE" = "0" ]; then
-  ok "H: rank 3 (unpaid) carries prize 0"
-else
-  nok "H: rank 3 prize unexpected: $UNPAID_RANK3_PRIZE"
+  nok "H: expected 3 zero prizes, got zeros=$ZEROS sum=$PRIZE_SUM: $PRIZES"
 fi
 
 # =========================================================================

@@ -147,8 +147,11 @@ if echo "$BODY" | grep -qi "obligatoria\|null value\|not-null"; then ok "NULL DO
 BODY=$(rpc "$TOKEN_C" create_my_profile "{\"p_username\":\"privacytestC\",\"p_date_of_birth\":\"2020-01-01\"}")
 if echo "$BODY" | grep -qi "18 años\|18 anos\|adult"; then ok "under-18 DOB rejected server-side"; else nok "under-18 DOB not rejected: $BODY"; fi
 if [ "$MODE" = "after" ]; then
+  # Slim-prod: guests carry no DOB (300_slim/01_onboarding), so the column is
+  # nullable; the adult-DOB trigger still rejects a non-guest NULL and any
+  # under-18 value (asserted above).
   NOTNULL=$(psql_db -c "SELECT is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='date_of_birth';")
-  [ "$NOTNULL" = "NO" ] && ok "users.date_of_birth is NOT NULL" || nok "date_of_birth nullable=$NOTNULL"
+  [ "$NOTNULL" = "YES" ] && ok "users.date_of_birth is nullable for guests (adult trigger still enforced)" || nok "date_of_birth nullable=$NOTNULL"
   HAS_RESTORE=$(psql_db -c "SELECT count(*) FROM pg_proc WHERE proname='restore_my_account';")
   [ "$HAS_RESTORE" = "0" ] && ok "restore_my_account removed" || nok "restore_my_account still exists"
 fi

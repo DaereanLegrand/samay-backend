@@ -150,7 +150,9 @@ check "client settlement denied" 401 403 "$(code -X POST "${H_A[@]}" \
   -d "{\"p_session_id\":\"$(uuidgen | tr '[:upper:]' '[:lower:]')\"}")"
 
 # SEC-005 — direct private event read denied; discovery hides exact data.
-check "private event read denied" 200 "$(code "${H_A[@]}" \
+# Slim-prod removed events entirely, so the read is refused at the privilege
+# layer (300_slim/05_revoke_removed) instead of RLS-filtered to an empty list.
+check "private event read denied" 401 403 "$(code "${H_A[@]}" \
   "$BASE/rest/v1/events?select=id,location_lat,location_lng,invite_token&id=eq.$E")"
 if grep -q '"location_lat"' /tmp/wave0-resp; then
   echo "FAIL  private event row leaked"; fail=1
@@ -212,8 +214,10 @@ r="$(psql_db -c "SET request.jwt.claims='{\"sub\":\"$C\",\"role\":\"authenticate
 
 r="$(psql_db -c "SET request.jwt.claims='{\"sub\":\"$A\",\"role\":\"authenticated\"}'; SELECT public.abandon_minigame_game('$S2')->>'status';")"
 [ "$r" = "abandoned" ] && echo "PASS  host abandonment refunds" || { echo "FAIL  host abandonment status=$r"; fail=1; }
+# Slim-prod removed wagers, so there is nothing to refund: the balance must be
+# unchanged after a host abandon.
 bal="$(psql_db -c "SELECT personal_shards FROM public.users WHERE id='$A';")"
-[ "$bal" = "1000" ] && echo "PASS  abandonment refunded exactly once" || { echo "FAIL  abandonment refund balance ($bal)"; fail=1; }
+[ "$bal" = "980" ] && echo "PASS  abandonment moves no shards (wager economy removed)" || { echo "FAIL  abandonment balance changed ($bal)"; fail=1; }
 
 # SEC-008 — a banned user cannot write through RLS or an RPC.
 psql_db -c "INSERT INTO public.group_members (group_id, user_id, role, status) VALUES ('$G','$B','member','active') ON CONFLICT DO NOTHING; UPDATE public.users SET banned_at = now() WHERE id='$B';" >/dev/null
