@@ -94,3 +94,12 @@ func countRequests(log *[]requestLog, method, pathSubstr string) int {
 func lastRequest(log *[]requestLog) requestLog {
 	return (*log)[len(*log)-1]
 }
+
+func firstRequestOf(log *[]requestLog, method, pathSubstr string) requestLog {
+	for _, r := range *log {
+		if r.Method == method && strings.Contains(r.Path, pathSubstr) {
+			return r
+		}
+	}
+	return requestLog{}
+}

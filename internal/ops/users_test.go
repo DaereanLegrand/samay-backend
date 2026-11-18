@@ -229,46 +229,6 @@ func TestUnbanUser_ClearsBanFields(t *testing.T) {
 	}
 }
 
-func TestGrantShards_CallsRPC(t *testing.T) {
-	client, srv, log := newTestClientWithLog(`{}`, 200)
-	defer srv.Close()
-
-	err := GrantShards(context.Background(), client, "u1", 500, "bonus", "admin1")
-
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	foundRPC := false
-	for _, req := range *log {
-		if req.Method == "POST" && strings.Contains(req.Path, "grant_shards") {
-			foundRPC = true
-		}
-	}
-	if !foundRPC {
-		t.Error("expected RPC call to grant_shards")
-	}
-}
-
-func TestGrantPreshards_CallsRPC(t *testing.T) {
-	client, srv, log := newTestClientWithLog(`{}`, 200)
-	defer srv.Close()
-
-	err := GrantPreshards(context.Background(), client, "u1", 300, "admin_grant", "admin1")
-
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	foundRPC := false
-	for _, req := range *log {
-		if req.Method == "POST" && strings.Contains(req.Path, "grant_preshards") {
-			foundRPC = true
-		}
-	}
-	if !foundRPC {
-		t.Error("expected RPC call to grant_preshards")
-	}
-}
-
 func TestDeleteUser_PurgesAndVerifiesAuth(t *testing.T) {
 	client, srv, log := newTestClientWithLog(`{}`, 200)
 	defer srv.Close()

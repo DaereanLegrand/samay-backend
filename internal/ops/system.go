@@ -10,18 +10,12 @@ import (
 )
 
 type SystemStats struct {
-	RegisteredUsers        int            `json:"registered_users"`
-	UsersLast7Days         int            `json:"users_last_7_days"`
-	UsersLast30Days        int            `json:"users_last_30_days"`
-	ActiveUsers7Days       int            `json:"active_users_7_days"`
-	TotalEvents            int            `json:"total_events"`
-	EventsByStatus         map[string]int `json:"events_by_status"`
-	EventsByType           map[string]int `json:"events_by_type"`
-	ShardsInCirculation    int            `json:"shards_in_circulation"`
-	PreshardsInCirculation int            `json:"preshards_in_circulation"`
-	TotalShardsDistributed int            `json:"total_shards_distributed"`
-	PendingReportsCount    int            `json:"pending_reports_count"`
-	PendingFeatureRequests int            `json:"pending_feature_requests"`
+	RegisteredUsers        int `json:"registered_users"`
+	UsersLast7Days         int `json:"users_last_7_days"`
+	UsersLast30Days        int `json:"users_last_30_days"`
+	ActiveUsers7Days       int `json:"active_users_7_days"`
+	PendingReportsCount    int `json:"pending_reports_count"`
+	PendingFeatureRequests int `json:"pending_feature_requests"`
 }
 
 type SystemHealth struct {
@@ -55,19 +49,8 @@ func fetchAllRows[T any](ctx context.Context, client *db.DBClient, table string,
 }
 
 type userStatRow struct {
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	PersonalShards int       `json:"personal_shards"`
-	Preshards      int       `json:"preshards"`
-}
-
-type eventStatRow struct {
-	Status string `json:"status"`
-	Type   string `json:"type"`
-}
-
-type ledgerStatRow struct {
-	Delta int `json:"delta"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type countStatRow struct {
@@ -75,22 +58,19 @@ type countStatRow struct {
 }
 
 func GetSystemStats(ctx context.Context, client *db.DBClient) (*SystemStats, error) {
-	stats := &SystemStats{
-		EventsByStatus: map[string]int{},
-		EventsByType:   map[string]int{},
-	}
+	stats := &SystemStats{}
 	now := time.Now().UTC()
 	weekAgo := now.AddDate(0, 0, -7)
 	monthAgo := now.AddDate(0, 0, -30)
 
-	// Single paginated scan of users feeds six metrics (counts, created_at
-	// windows, and the two circulation sums) — one query, no N+1s.
+	// Single paginated scan of users feeds four metrics (counts and the
+	// created_at/updated_at windows) — one query, no N+1s.
 	// ActiveUsers7Days is a PROXY: users has no last_login_at column, so
 	// updated_at (touched on profile edits, NOT logins) stands in for
 	// activity. It over/under-counts vs true logins; a last_login_at column
 	// migration is needed for the spec's "logged in last 7 days" semantics.
 	users, err := fetchAllRows[userStatRow](ctx, client, "users", func(qb *db.QueryBuilder) *db.QueryBuilder {
-		return qb.Select("created_at", "updated_at", "personal_shards", "preshards").Order("id", true)
+		return qb.Select("created_at", "updated_at").Order("id", true)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("stats users: %w", err)
@@ -106,34 +86,6 @@ func GetSystemStats(ctx context.Context, client *db.DBClient) (*SystemStats, err
 		if !u.UpdatedAt.Before(weekAgo) {
 			stats.ActiveUsers7Days++
 		}
-		stats.ShardsInCirculation += u.PersonalShards
-		stats.PreshardsInCirculation += u.Preshards
-	}
-
-	// Events: one query on (status,type), grouped client-side in Go.
-	events, err := fetchAllRows[eventStatRow](ctx, client, "events", func(qb *db.QueryBuilder) *db.QueryBuilder {
-		return qb.Select("status", "type").Order("id", true)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("stats events: %w", err)
-	}
-	for _, e := range events {
-		stats.TotalEvents++
-		stats.EventsByStatus[e.Status]++
-		stats.EventsByType[e.Type]++
-	}
-
-	// Sum of positive shard_ledger deltas = total shards ever distributed.
-	// PostgREST can't SUM over REST, so the filtered column is fetched and
-	// summed in Go (accurate enough for an MVP admin snapshot).
-	ledger, err := fetchAllRows[ledgerStatRow](ctx, client, "shard_ledger", func(qb *db.QueryBuilder) *db.QueryBuilder {
-		return qb.Select("delta").Gt("delta", "0").Order("id", true)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("stats shard_ledger: %w", err)
-	}
-	for _, l := range ledger {
-		stats.TotalShardsDistributed += l.Delta
 	}
 
 	reports, err := fetchAllRows[countStatRow](ctx, client, "reports", func(qb *db.QueryBuilder) *db.QueryBuilder {

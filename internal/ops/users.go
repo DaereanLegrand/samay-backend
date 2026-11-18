@@ -24,7 +24,6 @@ type UserDetail struct {
 	User             db.User               `json:"user"`
 	ShardLedger      []db.ShardLedgerEntry `json:"shard_ledger"`
 	GroupMemberships []db.GroupMember      `json:"group_memberships"`
-	RecentEvents     []db.Event            `json:"recent_events"`
 }
 
 func ListUsers(ctx context.Context, client *db.DBClient, params ListUsersParams) ([]db.User, error) {
@@ -196,50 +195,6 @@ func UnbanUser(ctx context.Context, client *db.DBClient, userID, adminUserID str
 		Details:     details,
 	})
 	return errors.Join(authErr, auditErr)
-}
-
-func GrantShards(ctx context.Context, client *db.DBClient, userID string, amount int, reason, adminUserID string) error {
-	_, err := client.RPC(ctx, "grant_shards", map[string]any{
-		"p_user_id": userID,
-		"p_amount":  amount,
-		"p_reason":  reason,
-	})
-	if err != nil {
-		return fmt.Errorf("grant shards: %w", err)
-	}
-	details, err := json.Marshal(map[string]any{"amount": amount, "reason": reason})
-	if err != nil {
-		return fmt.Errorf("grant shards: marshal audit details: %w", err)
-	}
-	return LogAction(ctx, client, AuditParams{
-		AdminUserID: adminUserID,
-		Action:      "grant_shards",
-		TargetType:  "user",
-		TargetID:    userID,
-		Details:     details,
-	})
-}
-
-func GrantPreshards(ctx context.Context, client *db.DBClient, userID string, amount int, reason, adminUserID string) error {
-	_, err := client.RPC(ctx, "grant_preshards", map[string]any{
-		"p_user_id": userID,
-		"p_amount":  amount,
-		"p_reason":  reason,
-	})
-	if err != nil {
-		return fmt.Errorf("grant preshards: %w", err)
-	}
-	details, err := json.Marshal(map[string]any{"amount": amount, "reason": reason})
-	if err != nil {
-		return fmt.Errorf("grant preshards: marshal audit details: %w", err)
-	}
-	return LogAction(ctx, client, AuditParams{
-		AdminUserID: adminUserID,
-		Action:      "grant_preshards",
-		TargetType:  "user",
-		TargetID:    userID,
-		Details:     details,
-	})
 }
 
 // DeleteUser performs the Q1 hard delete through the same purge_user() RPC the
