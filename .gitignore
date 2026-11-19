@@ -63,7 +63,7 @@ repo-locks/
 # Stray agent logs
 flutter_*.log
 
-# Rust build artifacts (<boot-loader> UEFI loader)
+# Rust build artifacts (UEFI boot loader)
 tools/<ops-tooling>/bootloader/target/
 
 # LUXE campaign screenshot captures (XL-15 harness output)

@@ -4,11 +4,11 @@
 # Adds `build:` for the push dispatcher so `docker compose up` builds
 # `samay-pushworker:<env>` straight from the checkout. Used by BOTH:
 #   * local `make start` (COMPOSE_FILE in supabase/.env), and
-#   * the VM (COMPOSE_FILES in tools/<deploy-env>): the VM clones
-#     the FULL repo over HTTPS (`checkout`), so `context: ..` (= the repo root)
-#     has go.mod/cmd/internal/Dockerfile.pushworker.
+#   * a deployed environment that builds from a full checkout of this repo, so
+#     `context: ..` (= the repo root) has go.mod/cmd/internal/Dockerfile.pushworker.
 # Compose builds only when the image is missing (no --build), so this is a
-# one-time build per VM; rebuild after Go changes: `docker compose build pushworker`.
+# one-time build per environment; rebuild after Go changes:
+# `docker compose build pushworker`.
 # =============================================================================
 services:
   pushworker:

@@ -5,12 +5,12 @@
 # update stays a clean, whole-file swap (the base file is otherwise the upstream
 # distribution). Included by:
 #   * local: supabase/.env  (COMPOSE_FILE=…:docker-compose.pushworker.yml:docker-compose.pushworker-build.yml)
-#   * prod:  tools/<deploy-env> (COMPOSE_FILES += docker-compose.pushworker.yml)
+#   * deployed: added to COMPOSE_FILES by the deployment's own environment
 #
 # NO `build:` here — the image is supplied out of band:
 #   * local: docker-compose.pushworker-build.yml (adds build: from the repo)
-#   * prod:  a preloaded `samay-pushworker:prod` (<deploy-override> fails
-#            fast if PUSHWORKER_IMAGE is unset)
+#   * deployed: a preloaded `samay-pushworker:prod` image; the deployment
+#            override fails fast if PUSHWORKER_IMAGE is unset
 #
 # The worker polls `notifications` and dispatches via FCM HTTP v1, through Kong.
 # The FCM service account is injected as base64 (no secret file mounted); with
