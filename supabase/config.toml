@@ -88,8 +88,8 @@ otp_expiry = 3600
 # Google OAuth provider (native Android/iOS + web). Client IDs are
 # comma-joined with the WEB client id FIRST (Supabase requirement); the
 # secret is the web client secret. iOS native sign-in requires
-# skip_nonce_check = true. Disabled locally; prod supplies real values via the
-# vault `server` profile + <deploy-override> (GOTRUE_EXTERNAL_GOOGLE_*).
+# skip_nonce_check = true. Disabled locally; deployers supply real values via
+# GOTRUE_EXTERNAL_GOOGLE_* in the environment.
 [auth.external.google]
 enabled = false
 client_id = ""
@@ -100,9 +100,9 @@ skip_nonce_check = true
 # client_id is the App ID / bundle id and no secret is required: GoTrue's
 # id_token grant checks the token audience against the client-id list and never
 # constructs the Apple provider. The secret (generated ES256 client-secret JWT,
-# Services ID) is only needed for the web /authorize redirect flow and comes
-# from the vault `server` profile in prod. Config.toml is not read by the
-# `docker compose` testing stack; this mirrors backend/supabase/.env.
+# Services ID) is only needed for the web /authorize redirect flow and is
+# supplied by the deployer. Config.toml is not read by the `docker compose`
+# testing stack; this mirrors backend/supabase/.env.
 [auth.external.apple]
 enabled = true
 client_id = "com.qallariy.samay"

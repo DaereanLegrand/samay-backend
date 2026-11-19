@@ -25,7 +25,7 @@
 #
 # Override the avatar public base if the app reaches the stack on another
 # address (e.g. a device on the LAN):
-#   PUBLIC_BASE_URL=http://<local-lan-ip>:54386 bash supabase/seed-sample-matches.sh
+#   PUBLIC_BASE_URL=http://<host>:54386 bash supabase/seed-sample-matches.sh
 # =============================================================================
 set -euo pipefail
 

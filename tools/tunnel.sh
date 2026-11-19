@@ -20,7 +20,7 @@ stop_existing() {
 
 case "${1:-quick}" in
   named)
-    : "${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN (vault) for the named tunnel}"
+    : "${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN for the named tunnel}"
     stop_existing
     TUNNEL_TOKEN="$CLOUDFLARE_TUNNEL_TOKEN" cloudflared tunnel --no-autoupdate run > .tunnel.log 2>&1 &
     echo $! > .tunnel.pid

@@ -4,10 +4,10 @@
 #   APP=samay
 #   ENV=testing-local | testing | staging | prod
 # testing-local = Docker on the host; testing = Docker + Cloudflare tunnel;
-# staging/prod = VM + vault and require the optional <private-ops-repo> submodule.
+# staging/prod = provisioning and deployment are handled outside this repo.
 .PHONY: help init preflight tunnel start stop status restart reset nuke seed in-db logs \
         build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image build-billingworker loadtest \
-        test check lint secrets migrate migrate-adopt fetch-fcm <fetch-rc-secret> hooks preflight \
+        test check lint secrets migrate migrate-adopt hooks preflight \
         db api smoke
 
 .NOTPARALLEL:
@@ -19,9 +19,6 @@ ifneq ($(filter command line environment,$(origin TESTING)),)
 $(error TESTING is not an input; use ENV=testing-local)
 endif
 
-# Optional <private-ops-repo> submodule (monorepo sibling fallback).
-INFRA := $(firstword $(wildcard infra) $(wildcard ../../<private-ops-repo>))
--include $(INFRA)/make/app.mk
 TUNNEL ?= named
 GO_BIN         := samay
 GO_BIN_LINUX   := samay-linux
@@ -60,35 +57,22 @@ export STACK_PREFIX POSTGRES_PORT KONG_HTTP_PORT STORAGE_DIR DB_CONTAINER
 
 PGTAP_DB_URL   ?= postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/postgres?sslmode=disable
 
-# ── Track-2 PUSH gate ────────────────────────────────────────────────────────
+# ── Push worker opt-in ───────────────────────────────────────────────────────
 # The push worker (`samay-pushworker`) ships behind the `fcm` compose profile.
-# FCM comes ONLY from the CLI/shell (never supabase/.env): `make start FCM=true`
-# opts testing in; anything else ⇒ no fetch, no pushworker. staging/prod are
-# always on via COMPOSE_PROFILES=fcm in their (vault-merged) env — no flag there.
+# `make start FCM=true` opts testing in. The FCM service account is supplied by
+# the caller in SUPABASE_FCM_SERVICE_ACCOUNT_JSON_B64 (shell env; never written
+# to disk, and never in supabase/.env).
 PUSH_PROFILE := $(if $(filter true,$(FCM)),--profile fcm,)
-# When FCM=true, `make start`/`reset` fetch the testing FCM service account from
-# the vault (<build-host> → <build-host>) and inject it into the compose shell env
-# (never written to disk; shell env overrides --env-file). The plain assignment
-# + trailing `&&` make ANY vault failure abort the recipe before `docker compose`.
-ifeq ($(FCM),true)
-FCM_FETCH := SUPABASE_FCM_SERVICE_ACCOUNT_JSON_B64="$$(bash tools/<fetch-fcm-secret>.sh)" && export SUPABASE_FCM_SERVICE_ACCOUNT_JSON_B64 &&
-else
 FCM_FETCH :=
-endif
 
-# ── RevenueCat gate (RCBH) ───────────────────────────────────────────────────
-# Same opt-in shape as FCM: `make start RC=true` fetches the env's RevenueCat
-# server secrets from the vault (tools/<fetch-rc-secret>.sh, <env>-rc profile) and exports
-# them into the compose shell env (shell env overrides --env-file). RC unset/
-# false ⇒ no fetch, no secrets ⇒ the webhook function fails closed. staging/prod
-# supply these via their vault-merged env instead (no flag).
+# ── RevenueCat opt-in (RCBH) ─────────────────────────────────────────────────
+# `make start RC=true` enables the revenuecat-webhook function. Its server
+# secrets (REVENUECAT_API_KEY, REVENUECAT_WEBHOOK_SECRET, …) are supplied by the
+# caller in the shell environment. RC unset/false ⇒ the webhook function fails
+# closed.
 RC ?= false
 RC_ENV ?= testing
-ifeq ($(RC),true)
-RC_FETCH := eval "$$(VAULT_PROFILE=$(RC_ENV)-rc bash tools/<fetch-rc-secret>.sh)" &&
-else
 RC_FETCH :=
-endif
 
 define require_env
 case "$(ENV)" in testing-local|testing|staging|prod) ;; *) echo "ENV is required: testing-local|testing|staging|prod"; exit 2;; esac
@@ -101,19 +85,18 @@ endef
 define require_vm
 case "$(ENV)" in staging|prod) ;; *) echo "ENV=$(ENV): VM verb (staging|prod)"; exit 2;; esac; \
 [ -n "$(APP)" ] || { echo "APP is required"; exit 2; }; \
-[ -n "$(INFRA)" ] || { echo "VM envs need the <private-ops-repo> submodule (Admin access)"; exit 2; }
+echo "ENV=$(ENV): staging/prod are provisioned and deployed outside this repository; this repo only runs testing-local/testing. See README → Requirements."; exit 1
 endef
 
 help:
 	@echo "Samay backend — APP=<samay> ENV=<testing-local|testing|staging|prod>"
 	@echo "  SETUP:       init"
 	@echo "  DEV/TESTING: start stop restart status reset nuke seed tunnel in-db logs"
-	@echo "  PUSH:        FCM=true (CLI/env only) fetches the vault + runs samay-pushworker (profile fcm; staging/prod always on)"
-	@echo "  RC:          RC=true [RC_ENV=testing|staging] (CLI/env only) fetches the vault + enables the revenuecat-webhook function"
+	@echo "  PUSH:        FCM=true runs samay-pushworker (profile fcm)"
+	@echo "  RC:          RC=true enables the revenuecat-webhook function"
 	@echo "  SUITES:      test [db|api]        loadtest [smoke]"
 	@echo "  BUILD:       build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image build-billingworker"
-	@echo "  GATES:       check lint secrets migrate migrate-adopt fetch-fcm hooks"
-	@echo "  DEPLOY:      deploy (ENV=staging|prod)"
+	@echo "  GATES:       check lint secrets migrate migrate-adopt hooks"
 
 tunnel:
 	@MODE=$(TUNNEL) bash tools/tunnel.sh $(TUNNEL)
@@ -121,7 +104,7 @@ tunnel:
 preflight:
 	@bash tools/check-stack-env.sh "$(STACK_ENV)"
 
-# ── Lifecycle: Docker for testing-local/testing; VM + vault for staging/prod ──
+# ── Lifecycle: Docker for testing-local/testing. staging/prod are out of scope. ─
 guard-env:
 	@$(call require_env)
 
@@ -141,8 +124,6 @@ init-local: guard-env
 	@bash tools/init.sh
 init-vm: guard-env
 	@$(call require_vm)
-	@bash tools/<secret-init>.sh "$(APP)" "$(ENV)"
-	@$(MAKE) -C $(INFRA) init APP=$(APP) ENV=$(ENV)
 
 start-local: guard-env preflight
 	@case "$(ENV)" in \
@@ -158,20 +139,18 @@ start-local: guard-env preflight
 	esac
 start-vm: guard-env
 	@$(call require_vm)
-	@$(MAKE) -C $(INFRA) start APP=$(APP) ENV=$(ENV)
 
 stop: guard-env
 	@case "$(ENV)" in \
 	  testing-local) ( cd supabase && $(COMPOSE) down ) ;; \
 	  testing) bash tools/tunnel.sh stop; ( cd supabase && $(COMPOSE) down ) ;; \
-	  staging|prod) echo "VM envs have no stop; use: make restart APP=$(APP) ENV=$(ENV)"; exit 1 ;; \
+	  staging|prod) echo "ENV=$(ENV): staging/prod are provisioned and deployed outside this repository; this repo only runs testing-local/testing."; exit 1 ;; \
 	esac
 
 restart-local: guard-env
 	@$(MAKE) stop APP=$(APP) ENV=$(ENV) && $(MAKE) start APP=$(APP) ENV=$(ENV)
 restart-vm: guard-env
 	@$(call require_vm)
-	@$(MAKE) -C $(INFRA) restart APP=$(APP) ENV=$(ENV)
 
 status-local: guard-env
 	@case "$(ENV)" in \
@@ -180,7 +159,6 @@ status-local: guard-env
 	esac
 status-vm: guard-env
 	@$(call require_vm)
-	@$(MAKE) -C $(INFRA) status APP=$(APP) ENV=$(ENV)
 
 reset: preflight
 	@$(call require_env)
@@ -291,14 +269,6 @@ migrate:
 migrate-adopt:
 	@$(call require_local)
 	@bash tools/apply_migrations.sh supabase adopt
-# Fetch the testing FCM service account from the vault (owner-run, nothing on
-# disk). `make start FCM=true` calls this automatically.
-fetch-fcm:
-	@bash tools/<fetch-fcm-secret>.sh
-# Fetch the env's RevenueCat server secrets from the vault (owner-run; prints
-# `export KEY=value` lines; nothing on disk). `make start RC=true` calls it.
-<fetch-rc-secret>:
-	@VAULT_PROFILE=$(RC_ENV)-rc bash tools/<fetch-rc-secret>.sh
 hooks:
 	@git config core.hooksPath tools/hooks
 	@[ -x tools/hooks/pre-commit ] || { echo "tools/hooks/pre-commit missing or not executable"; exit 1; }

@@ -3,7 +3,7 @@
 # menu has a back/quit.
 #
 # ONE env per project: supabase/.env (gitignored), bootstrapped from the tracked
-# supabase/.env.example. Prod credentials are never handled here (VMs + vault).
+# supabase/.env.example. Release credentials are never handled here.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -97,4 +97,4 @@ upsert API_PROD_URL "https://$PROD_URL"
 echo
 echo "wrote $STACK_ENV (mode=$mode, url=$SUPABASE_URL)"
 echo "next: make start                 # local testing stack"
-echo "      make start ENV=staging|prod  # VM + vault"
+echo "      (staging/prod are provisioned outside this repository)"

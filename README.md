@@ -55,7 +55,7 @@ Then connect a client to `http://127.0.0.1:54386` using the anon key from
 | `cmd/` | Go entrypoints (admin, api-server, workers, loadtest) |
 | `internal/` | Go packages (auth, billing, push, storage, contracts) |
 | `test/` | `opt-*.sh` end-to-end scripts and fixtures |
-| `docs/` | infra and database notes |
+| `docs/` | architecture and deployment diagrams |
 
 The app itself (Flutter, iOS + Android) lives in the
 [client repo](https://github.com/DaereanLegrand/samay-frontend).
@@ -78,3 +78,11 @@ in `supabase/tests/slim_test.sql` (52) run with the same tool by naming the file
 
 This is the `slim-prod` branch. What it is, what was changed on both the client
 and the backend, and why: [SLIM-PROD.md](https://github.com/DaereanLegrand/samay-frontend/blob/slim-prod/docs/SLIM-PROD.md).
+
+## License
+
+Samay is released under the **GNU Affero General Public License, version 3**
+(AGPL-3.0). The full text is in [`LICENSE`](LICENSE); third-party components and
+disclosures are listed in [`NOTICE`](NOTICE). AGPL-3.0 requires that anyone who
+runs a modified version of this software as a network service offers its
+corresponding source to the users of that service.

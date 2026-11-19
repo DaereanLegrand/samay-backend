@@ -16,9 +16,9 @@ set -uo pipefail
 # owner decision (14-wave2-decisions §13), so there is no CI-workflow static
 # gate any more.
 #
-# The vault is verified ONLY by `test/vault.sh`: a single human-only test that
-# needs an interactive TTY + the vault password. It is deliberately not named
-# `opt-*.sh` so this runner never discovers it — AGENTS MUST NEVER RUN IT.
+# Operator-only release checks are not part of this runner: they need an
+# interactive TTY and operator credentials, are deliberately not named
+# `opt-*.sh` so this runner never discovers them, and agents must never run them.
 #
 # Usage: bash test/run_all_backend.sh
 # Prerequisites: a running local stack (make supabase-reset) for the

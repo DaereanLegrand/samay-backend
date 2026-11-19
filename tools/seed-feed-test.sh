@@ -23,7 +23,7 @@
 #   N=40  bash tools/seed-feed-test.sh      # tester2..tester40
 #   bash tools/seed-feed-test.sh 40         # same, positional
 #
-#   PUBLIC_BASE_URL=http://<local-lan-ip>:54386 bash tools/seed-feed-test.sh
+#   PUBLIC_BASE_URL=http://<host>:54386 bash tools/seed-feed-test.sh
 # =============================================================================
 set -euo pipefail
 

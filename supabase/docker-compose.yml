@@ -132,9 +132,9 @@ services:
       GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: "http://templates/magic_link.html"
       GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE: "http://templates/email_change.html"
       # Google OAuth provider (native Android/iOS id-token sign-in). Disabled by
-      # default; prod supplies GOOGLE_OAUTH_CLIENT_ID/SECRET via the vault
-      # `server` profile and <deploy-override>. Client IDs are comma-joined
-      # with the WEB client id FIRST (Supabase requirement).
+      # default; deployers supply GOOGLE_OAUTH_CLIENT_ID/SECRET in the
+      # environment. Client IDs are comma-joined with the WEB client id FIRST
+      # (Supabase requirement).
       GOTRUE_EXTERNAL_GOOGLE_ENABLED: ${GOTRUE_EXTERNAL_GOOGLE_ENABLED:-false}
       GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: ${GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID:-}
       GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOTRUE_EXTERNAL_GOOGLE_SECRET:-}
@@ -142,8 +142,8 @@ services:
       # iOS native Google Sign-In requires the nonce check to be skipped.
       GOTRUE_EXTERNAL_GOOGLE_SKIP_NONCE_CHECK: ${GOTRUE_EXTERNAL_GOOGLE_SKIP_NONCE_CHECK:-false}
       # Apple OAuth provider (native Sign in with Apple). Disabled by default;
-      # prod supplies the Services ID + a generated ES256 client-secret JWT via
-      # the vault `server` profile (<deploy-override>).
+      # deployers supply the Services ID + a generated ES256 client-secret JWT in
+      # the environment.
       GOTRUE_EXTERNAL_APPLE_ENABLED: ${GOTRUE_EXTERNAL_APPLE_ENABLED:-false}
       GOTRUE_EXTERNAL_APPLE_CLIENT_ID: ${GOTRUE_EXTERNAL_APPLE_CLIENT_ID:-}
       GOTRUE_EXTERNAL_APPLE_SECRET: ${GOTRUE_EXTERNAL_APPLE_SECRET:-}
