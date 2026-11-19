@@ -75,7 +75,7 @@ Shipped and verified on a fresh local stack:
       Photo-read triage fix `241_event_photo_read` (229 narrowed
       `events_read_access`, hiding group-scoped photos; both removed in
       slim-prod). CI files deleted per `14-wave2-decisions` §13
-      (`tools/<ops-tooling>` reduced to the Gitea SCM half).
+      (reduced to the SCM half).
 - [ ] Comment prune / doc trims (AGENTS.md still carries frontend/infra sections).
 - [x] RevenueCat server (RCBH): `revenuecat-webhook` Edge Function + SOVR
       `reconcile_subscription_overrides()` (pg_cron 15 min) + `webhook_failures`;

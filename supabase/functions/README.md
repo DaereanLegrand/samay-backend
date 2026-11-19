@@ -26,7 +26,7 @@
      --project-ref <placeholder-project-ref>
    ```
    The self-hosted runtime serves functions at the Kong gateway under
-   `/functions/v1/<function-name>` — see `<private-ops-repo>/DEPLOYMENT-PLACEHOLDER.md`
+   `/functions/v1/<function-name>` — see `README.md` in this repository's `docs/`
    §1.2 (`https://supabase.samay.example.com/functions/v1/*` is the
    placeholder API base; no real deployment URL is committed).
 3. Runtime env (SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY /
