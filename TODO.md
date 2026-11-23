@@ -76,7 +76,8 @@ Shipped and verified on a fresh local stack:
       `events_read_access`, hiding group-scoped photos; both removed in
       slim-prod). CI files deleted per `14-wave2-decisions` §13
       (reduced to the SCM half).
-- [ ] Comment prune / doc trims (AGENTS.md still carries frontend/infra sections).
+- [x] Comment prune / doc trims (AGENTS.md carries no frontend/infra sections;
+      verified 2026-11-23).
 - [x] RevenueCat server (RCBH): `revenuecat-webhook` Edge Function + SOVR
       `reconcile_subscription_overrides()` (pg_cron 15 min) + `webhook_failures`;
       migration `225_subscription_refactor` (capacity → `subscription_tier`,
