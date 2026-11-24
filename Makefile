@@ -45,6 +45,15 @@ LOADTEST_ARGS  ?=
 ENV_STACK_ENV_testing       := $(CURDIR)/supabase/testing.env
 ENV_STACK_ENV_testing-local := $(CURDIR)/supabase/testing-local.env
 STACK_ENV ?= $(or $(ENV_STACK_ENV_$(ENV)),$(CURDIR)/supabase/.env)
+
+# ONE RAM disk per verb, same rule as the frontend Makefile: `deploy`-style
+# verbs fetch several profiles and every consumer reads the same path, so the
+# tag is computed once (:= , never ?= with $(shell)) and exported.
+ifeq ($(origin RAM_TAG),undefined)
+RAM_TAG := $(shell od -An -N3 -tu4 /dev/urandom | tr -d ' ')
+endif
+RAM_DIR ?= /Volumes/SamayRAM-$(RAM_TAG)
+export RAM_TAG RAM_DIR
 STACK_PREFIX ?= $(shell sed -n 's/^STACK_PREFIX=\([A-Za-z0-9_-]*\).*/\1/p' $(STACK_ENV) 2>/dev/null | head -1)
 ifeq ($(strip $(STACK_PREFIX)),)
 STACK_PREFIX := samay

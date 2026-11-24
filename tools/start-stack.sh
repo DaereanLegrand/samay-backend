@@ -40,7 +40,10 @@ esac
 [ -r "$BASE_ENV" ] || { echo "start-stack: $BASE_ENV missing — run 'make init APP=samay ENV=$ENV_KIND'" >&2; exit 2; }
 
 RELEASE_SECRETS="${RELEASE_SECRETS:-$ROOT/../../Admin/infra/tools/release-secrets.sh}"
-RAM_DIR="${RAM_DIR:-/Volumes/SamayRAM}"
+# One disk per verb, inherited from the Makefile (which exports RAM_TAG), so a
+# concurrent `make dev ENV=testing` in another terminal never shares — or
+# ejects — this one. Fallback keeps standalone runs working.
+RAM_DIR="${RAM_DIR:-/Volumes/SamayRAM-$$-$(od -An -N3 -tu4 /dev/urandom | tr -d ' ')}"
 
 STACK_PREFIX="$(sed -n 's/^STACK_PREFIX=\([A-Za-z0-9_-]*\).*/\1/p' "$BASE_ENV" | head -1)"
 [ -n "$STACK_PREFIX" ] || STACK_PREFIX=samay
