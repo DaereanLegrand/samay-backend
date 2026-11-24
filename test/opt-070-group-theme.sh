@@ -14,7 +14,7 @@ set -uo pipefail
 # Usage: bash test/opt-070-group-theme.sh
 # =============================================================================
 
-SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
+SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"
 . "$(cd "$(dirname "$0")" && pwd)/dev_env.sh"
 PGURL="${PGURL:-postgres://postgres:postgres@localhost:54382/postgres}"
 

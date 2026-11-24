@@ -12,6 +12,10 @@
 
 # Environment
 .env
+# Per-environment stack env files (`make init APP=samay ENV=testing|testing-local`).
+# Each carries its own compose project, port block and secret generation.
+supabase/testing.env
+supabase/testing-local.env
 # Local-only per-developer overrides (load-env sources it; the Makefile's
 # "never committed" contract for values like IOS_DEVELOPMENT_TEAM).
 .env.local

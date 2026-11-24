@@ -17,11 +17,11 @@ set -uo pipefail
 # Usage: bash test/opt-001-rls-security.sh
 #
 # Keys (M-03 alignment): resolved at runtime by test/dev_env.sh from the
-# gitignored stack .env (supabase/.env) — dev-only; CI
+# gitignored stack .env (supabase/testing-local.env) — dev-only; CI
 # overrides them via env vars.
 # =============================================================================
 
-SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
+SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"
 . "$(cd "$(dirname "$0")" && pwd)/dev_env.sh"
 
 PASS=0

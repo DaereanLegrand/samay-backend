@@ -9,7 +9,7 @@ fail() { echo "  FAIL: $1"; FAILURES=$((FAILURES + 1)); }
 
 echo "compose-secrets (SEC-013)"
 
-if grep -R -n 'your-jwt-secret-change-in-production' "$ROOT/supabase"/docker-compose*.yml "$ROOT/supabase/.env.example" >/dev/null 2>&1; then
+if grep -R -n 'your-jwt-secret-change-in-production' "$ROOT/supabase"/docker-compose*.yml "$ROOT/supabase/testing-local.env.example" >/dev/null 2>&1; then
   fail "literal JWT placeholder still tracked"
 else
   pass "no literal JWT placeholder in compose/.env.example"
@@ -17,7 +17,7 @@ fi
 
 count="$(grep -c '\${JWT_SECRET:?' "$ROOT/supabase/docker-compose.yml")"
 [ "$count" -ge 7 ] && pass "compose requires JWT_SECRET ($count references)" || fail "compose JWT_SECRET requirement incomplete ($count)"
-grep -q 'FUNCTIONS_VERIFY_JWT=true' "$ROOT/supabase/.env.example" && pass ".env.example documents FUNCTIONS_VERIFY_JWT" || fail ".env.example missing FUNCTIONS_VERIFY_JWT"
+grep -q 'FUNCTIONS_VERIFY_JWT=true' "$ROOT/supabase/testing-local.env.example" && pass ".env.example documents FUNCTIONS_VERIFY_JWT" || fail ".env.example missing FUNCTIONS_VERIFY_JWT"
 [ -x "$ROOT/tools/gen-local-env.sh" ] && pass "local env generator executable" || fail "local env generator missing/not executable"
 [ -x "$ROOT/tools/check-stack-env.sh" ] && pass "boot env check executable" || fail "boot env check missing/not executable"
 
@@ -25,14 +25,14 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/samay-i063.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 COMPOSE_ARGS=(-p samay-i063 --env-file "$TMP/env" -f "$ROOT/supabase/docker-compose.yml")
 
-cp "$ROOT/supabase/.env.example" "$TMP/env"
+cp "$ROOT/supabase/testing-local.env.example" "$TMP/env"
 if docker compose "${COMPOSE_ARGS[@]}" config >"$TMP/out" 2>"$TMP/err"; then
   fail "compose accepted a missing JWT_SECRET"
 else
   grep -qi 'JWT_SECRET is required' "$TMP/err" && pass "compose fails fast without JWT_SECRET" || fail "compose failure did not mention JWT_SECRET"
 fi
 
-cp "$ROOT/supabase/.env.example" "$TMP/env"
+cp "$ROOT/supabase/testing-local.env.example" "$TMP/env"
 python3 - "$TMP/env" <<'PY'
 import sys
 p = sys.argv[1]

@@ -19,7 +19,7 @@ set -uo pipefail
 # Requires the stack with migration 206 applied.
 # =============================================================================
 
-SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
+SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"
 . "$(cd "$(dirname "$0")" && pwd)/dev_env.sh"
 
 PASS=0

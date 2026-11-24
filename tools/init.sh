@@ -11,7 +11,13 @@ APP="samay"
 KONG_PORT="${KONG_PORT:-54386}"
 TESTING_URL="samay-api-testing.qallariy.lat"
 PROD_URL="samay-api.qallariy.lat"
-STACK_ENV="supabase/.env"
+# One env file per stack: testing (vault-fed) and testing-local (locally minted)
+# are separate compose projects on separate ports. INIT_ENV selects which one.
+case "${ENV:-testing-local}" in
+  testing)       STACK_ENV="supabase/testing.env" ;;
+  testing-local) STACK_ENV="supabase/testing-local.env" ;;
+  *)             STACK_ENV="supabase/testing-local.env" ;;
+esac
 STACK_EXAMPLE="supabase/.env.example"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }

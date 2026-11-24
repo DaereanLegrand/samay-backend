@@ -36,7 +36,15 @@ LOADTEST_ARGS  ?=
 #   make start STACK_PREFIX=samay-a STACK_ENV=/tmp/samay-a.env
 # The env file carries STACK_PREFIX, COMPOSE_PROJECT_NAME, the 55xxx port map,
 # and STORAGE_DIR. Never commit it.
-STACK_ENV ?= $(CURDIR)/supabase/.env
+# Every environment gets its OWN stack: its own env file, compose project,
+# port block and storage dir. testing (vault-fed) and testing-local (locally
+# minted) therefore run simultaneously without sharing a container, volume or
+# port — and never share a secret generation, which is what made a
+# testing-built app answer "Unauthorized" to a testing-local stack.
+# STACK_ENV still overrides for a disposable stack.
+ENV_STACK_ENV_testing       := $(CURDIR)/supabase/testing.env
+ENV_STACK_ENV_testing-local := $(CURDIR)/supabase/testing-local.env
+STACK_ENV ?= $(or $(ENV_STACK_ENV_$(ENV)),$(CURDIR)/supabase/.env)
 STACK_PREFIX ?= $(shell sed -n 's/^STACK_PREFIX=\([A-Za-z0-9_-]*\).*/\1/p' $(STACK_ENV) 2>/dev/null | head -1)
 ifeq ($(strip $(STACK_PREFIX)),)
 STACK_PREFIX := samay

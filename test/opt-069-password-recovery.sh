@@ -12,10 +12,10 @@ set -uo pipefail
 # Usage: bash test/opt-069-password-recovery.sh
 # =============================================================================
 
-SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
+SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"
 . "$(cd "$(dirname "$0")" && pwd)/dev_env.sh"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MAILPIT_PORT="$(awk -F= '/^MAILPIT_PORT=/{print $2}' "$ROOT/supabase/.env" | awk '{print $1}')"
+MAILPIT_PORT="$(awk -F= '/^MAILPIT_PORT=/{print $2}' "$ROOT/supabase/testing-local.env" | awk '{print $1}')"
 MAILPIT_URL="${MAILPIT_URL:-http://127.0.0.1:${MAILPIT_PORT:-54384}}"
 PGURL="${PGURL:-postgres://postgres:postgres@localhost:54382/postgres}"
 

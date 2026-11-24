@@ -24,7 +24,7 @@ set -uo pipefail
 # Requires the stack with migration 140 applied (supabase db reset).
 # =============================================================================
 
-SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54386}"
+SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"
 . "$(cd "$(dirname "$0")" && pwd)/dev_env.sh"
 . "$(cd "$(dirname "$0")" && pwd)/minigame_finish_helper.sh"
 

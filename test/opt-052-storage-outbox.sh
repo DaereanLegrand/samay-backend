@@ -12,7 +12,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-STACK_ENV="${STACK_ENV:-$ROOT/supabase/.env}"
+STACK_ENV="${STACK_ENV:-$ROOT/supabase/testing-local.env}"
 
 read_env() {
   sed -n "s/^${1}=\([^[:space:]#]*\).*/\1/p" "$STACK_ENV" | head -1

@@ -30,8 +30,14 @@ case "$ENV_KIND" in
   *) echo "start-stack: ENV must be testing-local or testing (got '$ENV_KIND')" >&2; exit 2 ;;
 esac
 
-BASE_ENV="$ROOT/supabase/.env"
-[ -r "$BASE_ENV" ] || { echo "start-stack: $BASE_ENV missing — run 'make init'" >&2; exit 2; }
+# One env file per stack (see the Makefile's ENV_STACK_ENV_*). They are never
+# interchangeable: testing carries the vault's secrets, testing-local the
+# locally minted ones, and the two stacks run side by side.
+case "$ENV_KIND" in
+  testing)       BASE_ENV="$ROOT/supabase/testing.env" ;;
+  testing-local) BASE_ENV="$ROOT/supabase/testing-local.env" ;;
+esac
+[ -r "$BASE_ENV" ] || { echo "start-stack: $BASE_ENV missing — run 'make init APP=samay ENV=$ENV_KIND'" >&2; exit 2; }
 
 RELEASE_SECRETS="${RELEASE_SECRETS:-$ROOT/../../Admin/infra/tools/release-secrets.sh}"
 RAM_DIR="${RAM_DIR:-/Volumes/SamayRAM}"

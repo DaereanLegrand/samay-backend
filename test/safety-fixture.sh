@@ -14,7 +14,7 @@
 set -uo pipefail
 
 SAFETY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STACK_ENV="${STACK_ENV:-$SAFETY_ROOT/supabase/.env}"
+STACK_ENV="${STACK_ENV:-$SAFETY_ROOT/supabase/testing-local.env}"
 
 safety_read_env() {
   sed -n "s/^${1}=\([^[:space:]#]*\).*/\1/p" "$STACK_ENV" | head -1
