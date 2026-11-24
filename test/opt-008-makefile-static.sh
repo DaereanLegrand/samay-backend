@@ -10,7 +10,7 @@ fail() { echo "  FAIL: $1"; FAILURES=$((FAILURES + 1)); }
 
 echo "backend makefile-static"
 
-TARGETS="help init start stop status reset seed tunnel in-db \
+TARGETS="help init start stop status reset seed in-db \
 build-cli build-linux build-api build-loadtest loadtest \
 test check lint secrets migrate hooks"
 for t in $TARGETS; do

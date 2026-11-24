@@ -3,9 +3,12 @@
 # APP and ENV are explicit inputs (no defaults):
 #   APP=samay
 #   ENV=testing-local | testing | staging | prod
-# testing-local = Docker on the host; testing = Docker + Cloudflare tunnel;
-# staging/prod = provisioning and deployment are handled outside this repo.
-.PHONY: help init preflight tunnel start stop status restart reset nuke seed in-db logs \
+# testing-local and testing both run Docker on the host; the only difference is
+# the public URL written to supabase/.env. The Cloudflare tunnel is NOT managed
+# here — it is configured in the Cloudflare dashboard and terminated there; the
+# only requirement is that its public hostname points at Kong on this host.
+# staging/prod provisioning and deployment are handled outside this repo.
+.PHONY: help init preflight start stop status restart reset nuke seed in-db logs \
         build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image build-billingworker loadtest \
         test check lint secrets migrate migrate-adopt hooks preflight \
         db api smoke
@@ -19,7 +22,6 @@ ifneq ($(filter command line environment,$(origin TESTING)),)
 $(error TESTING is not an input; use ENV=testing-local)
 endif
 
-TUNNEL ?= named
 GO_BIN         := samay
 GO_BIN_LINUX   := samay-linux
 LOADTEST_BIN   := ./samay-loadtest
@@ -91,15 +93,14 @@ endef
 help:
 	@echo "Samay backend — APP=<samay> ENV=<testing-local|testing|staging|prod>"
 	@echo "  SETUP:       init"
-	@echo "  DEV/TESTING: start stop restart status reset nuke seed tunnel in-db logs"
+	@echo "  DEV/TESTING: start stop restart status reset nuke seed in-db logs"
 	@echo "  PUSH:        FCM=true runs samay-pushworker (profile fcm)"
 	@echo "  RC:          RC=true enables the revenuecat-webhook function"
 	@echo "  SUITES:      test [db|api]        loadtest [smoke]"
 	@echo "  BUILD:       build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image build-billingworker"
 	@echo "  GATES:       check lint secrets migrate migrate-adopt hooks"
-
-tunnel:
-	@MODE=$(TUNNEL) bash tools/tunnel.sh $(TUNNEL)
+	@echo "  TUNNEL:      not managed here — point the Cloudflare public hostname"
+	@echo "               at http://localhost:$(KONG_HTTP_PORT) on this host."
 
 preflight:
 	@bash tools/check-stack-env.sh "$(STACK_ENV)"
@@ -121,29 +122,26 @@ status: status-vm
 endif
 
 init-local: guard-env
-	@bash tools/init.sh
+	@ENV=$(ENV) bash tools/init.sh
 init-vm: guard-env
 	@$(call require_vm)
 
 start-local: guard-env preflight
 	@case "$(ENV)" in \
-	  testing-local) ( $(FCM_FETCH)$(RC_FETCH) cd supabase && $(COMPOSE) up -d && \
+	  testing-local|testing) ( $(FCM_FETCH)$(RC_FETCH) cd supabase && $(COMPOSE) up -d && \
 	    $(COMPOSE) up -d --wait db auth && \
 	    bash ../tools/apply_migrations.sh supabase && \
-	    PGPASSWORD=postgres psql -h localhost -p $(POSTGRES_PORT) -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed-config.sql ) ;; \
-	  testing) ( $(FCM_FETCH)$(RC_FETCH) cd supabase && $(COMPOSE) up -d && \
-	    $(COMPOSE) up -d --wait db auth && \
-	    bash ../tools/apply_migrations.sh supabase && \
-	    PGPASSWORD=postgres psql -h localhost -p $(POSTGRES_PORT) -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed-config.sql ); \
-	    TUNNEL=$(TUNNEL) bash tools/tunnel.sh $(TUNNEL) ;; \
+	    PGPASSWORD=postgres psql -h localhost -p $(POSTGRES_PORT) -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed-config.sql && \
+	    cd .. && docker restart $(STACK_PREFIX)-kong >/dev/null ) ;; \
 	esac
+	@echo "Kong: http://localhost:$(KONG_HTTP_PORT)  (container 8000)"
+	@echo "      point the Cloudflare public hostname here — no tunnel client runs in this repo."
 start-vm: guard-env
 	@$(call require_vm)
 
 stop: guard-env
 	@case "$(ENV)" in \
-	  testing-local) ( cd supabase && $(COMPOSE) down ) ;; \
-	  testing) bash tools/tunnel.sh stop; ( cd supabase && $(COMPOSE) down ) ;; \
+	  testing-local|testing) ( cd supabase && $(COMPOSE) down ) ;; \
 	  staging|prod) echo "ENV=$(ENV): staging/prod are provisioned and deployed outside this repository; this repo only runs testing-local/testing."; exit 1 ;; \
 	esac
 
@@ -154,8 +152,8 @@ restart-vm: guard-env
 
 status-local: guard-env
 	@case "$(ENV)" in \
-	  testing-local) ( cd supabase && $(COMPOSE) ps ) ;; \
-	  testing) ( cd supabase && $(COMPOSE) ps ); [ -f .tunnel-url ] && echo "tunnel: $$(cat .tunnel-url)" || true ;; \
+	  testing-local|testing) ( cd supabase && $(COMPOSE) ps ); \
+	    echo "Kong: http://localhost:$(KONG_HTTP_PORT)"; ;; \
 	esac
 status-vm: guard-env
 	@$(call require_vm)

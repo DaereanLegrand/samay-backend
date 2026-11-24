@@ -28,7 +28,6 @@ ok=1
 for t in docker gum make python3; do
   if have "$t"; then echo "  ok   $t"; else echo "  MISS $t (required)"; ok=0; fi
 done
-if have cloudflared; then echo "  ok   cloudflared (tunnel mode)"; else echo "  warn cloudflared missing (tunnel mode disabled)"; fi
 if docker info >/dev/null 2>&1; then echo "  ok   docker daemon"; else echo "  warn docker daemon not running"; fi
 echo
 [ "$ok" -eq 1 ] || { echo "Install the required tools, then re-run 'make init'."; exit 1; }
@@ -48,36 +47,22 @@ if [ -f "$STACK_ENV" ]; then
 fi
 echo
 
-mode="" tunnel_url=""
-while :; do
-  choice=$(gum choose --header "Backend mode" \
-    "local  (docker on 127.0.0.1:$KONG_PORT)" \
-    "tunnel (cloudflared)" \
-    "quit")
-  case "$choice" in
-    local*)  mode=local; break ;;
-    tunnel*)
-      while :; do
-        t=$(gum choose --header "Tunnel type" \
-          "named (https://$TESTING_URL)" \
-          "quick (random trycloudflare.com)" \
-          "back")
-        case "$t" in
-          named*) mode=tunnel; tunnel_url="https://$TESTING_URL"; break 2 ;;
-          quick*)
-            rm -f .tunnel-url
-            echo "starting cloudflared quick tunnel -> http://127.0.0.1:$KONG_PORT"
-            bash tools/tunnel.sh quick || { echo "tunnel failed"; continue; }
-            tunnel_url="$(cat .tunnel-url 2>/dev/null || true)"
-            [ -n "$tunnel_url" ] && { mode=tunnel; break 2; } || continue ;;
-          *) break ;;
-        esac
-      done ;;
-    *) echo "aborted"; exit 0 ;;
-  esac
-done
-
-if [ "$mode" = local ]; then SUPABASE_URL="http://127.0.0.1:$KONG_PORT"; else SUPABASE_URL="$tunnel_url"; fi
+# ONE mode: Docker on this host. The Cloudflare tunnel is configured in the
+# Cloudflare dashboard (public hostname -> http://localhost:$KONG_PORT); no
+# tunnel client is started from this repo, and no token is needed here.
+#
+# ENV only decides which URL is written into supabase/.env:
+#   testing-local — the app talks to Docker directly (127.0.0.1)
+#   testing       — the app talks through the public tunnel hostname, so auth
+#                   links (SITE_URL / API_EXTERNAL_URL) must carry that host or
+#                   confirm/recovery emails point somewhere unreachable.
+INIT_ENV="${ENV:-testing-local}"
+case "$INIT_ENV" in
+  testing-local) SUPABASE_URL="http://127.0.0.1:$KONG_PORT" ;;
+  testing)       SUPABASE_URL="https://$TESTING_URL" ;;
+  staging|prod)  echo "ENV=$INIT_ENV: staging/prod are provisioned outside this repository." >&2; exit 1 ;;
+  *)             echo "unknown ENV=$INIT_ENV" >&2; exit 1 ;;
+esac
 
 # Upsert the app-level URL into the single stack env (public; no secret).
 upsert() { # upsert KEY VALUE
