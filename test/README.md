@@ -176,9 +176,9 @@ bash test/opt-001-rls-security.sh
 bash test/run_all_backend.sh
 
 # Backend-test keys: sourced automatically from the RUNNING stack's
-# gitignored env files by `test/dev_env.sh` (precedence: explicit env >
-# supabase/.env > supabase/.env > supabase*/.env.local). No key
-# literals are committed anywhere; override via ANON_KEY/SERVICE_KEY env vars.
+# gitignored env file by `test/dev_env.sh` (precedence: explicit env >
+# .env/testing-local.env). No key literals are committed anywhere;
+# override via ANON_KEY/SERVICE_KEY env vars.
 # tools/check_secrets.sh fails if any local secret value leaks into a tracked file.
 
 # Go tests

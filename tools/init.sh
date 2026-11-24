@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
-# Interactive local setup for the Samay backend (Docker). gum-driven; every
-# menu has a back/quit.
+# =============================================================================
+# init.sh — first-run setup for the local stack (ENV=testing-local).
 #
-# ONE env per project: supabase/.env (gitignored), bootstrapped from the tracked
-# supabase/.env.example. Release credentials are never handled here.
+# This is a THIN wrapper: `make init` and `make regen` share one implementation
+# of "which values are generated and how" (tools/secrets.sh → the backend's
+# gen-local-env.sh), so the two verbs can never drift.
+#
+# It does three things:
+#   1. check the toolchain,
+#   2. create .env/testing-local.env from the tracked .env/example.env when absent,
+#   3. point the URLs at the local Kong port, then let the shared engine fill
+#      any missing generated value.
+#
+# ENV=testing is vault-fed: `make init ENV=testing` goes straight to the vault
+# engine and never runs this script.
+# =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP="samay"
-KONG_PORT="${KONG_PORT:-54386}"
-TESTING_URL="samay-api-testing.qallariy.lat"
-PROD_URL="samay-api.qallariy.lat"
-# One env file per stack: testing (vault-fed) and testing-local (locally minted)
-# are separate compose projects on separate ports. INIT_ENV selects which one.
-case "${ENV:-testing-local}" in
-  testing)       STACK_ENV="supabase/testing.env" ;;
-  testing-local) STACK_ENV="supabase/testing-local.env" ;;
-  *)             STACK_ENV="supabase/testing-local.env" ;;
-esac
-STACK_EXAMPLE="supabase/.env.example"
+STACK_ENV=".env/testing-local.env"
+STACK_EXAMPLE=".env/example.env"
+# One engine for init and regen; it lives in this repo (tools/secrets.sh).
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -26,51 +28,28 @@ have() { command -v "$1" >/dev/null 2>&1; }
 [ -t 0 ] || { echo "make init requires an interactive terminal"; exit 1; }
 
 clear
-bold "== $APP backend setup =="
+bold "== samay backend setup (testing-local) =="
 echo
-
 bold "Requirements"
 ok=1
-for t in docker gum make python3; do
+for t in docker gum make openssl uuidgen; do
   if have "$t"; then echo "  ok   $t"; else echo "  MISS $t (required)"; ok=0; fi
 done
-if docker info >/dev/null 2>&1; then echo "  ok   docker daemon"; else echo "  warn docker daemon not running"; fi
+if docker info >/dev/null 2>&1; then echo "  ok   docker daemon"; else echo "  warn docker daemon not running"; ok=0; fi
 echo
 [ "$ok" -eq 1 ] || { echo "Install the required tools, then re-run 'make init'."; exit 1; }
 
-# ONE env per project: bootstrap supabase/.env from the tracked example.
 if [ ! -f "$STACK_ENV" ]; then
   [ -f "$STACK_EXAMPLE" ] || { echo "MISS $STACK_EXAMPLE — cannot bootstrap $STACK_ENV"; exit 1; }
+  mkdir -p "$(dirname "$STACK_ENV")"
   cp "$STACK_EXAMPLE" "$STACK_ENV"
+  chmod 600 "$STACK_ENV"
   echo "created $STACK_ENV from $STACK_EXAMPLE"
 fi
-chmod 600 "$STACK_ENV"
-bash tools/gen-local-env.sh "$STACK_ENV" --fill
-echo "ok   $STACK_ENV present (local JWT secret + keys ready)"
-if [ -f "$STACK_ENV" ]; then
-  KONG_PORT="$(sed -n 's/^KONG_HTTP_PORT=\([0-9]*\).*/\1/p' "$STACK_ENV" | head -1)"
-  KONG_PORT="${KONG_PORT:-54386}"
-fi
-echo
 
-# ONE mode: Docker on this host. The Cloudflare tunnel is configured in the
-# Cloudflare dashboard (public hostname -> http://localhost:$KONG_PORT); no
-# tunnel client is started from this repo, and no token is needed here.
-#
-# ENV only decides which URL is written into supabase/.env:
-#   testing-local — the app talks to Docker directly (127.0.0.1)
-#   testing       — the app talks through the public tunnel hostname, so auth
-#                   links (SITE_URL / API_EXTERNAL_URL) must carry that host or
-#                   confirm/recovery emails point somewhere unreachable.
-INIT_ENV="${ENV:-testing-local}"
-case "$INIT_ENV" in
-  testing-local) SUPABASE_URL="http://127.0.0.1:$KONG_PORT" ;;
-  testing)       SUPABASE_URL="https://$TESTING_URL" ;;
-  staging|prod)  echo "ENV=$INIT_ENV: staging/prod are provisioned outside this repository." >&2; exit 1 ;;
-  *)             echo "unknown ENV=$INIT_ENV" >&2; exit 1 ;;
-esac
+KONG_PORT="$(sed -n 's/^KONG_HTTP_PORT=\([0-9]*\).*/\1/p' "$STACK_ENV" | head -1)"
+KONG_PORT="${KONG_PORT:-54396}"
 
-# Upsert the app-level URL into the single stack env (public; no secret).
 upsert() { # upsert KEY VALUE
   local k="$1" v="$2" tmp
   tmp="$(mktemp)"
@@ -81,16 +60,16 @@ upsert() { # upsert KEY VALUE
   mv "$tmp" "$STACK_ENV"
   chmod 600 "$STACK_ENV"
 }
-upsert SUPABASE_URL "$SUPABASE_URL"
-upsert API_TESTING_URL "https://$TESTING_URL"
-upsert API_PROD_URL "https://$PROD_URL"
-# Auth link targets must follow the selected mode, not linger on whichever
-# environment last wrote them. `SITE_URL` is what GoTrue stamps into confirm /
-# recovery emails; `API_EXTERNAL_URL` is what it reports as its public base.
-upsert SITE_URL "$SUPABASE_URL"
-upsert API_EXTERNAL_URL "$SUPABASE_URL"
+
+# testing-local is reached directly on the host (no tunnel): every URL points at
+# the local Kong port so confirmation/recovery links land where Mailpit is.
+upsert SUPABASE_URL    "http://127.0.0.1:$KONG_PORT"
+upsert SITE_URL        "http://127.0.0.1:$KONG_PORT"
+upsert API_EXTERNAL_URL "http://127.0.0.1:$KONG_PORT"
 
 echo
-echo "wrote $STACK_ENV (mode=$mode, url=$SUPABASE_URL)"
-echo "next: make start                 # local testing stack"
-echo "      (staging/prod are provisioned outside this repository)"
+# Same engine, same unit vocabulary, same report as `make regen`.
+bash tools/secrets.sh init --file "$STACK_ENV"
+
+echo
+echo "next: make start"

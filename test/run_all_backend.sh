@@ -40,7 +40,7 @@ SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"
 # them to this running stack's env file so the full local suite is runnable
 # in one pass (override STACK_ENV to point them at a disposable stack).
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-export STACK_ENV="${STACK_ENV:-$ROOT_DIR/supabase/testing-local.env}"
+export STACK_ENV="${STACK_ENV:-$ROOT_DIR/.env/testing-local.env}"
 DB_PORT="$(sed -n 's/^POSTGRES_PORT=//p' "$STACK_ENV" | head -1 | awk '{print $1}' | tr -d '"')"
 DB_PORT="${DB_PORT:-54382}"
 

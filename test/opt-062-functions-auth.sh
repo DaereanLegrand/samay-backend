@@ -3,7 +3,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-STACK_ENV="${STACK_ENV:-$ROOT/supabase/testing-local.env}"
+STACK_ENV="${STACK_ENV:-$ROOT/.env/testing-local.env}"
 KONG="$ROOT/supabase/volumes/api/kong.yml"
 COMPOSE="$ROOT/supabase/docker-compose.yml"
 FAILURES=0

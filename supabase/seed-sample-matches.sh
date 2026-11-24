@@ -40,10 +40,10 @@ if [[ "$BASE" != *"127.0.0.1:54386"* && "$BASE" != *"localhost:54386"* ]]; then
 fi
 
 # shellcheck disable=SC1091
-set -a; . supabase/.env; set +a
+set -a; . ../.env/testing-local.env; set +a
 
 SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
-[[ -n "$SERVICE_KEY" ]] || { echo "❌ SUPABASE_SERVICE_ROLE_KEY missing from supabase/.env"; exit 1; }
+[[ -n "$SERVICE_KEY" ]] || { echo "❌ SUPABASE_SERVICE_ROLE_KEY missing from ../.env/testing-local.env"; exit 1; }
 
 DB_HOST=127.0.0.1
 DB_PORT="${POSTGRES_PORT:-54382}"

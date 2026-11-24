@@ -70,7 +70,7 @@ svc_delete_quiet() {
   curl -s -X DELETE "$SUPABASE_URL/rest/v1/$1" -H "apikey: $SERVICE_KEY" \
     -H "Authorization: Bearer $SERVICE_KEY" -H "Prefer: return=minimal" >/dev/null 2>&1 || true
 }
-DB_PORT="$(sed -n 's/^POSTGRES_PORT=//p' "$(cd "$(dirname "$0")/.." && pwd)/supabase/testing-local.env" | head -1 | awk '{print $1}' | tr -d '"')"
+DB_PORT="$(sed -n 's/^POSTGRES_PORT=//p' "$(cd "$(dirname "$0")/.." && pwd)/.env/testing-local.env" | head -1 | awk '{print $1}' | tr -d '"')"
 reset_report_limits() {
   PGPASSWORD=postgres psql -h 127.0.0.1 -p "${DB_PORT:-54382}" -U postgres -d postgres \
     -tAc "DELETE FROM public.action_rate_limits;" >/dev/null 2>&1 || true

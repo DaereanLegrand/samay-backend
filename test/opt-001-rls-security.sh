@@ -17,7 +17,7 @@ set -uo pipefail
 # Usage: bash test/opt-001-rls-security.sh
 #
 # Keys (M-03 alignment): resolved at runtime by test/dev_env.sh from the
-# gitignored stack .env (supabase/testing-local.env) — dev-only; CI
+# gitignored stack .env (.env/testing-local.env) — dev-only; CI
 # overrides them via env vars.
 # =============================================================================
 

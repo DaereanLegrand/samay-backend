@@ -8,7 +8,7 @@
 # a single hit means a live local secret leaked into version control -> FAIL.
 #
 # Env files scanned (may not exist):
-#   supabase/.env
+#   .env/testing-local.env   (the local stack's minted secrets)
 #
 # The env file is EXCLUDED from the scan itself: a value defined there and
 # present nowhere else is not a leak. A value found in code, tests, docs,
@@ -27,7 +27,7 @@ cd "$ROOT" || exit 2
 
 VIOLATIONS=0
 
-ENV_FILES=(supabase/.env)
+ENV_FILES=(.env/testing-local.env)
 EXCLUDES=()
 for f in "${ENV_FILES[@]}"; do EXCLUDES+=(":(exclude)$f"); done
 

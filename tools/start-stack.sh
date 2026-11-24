@@ -3,13 +3,14 @@
 # start-stack.sh — bring up the local Supabase stack for one environment.
 #
 # ENV=testing-local
-#   Everything comes from supabase/.env (locally minted JWT_SECRET + keys).
-#   No vault is contacted.
+#   Everything comes from .env/testing-local.env (locally minted JWT_SECRET
+#   + keys). No vault is contacted. This is the only file-fed environment.
 #
 # ENV=testing
-#   The FULL testing/server/* profile is fetched from the vault and merged over
-#   supabase/.env, so the stack runs on the environment's real secrets rather
-#   than locally-generated ones. The merged file lives ONLY on the RAM disk.
+#   .env/testing.env is a secret-free LAYOUT (ports, stack identity, toggles),
+#   provider client ids). The FULL testing/server/* vault profile is fetched and
+#   overlaid on it, so the stack runs on the environment's real secrets. The
+#   merged file lives ONLY on the RAM disk.
 #
 # RAM DISCIPLINE (absolute):
 #   The RAM disk is created for this operation and REMOVED on every exit path —
@@ -30,14 +31,23 @@ case "$ENV_KIND" in
   *) echo "start-stack: ENV must be testing-local or testing (got '$ENV_KIND')" >&2; exit 2 ;;
 esac
 
-# One env file per stack (see the Makefile's ENV_STACK_ENV_*). They are never
-# interchangeable: testing carries the vault's secrets, testing-local the
-# locally minted ones, and the two stacks run side by side.
+# One env file per stack, both under .env/ at the repo root (see the Makefile's
+# ENV_STACK_ENV_*). They are never interchangeable: testing.env is a secret-free
+# LAYOUT, testing-local.env carries the locally minted secrets, and the two
+# stacks run side by side.
+SAMAY_ENV_DIR="$(cd "$ROOT/.." && pwd)/.env"
 case "$ENV_KIND" in
-  testing)       BASE_ENV="$ROOT/supabase/testing.env" ;;
-  testing-local) BASE_ENV="$ROOT/supabase/testing-local.env" ;;
+  testing)       BASE_ENV="$SAMAY_ENV_DIR/testing.env" ;;
+  testing-local) BASE_ENV="$SAMAY_ENV_DIR/testing-local.env" ;;
 esac
-[ -r "$BASE_ENV" ] || { echo "start-stack: $BASE_ENV missing — run 'make init APP=samay ENV=$ENV_KIND'" >&2; exit 2; }
+[ -r "$BASE_ENV" ] || {
+  if [ "$ENV_KIND" = "testing-local" ]; then
+    echo "start-stack: $BASE_ENV missing — run 'make init APP=samay ENV=testing-local'" >&2
+  else
+    echo "start-stack: $BASE_ENV missing (tracked layout)" >&2
+  fi
+  exit 2
+}
 
 RELEASE_SECRETS="${RELEASE_SECRETS:-$ROOT/../../Admin/infra/tools/release-secrets.sh}"
 # One disk per verb, inherited from the Makefile (which exports RAM_TAG), so a
@@ -51,6 +61,8 @@ POSTGRES_PORT="$(sed -n 's/^POSTGRES_PORT=\([0-9]*\).*/\1/p' "$BASE_ENV" | head 
 [ -n "$POSTGRES_PORT" ] || POSTGRES_PORT=54382
 KONG_HTTP_PORT="$(sed -n 's/^KONG_HTTP_PORT=\([0-9]*\).*/\1/p' "$BASE_ENV" | head -1)"
 [ -n "$KONG_HTTP_PORT" ] || KONG_HTTP_PORT=54386
+STORAGE_DIR="$(sed -n 's/^STORAGE_DIR=\([^[:space:]]*\).*/\1/p' "$BASE_ENV" | head -1)"
+[ -n "$STORAGE_DIR" ] || STORAGE_DIR=./volumes/storage
 
 VAULT_FETCHED=0
 
@@ -108,17 +120,25 @@ if [ "$ENV_KIND" = "testing" ]; then
     exit 1
   }
 
-  # Merge: supabase/.env first (ports, brand, feature flags), then the vault's
-  # server profile translated to the names compose consumes, last-wins.
+  # Merge: the non-secret LAYOUT first (ports, prefix, public URLs, public
+  # client ids, feature flags), then the vault's server profile over it. Secrets
+  # come ONLY from the vault; there is no in-repo secret file for this env.
   MERGED="$RAM_DIR/stack.env"
   cp "$BASE_ENV" "$MERGED"
   chmod 600 "$MERGED"
 
+  # Reject a layout that carries a secret: a credential in a tracked file is a
+  # bug, not a convenience.
+  if grep -qE '^[A-Z_0-9_]*(SECRET|_KEY|PASS)[A-Z_0-9_]*=.+' "$BASE_ENV"; then
+    echo "start-stack: $BASE_ENV must not carry secrets (layout only):" >&2
+    grep -nE '^[A-Z_0-9_]*(SECRET|_KEY|PASS)[A-Z_0-9_]*=.+' "$BASE_ENV" | sed 's/=.*/=<redacted>/' >&2
+    exit 1
+  fi
+
   sv() { sed -n "s/^$1=//p" "$RAM_DIR/server.env" | head -1; }
   # Upsert in place: a duplicate key would rely on compose's last-wins ordering,
   # which is not a contract worth leaning on for secrets.
-  put() { # put <compose-key> <value> — skip when the vault had nothing
-    [ -n "${2:-}" ] || return 0
+  put() { # put <compose-key> <value>
     local k="$1" v="$2" tmp
     tmp="$(mktemp "$RAM_DIR/.merge.XXXXXX")"
     awk -v k="$k" -v v="$v" '
@@ -129,35 +149,50 @@ if [ "$ENV_KIND" = "testing" ]; then
     chmod 600 "$MERGED"
   }
 
+  # Public URL + provider client ids are VAULT values for this env (same source
+  # staging uses), not layout facts. SUPABASE_URL derives SITE_URL and the auth
+  # link targets so the stack's emails point at the public host.
+  PUB_URL="$(sv SUPABASE_URL)"
+  put SUPABASE_URL              "$PUB_URL"
+  put SITE_URL                  "$PUB_URL"
+  put API_EXTERNAL_URL          "$PUB_URL"
+  GID="$(sv GOOGLE_OAUTH_CLIENT_ID)"
+  GIOS="$(sv GOOGLE_OAUTH_IOS_CLIENT_ID)"
+  put GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID "$GID${GIOS:+,$GIOS}"
+  put GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI "$PUB_URL/auth/v1/callback"
+  put GOTRUE_EXTERNAL_APPLE_REDIRECT_URI  "$PUB_URL/auth/v1/callback"
+
   JWT="$(sv SUPABASE_JWT_SECRET)"
-  put JWT_SECRET              "$JWT"
-  put AUTH_JWT_SECRET         "$JWT"
-  put REALTIME_JWT_SECRET     "$JWT"
-  put SUPABASE_ANON_KEY       "$(sv SUPABASE_ANON_KEY)"
+  put JWT_SECRET                "$JWT"
+  put SUPABASE_ANON_KEY         "$(sv SUPABASE_ANON_KEY)"
   put SUPABASE_SERVICE_ROLE_KEY "$(sv SUPABASE_SERVICE_ROLE_KEY)"
-  put SYSTEM_ADMIN_USER_ID    "$(sv SUPABASE_ADMIN_USER_ID)"
-  put SECRET_KEY_BASE         "$(sv REALTIME_SECRET_KEY_BASE)"
-  put REVENUECAT_WEBHOOK_SECRET "$(sv REVENUECAT_WEBHOOK_SECRET)"
+  put SYSTEM_ADMIN_USER_ID      "$(sv SUPABASE_ADMIN_USER_ID)"
+  put REALTIME_SECRET_KEY_BASE  "$(sv REALTIME_SECRET_KEY_BASE)"
+  put RUSTFS_ACCESS_KEY         "$(sv RUSTFS_ACCESS_KEY)"
+  put RUSTFS_SECRET_KEY         "$(sv RUSTFS_SECRET_KEY)"
+  put GOTRUE_EXTERNAL_GOOGLE_SECRET "$(sv GOOGLE_OAUTH_CLIENT_SECRET)"
   put REVENUECAT_API_KEY        "$(sv REVENUECAT_API_KEY)"
   put REVENUECAT_PROJECT_ID     "$(sv REVENUECAT_PROJECT_ID)"
+  put REVENUECAT_WEBHOOK_SECRET "$(sv REVENUECAT_WEBHOOK_SECRET)"
   put ADMIN_API_KEY             "$(sv ADMIN_API_KEY)"
 
-  # Google sign-in: the vault carries the web client + its secret.
-  GID="$(sv GOOGLE_OAUTH_CLIENT_ID)"
-  GSEC="$(sv GOOGLE_OAUTH_CLIENT_SECRET)"
-  if [ -n "$GID" ] && [ -n "$GSEC" ]; then
-    put GOTRUE_EXTERNAL_GOOGLE_ENABLED   true
-    put GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID "$GID"
-    put GOTRUE_EXTERNAL_GOOGLE_SECRET    "$GSEC"
-    put GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI "https://samay-api-testing.qallariy.lat/auth/v1/callback"
-  fi
-
-  [ -n "$JWT" ] || { echo "start-stack: vault server profile has no SUPABASE_JWT_SECRET" >&2; exit 1; }
+  # Every secret compose consumes, required. Abort — never boot on a partial
+  # generation.
+  missing=""
+  for k in SUPABASE_URL JWT_SECRET SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY \
+           REALTIME_SECRET_KEY_BASE RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY \
+           GOTRUE_EXTERNAL_GOOGLE_SECRET GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID; do
+    if [ -z "$(sed -n "s/^$k=//p" "$MERGED" | head -1)" ]; then missing="$missing $k"; fi
+  done
+  [ -z "$missing" ] || {
+    echo "start-stack: vault profile is missing required secret(s):$missing" >&2
+    exit 1
+  }
 
   STACK_ENV="$MERGED"
   echo "start-stack: running on the vault's testing secrets (RAM only)"
 else
-  echo "start-stack: ENV=testing-local — supabase/.env, no vault contact"
+  echo "start-stack: ENV=testing-local — .env/testing-local.env, no vault contact"
 fi
 
 COMPOSE=(docker compose -p "$STACK_PREFIX" --env-file "$STACK_ENV")
@@ -165,6 +200,12 @@ COMPOSE=(docker compose -p "$STACK_PREFIX" --env-file "$STACK_ENV")
 # Run compose from supabase/ so relative paths (seed, volumes) resolve; the
 # seed file itself is in that directory.
 cd "$ROOT/supabase"
+if [ "${RESET:-false}" = "true" ]; then
+  echo "start-stack: RESET=1 — destroying volumes and storage"
+  "${COMPOSE[@]}" down -v
+  rm -rf "$STORAGE_DIR"
+  docker volume rm "${STACK_PREFIX}_db-data" "${STACK_PREFIX}_rustfs-data" >/dev/null 2>&1 || true
+fi
 "${COMPOSE[@]}" up -d
 "${COMPOSE[@]}" up -d --wait db auth
 bash "$ROOT/tools/apply_migrations.sh" supabase

@@ -34,16 +34,26 @@ and operational tasks.
 
 ## Quick start
 
-The local stack publishes Postgres on 54382 and Kong on 54386.
+Env files live in `.env/` at the repo root. `testing-local` mints its own secrets into
+`.env/testing-local.env` (Postgres 54392, Kong 54396). `testing` reads
+`.env/testing.env` for deployment facts only (Postgres 54382, Kong 54386) and
+takes public URLs, client ids and every secret from the vault.
 
 ```sh
-make init APP=samay ENV=testing-local    # interactive; writes supabase/.env
-make start APP=samay ENV=testing-local   # compose up + migrations + seed config
+make init                       # interactive; writes .env/testing-local.env
+make start                      # compose up + migrations + seed config
+
+make start ENV=testing          # fetches the vault profile (RAM only)
 ```
 
-Then connect a client to `http://127.0.0.1:54386` using the anon key from
-`supabase/.env`. Other lifecycle verbs: `make stop`, `make restart`,
-`make status`, `make reset`, `make seed`.
+Then connect a client to the stack's Kong port using the anon key from that
+stack's env file (or the vault, for `testing`). Other lifecycle verbs:
+`make stop`, `make restart`, `make status`, `make reset`, `make seed`.
+
+`make regen` replaces the generated values (all units, or
+`REGEN_UNITS="rustfs realtime"`). It confirms first, writes only the env file for
+`ENV=testing-local`, and writes the vault for `testing|staging|prod`. Credentials
+it cannot generate are listed at the end, so nothing is silently skipped.
 
 ## Project layout
 

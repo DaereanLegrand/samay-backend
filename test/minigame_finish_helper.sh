@@ -12,7 +12,7 @@
 
 _finish_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ -z "${JWT_SECRET:-}" ]; then
-  JWT_SECRET="$(sed -n 's/^JWT_SECRET=//p' "$_finish_root/supabase/testing-local.env" \
+  JWT_SECRET="$(sed -n 's/^JWT_SECRET=//p' "$_finish_root/.env/testing-local.env" \
     | head -1 | tr -d '"')"
 fi
 

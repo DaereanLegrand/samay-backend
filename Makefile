@@ -1,14 +1,14 @@
 # Samay backend — local (Docker) + VM (staging/prod). Supabase-only stack.
 #
-# APP and ENV are explicit inputs (no defaults):
-#   APP=samay
+# ENV is the only selector, and it defaults to testing-local so the everyday
+# verbs need no flags from this directory:
 #   ENV=testing-local | testing | staging | prod
-# testing-local and testing both run Docker on the host; the only difference is
-# the public URL written to supabase/.env. The Cloudflare tunnel is NOT managed
-# here — it is configured in the Cloudflare dashboard and terminated there; the
-# only requirement is that its public hostname points at Kong on this host.
+# Two local stacks, two file classes:
+#   testing-local — .env/testing-local.env holds secrets + layout (minted).
+#   testing       — .env/testing.env is a secret-free LAYOUT; the secrets are
+#                   fetched from the vault into a RAM disk at `make start`.
 # staging/prod provisioning and deployment are handled outside this repo.
-.PHONY: help init preflight start stop status restart reset nuke seed in-db logs \
+.PHONY: help init regen preflight start stop status restart reset nuke seed in-db logs \
         build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image build-billingworker loadtest \
         test check lint secrets migrate migrate-adopt hooks preflight \
         db api smoke
@@ -22,6 +22,13 @@ ifneq ($(filter command line environment,$(origin TESTING)),)
 $(error TESTING is not an input; use ENV=testing-local)
 endif
 
+# ENV defaults to the local stack so `make init`, `make start`, `make regen` and
+# the rest work with no flags from this directory. Only a truly undefined ENV is
+# defaulted: a command-line value wins, and so does an inherited one.
+ifeq ($(origin ENV),undefined)
+ENV := testing-local
+endif
+
 GO_BIN         := samay
 GO_BIN_LINUX   := samay-linux
 LOADTEST_BIN   := ./samay-loadtest
@@ -32,19 +39,23 @@ PUSHWORKER_IMAGE_TAG ?= samay-pushworker:prod
 LOADTEST_URL   ?= https://samay-api.qallariy.lat
 LOADTEST_ARGS  ?=
 # ── Stack isolation ───────────────────────────────────────────────────────────
-# Defaults preserve the single-stack setup. For a parallel/disposable stack:
-#   make start STACK_PREFIX=samay-a STACK_ENV=/tmp/samay-a.env
-# The env file carries STACK_PREFIX, COMPOSE_PROJECT_NAME, the 55xxx port map,
-# and STORAGE_DIR. Never commit it.
-# Every environment gets its OWN stack: its own env file, compose project,
-# port block and storage dir. testing (vault-fed) and testing-local (locally
-# minted) therefore run simultaneously without sharing a container, volume or
-# port — and never share a secret generation, which is what made a
-# testing-built app answer "Unauthorized" to a testing-local stack.
-# STACK_ENV still overrides for a disposable stack.
-ENV_STACK_ENV_testing       := $(CURDIR)/supabase/testing.env
-ENV_STACK_ENV_testing-local := $(CURDIR)/supabase/testing-local.env
-STACK_ENV ?= $(or $(ENV_STACK_ENV_$(ENV)),$(CURDIR)/supabase/.env)
+# ONE stack per environment, each with its own compose project, port block and
+# storage dir. Env files live in .env/ at this repo root.
+# Two file classes, and they never mix:
+#
+#   .env/testing-local.env  SECRETS + layout. `make init` mints the JWT and the
+#                           anon/service keys here. The only file-fed env.
+#   .env/testing.env        LAYOUT ONLY (ports, stack identity, toggles). Public
+#                           URLs, client ids and every secret come from the
+#                           vault at `make start` and live on the RAM disk.
+#
+# Both live at the repo root so a standalone clone is self-contained.
+#
+# staging/prod are provisioned outside this repository.
+SAMAY_ENV_DIR               := $(CURDIR)/.env
+ENV_STACK_ENV_testing       := $(SAMAY_ENV_DIR)/testing.env
+ENV_STACK_ENV_testing-local := $(SAMAY_ENV_DIR)/testing-local.env
+STACK_ENV ?= $(or $(ENV_STACK_ENV_$(ENV)),$(SAMAY_ENV_DIR)/testing-local.env)
 
 # ONE RAM disk per verb, same rule as the frontend Makefile: `deploy`-style
 # verbs fetch several profiles and every consumer reads the same path, so the
@@ -80,7 +91,7 @@ PGTAP_DB_URL   ?= postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/postgr
 # The push worker (`samay-pushworker`) ships behind the `fcm` compose profile.
 # `make start FCM=true` opts testing in. The FCM service account is supplied by
 # the caller in SUPABASE_FCM_SERVICE_ACCOUNT_JSON_B64 (shell env; never written
-# to disk, and never in supabase/.env).
+# to disk, and never in an env file).
 PUSH_PROFILE := $(if $(filter true,$(FCM)),--profile fcm,)
 FCM_FETCH :=
 
@@ -103,13 +114,13 @@ endef
 
 define require_vm
 case "$(ENV)" in staging|prod) ;; *) echo "ENV=$(ENV): VM verb (staging|prod)"; exit 2;; esac; \
-[ -n "$(APP)" ] || { echo "APP is required"; exit 2; }; \
 echo "ENV=$(ENV): staging/prod are provisioned and deployed outside this repository; this repo only runs testing-local/testing. See README → Requirements."; exit 1
 endef
 
 help:
-	@echo "Samay backend — APP=<samay> ENV=<testing-local|testing|staging|prod>"
-	@echo "  SETUP:       init"
+	@echo "Samay backend — ENV=<testing-local|testing|staging|prod> (default testing-local)"
+	@echo "  SETUP:       init [ENV=…]"
+	@echo "  VALUES:      regen [ENV=…] [REGEN_UNITS=\"rustfs realtime\"] [YES=1]"
 	@echo "  DEV/TESTING: start stop restart status reset nuke seed in-db logs"
 	@echo "  PUSH:        FCM=true runs samay-pushworker (profile fcm)"
 	@echo "  RC:          RC=true enables the revenuecat-webhook function"
@@ -120,7 +131,7 @@ help:
 	@echo "               at http://localhost:$(KONG_HTTP_PORT) on this host."
 
 preflight:
-	@bash tools/check-stack-env.sh "$(STACK_ENV)"
+	@bash tools/check-stack-env.sh "$(STACK_ENV)" "$(ENV)"
 
 # ── Lifecycle: Docker for testing-local/testing. staging/prod are out of scope. ─
 guard-env:
@@ -138,15 +149,43 @@ restart: restart-vm
 status: status-vm
 endif
 
+# ── Values: one engine, two destinations ─────────────────────────────────────
+# tools/secrets.sh owns the definition of "generated" and the unit vocabulary,
+# so `init` and `regen` can never drift from each other or from the vault
+# broker's manifest. It is IN THIS REPO, so a standalone clone can mint the
+# local stack's values with no private tooling:
+#
+#   init   ensure every generated value exists; never replaces one
+#   regen  replace them (all units, or REGEN_UNITS="...") after a gum confirm
+#
+# Destination follows ENV:
+#   testing-local        → .env/testing-local.env, vault never contacted
+#   testing|staging|prod → the vault profile, via the broker's `regen` (SSH)
+SECRETS_TOOL ?= $(CURDIR)/tools/secrets.sh
+
 init-local: guard-env
-	@ENV=$(ENV) bash tools/init.sh
+	@if [ "$(ENV)" = "testing" ]; then \
+	  bash "$(SECRETS_TOOL)" init --vault samay testing; \
+	else \
+	  ENV=$(ENV) bash tools/init.sh; \
+	fi
 init-vm: guard-env
 	@$(call require_vm)
 
+# YES=1 skips the confirmation (for scripted runs); the default is to ask.
+REGEN_YES := $(if $(filter 1 true yes,$(YES)),--yes,)
+regen: guard-env
+	@case "$(ENV)" in \
+	  testing-local) bash "$(SECRETS_TOOL)" regen --file "$(SAMAY_ENV_DIR)/testing-local.env" $(REGEN_YES) $(REGEN_UNITS) ;; \
+	  testing)       bash "$(SECRETS_TOOL)" regen --vault samay testing $(REGEN_YES) $(REGEN_UNITS) ;; \
+	  staging)       bash "$(SECRETS_TOOL)" regen --vault samay staging $(REGEN_YES) $(REGEN_UNITS) ;; \
+	  prod)          bash "$(SECRETS_TOOL)" regen --vault samay prod $(REGEN_YES) $(REGEN_UNITS) ;; \
+	esac
+
 # `testing` fetches the FULL vault profile (testing/server/*) and runs on those
-# secrets; `testing-local` runs on supabase/.env alone. tools/start-stack.sh
-# owns the RAM disk and wipes it on EVERY exit path, so nothing survives the
-# verb. See the RAM DISCIPLINE note in that script.
+# secrets; `testing-local` runs on $(SAMAY_ENV_DIR)/testing-local.env alone.
+# tools/start-stack.sh owns the RAM disk and wipes it on EVERY exit path, so
+# nothing survives the verb. See the RAM DISCIPLINE note in that script.
 start-local: guard-env preflight
 	@FCM=$(FCM) RC=$(RC) bash tools/start-stack.sh "$(ENV)"
 start-vm: guard-env
@@ -174,13 +213,7 @@ status-vm: guard-env
 reset: preflight
 	@$(call require_env)
 	@$(call require_local)
-	@$(FCM_FETCH)$(RC_FETCH) cd supabase && $(COMPOSE) down -v && \
-		rm -rf $(STORAGE_DIR) && \
-		(docker volume rm $(STACK_PREFIX)_db-data $(STACK_PREFIX)_rustfs-data 2>/dev/null || true) && \
-		$(COMPOSE) up -d && \
-		$(COMPOSE) up -d --wait db auth && \
-		bash ../tools/apply_migrations.sh supabase && \
-		PGPASSWORD=postgres psql -h localhost -p $(POSTGRES_PORT) -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed-config.sql
+	@RESET=1 FCM=$(FCM) RC=$(RC) bash tools/start-stack.sh "$(ENV)"
 
 # Stop the stack AND remove its volumes (wiped DB + RustFS + storage bind).
 # `stop` keeps volumes; `reset` also restarts/migrates/seeds. Use before a
@@ -228,17 +261,17 @@ build-billingworker:
 loadtest: build-loadtest
 	@case "$(filter smoke,$(MAKECMDGOALS))" in \
 	  smoke) \
-	    SVC=$$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
-	    ANON=$(grep -E '^SUPABASE_ANON_KEY=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
-	    SEC=$$(grep -E '^JWT_SECRET=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
+	    SVC=$$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' $(SAMAY_ENV_DIR)/testing-local.env | head -1 | cut -d= -f2- | tr -d '"'); \
+	    ANON=$(grep -E '^SUPABASE_ANON_KEY=' $(SAMAY_ENV_DIR)/testing-local.env | head -1 | cut -d= -f2- | tr -d '"'); \
+	    SEC=$$(grep -E '^JWT_SECRET=' $(SAMAY_ENV_DIR)/testing-local.env | head -1 | cut -d= -f2- | tr -d '"'); \
 	    $(LOADTEST_BIN) --url "$(LOADTEST_URL)" --anon-key "$$ANON" --service-key "$$SVC" \
 	      --jwt-secret "$$SEC" --yes --run-id "smoke$$(date +%s)" \
 	      --users 3 --friendships 3 --groups 1 --events 1 --matches 2 \
 	      --workers 4 --duration 8s --realtime 3 ;; \
 	  *) \
-	    SVC=$$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
-	    ANON=$(grep -E '^SUPABASE_ANON_KEY=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
-	    SEC=$$(grep -E '^JWT_SECRET=' supabase/.env | head -1 | cut -d= -f2- | tr -d '"'); \
+	    SVC=$$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' $(SAMAY_ENV_DIR)/testing-local.env | head -1 | cut -d= -f2- | tr -d '"'); \
+	    ANON=$(grep -E '^SUPABASE_ANON_KEY=' $(SAMAY_ENV_DIR)/testing-local.env | head -1 | cut -d= -f2- | tr -d '"'); \
+	    SEC=$$(grep -E '^JWT_SECRET=' $(SAMAY_ENV_DIR)/testing-local.env | head -1 | cut -d= -f2- | tr -d '"'); \
 	    echo "loadtest -> $(LOADTEST_URL) (creates data; no cleanup)"; \
 	    $(LOADTEST_BIN) --url "$(LOADTEST_URL)" --anon-key "$$ANON" --service-key "$$SVC" \
 	      --jwt-secret "$$SEC" --yes $(LOADTEST_ARGS) ;; \

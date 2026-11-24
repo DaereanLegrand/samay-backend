@@ -18,7 +18,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-STACK_ENV="${STACK_ENV:-$ROOT/supabase/testing-local.env}"
+STACK_ENV="${STACK_ENV:-$ROOT/.env/testing-local.env}"
 
 if [ -z "${ADMIN_API_URL:-}" ] || [ -z "${ADMIN_API_KEY:-}" ]; then
   echo "SKIP opt-051: ADMIN_API_URL/ADMIN_API_KEY unset (admin API not running)"

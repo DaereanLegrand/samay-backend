@@ -4,7 +4,7 @@
 #
 # Resolves SUPABASE_URL / ANON_KEY / SERVICE_KEY with this precedence:
 #   1. explicit environment variables (ANON_KEY / SERVICE_KEY / SUPABASE_URL)
-#   2. the single stack env file: supabase/testing-local.env
+#   2. the single stack env file: .env/testing-local.env
 #
 # This file contains NO secrets and must never gain any: real keys live only
 # in the gitignored env files above (enforced by tools/check_secrets.sh,
@@ -20,7 +20,7 @@ load_stack_key() { # load_stack_key <ENV_NAME>
   local name="$1" val="" f
   if [ -n "${!name:-}" ]; then printf '%s' "${!name}"; return 0; fi
   for f in \
-    "$_samay_root/supabase/testing-local.env"; do
+    "$_samay_root/.env/testing-local.env"; do
     if [ -r "$f" ]; then
       val="$(grep -E "^${name}=" "$f" | head -1 | cut -d= -f2- | tr -d '"')"
       [ -n "$val" ] && { printf '%s' "$val"; return 0; }
@@ -31,13 +31,13 @@ load_stack_key() { # load_stack_key <ENV_NAME>
 
 export SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"
 ANON_KEY="$(load_stack_key SUPABASE_ANON_KEY)" || {
-  echo "dev_env: SUPABASE_ANON_KEY not set — export it or fill a gitignored" \
-       "supabase*/.env[.local] file" >&2
+  echo "dev_env: SUPABASE_ANON_KEY not set — export it or fill " \
+       ".env/testing-local.env" >&2
   exit 1
 }
 SERVICE_KEY="$(load_stack_key SUPABASE_SERVICE_ROLE_KEY)" || {
   echo "dev_env: SERVICE_KEY not set — export SUPABASE_SERVICE_ROLE_KEY or" \
-       "fill a gitignored supabase*/.env[.local] file" >&2
+       "fill .env/testing-local.env" >&2
   exit 1
 }
 export ANON_KEY SERVICE_KEY

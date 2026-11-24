@@ -23,7 +23,7 @@ func main() {
 }
 
 func run() error {
-	_ = godotenv.Load("supabase/.env")
+	_ = godotenv.Load("../.env/testing-local.env")
 
 	once := flag.Bool("once", false, "drain one batch and exit")
 	flag.Parse()

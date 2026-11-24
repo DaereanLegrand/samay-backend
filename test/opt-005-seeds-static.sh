@@ -63,18 +63,14 @@ for f in "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh" \
     fail "$(basename "$f"): must execute seed-config.sql and never execute seed-test/seed-dev"
   fi
 done
-INIT_CALLS=$(awk '
-  /^(start[a-z-]*|reset):/ { f=1 }
-  f && /-f seed-config\.sql/ { c++ }
-  /^[a-zA-Z0-9_-]+:/ && !/^(start[a-z-]*|reset):/ { f=0 }
-  END { print c+0 }' "$MAKEFILE")
-if [ "$INIT_CALLS" -ge 2 ]; then
-  ok "Makefile: start/reset auto-apply seed-config"
+INIT_CALLS=$(grep -cE '\-f ["$]*\$ROOT/supabase/seed-config\.sql|-f seed-config\.sql' "$REPO/tools/start-stack.sh")
+if [ "$INIT_CALLS" -ge 1 ]; then
+  ok "start-stack.sh auto-applies seed-config"
 else
-  fail "Makefile: expected >=2 seed-config calls in start*/reset, found $INIT_CALLS"
+  fail "start-stack.sh must apply seed-config.sql (start and reset both route through it)"
 fi
-if awk '/^(start|reset):/{f=1} /^[a-zA-Z0-9_-]+:/ && !/^(start|reset):/{f=0} f && /seed-(test|dev)/{c++} END{exit (c>0?0:1)}' "$MAKEFILE"; then
-  fail "Makefile start/reset targets reference seed-test/seed-dev"
+if grep -qE 'seed-(test|dev)' "$REPO/tools/start-stack.sh"; then
+  fail "start-stack.sh references seed-test/seed-dev"
 else
   ok "Makefile start/reset targets free of test/dev seeds"
 fi

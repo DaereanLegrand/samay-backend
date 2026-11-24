@@ -10,7 +10,7 @@ fail() { echo "  FAIL: $1"; FAILURES=$((FAILURES + 1)); }
 
 echo "backend makefile-static"
 
-TARGETS="help init start stop status reset seed in-db \
+TARGETS="help init regen start stop status reset seed in-db \
 build-cli build-linux build-api build-loadtest loadtest \
 test check lint secrets migrate hooks"
 for t in $TARGETS; do
@@ -19,6 +19,52 @@ done
 for pair in "test db" "test api" "loadtest smoke"; do
   if make -n $pair >/dev/null 2>&1; then pass "make -n $pair"; else fail "make -n $pair does not resolve"; fi
 done
+
+# ── ENV defaults to testing-local; init/regen route by destination ───────────
+# `make <verb>` with no ENV must work from this directory (the everyday case).
+for t in init regen start stop status reset seed in-db logs; do
+  if make -n "$t" >/dev/null 2>&1; then
+    pass "bare make $t (ENV defaults to testing-local)"
+  else
+    fail "bare make $t does not resolve"
+  fi
+done
+if make -n start 2>/dev/null | grep -q 'testing-local.env'; then
+  pass "bare make start resolves the testing-local env file"
+else
+  fail "bare make start does not resolve the testing-local env file"
+fi
+# `regen` and `init` must branch on ENV: the file for testing-local, the vault
+# otherwise. A missing branch means one environment silently writes the other's
+# destination.
+for e in testing-local testing staging prod; do
+  if make -n regen ENV="$e" 2>/dev/null | grep -q 'secrets.sh.*regen'; then
+    pass "make regen ENV=$e routes through the shared engine"
+  else
+    fail "make regen ENV=$e does not route through the shared engine"
+  fi
+done
+if make -n regen ENV=testing-local 2>/dev/null | grep -q 'regen --file'; then
+  pass "regen testing-local writes the file (no vault)"
+else
+  fail "regen testing-local does not target the file"
+fi
+if make -n regen ENV=testing 2>/dev/null | grep -q 'regen --vault samay testing'; then
+  pass "regen testing writes the vault"
+else
+  fail "regen testing does not target the vault"
+fi
+if make -n init ENV=testing 2>/dev/null | grep -q 'init --vault samay testing'; then
+  pass "init testing goes to the vault (not the file)"
+else
+  fail "init testing does not go to the vault"
+fi
+# APP was a leftover from the shared VM tooling and had no consumer.
+if grep -q 'APP is required' "$MAKEFILE"; then
+  fail "APP is still a required input"
+else
+  pass "APP is gone (ENV is the only selector)"
+fi
 
 # Separation: no frontend-only targets may be defined here.
 for t in build dev install build-install uninstall clear prepare signing-restore \

@@ -11,11 +11,18 @@
 *.exe
 
 # Environment
+# A stray root .env is never used (config lives in .env/).
 .env
-# Per-environment stack env files (`make init APP=samay ENV=testing|testing-local`).
-# Each carries its own compose project, port block and secret generation.
+# Env files live in .env/. `example.env` (template) and `testing.env` (the
+# secret-free deployment layout) are TRACKED; `testing-local.env` carries the
+# minted secrets and must never be committed.
+!/.env/
+.env/testing-local.env
+# Leftovers from the pre-`.env/` layout; never regenerated.
 supabase/testing.env
 supabase/testing-local.env
+supabase/.env
+
 # Local-only per-developer overrides (load-env sources it; the Makefile's
 # "never committed" contract for values like IOS_DEVELOPMENT_TEAM).
 .env.local

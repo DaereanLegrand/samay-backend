@@ -1,27 +1,88 @@
 #!/usr/bin/env bash
+# =============================================================================
+# gen-local-env.sh — mint the GENERATED values of a local stack env file.
+#
+# This is the file-side counterpart of the vault broker's `regen` verb, and it
+# produces the SAME key shapes the broker does for ENV=testing:
+#
+#   unit            keys
+#   supabase-jwt    JWT_SECRET + SUPABASE_ANON_KEY + SUPABASE_SERVICE_ROLE_KEY
+#                   (one generation: the keys are HS256-minted from the secret)
+#   rustfs          RUSTFS_ACCESS_KEY + RUSTFS_SECRET_KEY
+#   realtime        REALTIME_SECRET_KEY_BASE
+#   admin-uuid      SYSTEM_ADMIN_USER_ID
+#
+# Everything else in the file is a DEPLOYMENT FACT (ports, URLs, toggles) or a
+# FIXED credential (Google/Apple client ids and secrets, SMTP password, FCM and
+# RevenueCat keys). Those are never generated here and are reported as skipped.
+#
+# Usage:
+#   gen-local-env.sh <env-file>                 create from .env/example.env
+#   gen-local-env.sh <env-file> --fill          fill only missing/placeholder
+#   gen-local-env.sh <env-file> --fill <units>  fill only the named units
+#   gen-local-env.sh <env-file> --force         regenerate every generated unit
+#   gen-local-env.sh <env-file> --force <units> regenerate the named units
+#
+# Prints one line per generated key and one per skipped unit, then a summary.
+# Exit 1 when a generated unit could not be produced.
+# =============================================================================
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TARGET="${1:-}"
-MODE="${2:-generate}"
-[ -n "$TARGET" ] || { echo "usage: tools/gen-local-env.sh <env-file> [--fill]" >&2; exit 1; }
+[ $# -gt 0 ] && shift
+# Default: create the file if absent, then fill what is missing. An explicit
+# --fill/--force applies to an existing file.
+MODE="--fill"
+if [ "${1:-}" = "--fill" ] || [ "${1:-}" = "--force" ]; then
+  MODE="$1"; shift
+fi
+UNITS=("$@")
+
+[ -n "$TARGET" ] || {
+  echo "usage: gen-local-env.sh <env-file> [--fill|--force] [unit...]" >&2
+  echo "units: supabase-jwt rustfs realtime admin-uuid" >&2
+  exit 1
+}
 
 case "$TARGET" in
   /*) ;;
   *) TARGET="$PWD/$TARGET" ;;
 esac
 
-if [ "$MODE" != "--fill" ]; then
-  cp "$ROOT/supabase/.env.example" "$TARGET"
-elif [ ! -f "$TARGET" ]; then
-  echo "gen-local-env: $TARGET does not exist (omit --fill to create it)" >&2
-  exit 1
+ALL_UNITS=(supabase-jwt rustfs realtime admin-uuid)
+
+case "$MODE" in
+  --fill|--force) ;;
+  *) echo "gen-local-env: unknown mode '$MODE' (use --fill or --force)" >&2; exit 1 ;;
+esac
+
+if [ "$MODE" = "--force" ]; then
+  FORCE=1
+elif [ -f "$TARGET" ]; then
+  FORCE=0
+else
+  mkdir -p "$(dirname "$TARGET")"
+  cp "$ROOT/.env/example.env" "$TARGET"
+  echo "created $TARGET from .env/example.env"
+  FORCE=0
 fi
 chmod 600 "$TARGET"
 
-read_key() {
-  sed -n "s/^${1}=//p" "$TARGET" | head -1 | tr -d '"'
-}
+# No units named ⇒ all of them.
+if [ "${#UNITS[@]}" -eq 0 ]; then
+  UNITS=("${ALL_UNITS[@]}")
+else
+  for u in "${UNITS[@]}"; do
+    case " ${ALL_UNITS[*]} " in
+      *" $u "*) ;;
+      *) echo "gen-local-env: unknown unit '$u' (known: ${ALL_UNITS[*]})" >&2; exit 2 ;;
+    esac
+  done
+fi
+want() { case " ${UNITS[*]} " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+read_key() { sed -n "s/^${1}=//p" "$TARGET" | head -1 | tr -d '"'; }
 
 is_placeholder() {
   case "$1" in
@@ -41,42 +102,90 @@ upsert() {
   chmod 600 "$TARGET"
 }
 
-mint() {
-  python3 - "$1" "$2" <<'PY'
-import base64, hashlib, hmac, json, sys, time
-secret, role = sys.argv[1], sys.argv[2]
-def b64(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
-now = int(time.time())
-header = b64(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
-payload = b64(json.dumps({
-    "role": role,
-    "iss": "supabase",
-    "iat": now,
-    "exp": now + 365 * 24 * 3600,
-}, separators=(",", ":")).encode())
-signed = f"{header}.{payload}".encode()
-print(f"{header}.{payload}.{b64(hmac.new(secret.encode(), signed, hashlib.sha256).digest())}")
-PY
+# need <KEY> → 0 when this key must be written (forced, or absent/placeholder).
+need() {
+  if [ "$FORCE" = "1" ]; then return 0; fi
+  is_placeholder "$(read_key "$1")"
 }
 
-secret="$(read_key JWT_SECRET)"
-if is_placeholder "$secret"; then
-  secret="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-  upsert JWT_SECRET "$secret"
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+# HS256 JWT with the Supabase shape, signed by <secret> (long-lived: no exp).
+mint_jwt() { # <secret> <role>
+  local secret="$1" role="$2" h p s
+  h="$(printf '{"alg":"HS256","typ":"JWT"}' | b64url)"
+  p="$(printf '{"role":"%s","iss":"supabase"}' "$role" | b64url)"
+  s="$(printf '%s.%s' "$h" "$p" | openssl dgst -sha256 -hmac "$secret" -binary | b64url)"
+  printf '%s.%s.%s' "$h" "$p" "$s"
+}
+
+reg_hex()   { openssl rand -hex "$1"; }
+reg_alnum() { openssl rand -base64 96 | tr -dc 'A-Za-z0-9' | cut -c1-"$1"; }
+reg_uuid()  { uuidgen | tr 'A-Z' 'a-z'; }
+
+printed=()
+print_gen() { printed+=("$1"); }
+
+# ── supabase-jwt: secret + both derived keys, always one generation ──────────
+if want supabase-jwt; then
+  if [ "$FORCE" = "1" ] || need JWT_SECRET \
+     || need SUPABASE_ANON_KEY || need SUPABASE_SERVICE_ROLE_KEY; then
+    secret="$(reg_hex 32)"
+    upsert JWT_SECRET "$secret"
+    print_gen JWT_SECRET
+    # The anon/service keys MUST be re-derived whenever the secret changes, even
+    # in --fill, or the file ships a key that no longer validates.
+    upsert SUPABASE_ANON_KEY      "$(mint_jwt "$secret" anon)"
+    upsert SUPABASE_SERVICE_ROLE_KEY "$(mint_jwt "$secret" service_role)"
+    print_gen SUPABASE_ANON_KEY
+    print_gen SUPABASE_SERVICE_ROLE_KEY
+  fi
 fi
 
-upsert AUTH_JWT_SECRET "$secret"
-upsert REALTIME_JWT_SECRET "$secret"
-
-anon="$(read_key SUPABASE_ANON_KEY)"
-if is_placeholder "$anon"; then
-  upsert SUPABASE_ANON_KEY "$(mint "$secret" anon)"
+# ── rustfs ──────────────────────────────────────────────────────────────────
+if want rustfs; then
+  if need RUSTFS_ACCESS_KEY; then
+    upsert RUSTFS_ACCESS_KEY "$(reg_alnum 20)"; print_gen RUSTFS_ACCESS_KEY
+  fi
+  if need RUSTFS_SECRET_KEY; then
+    upsert RUSTFS_SECRET_KEY "$(reg_alnum 40)"; print_gen RUSTFS_SECRET_KEY
+  fi
 fi
 
-service="$(read_key SUPABASE_SERVICE_ROLE_KEY)"
-if is_placeholder "$service"; then
-  upsert SUPABASE_SERVICE_ROLE_KEY "$(mint "$secret" service_role)"
+# ── realtime ────────────────────────────────────────────────────────────────
+if want realtime && need REALTIME_SECRET_KEY_BASE; then
+  upsert REALTIME_SECRET_KEY_BASE "$(reg_hex 32)"; print_gen REALTIME_SECRET_KEY_BASE
 fi
 
-echo "gen-local-env: $TARGET ready (JWT_SECRET generated locally, keys minted)" >&2
+# ── admin-uuid ──────────────────────────────────────────────────────────────
+if want admin-uuid && need SYSTEM_ADMIN_USER_ID; then
+  upsert SYSTEM_ADMIN_USER_ID "$(reg_uuid)"; print_gen SYSTEM_ADMIN_USER_ID
+fi
+
+# ── Report ──────────────────────────────────────────────────────────────────
+if [ "${#printed[@]}" -gt 0 ]; then
+  printf 'generated %s\n' "${printed[@]}"
+else
+  echo "no generated value was written (nothing missing; use --force to replace)"
+fi
+
+# Every unit that was asked for but produced nothing is named, never silent.
+skipped=()
+for u in "${UNITS[@]}"; do
+  case "$u" in
+    supabase-jwt) keys="JWT_SECRET SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY" ;;
+    rustfs)       keys="RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY" ;;
+    realtime)     keys="REALTIME_SECRET_KEY_BASE" ;;
+    admin-uuid)   keys="SYSTEM_ADMIN_USER_ID" ;;
+  esac
+  wrote=0
+  for k in $keys; do
+    case " ${printed[*]:-} " in *" $k "*) wrote=1 ;; esac
+  done
+  [ "$wrote" = "1" ] || skipped+=("$u")
+done
+if [ "${#skipped[@]}" -gt 0 ]; then
+  printf 'not regenerated (already present) %s\n' "${skipped[@]}"
+fi
+
+echo "gen-local-env: $TARGET ready" >&2

@@ -1,11 +1,9 @@
 x-edge-runtime-environment: &edge-runtime-environment
-  JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
+  JWT_SECRET: "${JWT_SECRET:-}"
   SUPABASE_URL: http://${STACK_PREFIX:-samay}-kong:8000
   SUPABASE_PUBLIC_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
-  SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-your_supabase_anon_key_here}
+  SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
   SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-  SUPABASE_PUBLISHABLE_KEYS: "{\"default\":\"${SUPABASE_PUBLISHABLE_KEY:-}\"}"
-  SUPABASE_SECRET_KEYS: "{\"default\":\"${SUPABASE_SECRET_KEY:-}\"}"
   SUPABASE_DB_URL: postgresql://postgres:postgres@${STACK_PREFIX:-samay}-db:5432/postgres
 
 services:
@@ -29,7 +27,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_CONFIG_FILE: /etc/postgresql/postgresql.conf
       PGDATA: /var/lib/postgresql/data/pgdata
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
+      JWT_SECRET: "${JWT_SECRET:-}"
       JWT_EXP: 3600
     volumes:
       - db-data:/var/lib/postgresql/data/pgdata
@@ -62,13 +60,11 @@ services:
       KONG_PROXY_LISTEN: 0.0.0.0:8000
       KONG_PROXY_LISTEN_SSL: 0.0.0.0:8443
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
-      # kong.yml keyauth_credentials resolve these $VAR refs (M-03): values
-      # come from .env (SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY) with
-      # safe .env.example placeholder defaults — no key material committed.
-      ANON_KEY: ${SUPABASE_ANON_KEY:-your_supabase_anon_key_here}
+      # kong.yml keyauth_credentials resolve these $VAR refs (M-03).
+      ANON_KEY: ${SUPABASE_ANON_KEY:-}
       SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       # kong.yml jwt_secrets use this to verify HS256 Supabase access tokens.
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
+      JWT_SECRET: "${JWT_SECRET:-}"
     ports:
       - "${KONG_HTTP_PORT:-54386}:8000"
       - "${KONG_HTTPS_PORT:-54443}:8443"
@@ -107,7 +103,7 @@ services:
       GOTRUE_JWT_EXP: 3600
       GOTRUE_JWT_ADMIN_ROLES: service_role
       GOTRUE_JWT_AUD: authenticated
-      GOTRUE_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
+      GOTRUE_JWT_SECRET: "${JWT_SECRET:-}"
       GOTRUE_EXTERNAL_EMAIL_ENABLED: true
       GOTRUE_EXTERNAL_PHONE_ENABLED: false
       # Slim build: guest-first onboarding + anonymous → social conversion.
@@ -206,7 +202,7 @@ services:
       PGRST_DB_URI: postgres://authenticator:postgres@${STACK_PREFIX:-samay}-db:5432/postgres
       PGRST_DB_SCHEMA: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
+      PGRST_JWT_SECRET: "${JWT_SECRET:-}"
       PGRST_DB_AGGREGATES_ENABLED: true
       PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
       PGRST_DB_OPENAPI_SERVER_PROXY_URI: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
@@ -237,9 +233,9 @@ services:
       DB_NAME: postgres
       DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
       DB_ENC_KEY: "supabaserealtime"
-      API_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
-      SECRET_KEY_BASE: "supabase-realtime-secret-key-base-change-in-production"
-      METRICS_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
+      API_JWT_SECRET: "${JWT_SECRET:-}"
+      SECRET_KEY_BASE: "${REALTIME_SECRET_KEY_BASE:-}"
+      METRICS_JWT_SECRET: "${JWT_SECRET:-}"
       APP_NAME: realtime
       SELF_HOST_TENANT_NAME: "samay-realtime"
       SEED_SELF_HOST: "true"
@@ -265,13 +261,13 @@ services:
       retries: 3
       start_period: 10s
     environment:
-      ANON_KEY: ${SUPABASE_ANON_KEY:-your-anon-key}
-      SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-your-service-role-key}
+      ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       TENANT_ID: samay
       REGION: us-east-1
       GLOBAL_S3_BUCKET: samay-storage
       DATABASE_URL: postgres://supabase_storage_admin:postgres@${STACK_PREFIX:-samay}-db:5432/postgres
-      PGRST_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (run make init or tools/gen-local-env.sh)}"
+      PGRST_JWT_SECRET: "${JWT_SECRET:-}"
       FILE_SIZE_LIMIT: ${STORAGE_FILE_SIZE_LIMIT:-52428800}
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
@@ -343,8 +339,8 @@ services:
       HOSTNAME: "0.0.0.0"
       STUDIO_PG_META_URL: http://${STACK_PREFIX:-samay}-meta:8080
       SUPABASE_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
-      SUPABASE_ANON_KEY: "your-anon-key"
-      SUPABASE_SERVICE_KEY: "your-service-role-key"
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       SUPABASE_PUBLIC_URL: http://127.0.0.1:${KONG_HTTP_PORT:-54386}
     ports:
       - "${STUDIO_PORT:-54381}:3000"
