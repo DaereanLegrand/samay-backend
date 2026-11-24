@@ -126,16 +126,12 @@ init-local: guard-env
 init-vm: guard-env
 	@$(call require_vm)
 
+# `testing` fetches the FULL vault profile (testing/server/*) and runs on those
+# secrets; `testing-local` runs on supabase/.env alone. tools/start-stack.sh
+# owns the RAM disk and wipes it on EVERY exit path, so nothing survives the
+# verb. See the RAM DISCIPLINE note in that script.
 start-local: guard-env preflight
-	@case "$(ENV)" in \
-	  testing-local|testing) ( $(FCM_FETCH)$(RC_FETCH) cd supabase && $(COMPOSE) up -d && \
-	    $(COMPOSE) up -d --wait db auth && \
-	    bash ../tools/apply_migrations.sh supabase && \
-	    PGPASSWORD=postgres psql -h localhost -p $(POSTGRES_PORT) -U postgres -d postgres -v ON_ERROR_STOP=1 -f seed-config.sql && \
-	    cd .. && docker restart $(STACK_PREFIX)-kong >/dev/null ) ;; \
-	esac
-	@echo "Kong: http://localhost:$(KONG_HTTP_PORT)  (container 8000)"
-	@echo "      point the Cloudflare public hostname here — no tunnel client runs in this repo."
+	@FCM=$(FCM) RC=$(RC) bash tools/start-stack.sh "$(ENV)"
 start-vm: guard-env
 	@$(call require_vm)
 
