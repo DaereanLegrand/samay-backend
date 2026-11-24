@@ -81,11 +81,17 @@ if [ "$ENV_KIND" = "testing" ]; then
   fi
 
   echo "start-stack: fetching the full testing profile from the vault"
+  echo "             (one GPG passphrase prompt — it must stay attached to this terminal)"
   # RAM_KEEP=1: this script owns the whole verb (fetch -> merge -> compose up ->
   # migrate) and its own trap wipes the disk on exit. Without the flag the fetch
   # would eject the disk before we could read server.env.
+  #
+  # NOTE: stdout/stderr are NOT redirected. `release-secrets.sh` runs
+  # `ssh -t vault unlock`, whose pinentry prompt is written to this terminal;
+  # redirecting it hides the prompt and the verb looks hung while it waits for
+  # a passphrase that is never shown.
   RAM_KEEP=1 RC="${RC:-false}" IOS_EXPORT_METHOD="${IOS_EXPORT_METHOD:-app-store-connect}" \
-    "$RELEASE_SECRETS" fetch testing "$ENV_KIND" >/dev/null
+    "$RELEASE_SECRETS" fetch server "$ENV_KIND"
   VAULT_FETCHED=1
 
   [ -s "$RAM_DIR/server.env" ] || {
