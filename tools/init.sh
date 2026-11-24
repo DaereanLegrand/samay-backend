@@ -93,6 +93,11 @@ upsert() { # upsert KEY VALUE
 upsert SUPABASE_URL "$SUPABASE_URL"
 upsert API_TESTING_URL "https://$TESTING_URL"
 upsert API_PROD_URL "https://$PROD_URL"
+# Auth link targets must follow the selected mode, not linger on whichever
+# environment last wrote them. `SITE_URL` is what GoTrue stamps into confirm /
+# recovery emails; `API_EXTERNAL_URL` is what it reports as its public base.
+upsert SITE_URL "$SUPABASE_URL"
+upsert API_EXTERNAL_URL "$SUPABASE_URL"
 
 echo
 echo "wrote $STACK_ENV (mode=$mode, url=$SUPABASE_URL)"
