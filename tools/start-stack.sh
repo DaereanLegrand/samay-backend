@@ -51,16 +51,16 @@ esac
 
 RELEASE_SECRETS="${RELEASE_SECRETS:-$ROOT/../../Admin/infra/tools/release-secrets.sh}"
 # One disk per verb, inherited from the Makefile (which exports RAM_TAG), so a
-# concurrent `make dev ENV=testing` in another terminal never shares — or
+# concurrent `make start ENV=testing` in another terminal never shares — or
 # ejects — this one. Fallback keeps standalone runs working.
 RAM_DIR="${RAM_DIR:-/Volumes/SamayRAM-$$-$(od -An -N3 -tu4 /dev/urandom | tr -d ' ')}"
 
 STACK_PREFIX="$(sed -n 's/^STACK_PREFIX=\([A-Za-z0-9_-]*\).*/\1/p' "$BASE_ENV" | head -1)"
 [ -n "$STACK_PREFIX" ] || STACK_PREFIX=samay
 POSTGRES_PORT="$(sed -n 's/^POSTGRES_PORT=\([0-9]*\).*/\1/p' "$BASE_ENV" | head -1)"
-[ -n "$POSTGRES_PORT" ] || POSTGRES_PORT=54382
+[ -n "$POSTGRES_PORT" ] || POSTGRES_PORT=54392
 KONG_HTTP_PORT="$(sed -n 's/^KONG_HTTP_PORT=\([0-9]*\).*/\1/p' "$BASE_ENV" | head -1)"
-[ -n "$KONG_HTTP_PORT" ] || KONG_HTTP_PORT=54386
+[ -n "$KONG_HTTP_PORT" ] || KONG_HTTP_PORT=54396
 STORAGE_DIR="$(sed -n 's/^STORAGE_DIR=\([^[:space:]]*\).*/\1/p' "$BASE_ENV" | head -1)"
 [ -n "$STORAGE_DIR" ] || STORAGE_DIR=./volumes/storage
 
@@ -195,7 +195,16 @@ else
   echo "start-stack: ENV=testing-local — .env/testing-local.env, no vault contact"
 fi
 
-COMPOSE=(docker compose -p "$STACK_PREFIX" --env-file "$STACK_ENV")
+# Push worker opt-in: `make start FCM=true`. The worker lives behind the `fcm`
+# compose profile, so the profile must be named here or the service never starts.
+# Built with `+=` (never `"${empty_arr[@]}"`, which aborts under `set -u` on
+# bash 3.2 — the system bash on macOS) and with `--profile`/`fcm` as TWO argv
+# elements, or docker compose rejects "--profile fcm" as an unknown flag.
+COMPOSE=(docker compose)
+if [ "${FCM:-false}" = "true" ]; then
+  COMPOSE+=(--profile fcm)
+fi
+COMPOSE+=(-p "$STACK_PREFIX" --env-file "$STACK_ENV")
 
 # Run compose from supabase/ so relative paths (seed, volumes) resolve; the
 # seed file itself is in that directory.

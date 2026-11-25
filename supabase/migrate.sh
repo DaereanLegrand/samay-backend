@@ -7,23 +7,30 @@ set -euo pipefail
 #
 # USER DIRECTIVE (2026-08-23): seed-config.sql is FUNDAMENTAL app config and
 # is applied AUTOMATICALLY here. It contains NO user data. Test data is a
-# separate explicit step: `make supabase-seed-test` — never automatic.
+# separate explicit step: `make seed` — never automatic.
+#
+# The env file lives at the repo root (.env/testing-local.env) exactly as the
+# Makefile resolves it. Override with ENV_FILE.
 cd "$(dirname "$0")"
 
-# Load only simple KEY=VAL lines from .env — never `source` it whole (values
-# may contain spaces/UTF-8 that are fine for docker compose but not for the
-# shell; sourcing used to fail with 'command not found' and abort the run).
-if [ -r .env ]; then
+ENV_FILE="${ENV_FILE:-../.env/testing-local.env}"
+
+# Load only simple KEY=VAL lines from the env file — never `source` it whole
+# (values may contain spaces/UTF-8 that are fine for docker compose but not for
+# the shell; sourcing used to fail with 'command not found' and abort the run).
+if [ -r "$ENV_FILE" ]; then
   while IFS='=' read -r key value; do
     case "$key" in
       '' | '#'* | *' '* | *'-'*) continue ;;
     esac
     value="${value%\"}"; value="${value#\"}"
     export "$key=$value" 2>/dev/null || true
-  done < .env
+  done < "$ENV_FILE"
 fi
 
-DB_URL="${DB_URL:-postgres://postgres:postgres@localhost:${POSTGRES_PORT:-54382}/postgres}"
+bash ../tools/check-stack-env.sh "$ENV_FILE"
+
+DB_URL="${DB_URL:-postgres://postgres:postgres@localhost:${POSTGRES_PORT:-54392}/postgres}"
 
 echo "Running baseline migrations against $DB_URL..."
 bash ../tools/apply_migrations.sh "$(basename "$(pwd)")"

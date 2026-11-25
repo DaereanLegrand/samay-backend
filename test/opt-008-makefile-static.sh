@@ -7,6 +7,14 @@ MAKEFILE="$REPO/Makefile"
 FAILURES=0
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1"; FAILURES=$((FAILURES + 1)); }
+# `make -n … | grep -q` is a SIGPIPE race under `set -o pipefail`: grep exits on
+# the first match, make dies with SIGPIPE, and the pipeline reports failure even
+# though the line was found. Capture first, then match.
+make_n_has() { # make_n_has <pattern> <make args...>
+  local pat="$1"; shift
+  local out; out="$(make -n "$@" 2>/dev/null || true)"
+  case "$out" in *"$pat"*) return 0 ;; *) return 1 ;; esac
+}
 
 echo "backend makefile-static"
 
@@ -29,7 +37,7 @@ for t in init regen start stop status reset seed in-db logs; do
     fail "bare make $t does not resolve"
   fi
 done
-if make -n start 2>/dev/null | grep -q 'testing-local.env'; then
+if make_n_has 'testing-local.env' start; then
   pass "bare make start resolves the testing-local env file"
 else
   fail "bare make start does not resolve the testing-local env file"
@@ -38,23 +46,23 @@ fi
 # otherwise. A missing branch means one environment silently writes the other's
 # destination.
 for e in testing-local testing staging prod; do
-  if make -n regen ENV="$e" 2>/dev/null | grep -q 'secrets.sh.*regen'; then
+  if make_n_has 'secrets.sh' regen ENV="$e"; then
     pass "make regen ENV=$e routes through the shared engine"
   else
     fail "make regen ENV=$e does not route through the shared engine"
   fi
 done
-if make -n regen ENV=testing-local 2>/dev/null | grep -q 'regen --file'; then
+if make_n_has 'regen --file' regen ENV=testing-local; then
   pass "regen testing-local writes the file (no vault)"
 else
   fail "regen testing-local does not target the file"
 fi
-if make -n regen ENV=testing 2>/dev/null | grep -q 'regen --vault samay testing'; then
+if make_n_has 'regen --vault samay testing' regen ENV=testing; then
   pass "regen testing writes the vault"
 else
   fail "regen testing does not target the vault"
 fi
-if make -n init ENV=testing 2>/dev/null | grep -q 'init --vault samay testing'; then
+if make_n_has 'init --vault samay testing' init ENV=testing; then
   pass "init testing goes to the vault (not the file)"
 else
   fail "init testing does not go to the vault"
@@ -66,10 +74,11 @@ else
   pass "APP is gone (ENV is the only selector)"
 fi
 # Exclude this gate: it names the pattern it is looking for.
-if grep -rq --exclude="$(basename "$0")" 'APP=samay' "$REPO/tools" "$REPO/test"; then
-  fail "a tool or doc still tells the user to pass APP=samay"
+LEGACY_APP_SELECTOR="APP""=samay"
+if grep -rq --exclude="$(basename "$0")" -e "$LEGACY_APP_SELECTOR" "$REPO/tools" "$REPO/test"; then
+  fail "a tool or doc still tells the user to pass the legacy APP selector"
 else
-  pass "no stale APP=samay in tools/ or test/"
+  pass "no stale legacy APP selector in tools/ or test/"
 fi
 
 # ── start-stack.sh must resolve the SAME env file the Makefile does ──────────

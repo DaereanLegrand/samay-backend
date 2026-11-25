@@ -12,20 +12,19 @@
 #     designated DEMO HOST who is a participant of every session (log in as
 #     that account to see them all).
 #
-# SAFETY: this script ONLY ever talks to the local testing stack
-# (127.0.0.1:54386 Kong / 127.0.0.1:54382 Postgres). It refuses to run against
-# any other host, and never reads the root `.env` (which points at PROD).
+# SAFETY: this script ONLY ever talks to the local testing-local stack
+# (127.0.0.1:54396 Kong / 127.0.0.1:54392 Postgres). It refuses to run against
+# any other host and reads only `.env/testing-local.env`.
 #
 # Idempotent: previous sample users/sessions are removed first (matched by the
 # @samay.test email domain and the sample user ids), then re-created.
 #
 # Usage:
 #   bash supabase/seed-sample-matches.sh
-#   make supabase-seed-sample-matches
 #
 # Override the avatar public base if the app reaches the stack on another
 # address (e.g. a device on the LAN):
-#   PUBLIC_BASE_URL=http://<host>:54386 bash supabase/seed-sample-matches.sh
+#   PUBLIC_BASE_URL=http://<host>:54396 bash supabase/seed-sample-matches.sh
 # =============================================================================
 set -euo pipefail
 
@@ -33,20 +32,20 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
 # ── Local only ──────────────────────────────────────────────────────────────
-BASE="${PUBLIC_BASE_URL:-http://127.0.0.1:54386}"
-if [[ "$BASE" != *"127.0.0.1:54386"* && "$BASE" != *"localhost:54386"* ]]; then
-  echo "❌ refusing to run: PUBLIC_BASE_URL/$BASE is not the local testing Kong (expected 127.0.0.1:54386)"
+BASE="${PUBLIC_BASE_URL:-http://127.0.0.1:54396}"
+if [[ "$BASE" != *"127.0.0.1:54396"* && "$BASE" != *"localhost:54396"* ]]; then
+  echo "❌ refusing to run: PUBLIC_BASE_URL/$BASE is not the local testing Kong (expected 127.0.0.1:54396)"
   exit 1
 fi
 
 # shellcheck disable=SC1091
-set -a; . ../.env/testing-local.env; set +a
+set -a; . .env/testing-local.env; set +a
 
 SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
-[[ -n "$SERVICE_KEY" ]] || { echo "❌ SUPABASE_SERVICE_ROLE_KEY missing from ../.env/testing-local.env"; exit 1; }
+[[ -n "$SERVICE_KEY" ]] || { echo "❌ SUPABASE_SERVICE_ROLE_KEY missing from .env/testing-local.env"; exit 1; }
 
 DB_HOST=127.0.0.1
-DB_PORT="${POSTGRES_PORT:-54382}"
+DB_PORT="${POSTGRES_PORT:-54392}"
 DB_NAME="${SEED_DB:-postgres}"
 DB_USER="${POSTGRES_USER:-postgres}"
 DB_PASS="${POSTGRES_PASSWORD:-postgres}"
@@ -179,7 +178,7 @@ for g in 0 1 2 3; do
     done
     arr="$(join_quoted "${parts[@]}")"
     hours=$(( idx * 7 ))                     # 7h apart — minimally different
-    session_rows+=("('${GAMES[$g]}','active',0,$count,ARRAY[$arr]::uuid[], now() - interval '$hours hours', 'prueba $((idx + 1))', false)")
+    session_rows+=("('${GAMES[$g]}','active',0,$count,ARRAY[$arr]::uuid[], now() - interval '$hours hours', 'prueba $((idx + 1))')")
     idx=$(( idx + 1 ))
   done
 done
@@ -191,7 +190,7 @@ done
   IFS=,; echo "${user_rows[*]}"; unset IFS
   echo "ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, avatar_url = EXCLUDED.avatar_url, updated_at = now();"
   echo "INSERT INTO public.minigame_sessions"
-  echo "  (game_type, status, shard_wager, player_limit, participants, created_at, name, is_public) VALUES"
+  echo "  (game_type, status, shard_wager, player_limit, participants, created_at, name) VALUES"
   IFS=,; echo "${session_rows[*]}"; unset IFS
   echo ";"
   echo "COMMIT;"
@@ -210,5 +209,5 @@ echo "  ────────────────────────
 echo "  Log in as the demo host to see every match:"
 echo "      email:    $host_email"
 echo "      password: $PASSWORD"
-echo "  (point the app at the testing stack: make dev TESTING=true)"
+echo "  (point the app at the testing-local stack: bash tools/start-stack.sh testing-local)"
 echo "═══════════════════════════════════════════════════════════════"

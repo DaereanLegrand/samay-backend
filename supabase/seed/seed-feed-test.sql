@@ -1,21 +1,21 @@
 -- ============================================================================
 -- Samay — seed-feed-test.sql  (BIG, configurable @tester universe)
 --
--- Seeds the LOCAL supabase-testing stack with a large, realistic @tester data
+-- Seeds the local `testing-local` stack with a large, realistic @tester data
 -- set so every screen that reads groups / events / minigames / invites /
 -- friendships / chats / notifications has data in ALL of its states.
 --
 -- This is INDEPENDENT from the small `seed-test.sql` snapshot (which is left
--- untouched). Applied by `tools/seed-feed-test.sh` (see `make supabase-feed-test`)
+-- untouched). Applied by `tools/seed-feed-test.sh` (see `bash tools/seed-feed-test.sh`)
 -- which creates the auth users + downloads/uploads the profile pictures,
 -- event banners and group covers, then runs this file.
 --
 -- CONFIGURABLE: `:n` = number of numbered accounts (tester2..testerN). Default
 -- 100. `:base_url` = storage public URL base the app can reach.
 --
---   PGPASSWORD=postgres psql -h 127.0.0.1 -p 54382 -U postgres -d postgres \
---     -v n=100 -v base_url=http://127.0.0.1:54386 \
---     -v ON_ERROR_STOP=1 -f supabase-testing/seed/seed-feed-test.sql
+--   PGPASSWORD=postgres psql -h 127.0.0.1 -p 54392 -U postgres -d postgres \
+--     -v n=100 -v base_url=http://127.0.0.1:54396 \
+--     -v ON_ERROR_STOP=1 -f supabase/seed/seed-feed-test.sql
 --
 -- Idempotent: all rows it owns are deleted first (deterministic UUID prefixes).
 -- Triggers are suppressed (`session_replication_role = replica`) so the rows
@@ -393,13 +393,13 @@ JOIN (SELECT generate_series(1, 8) AS g) gg ON gm.group_id = pg_temp.tuid('0001'
 ON CONFLICT (chat_id, user_id) DO NOTHING;
 
 -- ════════════════════════════════════════════════════════════════════════════
--- 7. MINIGAME SESSIONS — 7 games × {direct-private, direct-public, group,
+-- 7. MINIGAME SESSIONS — 7 games × {direct, group,
 --    finished-with-winner}; plus a few sessions that INVITE tester (pending)
 -- ════════════════════════════════════════════════════════════════════════════
 INSERT INTO public.minigame_sessions (
   id, group_id, game_type, status, shard_wager, player_limit, participants,
   winner_id, created_at, name, auto_name, round_target, prize_positions,
-  play_mode, anonymous, async_rounds_per_player, async_ends_at, is_public
+  play_mode, anonymous, async_rounds_per_player, async_ends_at
 )
 SELECT
   pg_temp.tuid('0003', i),
@@ -420,8 +420,7 @@ SELECT
   s.play_mode,
   (s.variant = 2 AND i % 2 = 0),
   CASE WHEN s.play_mode = 'async' THEN 1 ELSE 1 END,
-  CASE WHEN s.play_mode = 'async' THEN now() + interval '3 days' ELSE NULL END,
-  s.is_public
+  CASE WHEN s.play_mode = 'async' THEN now() + interval '3 days' ELSE NULL END
 FROM (
   SELECT
     i,
@@ -429,9 +428,7 @@ FROM (
     (ARRAY['poke_chain','questions','truth_dare','drunk_bottle',
            'challenge','two_lies_one_truth','charades'])[(i - 1) % 7 + 1] AS game_type,
     CASE WHEN (i - 1) / 7 + 1 = 4 THEN 'finished' ELSE 'active' END AS status,
-    CASE WHEN (i - 1) / 7 + 1 = 2 THEN 250
-         WHEN (i - 1) / 7 + 1 = 4 THEN 500
-         ELSE 0 END                                              AS wager,
+    0                                                           AS wager,  -- slim-prod: shard_wager is retired (always 0)
     CASE WHEN (i - 1) / 7 + 1 = 3 THEN pg_temp.tuid('0001', (i % 6) + 1) ELSE NULL END AS group_id,
     CASE WHEN (i - 1) / 7 + 1 = 4 THEN pg_temp.tester_uid(2 + (i % 3)) ELSE NULL END   AS winner,
     CASE WHEN (i - 1) / 7 + 1 = 2
@@ -439,7 +436,6 @@ FROM (
          ELSE NULL END                                           AS name,
     CASE WHEN (i - 1) / 7 + 1 = 3 THEN 'partida-' || i ELSE NULL END AS auto_name,
     CASE WHEN (i - 1) / 7 + 1 = 2 THEN 'async' ELSE 'by_turns' END   AS play_mode,
-    CASE WHEN (i - 1) / 7 + 1 = 2 THEN true ELSE false END           AS is_public,
     (CASE (i - 1) / 7 + 1
        WHEN 1 THEN ARRAY[pg_temp.tester_uid(1), pg_temp.tester_uid(2)]
        WHEN 2 THEN ARRAY[pg_temp.tester_uid(1), pg_temp.tester_uid(2), pg_temp.tester_uid(3), pg_temp.tester_uid(4)]
@@ -453,7 +449,7 @@ FROM (
 INSERT INTO public.minigame_sessions (
   id, group_id, game_type, status, shard_wager, player_limit, participants,
   winner_id, created_at, name, auto_name, round_target, prize_positions,
-  play_mode, anonymous, async_rounds_per_player, async_ends_at, is_public
+  play_mode, anonymous, async_rounds_per_player, async_ends_at
 )
 SELECT
   pg_temp.tuid('0003', 100 + j),
@@ -466,7 +462,7 @@ SELECT
   now() - (j || ' hours')::interval,
   CASE WHEN j % 2 = 0 THEN '[seed] Invitación pendiente ' || j ELSE NULL END,
   'partida-' || (100 + j),
-  5, 3, 'by_turns', false, 1, NULL, false
+  5, 3, 'by_turns', false, 1, NULL
 FROM generate_series(1, 6) AS j
 WHERE :n >= 8;
 

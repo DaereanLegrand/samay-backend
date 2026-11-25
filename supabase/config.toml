@@ -23,7 +23,7 @@ schema_paths = []
 
 [db.seed]
 enabled = true
-sql_paths = ["./seed.sql"]
+sql_paths = ["./seed-config.sql"]
 
 [realtime]
 enabled = true
@@ -102,7 +102,7 @@ skip_nonce_check = true
 # constructs the Apple provider. The secret (generated ES256 client-secret JWT,
 # Services ID) is only needed for the web /authorize redirect flow and is
 # supplied by the deployer. Config.toml is not read by the `docker compose`
-# testing stack; this mirrors backend/supabase/.env.
+# testing stack; this mirrors .env/example.env.
 [auth.external.apple]
 enabled = true
 client_id = "com.qallariy.samay"

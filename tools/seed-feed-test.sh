@@ -15,15 +15,15 @@
 # This is INDEPENDENT from `seed-test.sql` (the small @tester snapshot) which
 # is left untouched.
 #
-# SAFETY: only ever talks to the local testing stack (127.0.0.1:54386 Kong /
-# 127.0.0.1:54382 Postgres). Refuses any other host; never reads root .env.
+# SAFETY: only ever talks to the local testing stack (127.0.0.1:54396 Kong /
+# 127.0.0.1:54392 Postgres). Refuses any other host; never reads root .env.
 #
 # Usage:
 #   bash tools/seed-feed-test.sh            # N=100 (default)
 #   N=40  bash tools/seed-feed-test.sh      # tester2..tester40
 #   bash tools/seed-feed-test.sh 40         # same, positional
 #
-#   PUBLIC_BASE_URL=http://<host>:54386 bash tools/seed-feed-test.sh
+#   PUBLIC_BASE_URL=http://<host>:54396 bash tools/seed-feed-test.sh
 # =============================================================================
 set -euo pipefail
 
@@ -35,9 +35,9 @@ N="${N:-${1:-100}}"
 (( N >= 2 ))   || { echo "❌ N must be >= 2 (got $N)"; exit 1; }
 (( N <= 100 )) || echo "⚠️  N=$N > 100: randomuser.me has 100 portraits per gender; faces will repeat."
 
-BASE="${PUBLIC_BASE_URL:-http://127.0.0.1:54386}"
-if [[ "$BASE" != *"127.0.0.1:54386"* && "$BASE" != *"localhost:54386"* ]]; then
-  echo "❌ refusing to run: PUBLIC_BASE_URL/$BASE is not the local testing Kong (expected 127.0.0.1:54386)"
+BASE="${PUBLIC_BASE_URL:-http://127.0.0.1:54396}"
+if [[ "$BASE" != *"127.0.0.1:54396"* && "$BASE" != *"localhost:54396"* ]]; then
+  echo "❌ refusing to run: PUBLIC_BASE_URL/$BASE is not the local testing Kong (expected 127.0.0.1:54396)"
   exit 1
 fi
 
@@ -48,7 +48,7 @@ SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 [[ -n "$SERVICE_KEY" ]] || { echo "❌ SUPABASE_SERVICE_ROLE_KEY missing from .env/testing-local.env"; exit 1; }
 
 DB_HOST=127.0.0.1
-DB_PORT="${POSTGRES_PORT:-54382}"
+DB_PORT="${POSTGRES_PORT:-54392}"
 DB_NAME="${SEED_DB:-postgres}"
 DB_USER="${POSTGRES_USER:-postgres}"
 DB_PASS="${POSTGRES_PASSWORD:-postgres}"
@@ -187,5 +187,5 @@ echo "  ✅ seeded the @tester universe (N=$N)"
 echo "  ─────────────────────────────────────────────────────────"
 echo "      email:    tester1@tester.com  (or tester2..tester${N}@tester.com)"
 echo "      password: $PASSWORD"
-echo "  (point the app at the testing stack: make dev TESTING=true)"
+echo "  (point the app at the testing-local stack: bash tools/start-stack.sh testing-local)"
 echo "═══════════════════════════════════════════════════════════════"

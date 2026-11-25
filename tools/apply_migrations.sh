@@ -28,7 +28,7 @@ ACTION="${2:-apply}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/$STACK"
 
-POSTGRES_PORT_VAL="${POSTGRES_PORT:-54382}"
+POSTGRES_PORT_VAL="${POSTGRES_PORT:-54392}"
 export PGPASSWORD="${PGPASSWORD:-postgres}"
 DB_URL="${DB_URL:-postgres://postgres:postgres@localhost:${POSTGRES_PORT_VAL}/postgres}"
 LEDGER="public._qallariy_migrations"
