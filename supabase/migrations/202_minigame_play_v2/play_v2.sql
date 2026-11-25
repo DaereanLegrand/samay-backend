@@ -1877,7 +1877,7 @@ $$;
 -- ======================================================================
 -- 16. Realtime: the new tables join supabase_realtime (answers stream live
 --     so the reactable rounds / submitted answer reach every participant).
---     Guarded — never fights make supabase-init.
+--     Guarded — never fights make init.
 -- ======================================================================
 DO $$
 BEGIN

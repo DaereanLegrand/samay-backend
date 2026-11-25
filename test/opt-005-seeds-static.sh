@@ -5,24 +5,22 @@ set -uo pipefail
 #
 # Validates the TWO seed files against the baseline migrations:
 #   supabase/seed-config.sql  — required app config + the system admin row.
-#                               AUTO-applied by init/reset/migrate. It must
-#                               contain NO user accounts; the store reviewer is
-#                               an Admin-owned staging/prod seed.
+#                               Applied by start/reset; `init`/`migrate` do not
+#                               touch the DB. It must contain NO user accounts;
+#                               the store reviewer is an Admin-owned
+#                               staging/prod seed.
 #   supabase/seed-test.sql    — @tester test-data snapshot, EXPLICIT only
-#                               (`make supabase-seed-test`; conversations and
+#                               (`make seed`; conversations and
 #                               notifications deliberately absent; regenerable
 #                               data — E2EE keys/shards/minigames/rank
 #                               snapshots/signup tracker — removed 2026-08-30)
-# plus the byte-mirrors in supabase/, the Makefile targets, and the
-# applier contract:
-#   appliers (migrate.sh/reset.sh ×2 + init/reset Makefile targets) may apply
+# plus the Makefile targets and the applier contract:
+#   appliers (migrate.sh/reset.sh + init/reset Makefile targets) may apply
 #   seed-config ONLY; any reference to seed-test/seed-dev there FAILS.
 # =============================================================================
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SEED_CONFIG="$REPO/supabase/seed-config.sql"
-SEED_CONFIG_TESTING="$REPO/supabase/seed-config.sql"
 SEED_TEST="$REPO/supabase/seed-test.sql"
-SEED_TESTING_TEST="$REPO/supabase/seed-test.sql"
 MIG="$REPO/supabase/migrations"
 MAKEFILE="$REPO/Makefile"
 
@@ -37,26 +35,24 @@ echo "════════════════════════�
 
 # ── 1. Files present ─────────────────────────────────────────────────────────
 h1 "1. Files present"
-for f in "$SEED_CONFIG" "$SEED_CONFIG_TESTING" "$SEED_TEST" "$SEED_TESTING_TEST" "$MAKEFILE"; do
+for f in "$SEED_CONFIG" "$SEED_TEST" "$MAKEFILE"; do
   if [ -f "$f" ]; then pass="exists: $(basename "$f")"; ok "$pass"; else fail "missing: $f"; fi
 done
-if [ ! -f "$REPO/supabase/seed-dev.sql" ] && [ ! -f "$REPO/supabase/seed-dev.sql" ]; then
-  ok "seed-dev.sql retired from both stacks"
+if [ ! -f "$REPO/supabase/seed-dev.sql" ]; then
+  ok "seed-dev.sql retired"
 else
   fail "seed-dev.sql still present — must be deleted (MSQ-01 directive)"
 fi
 
 # ── 2. bash -n on appliers ───────────────────────────────────────────────────
 h1 "2. bash -n syntax (appliers)"
-for f in "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh" \
-         "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh" "$0"; do
+for f in "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh" "$0"; do
   if bash -n "$f" 2>/dev/null; then ok "bash -n $(basename "$f")"; else fail "bash -n $f"; fi
 done
 
 # ── 3. Applier contract: seed-config auto, seed-test/dev never ──────────────
 h1 "3. Appliers apply ONLY seed-config (auto), NEVER seed-test/seed-dev"
-for f in "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh" \
-         "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh"; do
+for f in "$REPO/supabase/migrate.sh" "$REPO/supabase/reset.sh"; do
   if grep -qE '\-f seed-config\.sql' "$f" && ! grep -qE '\-f seed-(test|dev)' "$f"; then
     ok "$(basename "$f"): applies seed-config.sql only"
   else
@@ -79,11 +75,6 @@ fi
 h1 "4. Explicit seed targets"
 grep -qE '^seed:' "$MAKEFILE" && ok "target seed exists" || fail "seed missing"
 grep -qE '^supabase-seed' "$MAKEFILE" && fail "stale supabase-seed* target still defined" || ok "no stale supabase-seed* targets"
-
-# ── 5. Byte mirrors ──────────────────────────────────────────────────────────
-h1 "5. Mirrors byte-identical"
-cmp -s "$SEED_CONFIG" "$SEED_CONFIG_TESTING" && ok "seed-config mirrors identical" || fail "seed-config mirrors differ"
-cmp -s "$SEED_TEST" "$SEED_TESTING_TEST"     && ok "seed-test mirrors identical"   || fail "seed-test mirrors differ"
 
 # ── helpers over a given seed file ──────────────────────────────────────────
 insert_tables() { awk '/^INSERT INTO / { t = $3; gsub(/\(.*/, "", t); sub(/^[^.]*\./,"",t); print t }' "$1" | sort -u; }
@@ -200,8 +191,8 @@ validate_seed_file() { # validate_seed_file <file> <label> <min_uuid_rows|0>
   fi
 }
 
-# ── 6. seed-config content checks ────────────────────────────────────────────
-h1 "6. seed-config.sql (required config, auto-applied, no users)"
+# ── 5. seed-config content checks ────────────────────────────────────────────
+h1 "5. seed-config.sql (required config, applied by start/reset, no users)"
 validate_seed_file "$SEED_CONFIG" "config" 0
 CFG_KEYS=$(grep -cE "^\s+\('[a-z_]+\.[a-z_]+" "$SEED_CONFIG" || true)
 if [ "$CFG_KEYS" -ge 38 ]; then
@@ -223,8 +214,8 @@ else
   ok "default seed contains no reviewer account"
 fi
 
-# ── 7. seed-test content checks ──────────────────────────────────────────────
-h1 "7. seed-test.sql (@tester universe, explicit-only)"
+# ── 6. seed-test content checks ──────────────────────────────────────────────
+h1 "6. seed-test.sql (@tester universe, explicit-only)"
 validate_seed_file "$SEED_TEST" "test" 15
 # conversations + notifications absent (user directive 2026-08-23)
 BANNED=$(insert_tables "$SEED_TEST" | grep -E '^(chats|chat_participants|messages|message_reads|deleted_messages|notifications)$' || true)
@@ -238,7 +229,7 @@ for t in users friendships groups group_members; do
 done
 
 # enum literals used by seed-test exist in migrations
-h1 "8. Enum literals in seed-test exist"
+h1 "7. Enum literals in seed-test exist"
 # simpler: check each enum literal value appears in migrations enum defs
 for v in accepted member host active; do
   # NOTE: group_members.status 'invited' is enforced by CHECK constraint,

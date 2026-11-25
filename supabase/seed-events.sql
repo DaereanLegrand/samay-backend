@@ -1,14 +1,16 @@
 -- ============================================================================
 -- Samay — seed-events.sql
 --
--- Seeds N random demo events WITHIN 100 km of Arequipa so the Events tab
--- (discovery list + the radius slider) has data to show and filter.
+-- Seeds N random demo events WITHIN 100 km of Arequipa into the retained
+-- `events` tables. The Events feature was removed from the client in slim-prod
+-- (client grants revoked in `300_slim/05_revoke_removed.sql`), so this only
+-- helps when exercising `search_events` via service_role/psql.
 --
 -- TESTING STACK ONLY. Never run this against the prod `supabase/` stack.
--- Run against the LOCAL testing Postgres (host port 54382):
+-- Run against the local `testing-local` Postgres (host port 54392):
 --
---   PGPASSWORD=postgres psql -h localhost -p 54382 -U postgres -d postgres \
---     -v ON_ERROR_STOP=1 -f supabase-testing/seed-events.sql
+--   PGPASSWORD=postgres psql -h localhost -p 54392 -U postgres -d postgres \
+--     -v ON_ERROR_STOP=1 -f supabase/seed-events.sql
 --
 -- Idempotent: every prior `[demo-arq]` event (and its host rows, via FK
 -- cascade) is removed first, so re-running replaces the previous batch.
@@ -16,7 +18,7 @@
 --
 -- Creator/host: `tester` when it exists, otherwise the newest non-deleted
 -- user. If there are no users at all, nothing is inserted (notice raised) —
--- seed users first (`make supabase-seed-test`).
+-- seed users first (`make seed`).
 -- ============================================================================
 
 \set ON_ERROR_STOP on

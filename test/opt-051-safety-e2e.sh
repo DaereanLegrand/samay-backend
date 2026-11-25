@@ -4,7 +4,9 @@
 # Scenario: two users, a direct chat, a message report, a photo report, admin
 # removal through the local admin API, evidence snapshot, reporter
 # notifications, audit rows, photo outbox row, storage drainer --once, object
-# gone. Then ban user B and replay the reused access token (read/write/RPC) and
+# gone. The chat/photo tables are retained but their client grants are revoked
+# in 300_slim, so this suite drives them through service_role and direct psql.
+# Then ban user B and replay the reused access token (read/write/RPC) and
 # refresh token.
 #
 # Usage:

@@ -10,12 +10,15 @@ set -uo pipefail
 #   B) group-invite notifications exist AND respect the friends category;
 #   C) report_content validates participation and snapshots evidence for
 #      avatar/group-cover; priority is derived server-side (CSAM > harassment);
-#   D) block hides discovery/search/ranking/feed, blocks new DMs/event/group
-#      invites, suppresses notifications, and the blocked user can neither
-#      unblock nor alter the block;
-#   E) mute is weaker: notifications/feed filtered, direct chat still allowed;
-#   F) report_message maps ncii -> category ncii (priority 2) and snapshots the
-#      disclosed plaintext;
+#   D) block hides the blocked user from discovery/search/ranking/events and
+#      blocks new DMs/event/group invites, suppresses notifications, and the
+#      blocked user can neither unblock nor alter the block. (The chat/event/
+#      ranking tables are retained with client grants revoked in 300_slim, so
+#      the evidence uses service_role for setup and the RPCs for assertions.)
+#   E) mute is weaker: notifications and discovery filtered, direct chat
+#      allowed (same retained-table note);
+#   (report_message is not exercised here; opt-051 covers the message-
+#    moderation path end-to-end.)
 #   G) moderation review/dismiss records the real admin actor and delivers a
 #      reporter outcome; a ban appeal is submittable while banned and an
 #      overturned decision unbans;
@@ -72,7 +75,7 @@ svc_delete_quiet() {
 }
 DB_PORT="$(sed -n 's/^POSTGRES_PORT=//p' "$(cd "$(dirname "$0")/.." && pwd)/.env/testing-local.env" | head -1 | awk '{print $1}' | tr -d '"')"
 reset_report_limits() {
-  PGPASSWORD=postgres psql -h 127.0.0.1 -p "${DB_PORT:-54382}" -U postgres -d postgres \
+  PGPASSWORD=postgres psql -h 127.0.0.1 -p "${DB_PORT:-54392}" -U postgres -d postgres \
     -tAc "DELETE FROM public.action_rate_limits;" >/dev/null 2>&1 || true
 }
 

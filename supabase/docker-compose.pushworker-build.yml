@@ -3,7 +3,7 @@
 #
 # Adds `build:` for the push dispatcher so `docker compose up` builds
 # `samay-pushworker:<env>` straight from the checkout. Used by BOTH:
-#   * local `make start` (COMPOSE_FILE in supabase/.env), and
+#   * local `make start` (COMPOSE_FILE in .env/example.env), and
 #   * a deployed environment that builds from a full checkout of this repo, so
 #     `context: ..` (= the repo root) has go.mod/cmd/internal/Dockerfile.pushworker.
 # Compose builds only when the image is missing (no --build), so this is a

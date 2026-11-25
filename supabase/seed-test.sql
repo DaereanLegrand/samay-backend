@@ -14,7 +14,7 @@
 -- are gone — everything left is user identity or durable social graph.
 --
 -- EXPLICIT ONLY — never applied by init/reset/migrate:
---   make supabase-seed-test
+--   make seed
 -- Idempotent (ON CONFLICT DO NOTHING).
 
 SET TIME ZONE 'UTC';

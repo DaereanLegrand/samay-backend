@@ -5,19 +5,19 @@
 ## Facts
 - Go CLI/API (`github.com/samay-app/samay`) + one self-hosted Supabase stack (`supabase/`).
 - Single stack (no testing mirror); unique ports 543xx; mailpit local sink.
-- `make init APP=samay ENV=testing-local` (gum) · `make start APP=samay ENV=testing-local|testing` Docker.
+- `make init ENV=testing-local` (gum) · `make start ENV=testing-local|testing` Docker.
 - Staging/prod provisioning and deployment live outside this repository.
 
 ## Branch: slim-prod
 
 The slim production backend. Changes live only in `supabase/migrations/300_slim/`
-(forward-fix, idempotent) plus the anonymous-linking config. See `README.md`
-§ "Slim layer" for the file map.
+(forward-fix, idempotent) plus the anonymous-linking config. See
+`supabase/migrations/300_slim/` for the file map.
 
 Shipped and verified on a fresh local stack:
 
 - [x] Anonymous sign-ins + manual identity linking (`config.toml`,
-      `.env.example`, `docker-compose.yml`; guest → Apple/Google keeps the uid).
+      `.env/example.env`, `docker-compose.yml`; guest → Apple/Google keeps the uid).
 - [x] One-checkbox onboarding: `bootstrap_profile()` records 18+/terms and
       creates the guest row atomically; `create_minigame_session` refuses with
       `not_onboarded` until then.
@@ -63,15 +63,17 @@ Shipped and verified on a fresh local stack:
         `reconcile_subscription_overrides` (privilege escalation).
       - Admin CLI: `samay-admin reports message <report_id>` shows the reported
         message content (moderator view).
-      - Coverage: pgTAP SECTION 65 (plan 1040). The curl half was
+      - Coverage: pgTAP SECTION 69 (plan 901). The curl half was
         `test/opt-040-chat-report-block.sh`, deleted with E2EE chat in
         slim-prod. `opt-065` still covers report_content/review/dismiss/appeals.
       - Test hygiene: `opt-001`/`opt-006` cleanups delete NO-ACTION-FK rows (no
         user leaks); `opt-021/022/023/028` mark participants ready (219 gate);
         the store reviewer (`tester@qallariy.lat`) is an Admin-owned
         staging/prod seed, not backend data.
-- [x] E5 verifier: pgTAP `1319/1319`; all 46 `opt-*` green (legacy suites
-      triaged to the E3/E4 contracts); `make test`, `make check`, Go green.
+- [x] E5 verifier (at the time): pgTAP `1319/1319`; all 46 `opt-*` green
+      (legacy suites triaged to the E3/E4 contracts); `make test`, `make check`,
+      Go green. slim-prod later retrimmed this to `plan(901)` and 34 opt
+      scripts (see README §Testing).
       Photo-read triage fix `241_event_photo_read` (229 narrowed
       `events_read_access`, hiding group-scoped photos; both removed in
       slim-prod). CI files deleted per `14-wave2-decisions` §13
@@ -81,9 +83,10 @@ Shipped and verified on a fresh local stack:
 - [x] RevenueCat server (RCBH): `revenuecat-webhook` Edge Function + SOVR
       `reconcile_subscription_overrides()` (pg_cron 15 min) + `webhook_failures`;
       migration `225_subscription_refactor` (capacity → `subscription_tier`,
-      `entitlement_tier` dropped). Local: `make start APP=samay ENV=testing-local RC=true`
-      with `REVENUECAT_API_KEY` / `REVENUECAT_WEBHOOK_SECRET` in the shell
-      environment. Remaining (operator): RevenueCat console setup.
+      `entitlement_tier` dropped). Local: `make start ENV=testing-local` with
+      `REVENUECAT_API_KEY` / `REVENUECAT_WEBHOOK_SECRET` exported in the shell
+      (the webhook service always runs and fails closed without the secret;
+      `RC=true` is inert here). Remaining (operator): RevenueCat console setup.
 - [x] Staging backend: `samay-api-staging.qallariy.lat/auth/v1/health` → 200.
       Staging provisioning and deployment are handled outside this repository.
 - [x] Migrations are re-run safe: `public._qallariy_migrations` ledger in
@@ -91,6 +94,6 @@ Shipped and verified on a fresh local stack:
       pre-ledger DB adopts **once** with `make migrate-adopt`; fresh
       (`make reset`) never adopts.
 - [x] Push worker as a `fcm`-profile compose overlay (base compose pristine);
-      `make start APP=samay ENV=testing-local FCM=true` runs it with
+      `make start ENV=testing-local FCM=true` runs it with
       `SUPABASE_FCM_SERVICE_ACCOUNT_JSON_B64` supplied in the shell environment;
       `FCM=false`/unset ⇒ no worker.

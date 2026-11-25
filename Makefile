@@ -1,4 +1,5 @@
-# Samay backend — local (Docker) + VM (staging/prod). Supabase-only stack.
+# Samay backend — local (Docker) stack. VM/staging/prod verbs abort: their
+# provisioning and deployment are handled outside this repository.
 #
 # ENV is the only selector, and it defaults to testing-local so the everyday
 # verbs need no flags from this directory:
@@ -95,11 +96,13 @@ PGTAP_DB_URL   ?= postgres://postgres:postgres@localhost:$(POSTGRES_PORT)/postgr
 PUSH_PROFILE := $(if $(filter true,$(FCM)),--profile fcm,)
 FCM_FETCH :=
 
-# ── RevenueCat opt-in (RCBH) ─────────────────────────────────────────────────
-# `make start RC=true` enables the revenuecat-webhook function. Its server
-# secrets (REVENUECAT_API_KEY, REVENUECAT_WEBHOOK_SECRET, …) are supplied by the
-# caller in the shell environment. RC unset/false ⇒ the webhook function fails
-# closed.
+# ── RevenueCat secrets (RCBH) ────────────────────────────────────────────────
+# The revenuecat-webhook service is NOT profile-gated: it always starts and
+# reads REVENUECAT_API_KEY / REVENUECAT_WEBHOOK_SECRET from the inherited
+# shell/compose environment, failing closed when the webhook secret is absent.
+# `RC` is forwarded to the vault fetch, but this repo only ever fetches the
+# `server` profile, where `release-secrets.sh` returns before its RC block —
+# so `RC=true` changes nothing here. Export the secrets instead.
 RC ?= false
 RC_ENV ?= testing
 RC_FETCH :=
@@ -123,7 +126,8 @@ help:
 	@echo "  VALUES:      regen [ENV=…] [REGEN_UNITS=\"rustfs realtime\"] [YES=1]"
 	@echo "  DEV/TESTING: start stop restart status reset nuke seed in-db logs"
 	@echo "  PUSH:        FCM=true runs samay-pushworker (profile fcm)"
-	@echo "  RC:          RC=true enables the revenuecat-webhook function"
+	@echo "  RC:          inert here — export REVENUECAT_WEBHOOK_SECRET instead;"
+	@echo "               revenuecat-webhook always runs, fails closed w/o secret"
 	@echo "  SUITES:      test [db|api]        loadtest [smoke]"
 	@echo "  BUILD:       build-cli build-linux build-api build-loadtest build-pushworker build-pushworker-image build-billingworker"
 	@echo "  GATES:       check lint secrets migrate migrate-adopt hooks"
@@ -198,7 +202,7 @@ stop: guard-env
 	esac
 
 restart-local: guard-env
-	@$(MAKE) stop APP=$(APP) ENV=$(ENV) && $(MAKE) start APP=$(APP) ENV=$(ENV)
+	@$(MAKE) stop ENV=$(ENV) && $(MAKE) start ENV=$(ENV)
 restart-vm: guard-env
 	@$(call require_vm)
 

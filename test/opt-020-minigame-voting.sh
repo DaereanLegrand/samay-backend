@@ -20,12 +20,11 @@ set -uo pipefail
 #   E) AUTO-FINISH: when the round counter reaches round_target the game ends
 #      automatically via finish_minigame_game (no host tap) — phase + session
 #      flip to finished.
-#   F) finish_minigame_game writes the minigame_results leaderboard and pays
-#      the prize split (HARMONIC 1/rank over N = prize_positions places,
-#      integer-exact).
+#   F) finish_minigame_game writes the minigame_results leaderboard. slim-prod
+#      retired the wager, so there is no prize split — every prize is 0.
 #   H) full ranking (218_minigame_full_ranking): EVERY participant carries a
-#      ranked row (rank 1..P, unique); only N = prize_positions are paid and
-#      every rank > N writes prize 0; the harmonic split still sums to the pot.
+#      ranked row (rank 1..P, unique); N = prize_positions is recorded but no
+#      shards are paid (slim-prod: no pot, so every prize is 0).
 #
 # Usage: bash test/opt-020-minigame-voting.sh
 # Requires the stack with migration 218 applied.
@@ -180,7 +179,7 @@ else
   nok "create failed: $(echo "$resp" | head -c 120)"
 fi
 
-# B + C join (accept the invites) so the roster is 3 participants (pot = 150).
+# B + C join (accept the invites) so the roster is 3 participants (slim-prod: pot = 0).
 INVITE_B=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION_ID&invitee_id=eq.$UUID_B" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 INVITE_C=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&session_id=eq.$SESSION_ID&invitee_id=eq.$UUID_C" \
@@ -188,7 +187,7 @@ INVITE_C=$(curl -s -X GET "$SUPABASE_URL/rest/v1/minigame_invites?select=id&sess
 resp=$(auth_rpc "$TOKEN_B" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_B\"}")
 resp2=$(auth_rpc "$TOKEN_C" "accept_minigame_invite" "{\"p_invite_id\":\"$INVITE_C\"}")
 if echo "$resp" | grep -qE '"status": *"accepted"' && echo "$resp2" | grep -qE '"status": *"accepted"'; then
-  ok "B + C accepted the invites (3 participants, pot 150)"
+  ok "B + C accepted the invites (3 participants, no wager pot)"
 else
   nok "B/C accept failed: $(echo "$resp" | head -c 120) $(echo "$resp2" | head -c 120)"
 fi
@@ -539,9 +538,9 @@ else
 fi
 
 # =========================================================================
-# TEST F — leaderboard + prize payout (harmonic N)
+# TEST F — leaderboard (slim-prod: ranking recorded, no shard payout)
 # =========================================================================
-h1 "TEST F — minigame_results leaderboard + prize payout"
+h1 "TEST F — minigame_results leaderboard (no payout)"
 
 results=$(svc_get "minigame_results?session_id=eq.$SESSION_ID&select=results")
 if echo "$results" | grep -q '"rank"'; then
@@ -561,11 +560,12 @@ fi
 
 # =========================================================================
 # TEST H — full ranking (218_minigame_full_ranking): EVERY participant gets a
-# ranked row, but only N = prize_positions are paid; rank > N writes prize 0.
+# ranked row; N = prize_positions is recorded but no shards are paid.
 # =========================================================================
-h1 "TEST H — full ranking: all participants ranked, only N paid"
+h1 "TEST H — full ranking: all participants ranked, no payout"
 
-# Dedicated 3-player session with N = 2 so exactly one player is UNPAID.
+# Dedicated 3-player session with N = 2; slim-prod pays no shards, so all
+# three prizes are 0 regardless of N.
 # Settled straight from create (status active, no rounds) — every score is 0
 # and the tie-break is participant order (A=1, B=2, C=3), fully deterministic.
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \

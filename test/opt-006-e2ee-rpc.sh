@@ -6,7 +6,9 @@ set -uo pipefail
 # Slim-prod removed E2EE chat, so the fetch_prekey_bundle half of this script
 # was retired with the feature (300_slim/05_revoke_removed revokes
 # e2ee_identity_keys from every client role). What remains is the direct-join
-# minigame session contract (migration 20260813000001):
+# minigame session contract. The effective create/join/finish bodies are the
+# wager-free versions in `300_slim/03_remove_wagers.sql` (join originally
+# `100_minigames/sessions.sql` → `239_minigame_join_codes`):
 #   G) group + memberships provisioned (A host, B member, C non-member)
 #   H) create_minigame_session creates a session with no wager (slim-prod
 #      removed the shard escrow; the retired column stays 0)
@@ -174,7 +176,7 @@ else
 fi
 
 # =========================================================================
-# TEST I — join_minigame_session (B joins, second-participant escrow)
+# TEST I — join_minigame_session (B joins, no wager in slim-prod)
 # =========================================================================
 h1 "TEST I — join_minigame_session"
 
@@ -235,13 +237,12 @@ else
 fi
 
 # =========================================================================
-# TEST K — finish_minigame_game (201): the session (wager 50 from TEST H)
-# settles with a harmonic leaderboard. The exact per-player split is
-# non-deterministic (all-zero scoreboard → participant-order tie-break), so
-# the invariant asserted here is that the FULL pot is preserved and the
-# leaderboard row exists (the precise harmonic math is covered by opt-020/021).
+# TEST K — finish_minigame_game: the session settles with a leaderboard.
+# slim-prod retired the wager economy, so the pot is always 0 and no shards
+# move; the invariant asserted here is exactly that plus the leaderboard row
+# (the precise ranking math is covered by opt-020/021).
 # =========================================================================
-h1 "TEST K — finish_minigame_game settlement (pot preserved)"
+h1 "TEST K — finish_minigame_game settlement (no pot in slim-prod)"
 
 resp=$(finish_game "$UUID_A" "$SESSION_ID")
 if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*"finished"'; then
@@ -283,7 +284,7 @@ else
 fi
 
 # =========================================================================
-# TEST L — finish_minigame_game top1 payout: the rank-1 player takes the pot
+# TEST L — finish_minigame_game settlement: no payout (pot retired)
 # =========================================================================
 h1 "TEST L — finish_minigame_game settlement (no payout)"
 

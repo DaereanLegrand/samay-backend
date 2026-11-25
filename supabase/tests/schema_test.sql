@@ -373,14 +373,14 @@ SELECT policies_are('processed_webhooks', ARRAY[
 
 -- ============================================================
 -- SECTION 34: Seed data
--- seed-config.sql is the auto-applied fundamental config (app_config tuning
+-- seed-config.sql is the fundamental config (applied by start/reset; app_config tuning
 -- keys + the system admin row); it seeds NO user accounts. Test data is
--- explicit-only (`make supabase-seed-test`). The row counts below pin the
+-- explicit-only (`make seed`). The row counts below pin the
 -- current seed-config surface; a removable tuning key changes the total.
 -- ============================================================
 SELECT ok(
     (SELECT count(*) = 1 FROM admin_users),
-    'admin_users has the system admin row (from auto-applied seed-config)'
+    'admin_users has the system admin row (from seed-config)'
 );
 SELECT ok(
     (SELECT count(*) = 48 FROM app_config),

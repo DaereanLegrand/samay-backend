@@ -5,15 +5,15 @@ set -uo pipefail
 # Verifies the lobby RPC family end-to-end — ready toggles, the creator-only
 # Start (backend-enforced), creator-only removal, and the participant roster:
 #   A) set_minigame_ready upserts the caller's flag into the ready map (live
-#      on minigame_game_state); a finished session rejects (session_not_active)
+#      on minigame_game_state);
 #   B) get_minigame_participants returns id/username/avatar_url for every
 #      participant (works for NON-friends via user_search_view)
 #   C) init_minigame_game_state is now CREATOR-ONLY: a non-creator participant
 #      gets not_creator (backend-enforced, never a UI rule); the creator
 #      starts and the ready map clears
 #   D) remove_minigame_participant is CREATOR-ONLY: a non-creator gets
-#      not_creator; the creator removes a player → wager refunded
-#      (minigame_refund), participant dropped, invite closed, ready cleared
+#      not_creator; the creator removes a player → participant dropped
+#      (slim-prod: no wager, no refund)
 #   E) a bystander (non-member) is denied everywhere (not_allowed /
 #      not_creator)
 #
@@ -122,7 +122,7 @@ svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_A\",\"
 svc_post "group_members" "{\"group_id\":\"$GROUP_ID\",\"user_id\":\"$UUID_B\",\"role\":\"member\",\"status\":\"active\"}" >/dev/null
 info "Group created; A (host) + B (member) active; C is NOT a member (bystander)"
 
-# A creates a wagered session inviting B (wager 50 → removal must refund).
+# A creates a session inviting B (slim-prod: wager retired, removal refunds nothing).
 resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"truth_dare\",\"p_invitees\":[\"$UUID_B\"]}")
 SESSION_ID=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)

@@ -31,7 +31,9 @@ set -uo pipefail
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"
 . "$(cd "$(dirname "$0")" && pwd)/dev_env.sh"
-PGURL="${PGURL:-postgres://postgres:postgres@localhost:54382/postgres}"
+# Default matches the testing-local stack these scripts hit (Kong 54396 →
+# Postgres 54392); override PGURL to point psql at another stack.
+PGURL="${PGURL:-postgres://postgres:postgres@localhost:54392/postgres}"
 
 PASS=0
 FAIL=0

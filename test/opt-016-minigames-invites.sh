@@ -8,7 +8,7 @@ set -uo pipefail
 #   C) friends-only privacy: a user with minigame_invite_friends_only=true
 #      cannot be invited by a non-friend (invitee_friends_only), but CAN by
 #      an accepted friend
-#   D) accept_minigame_invite joins the participant list (escrow on wager)
+#   D) accept_minigame_invite joins the participant list (slim-prod: no escrow)
 #   E) a finished session cannot be accepted (session_finished)
 #   F) decline_minigame_invite DELETES the invite row (2026-09-02 — a declined
 #      invite is indistinguishable from one that never existed; re-decline is
@@ -220,15 +220,15 @@ resp=$(auth_rpc "$TOKEN_A" "create_minigame_session" \
   "{\"p_group_id\":\"$GROUP_ID\",\"p_game_type\":\"questions\",\"p_invitees\":[\"$UUID_C\"]}")
 SESSION2=$(echo "$resp" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
 if echo "$resp" | grep -qE '"status": *"created"'; then
-  ok "A (now friend) can invite C to a wagered session ($SESSION2)"
+  ok "A (now friend) can invite C to a session ($SESSION2)"
 else
   nok "Friend invite failed: $(echo "$resp" | head -c 100)"
 fi
 
 # =========================================================================
-# TEST D — accept_minigame_invite joins the participant (wager escrow)
+# TEST D — accept_minigame_invite joins the participant (no escrow in slim-prod)
 # =========================================================================
-h1 "TEST D — accept a pending invite (wagered session)"
+h1 "TEST D — accept a pending invite"
 
 INVITE_ID=$(auth_get "$TOKEN_C" "minigame_invites?select=id&session_id=eq.$SESSION2&status=eq.pending" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 if [ -z "$INVITE_ID" ]; then
@@ -405,9 +405,9 @@ else
   nok "notification data missing gameType: $(echo "$notif_resp" | head -c 120)"
 fi
 # H1b: SESSION_H is a FREE game (wager 0) — the body must say "FREE" and the
-# payload must carry wager 0 (200_minigame_wager_notice).
+# payload must carry wager 0 (200_minigame_invite_notice).
 if echo "$notif_resp" | grep -q '"body":"FREE"'; then
-  ok "The FREE (0-wager) invite notification body says FREE (200_minigame_wager_notice)"
+  ok "The FREE (0-wager) invite notification body says FREE (200_minigame_invite_notice)"
 else
   nok "FREE-game notification body not FREE: $(echo "$notif_resp" | head -c 120)"
 fi

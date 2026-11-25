@@ -845,7 +845,7 @@ $$;
 -- ======================================================================
 -- Realtime: the reactions + results tables join supabase_realtime so votes
 -- (reactions) and the settled leaderboard (results) stream live.
--- Guarded — never fights make supabase-init.
+-- Guarded — never fights make init.
 -- ======================================================================
 DO $$
 BEGIN

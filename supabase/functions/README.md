@@ -11,14 +11,13 @@
 |---|---|
 | `.gitkeep` | keeps the directory in git |
 | `main/index.ts` | **boot placeholder** — required main-service entrypoint. |
-| `revenuecat-webhook/index.ts` | **RevenueCat webhook handler (RCBH)** — idempotent subscription sync. Requires `REVENUECAT_WEBHOOK_SECRET` (inert/fail-closed without it). Runs in the dedicated `revenuecat-webhook` compose service. Enable with `make start APP=samay ENV=testing-local RC=true` and `REVENUECAT_WEBHOOK_SECRET` in the environment. |
+| `revenuecat-webhook/index.ts` | **RevenueCat webhook handler (RCBH)** — idempotent subscription sync. Requires `REVENUECAT_WEBHOOK_SECRET` (inert/fail-closed without it). Runs in the dedicated `revenuecat-webhook` compose service. The service always starts; export `REVENUECAT_WEBHOOK_SECRET` (and `REVENUECAT_API_KEY`) before `make start` — `RC=true` has no effect here. |
 | `README.md` | this file |
 
 ## EEDG workflow (when functions land)
 
 1. Create a function directory: `supabase/functions/<function-name>/index.ts`
-   (e.g. `event-status-poll`, `shard-distribution`,
-   `push-notifier`, `revenuecat-webhook`).
+   (e.g. `push-notifier`, `revenuecat-webhook`).
 2. Deploy from the stack root with the Supabase CLI:
    ```bash
    cd supabase
@@ -26,13 +25,14 @@
      --project-ref <placeholder-project-ref>
    ```
    The self-hosted runtime serves functions at the Kong gateway under
-   `/functions/v1/<function-name>` — see `README.md` in this repository's `docs/`
-   §1.2 (`https://supabase.samay.example.com/functions/v1/*` is the
+   `/functions/v1/<function-name>` (`https://supabase.samay.example.com/functions/v1/*` is the
    placeholder API base; no real deployment URL is committed).
 3. Runtime env (SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY /
    JWT_SECRET / SUPABASE_DB_URL / VERIFY_JWT) is wired in the compose
    `functions` service and passed through to the Deno runtime — do NOT commit
-   real keys (`docs/security/SECURITY.md` §2.8; `DEPLOYMENT-PLACEHOLDER.md` §2.3).
+   real keys. The security/deployment notes referenced here
+   (`docs/security/SECURITY.md` §2.8, `DEPLOYMENT-PLACEHOLDER.md` §2.3,
+   `docs/README.md` §1.2) live in the private ops tree, not this repository.
 4. Add a service entry (or router) for the new function. The generic
    `functions` service only serves `main/`; `revenuecat-webhook` is the one
    self-authenticated exception.
@@ -52,6 +52,6 @@
 
 ## Testing stack
 
-`supabase/functions/` mirrors this directory byte-for-byte (the
-`functions` service mounts `./functions:/home/deno/functions` in both stacks;
-`test/opt-062-functions-auth.sh` and `test/opt-063-compose-secrets.sh` pin the auth/secrets contract).
+There is one stack (`supabase/`); its `functions` service mounts
+`./functions:/home/deno/functions`. `test/opt-062-functions-auth.sh` and
+`test/opt-063-compose-secrets.sh` pin the auth/secrets contract.

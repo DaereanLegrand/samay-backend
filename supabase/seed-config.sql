@@ -1,7 +1,9 @@
 -- Samay — seed-config.sql
 -- REQUIRED application configuration (fundamental for runtime): app_config
--- tuning keys + the system admin row. Auto-applied by init/reset/migrate
--- right after migrations (user directive 2026-08-23). Idempotent:
+-- tuning keys + the system admin row. Applied by `make start`/`make reset`
+-- (tools/start-stack.sh, supabase/reset.sh) right after migrations; `make init`
+-- and `make migrate` do not touch the database (user directive 2026-08-23).
+-- Idempotent:
 -- ON CONFLICT DO NOTHING. Contains NO user accounts. Other test data lives in
 -- seed-test.sql (explicit only).
 -- NOTE: the system-admin email uses the example.com placeholder domain — swap

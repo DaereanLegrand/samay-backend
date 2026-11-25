@@ -13,7 +13,7 @@ UNFMT="$(gofmt -l cmd internal)"
 [ -z "$UNFMT" ] || { fail "gofmt: $UNFMT"; exit 1; }
 
 step "3/4  secrets-check"
-make secrets-check || { fail "secrets-check failed"; exit 1; }
+make secrets || { fail "secrets failed"; exit 1; }
 
 step "4/4  Makefile surface"
 bash test/opt-008-makefile-static.sh >/dev/null || { fail "makefile-static gate failed"; exit 1; }

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -uo pipefail
 # =============================================================================
-# [OPT-028] get_minigame_invite_context — Integration Test
+# [OPT-030] get_minigame_invite_context — Integration Test
 # (215_minigame_invite_context, 2026-09-11)
 #
 # The pending-invite LOBBY view must show ONLY the inviter ("INVITADO POR" +
@@ -17,7 +17,7 @@ set -uo pipefail
 #   F) anon cannot EXECUTE (authenticated-only)
 #
 # Usage: bash test/opt-030-minigame-invite-context.sh
-# Requires the stack with migration 209 applied (supabase db reset).
+# Requires the stack with migration 215_minigame_invite_context applied.
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"

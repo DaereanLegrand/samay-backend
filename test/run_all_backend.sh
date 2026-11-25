@@ -21,13 +21,13 @@ set -uo pipefail
 # `opt-*.sh` so this runner never discovers them, and agents must never run them.
 #
 # Usage: bash test/run_all_backend.sh
-# Prerequisites: a running local stack (make supabase-reset) for the
+# Prerequisites: a running local stack (make reset) for the
 # live tests — they hit Kong on 127.0.0.1:54396; the static gates pass
 # anywhere.
 #
-# NOTE: The Flutter integration suite (integration_test/) was DELETED
-# (directive 2026-08-31 — testing is backend-only). Exit code reflects ONLY
-# the opt-* curl tests below.
+# NOTE: Dart/Flutter tests live in the frontend repo (`test/*.dart`); this
+# runner covers the backend only. Exit code reflects ONLY the opt-* curl tests
+# below.
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"
@@ -42,7 +42,7 @@ SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 export STACK_ENV="${STACK_ENV:-$ROOT_DIR/.env/testing-local.env}"
 DB_PORT="$(sed -n 's/^POSTGRES_PORT=//p' "$STACK_ENV" | head -1 | awk '{print $1}' | tr -d '"')"
-DB_PORT="${DB_PORT:-54382}"
+DB_PORT="${DB_PORT:-54392}"
 
 PASS=0
 FAIL=0

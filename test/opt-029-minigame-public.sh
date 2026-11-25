@@ -1,19 +1,17 @@
 #!/bin/bash
 set -uo pipefail
 # =============================================================================
-# [OPT-029] Minigame: public (open) partidas (211_minigame_public)
-# Verifies the published-partida surface end-to-end:
-#   A) only the HOST publishes (set_minigame_public) and only DIRECT sessions
-#      can be published (a group partida → group_session)
-#   B) list_public_minigames returns the published, open, direct partida with
-#      the host username and is_member=false for a non-participant
-#   C) a signed-in stranger joins a published partida (join_minigame_session
-#      → joined) and is_member flips true
-#   D) after the host UNPUBLISHES, the partida leaves the feed and a
-#      stranger's join is rejected not_allowed
+# [OPT-029] Minigame: the retired open-public lobby (211_minigame_public)
+# The open-public surface was replaced by code-only matches
+# (239_minigame_join_codes): publishing a partida is now a 6-character code.
+# This script pins the REMOVAL:
+#   A) set_minigame_public / list_public_minigames are gone (PGRST202)
+#   B) minigame_sessions.is_public was dropped (PGRST204)
+#   C) the code-only join path (set_minigame_join_code / join_minigame_by_code)
+#      is the surviving contract
 #
 # Usage: bash test/opt-029-minigame-public.sh
-# Requires the stack with migration 211 applied.
+# Requires the stack with 239_minigame_join_codes applied.
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"

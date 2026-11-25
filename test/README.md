@@ -2,24 +2,26 @@
 
 This guide covers the **backend test matrix** of the Samay repo: Go unit
 tests, curl opt-tests, and SQL pgTAP. For the one-paragraph overview see the
-root [`README.md`](../README.md#testing-summary).
+root [`README.md`](../README.md#testing).
 
-## Testing architecture (directive 2026-08-31)
+## Testing architecture
 
-**Testing is reserved for the backend, or per task there are NO integration
-tests.** The Flutter/Dart test trees were deleted — `test/*.dart` (unit/widget/
-provider/router/theme suites), `integration_test/` (all flows + `runner.sh`),
-`test_driver/` — and must NOT be recreated. There is no `make flutter-test` /
-`make test-file` / `make test-feature` / `make test-integration`.
+**The backend is the integration authority.** Its tests live here: Go unit
+tests, curl opt-tests and pgTAP — there is no `make flutter-test` /
+`make test-file` / `make test-feature` / `make test-integration` in this repo.
+
+The **frontend** repo carries Dart unit tests under its own `test/*.dart` (115
+today; the older 2026-08-31 "no Dart tests" directive was rescinded by Q16).
+Widget/integration trees (`integration_test/`, `test_driver/`) do not exist and
+are not re-created.
 
 ## The Test Matrix
 
 | Layer | Where | Command | Notes |
 |-------|-------|---------|-------|
-| **Backend (curl opt-tests)** | `test/opt-*.sh` | `bash test/run_all_backend.sh` | Self-contained curl scripts that hit Supabase REST/Auth exactly like the Dart client (see "How to Test Backend Changes" below). Run against Kong at `http://127.0.0.1:54386`. Prerequisites: `make start`, `make reset`. Suite (slim-prod): `opt-001` RLS security · `opt-005` seeds static gate (no stack) · `opt-006` minigame session RPC create/join/settle · `opt-008` Makefile/scratch-repo static gate (no stack) · `opt-009` groups chain (invites/roles/chain-of-command) · `opt-010` group membership surface (removed chat relations closed) · `opt-011` group reads (active/invited/non-member + closed receipt tables) · `opt-012` friendships · `opt-014` profile-RPC lockdown · `opt-015` search RPC (rate limits) · `opt-016` minigame invites (invite-aware `create_minigame_session`, friends-only privacy, accept/decline, non-member session read) · `opt-018` minigame play flow · `opt-019` minigame lobby (ready map, creator-only Start/remove, roster) · `opt-020` minigame voting · `opt-021` minigame play v2 · `opt-022` minigame round-key request · `opt-023` minigame reaction event · `opt-028` Two Lies One Truth · `opt-029` code-only public matches (`239_minigame_join_codes`) · `opt-030` minigame pending-invite context · `opt-031` minigame group fan-out + group chat notice · `opt-032` minigame-invites RLS regression guard · `opt-050` Wave 0 abuse checks · `opt-051` safety E2E · `opt-052` storage outbox · `opt-060` admin auth · `opt-061` Wave 1 DB abuse checks · `opt-062` Edge Functions auth contract · `opt-063` compose secrets · `opt-064` identity/privacy · `opt-065` safety notifications · `opt-068` subscriptions · `opt-069` password recovery · `opt-070` group theme (tier palette, control modes, contrast, rate limit, RLS). Removed with their features: events (`opt-002/024/025/026/027/033/066`), E2EE chat (`opt-003/040`), photos (`opt-004`), user ranking (`opt-013`), shard economy (`opt-067`). All auto-discovered by the `test/opt-*.sh` glob in the runner; `run_all_backend.sh` resets the E3 rate-limit counters between scripts and defaults `STACK_ENV` to this stack. |
-| **Go (admin CLI + ops)** | `*_test.go` | `go test ./...` | 228 top-level tests: CLI flag/validation behavior (cobra), `internal/validate` helpers, and `internal/ops` business logic against `httptest` servers. Run via `make test` together with the static gates. |
-| **SQL (pgTAP)** | `supabase/tests/schema_test.sql` | `make test db` | **plan(1001)** assertions (both stacks, mirrored byte-identical): extensions, enums, tables, triggers, RPCs, RLS policy sets per table (incl. the FORCE-RLS-without-ENABLE invariant), seed data, minigame play engine + partida names + partida lobby (Section 49g — ready map, `set_minigame_ready`/`get_minigame_participants`/`remove_minigame_participant`, creator-gated init, `minigame_sessions` realtime), `get_friend_profiles` (batched accepted-friend profiles), `202_minigame_play_v2` round-key hardening, events manual invites (21b) + host-designates-staff (21c) + rotating attendance code (21d). New migrations must extend this file. |
-| **Manual end-user QA** | `test_runner.sh` (root) | `bash test_runner.sh` | gum-based interactive runner — auth → plugged UI (Games/Social tabs, rankings, events, QR, chat). Wipes local user data, records results to a timestamped markdown file. Not part of the automated TDD suite; used for pre-release device testing. |
+| **Backend (curl opt-tests)** | `test/opt-*.sh` | `bash test/run_all_backend.sh` | Self-contained curl scripts that hit Supabase REST/Auth exactly like the Dart client (see "How to Test Backend Changes" below). Run against Kong at `http://127.0.0.1:54396` (Postgres `54392`). Prerequisites: `make start`, `make reset`. Suite (slim-prod): `opt-001` RLS security · `opt-005` seeds static gate (no stack) · `opt-006` minigame session RPC create/join/settle · `opt-008` Makefile/scratch-repo static gate (no stack) · `opt-009` groups chain (invites/roles/chain-of-command) · `opt-010` group membership surface (removed chat relations closed) · `opt-011` group reads (active/invited/non-member + closed receipt tables) · `opt-012` friendships · `opt-014` profile-RPC lockdown · `opt-015` search RPC (rate limits) · `opt-016` minigame invites (invite-aware `create_minigame_session`, friends-only privacy, accept/decline, non-member session read) · `opt-018` minigame play flow · `opt-019` minigame lobby (ready map, creator-only Start/remove, roster) · `opt-020` minigame voting · `opt-021` minigame play v2 · `opt-022` minigame round-key request · `opt-023` minigame reaction event · `opt-028` Two Lies One Truth · `opt-029` code-only public matches (`239_minigame_join_codes`) · `opt-030` minigame pending-invite context · `opt-031` minigame group fan-out + group chat notice · `opt-032` minigame-invites RLS regression guard · `opt-050` Wave 0 abuse checks · `opt-051` safety E2E · `opt-052` storage outbox · `opt-060` admin auth · `opt-061` Wave 1 DB abuse checks · `opt-062` Edge Functions auth contract · `opt-063` compose secrets · `opt-064` identity/privacy · `opt-065` safety notifications · `opt-068` subscriptions · `opt-069` password recovery · `opt-070` group theme (tier palette, control modes, contrast, rate limit, RLS). Removed with their features: events (`opt-002/024/025/026/027/033/066`), E2EE chat (`opt-003/040`), photos (`opt-004`), user ranking (`opt-013`), shard economy (`opt-067`). All auto-discovered by the `test/opt-*.sh` glob in the runner; `run_all_backend.sh` resets the E3 rate-limit counters between scripts and defaults `STACK_ENV` to this stack. |
+| **Go (admin CLI + ops)** | `*_test.go` | `go test ./...` | 230 top-level tests: CLI flag/validation behavior (cobra), `internal/validate` helpers, and `internal/ops` business logic against `httptest` servers. Run via `make test` together with the static gates. |
+| **SQL (pgTAP)** | `supabase/tests/schema_test.sql` | `make test db` | **plan(901)** assertions: extensions, enums, kept tables, triggers, RPCs, RLS policy sets per table (incl. the FORCE-RLS-without-ENABLE invariant), seed data, the minigame play engine + partida names + partida lobby (Section 49g — ready map, `set_minigame_ready`/`get_minigame_participants`/`remove_minigame_participant`, creator-gated init, `minigame_sessions` realtime), `get_friend_profiles` (batched accepted-friend profiles), and `202_minigame_play_v2` round-key hardening. New migrations must extend this file. |
 
 Security wave tests: `opt-062` pins the Edge Functions auth contract (Kong JWT
 role gate + self-authenticated webhook), and `opt-063` pins the required
@@ -191,8 +193,8 @@ make test db    # requires the stack up (supabase db test --db-url)
 make test
 ```
 
-> The opt-tests default to `SUPABASE_URL=http://127.0.0.1:54386` (Kong, Samay's
-> approved API port) and embed local dev keys. Override via `SUPABASE_URL`,
+> The opt-tests default to `SUPABASE_URL=http://127.0.0.1:54396` (Kong, Samay's
+> approved API port). Override via `SUPABASE_URL`,
 > `ANON_KEY`, `SERVICE_KEY` env vars to point at another stack.
 
 ---
@@ -225,7 +227,8 @@ Backend opt-test coverage by surface (I-76, 2026-08-10):
   without a stack.
 
 Tests do **not** cover:
-- UI rendering (the Flutter/Dart test trees were deleted — directive 2026-08-31)
+- UI rendering (no widget/integration suite ships in either repo; the frontend
+  runs Dart unit tests only)
 - Device-level features (GPS, sensors, file system)
 - Performance benchmarks (run separately)
 - Storage API signed URLs / object uploads (bucket-dependent — the opt-tests

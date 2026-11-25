@@ -18,7 +18,7 @@ read_env() {
   sed -n "s/^${1}=\([^[:space:]#]*\).*/\1/p" "$STACK_ENV" | head -1
 }
 
-DB_PORT="$(read_env POSTGRES_PORT)"; DB_PORT="${DB_PORT:-54382}"
+DB_PORT="$(read_env POSTGRES_PORT)"; DB_PORT="${DB_PORT:-54392}"
 KONG_PORT="$(read_env KONG_HTTP_PORT)"; KONG_PORT="${KONG_PORT:-54386}"
 ANON_KEY="$(read_env SUPABASE_ANON_KEY)"
 SERVICE_KEY="$(read_env SUPABASE_SERVICE_ROLE_KEY)"

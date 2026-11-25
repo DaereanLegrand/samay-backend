@@ -1,18 +1,19 @@
 #!/bin/bash
 set -uo pipefail
 # =============================================================================
-# [OPT-029] minigame group fan-out + group chat notice
+# [OPT-031] minigame group fan-out + group chat notice
 # (216_minigame_group_message, 2026-09-15)
 #
 # Creating a GROUP partida must:
 #   A) invite EVERY active group member (creator excluded) — 2a
 #   B) notify each auto-invited member
 #   C) post a `minigame_group_messages` notice in the group chat — 2b
-#   D) make the notice readable by active group members only (RLS)
+#   D) a direct table read is DENIED for members and non-members alike
+#      (42501); the notice is reachable only through get_chat_inbox
 #   E) keep it to ONE notice per session
 #
 # Usage: bash test/opt-031-minigame-group-message.sh
-# Requires the stack with migration 210 applied.
+# Requires the stack with migration 216_minigame_group_message applied.
 # =============================================================================
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54396}"

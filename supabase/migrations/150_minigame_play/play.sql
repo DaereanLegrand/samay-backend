@@ -617,7 +617,7 @@ $$;
 -- ======================================================================
 -- Realtime: minigame_game_state joins supabase_realtime so state changes
 -- (init / reveal / advance / complete) stream LIVE to every participant.
--- Guarded — never fights make supabase-init (mirror of 140_minigame_invites).
+-- Guarded — never fights make init (mirror of 140_minigame_invites).
 -- ======================================================================
 DO $$
 BEGIN

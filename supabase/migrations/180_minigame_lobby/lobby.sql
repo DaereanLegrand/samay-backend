@@ -51,7 +51,7 @@ COMMENT ON COLUMN public.minigame_game_state.ready IS
 -- ======================================================================
 -- Realtime: minigame_sessions joins supabase_realtime so participant
 -- join/remove UPDATEs (and the status flip) stream LIVE to the lobby.
--- Guarded — never fights make supabase-init (mirror of 150/960 guards).
+-- Guarded — never fights make init (mirror of 150/960 guards).
 -- ======================================================================
 DO $$
 BEGIN

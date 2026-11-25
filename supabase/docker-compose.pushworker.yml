@@ -4,7 +4,7 @@
 # Kept OUT of the base docker-compose.yml so a future upstream Supabase compose
 # update stays a clean, whole-file swap (the base file is otherwise the upstream
 # distribution). Included by:
-#   * local: supabase/.env  (COMPOSE_FILE=…:docker-compose.pushworker.yml:docker-compose.pushworker-build.yml)
+#   * local: .env/example.env  (COMPOSE_FILE=…:docker-compose.pushworker.yml:docker-compose.pushworker-build.yml)
 #   * deployed: added to COMPOSE_FILES by the deployment's own environment
 #
 # NO `build:` here — the image is supplied out of band:
@@ -20,9 +20,8 @@ services:
   pushworker:
     container_name: ${STACK_PREFIX:-samay}-pushworker
     # Gated behind the `fcm` compose profile: the worker only starts when the
-    # profile is active (COMPOSE_PROFILES=fcm). testing opts in with FCM=true;
-    # staging/prod are always on by default. Absent/false ⇒ the service is not
-    # created at all (no idle container).
+    # profile is active (`make start FCM=true` adds `--profile fcm`).
+    # Absent/false ⇒ the service is not created at all (no idle container).
     profiles: ["fcm"]
     image: ${PUSHWORKER_IMAGE:-samay-pushworker:local}
     restart: unless-stopped

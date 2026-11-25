@@ -16,10 +16,10 @@ stack (`supabase/`).
   dashboard and points at that port — no tunnel client runs here. staging/prod
   are provisioned outside this repository.
 - RAM disk: `tools/start-stack.sh` and `release-secrets.sh` wipe
-  `/Volumes/SamayRAM` on EVERY exit path (success, failure, signal). It must
-  never outlive a `make <verb>`. A caller that needs several steps in one verb
-  passes `RAM_KEEP=1` and installs its own trap — the disk still dies with the
-  command.
+  `/Volumes/SamayRAM-<tag>` on EVERY exit path (success, failure, signal). It
+  must never outlive a `make <verb>`. A caller that needs several steps in one
+  verb passes `RAM_KEEP=1` and installs its own trap — the disk still dies with
+  the command.
 - Lifecycle: `make stop|restart|status|reset|seed` · `make test db|api`.
 - Gates: `make check` · `make secrets` · `make migrate` · `make hooks`.
 - Values: `make regen` (all units) or `make regen REGEN_UNITS="rustfs realtime"`.
@@ -39,8 +39,10 @@ stack (`supabase/`).
 - `ENV=testing` reads the vault for everything but deployment facts: public
   URLs, provider client ids and every secret come from `fetch testing`. No
   fallback — a missing value aborts the verb.
-- `FCM=true` and `RC=true` opt the push worker and the RevenueCat webhook in;
-  their credentials come from the environment.
+- `FCM=true` starts the push worker (`fcm` compose profile). The
+  revenuecat-webhook service always runs and fails closed without
+  `REVENUECAT_WEBHOOK_SECRET`; `RC=true` is inert in this repo (the `server`
+  vault profile never reaches the RC key emission) — export the secret.
 
 ## Layout
 `cmd/`, `internal/`, `supabase/`, `test/opt-*.sh`, `docs/`, `tools/`, `Makefile`.

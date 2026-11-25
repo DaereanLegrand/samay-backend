@@ -443,7 +443,7 @@ CREATE POLICY mi_read_own ON public.minigame_invites FOR SELECT USING (
 -- Realtime: notifications + minigame_invites join supabase_realtime so the
 -- invite notification lands LIVE in the invitee's notification center (and
 -- the session detail can stream accept/decline). Guarded — never fights
--- make supabase-init (mirror of 960_realtime guards).
+-- make init (mirror of 960_realtime guards).
 -- ======================================================================
 DO $$
 BEGIN

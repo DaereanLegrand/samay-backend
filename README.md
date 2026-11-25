@@ -23,13 +23,17 @@ and operational tasks.
   removed features are kept so they can be re-added with a grant plus feature
   code rather than a schema rebuild.
 - **This is a slim build.** Events, chat, feed, photos, rankings, shards/wagers
-  and cosmetics are not exposed. They will be re-added progressively.
+  and cosmetics are not part of the app surface. Their tables stay in the schema
+  with client grants revoked (`300_slim/05_revoke_removed.sql`) so each can be
+  re-added with a GRANT plus feature code. A few SECURITY DEFINER RPCs that read
+  those tables (`search_events`, `get_user_ranking`, `get_chat_inbox`) remain
+  executable by `authenticated`; the Flutter client no longer calls them.
 
 ## Requirements
 
 - Docker with Compose v2
 - Go 1.26+ (`go.mod`)
-- `make`, `gum` and `python3` (used by `make init`)
+- `make`, `gum`, `docker`, `openssl` and `uuidgen` (used by `make init`)
 - Supabase CLI for the pgTAP suite (`make test db`)
 
 ## Quick start
@@ -77,7 +81,7 @@ make test db    # pgTAP via supabase db test (runs schema_test.sql)
 make test api   # curl opt-tests (test/opt-*.sh, 34 scripts)
 make test       # go test ./... plus static seed/Makefile checks
 make check      # secret scan, go vet, gofmt
-make migrate    # migration ordering/ledger check
+make migrate    # migration hygiene (untracked files, layout, unique prefixes)
 ```
 
 `schema_test.sql` holds 901 assertions for the kept surface; the slim contracts

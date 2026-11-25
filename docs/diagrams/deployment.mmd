@@ -4,12 +4,12 @@ flowchart LR
 
   subgraph STACK["Supabase stack — local (Docker)"]
     direction TB
-    KONG["Kong :54386"] --> AUTH["auth"]
+    KONG["Kong :54396"] --> AUTH["auth"]
     KONG --> REST["rest (PostgREST)"]
     KONG --> RT["realtime"]
     KONG --> STORAGE["storage"]
     KONG --> FN["functions<br/>revenuecat-webhook"]
-    AUTH --> PG[("Postgres 17<br/>:54382")]
+    AUTH --> PG[("Postgres 17<br/>:54392")]
     REST --> PG
     RT --> PG
     STORAGE --> S3[("RustFS S3")]
@@ -21,6 +21,7 @@ flowchart LR
   PUSH["samay-pushworker<br/>FCM"] --> PG
 
   STACK -. production deployment .-> EXT["provisioned outside<br/>this repository"]
+  TESTNOTE["ENV=testing (vault): Kong :54386 · Postgres :54382"]
 
   classDef app fill:#F4EFE6,stroke:#0A1A33,color:#0A1A33,stroke-width:1px;
   classDef gw fill:#FBF3D9,stroke:#C9A84C,color:#5A4300,stroke-width:1px;
@@ -33,3 +34,4 @@ flowchart LR
   class AUTH,REST,RT,STORAGE,FN,PUSH svc;
   class PG,S3,MIG data;
   class EXT ext;
+  class TESTNOTE ext;
