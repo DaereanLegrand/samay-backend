@@ -35,14 +35,14 @@ esac
 # ENV_STACK_ENV_*). They are never interchangeable: testing.env is a secret-free
 # LAYOUT, testing-local.env carries the locally minted secrets, and the two
 # stacks run side by side.
-SAMAY_ENV_DIR="$(cd "$ROOT/.." && pwd)/.env"
+SAMAY_ENV_DIR="$ROOT/.env"
 case "$ENV_KIND" in
   testing)       BASE_ENV="$SAMAY_ENV_DIR/testing.env" ;;
   testing-local) BASE_ENV="$SAMAY_ENV_DIR/testing-local.env" ;;
 esac
 [ -r "$BASE_ENV" ] || {
   if [ "$ENV_KIND" = "testing-local" ]; then
-    echo "start-stack: $BASE_ENV missing — run 'make init APP=samay ENV=testing-local'" >&2
+    echo "start-stack: $BASE_ENV missing — run 'make init'" >&2
   else
     echo "start-stack: $BASE_ENV missing (tracked layout)" >&2
   fi

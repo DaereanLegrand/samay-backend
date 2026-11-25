@@ -65,6 +65,42 @@ if grep -q 'APP is required' "$MAKEFILE"; then
 else
   pass "APP is gone (ENV is the only selector)"
 fi
+# Exclude this gate: it names the pattern it is looking for.
+if grep -rq --exclude="$(basename "$0")" 'APP=samay' "$REPO/tools" "$REPO/test"; then
+  fail "a tool or doc still tells the user to pass APP=samay"
+else
+  pass "no stale APP=samay in tools/ or test/"
+fi
+
+# ── start-stack.sh must resolve the SAME env file the Makefile does ──────────
+# It used to compute its own path ($ROOT/../.env) while the Makefile used
+# $CURDIR/.env. `make init` and `preflight` passed, then `make start` died on a
+# path one directory up. Assert both resolve to one place.
+if grep -q 'SAMAY_ENV_DIR="\$ROOT/\.env"' "$REPO/tools/start-stack.sh"; then
+  pass "start-stack.sh resolves .env/ at the repo root"
+else
+  fail "start-stack.sh does not resolve \$ROOT/.env"
+fi
+# RELEASE_SECRETS legitimately points outside this repo (private ops tree), so
+# only the env-dir resolution is asserted.
+if grep -qE '^SAMAY_ENV_DIR=.*ROOT/\.\.' "$REPO/tools/start-stack.sh"; then
+  fail "start-stack.sh resolves the env dir above the repo root"
+else
+  pass "start-stack.sh resolves the env dir inside the repo"
+fi
+# The file the Makefile passes to preflight is the file start-stack must read.
+MK_ENV="$(make -n start 2>/dev/null | sed -n 's/.*check-stack-env\.sh "\([^"]*\)".*/\1/p' | head -1)"
+SS_ENV="$(sed -n 's/^SAMAY_ENV_DIR="\(.*\)"$/\1/p' "$REPO/tools/start-stack.sh" | head -1)"
+if [ -n "$MK_ENV" ] && [ "${MK_ENV##*/}" = "testing-local.env" ]; then
+  pass "make start passes .env/testing-local.env to preflight"
+else
+  fail "make start does not pass .env/testing-local.env (got '$MK_ENV')"
+fi
+if [ "$SS_ENV" = "\$ROOT/.env" ]; then
+  pass "start-stack.sh reads from the same directory"
+else
+  fail "start-stack.sh reads '$SS_ENV'"
+fi
 
 # Separation: no frontend-only targets may be defined here.
 for t in build dev install build-install uninstall clear prepare signing-restore \
